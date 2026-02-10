@@ -9,7 +9,6 @@ class SearchPromptsIssueDiagnosisTest {
 
     @Test
     void issueDiagnosisTerminals_isIssueJsonOnly() {
-        assertEquals(
-                EnumSet.of(SearchPrompts.Terminal.ISSUE_JSON), SearchPrompts.Objective.ISSUE_DIAGNOSIS.terminals());
+        assertEquals(EnumSet.of(SearchPrompts.Terminal.ISSUE), SearchPrompts.Objective.ISSUE_DIAGNOSIS.terminals());
     }
 }

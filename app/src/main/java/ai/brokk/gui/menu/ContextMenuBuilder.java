@@ -13,8 +13,6 @@ import ai.brokk.util.FileManagerUtil;
 import com.google.common.base.Splitter;
 import java.awt.Component;
 import java.awt.Container;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -436,11 +434,9 @@ public class ContextMenuBuilder {
     }
 
     private void copySymbolName(SymbolMenuContext context) {
-        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
         // Use FQN if available, otherwise fall back to simple name
         var nameToClipboard = context.fqn() != null ? context.fqn() : context.symbolName();
-        var selection = new StringSelection(nameToClipboard);
-        clipboard.setContents(selection, null);
+        context.contextManager().copyToClipboard(nameToClipboard);
         logger.debug("Copied symbol name to clipboard: {}", nameToClipboard);
     }
 

@@ -138,11 +138,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         ThemeColors.getColor(isDark, "notif_error_bg"),
                         ThemeColors.getColor(isDark, "notif_error_fg"),
                         ThemeColors.getColor(isDark, "notif_error_border"));
-            case CONFIRM ->
-                List.of(
-                        ThemeColors.getColor(isDark, "notif_confirm_bg"),
-                        ThemeColors.getColor(isDark, "notif_confirm_fg"),
-                        ThemeColors.getColor(isDark, "notif_confirm_border"));
             case COST ->
                 List.of(
                         ThemeColors.getColor(isDark, "notif_cost_bg"),
@@ -303,7 +298,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         historyTableComponent.addDoubleClickListener(context -> {
             if (isReviewContext(context)) {
                 loadReviewFromContext(context);
-            } else if (context.isAiResult()) {
+            } else if (contextManager.getContextHistory().isAiResult(context)) {
                 openDiffPreview(context);
             } else {
                 openOutputWindowFromContext(context);
@@ -767,7 +762,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         currentlyDisplayedNotification = nextToShow;
         rolledUpCostCount = nextToShow.role == IConsoleIO.NotificationRole.COST ? nextToShow.rolledUpCostCount : 0;
 
-        JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
+        JPanel card = createNotificationCard(nextToShow.role, nextToShow.message);
         currentlyDisplayedNotificationCard = card;
         notificationAreaPanel.add(card);
         animateNotificationCard(card);
@@ -837,11 +832,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         refreshLatestNotificationCard();
     }
 
-    private JPanel createNotificationCard(
-            IConsoleIO.NotificationRole role,
-            String message,
-            @Nullable Runnable onAccept,
-            @Nullable Runnable onReject) {
+    private JPanel createNotificationCard(IConsoleIO.NotificationRole role, String message) {
         var colors = resolveNotificationColors(role);
         Color bg = colors.get(0);
         Color fg = colors.get(1);
@@ -866,42 +857,24 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         actions.setOpaque(false);
 
-        if (role == IConsoleIO.NotificationRole.CONFIRM) {
-            var acceptBtn = new MaterialButton("Accept");
-            acceptBtn.setToolTipText("Accept");
-            acceptBtn.addActionListener(e -> {
-                if (onAccept != null) onAccept.run();
-                removeNotificationCard();
-            });
-            actions.add(acceptBtn);
-
-            var rejectBtn = new MaterialButton("Reject");
-            rejectBtn.setToolTipText("Reject");
-            rejectBtn.addActionListener(e -> {
-                if (onReject != null) onReject.run();
-                removeNotificationCard();
-            });
-            actions.add(rejectBtn);
-        } else {
-            var closeBtn = new MaterialButton();
-            closeBtn.setToolTipText("Dismiss");
-            SwingUtilities.invokeLater(() -> {
-                var icon = Icons.CLOSE;
-                if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
-                    closeBtn.setIcon(themedIcon.withSize(18));
-                } else {
-                    closeBtn.setIcon(icon);
-                }
-            });
-            closeBtn.addActionListener(e -> {
-                var timer = (Timer) card.getClientProperty("notificationTimer");
-                if (timer != null) {
-                    timer.stop();
-                }
-                dismissCurrentNotification();
-            });
-            actions.add(closeBtn);
-        }
+        var closeBtn = new MaterialButton();
+        closeBtn.setToolTipText("Dismiss");
+        SwingUtilities.invokeLater(() -> {
+            var icon = Icons.CLOSE;
+            if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                closeBtn.setIcon(themedIcon.withSize(18));
+            } else {
+                closeBtn.setIcon(icon);
+            }
+        });
+        closeBtn.addActionListener(e -> {
+            var timer = (Timer) card.getClientProperty("notificationTimer");
+            if (timer != null) {
+                timer.stop();
+            }
+            dismissCurrentNotification();
+        });
+        actions.add(closeBtn);
         card.add(actions, BorderLayout.EAST);
 
         // Allow card to grow vertically; overall area scrolls when necessary
@@ -1341,19 +1314,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    private void removeNotificationCard() {
-        Runnable r = () -> {
-            refreshLatestNotificationCard();
-            persistNotificationsAsync();
-            refreshNotificationsDialog();
-        };
-        if (SwingUtilities.isEventDispatchThread()) {
-            r.run();
-        } else {
-            SwingUtilities.invokeLater(r);
-        }
-    }
-
     // If the notifications window is open, rebuild it to reflect latest items.
     private void refreshNotificationsDialog() {
         SwingUtilities.invokeLater(() -> {
@@ -1564,13 +1524,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private void openOutputWindowFromContext(Context context) {
         var taskHistory = context.getTaskHistory();
-        if (taskHistory.isEmpty()) {
-            var output = context.getParsedOutput();
-            if (output != null) {
-                taskHistory = List.of(new TaskEntry(-1, output, null));
-            }
-        }
-
         if (!taskHistory.isEmpty()) {
             var fragment = new ContextFragments.HistoryFragment(contextManager, taskHistory);
             chrome.openFragmentPreview(fragment);

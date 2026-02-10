@@ -3,6 +3,7 @@ package ai.brokk.executor.jobs;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.agents.BuildAgent.BuildDetails;
+import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
 import ai.brokk.testutil.TestProject;
@@ -115,9 +116,9 @@ class JobRunnerIssueModeTest {
 
     @Test
     void testShouldEnrichIssuePrompt() {
-        assertTrue(JobRunner.shouldEnrichIssuePrompt(null));
-        assertTrue(JobRunner.shouldEnrichIssuePrompt(""));
-        assertTrue(JobRunner.shouldEnrichIssuePrompt("Brief issue description."));
+        assertTrue(IssueRewriterAgent.shouldEnrichIssuePrompt(null));
+        assertTrue(IssueRewriterAgent.shouldEnrichIssuePrompt(""));
+        assertTrue(IssueRewriterAgent.shouldEnrichIssuePrompt("Brief issue description."));
 
         // Generate exactly 100 words
         StringBuilder sb = new StringBuilder();
@@ -126,7 +127,7 @@ class JobRunnerIssueModeTest {
         }
         String hundredWords = sb.toString().trim();
         assertFalse(
-                JobRunner.shouldEnrichIssuePrompt(hundredWords),
+                IssueRewriterAgent.shouldEnrichIssuePrompt(hundredWords),
                 "Should NOT enrich when body is exactly 100 words (threshold is < 100)");
 
         // Generate 99 words
@@ -136,7 +137,7 @@ class JobRunnerIssueModeTest {
         }
         String ninetyNineWords = sb.toString().trim();
         assertTrue(
-                JobRunner.shouldEnrichIssuePrompt(ninetyNineWords),
+                IssueRewriterAgent.shouldEnrichIssuePrompt(ninetyNineWords),
                 "Should enrich when body is 99 words (threshold is < 100)");
     }
 

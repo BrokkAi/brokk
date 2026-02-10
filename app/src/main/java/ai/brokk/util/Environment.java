@@ -604,6 +604,16 @@ public class Environment {
         return "%s %s (%s)".formatted(runtimeName, version, vendor);
     }
 
+    private static volatile String activeWatchServiceImpl = "(unknown)";
+
+    public static String getActiveWatchServiceImpl() {
+        return activeWatchServiceImpl;
+    }
+
+    public static void setActiveWatchServiceImpl(String impl) {
+        activeWatchServiceImpl = impl;
+    }
+
     /** Returns the current user's home directory as a Path. */
     public static Path getHomePath() {
         return Path.of(System.getProperty("user.home"));

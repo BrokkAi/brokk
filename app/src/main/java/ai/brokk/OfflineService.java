@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.NullNode;
 import java.io.File;
 import java.io.IOException;
-import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 public class OfflineService extends AbstractService {
@@ -24,8 +23,7 @@ public class OfflineService extends AbstractService {
             throws IOException {}
 
     @Override
-    public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
-            throws IOException {
+    public JsonNode reportClientException(JsonNode exceptionReport) throws IOException {
         return NullNode.getInstance();
     }
 }

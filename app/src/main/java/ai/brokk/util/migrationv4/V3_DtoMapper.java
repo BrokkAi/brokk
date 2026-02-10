@@ -74,18 +74,14 @@ public class V3_DtoMapper {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(ArrayList::new));
 
-        var parsedOutputFragment = dto.parsedOutputId() != null
-                ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
-                : null;
-
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(
                         Streams.concat(editableFragments.stream(), readonlyFragments.stream()),
-                        virtualFragments.stream().map(v -> (ContextFragment) v))
+                        virtualFragments.stream())
                 .toList();
 
-        return Context.createWithId(ctxId, mgr, combined, taskHistory, parsedOutputFragment, Set.of(), Set.of());
+        return Context.createWithId(ctxId, mgr, combined, taskHistory, Set.of(), Set.of());
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -338,7 +334,12 @@ public class V3_DtoMapper {
                         summaryDto.id(), mgr, summaryDto.targetIdentifier(), mapSummaryType(summaryDto.summaryType()));
             case V3_FragmentDtos.UsageFragmentDto usageDto ->
                 new ContextFragments.UsageFragment(
-                        usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
+                        usageDto.id(),
+                        mgr,
+                        usageDto.targetIdentifier(),
+                        usageDto.includeTestFiles(),
+                        null,
+                        ContextFragments.UsageMode.FULL);
             case V3_FragmentDtos.PasteTextFragmentDto pasteTextDto ->
                 new ContextFragments.PasteTextFragment(
                         pasteTextDto.id(),
@@ -355,6 +356,10 @@ public class V3_DtoMapper {
                         yield null;
                     }
                     var image = ImageUtil.bytesToImage(imageBytes);
+                    if (image == null) {
+                        logger.error("Image deserialized to null for fragment: {}", pasteImageDto.id());
+                        yield null;
+                    }
                     yield new ContextFragments.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,

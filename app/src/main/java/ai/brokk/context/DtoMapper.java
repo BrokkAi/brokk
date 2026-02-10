@@ -124,17 +124,12 @@ public class DtoMapper {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(ArrayList::new));
 
-        var parsedOutputFragment = dto.parsedOutputId() != null
-                ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
-                : null;
-
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(editableFragments.stream(), virtualFragments.stream())
                 .toList();
 
-        return Context.createWithId(
-                ctxId, mgr, combined, taskHistory, parsedOutputFragment, readonlyFragments, pinnedFragments);
+        return Context.createWithId(ctxId, mgr, combined, taskHistory, readonlyFragments, pinnedFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -176,13 +171,7 @@ public class DtoMapper {
                 .toList();
 
         return new CompactContextDto(
-                ctx.id().toString(),
-                pathFragmentIds,
-                readonlyIds,
-                nonPathFragmentIds,
-                pinnedIds,
-                taskEntryRefs,
-                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null);
+                ctx.id().toString(), pathFragmentIds, readonlyIds, nonPathFragmentIds, pinnedIds, taskEntryRefs, null);
     }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
@@ -323,6 +312,10 @@ public class DtoMapper {
                         yield null;
                     }
                     var image = ImageUtil.bytesToImage(imageBytes);
+                    if (image == null) {
+                        logger.error("Failed to decode image for fragment: {}", pasteImageDto.id());
+                        yield null;
+                    }
                     yield new ContextFragments.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,

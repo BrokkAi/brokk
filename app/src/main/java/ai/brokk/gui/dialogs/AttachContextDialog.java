@@ -8,6 +8,7 @@ import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.AutoCompleteUtil;
 import ai.brokk.gui.Constants;
 import ai.brokk.gui.components.MaterialToggleButton;
@@ -81,6 +82,7 @@ public class AttachContextDialog extends BaseThemedDialog {
     private final JTextField searchField = new JTextField(30);
     private final JCheckBox includeSubfoldersCheck = new JCheckBox("Include subfolders");
     private final JCheckBox includeTestFilesCheck = new JCheckBox("Include tests");
+    private final JCheckBox sampleCheck = new JCheckBox("Sample");
     private final JCheckBox summarizeCheck = new JCheckBox("Summarize");
     private final OverlayPanel searchOverlay;
     private final ClosingAutoCompletion ac;
@@ -203,6 +205,11 @@ public class AttachContextDialog extends BaseThemedDialog {
         includeTestFilesCheck.setSelected(true); // Default to including tests
         includeTestFilesCheck.setVisible(false); // Only visible for Usages tab
 
+        // Sample checkbox (Usages tab only)
+        sampleCheck.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+        sampleCheck.setMargin(new Insets(0, 0, 0, 0));
+        sampleCheck.setVisible(false); // Only visible for Usages tab
+
         // Summarize checkbox below the include-subfolders
         summarizeCheck.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
         summarizeCheck.setMargin(new Insets(0, 0, 0, 0));
@@ -219,6 +226,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         summarizePanel.setLayout(new BoxLayout(summarizePanel, BoxLayout.Y_AXIS));
         summarizePanel.add(includeSubfoldersCheck);
         summarizePanel.add(includeTestFilesCheck);
+        summarizePanel.add(sampleCheck);
         summarizePanel.add(summarizeCheck);
         searchAndSummarize.add(summarizePanel, BorderLayout.SOUTH);
 
@@ -371,9 +379,11 @@ public class AttachContextDialog extends BaseThemedDialog {
         AutoCompleteUtil.sizePopupWindows(ac, searchField, List.of());
 
         // Update checkbox visibility for each tab
-        includeSubfoldersCheck.setVisible(getActiveTab() == TabType.FOLDERS);
-        includeTestFilesCheck.setVisible(getActiveTab() == TabType.USAGES);
-        summarizeCheck.setVisible(true);
+        TabType activeTab = getActiveTab();
+        includeSubfoldersCheck.setVisible(activeTab == TabType.FOLDERS);
+        includeTestFilesCheck.setVisible(activeTab == TabType.USAGES);
+        sampleCheck.setVisible(activeTab == TabType.USAGES);
+        summarizeCheck.setVisible(activeTab != TabType.USAGES);
 
         searchField.requestFocusInWindow();
     }
@@ -400,12 +410,14 @@ public class AttachContextDialog extends BaseThemedDialog {
         methodsBtn.setEnabled(analyzerReady);
         usagesBtn.setEnabled(analyzerReady);
         includeTestFilesCheck.setEnabled(analyzerReady);
+        sampleCheck.setEnabled(analyzerReady);
 
         classesBtn.setToolTipText(analyzerReady ? hotkeyModifierString + "-3" : "Classes" + ANALYZER_NOT_READY_TOOLTIP);
         methodsBtn.setToolTipText(analyzerReady ? hotkeyModifierString + "-4" : "Methods" + ANALYZER_NOT_READY_TOOLTIP);
         usagesBtn.setToolTipText(analyzerReady ? hotkeyModifierString + "-5" : "Usages" + ANALYZER_NOT_READY_TOOLTIP);
         includeTestFilesCheck.setToolTipText(
                 analyzerReady ? "Include tests" : "Include tests" + ANALYZER_NOT_READY_TOOLTIP);
+        sampleCheck.setToolTipText(analyzerReady ? "Sample only" : "Sample" + ANALYZER_NOT_READY_TOOLTIP);
 
         if (!analyzerReady) {
             // Ensure a valid selection when gating
@@ -477,7 +489,8 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-        var frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, input, includeTestFilesCheck.isSelected());
+        var mode = sampleCheck.isSelected() ? ContextFragments.UsageMode.SAMPLE : ContextFragments.UsageMode.FULL;
+        var frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, input, includeTestFilesCheck.isSelected(), mode);
         selection = frag.map(Set::of).orElse(null);
         dispose();
     }

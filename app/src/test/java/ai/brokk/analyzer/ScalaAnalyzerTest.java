@@ -426,4 +426,39 @@ public class ScalaAnalyzerTest {
                             () -> fail("Could not find code unit 'Sports.RUGBY'!"));
         }
     }
+
+    @Test
+    public void testMethodNameCanCollideWithConstructorName() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                        package ai.brokk
+
+                        class Foo {
+                          def Foo(): Int = 1
+                        }
+                        """,
+                        "ai/brokk/Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            // Class should be resolved
+            var classes = analyzer.getDefinitions("ai.brokk.Foo");
+            assertEquals(1, classes.size());
+            assertTrue(classes.iterator().next().isClass());
+
+            // Method/Constructor collision:
+            // ScalaAnalyzer.createCodeUnit normalizes both primary constructors and methods named after the class to
+            // Foo.Foo.
+            var methods = analyzer.getDefinitions("ai.brokk.Foo.Foo");
+
+            // We assert that the size is 1 to document that the analyzer currently collapses these definitions
+            // due to naming collisions and lacks the AST context in getDefinitions to distinguish them.
+            assertEquals(
+                    1,
+                    methods.size(),
+                    "Expected 1 definition for Foo.Foo due to naming collision between constructor and method in Scala normalization");
+
+            assertTrue(methods.iterator().next().isFunction());
+        }
+    }
 }

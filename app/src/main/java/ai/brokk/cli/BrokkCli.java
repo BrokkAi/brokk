@@ -1,1161 +1,1363 @@
 package ai.brokk.cli;
 
 import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
-import ai.brokk.Service;
+import ai.brokk.IConsoleIO.NotificationRole;
+import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments;
-import ai.brokk.git.GitRepo;
+import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.git.GitRepoFactory;
-import ai.brokk.gui.InstructionsPanel;
-import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.project.WorktreeProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.SearchPrompts;
-import ai.brokk.tasks.TaskList;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.WorkspaceTools;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.Properties;
-import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import picocli.CommandLine;
 
-@SuppressWarnings("NullAway.Init") // NullAway is upset that some fields are initialized in picocli's call()
 @CommandLine.Command(
-        name = "brokk-cli",
+        name = "brokk",
+        version = "Brokk " + ai.brokk.BuildInfo.version,
         mixinStandardHelpOptions = true,
-        description = "One-shot Brokk workspace and task runner.")
+        description = "Brokk CLI - AI-powered code assistant.",
+        subcommands = {
+            BrokkCli.StatusCommand.class,
+            BrokkCli.LoginCommand.class,
+            BrokkCli.LogoutCommand.class,
+            BrokkCli.NewSessionCommand.class,
+            BrokkCli.ScanCommand.class,
+            BrokkCli.CodeCommand.class,
+            BrokkCli.MergeCommand.class,
+            BrokkCli.BuildCommand.class,
+            BrokkCli.FindSymbolsCommand.class,
+            BrokkCli.FindUsagesCommand.class,
+            BrokkCli.ListIdentifiersCommand.class,
+            BrokkCli.FetchSummaryCommand.class,
+            BrokkCli.FetchSourceCommand.class,
+            BrokkCli.InstallCommand.class
+        })
 public final class BrokkCli implements Callable<Integer> {
     private static final Logger logger = LogManager.getLogger(BrokkCli.class);
 
-    @CommandLine.Option(names = "--project", description = "Path to the project root.")
+    @CommandLine.Spec
     @Nullable
-    private Path projectPath;
-
-    @CommandLine.Option(names = "--edit", description = "Add a file to the workspace for editing. Can be repeated.")
-    private List<String> editFiles = new ArrayList<>();
-
-    @CommandLine.Option(names = "--read", description = "Add a file to the workspace as read-only. Can be repeated.")
-    private List<String> readFiles = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-class",
-            description = "Add the file containing the given FQCN to the workspace for editing. Can be repeated.")
-    private List<String> addClasses = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-url",
-            description = "Add content from a URL as a read-only fragment. Can be repeated.")
-    private List<String> addUrls = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-usage",
-            description = "Add usages of a FQ symbol as a dynamic fragment. Can be repeated.")
-    private List<String> addUsages = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-summary-class",
-            description = "Add a class summary/skeleton as a dynamic fragment. Can be repeated.")
-    private List<String> addSummaryClasses = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-summary-file",
-            description = "Add summaries for all classes in a file/glob as a dynamic fragment. Can be repeated.")
-    private List<String> addSummaryFiles = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-method-source",
-            description = "Add the source of a FQ method as a fragment. Can be repeated.")
-    private List<String> addMethodSources = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-callers",
-            description = "Add callers of a FQ method. Format: <FQN>=<depth>. Can be repeated.")
-    private Map<String, Integer> addCallers = Map.of();
-
-    @CommandLine.Option(
-            names = "--add-callees",
-            description = "Add callees of a FQ method. Format: <FQN>=<depth>. Can be repeated.")
-    private Map<String, Integer> addCallees = Map.of();
-
-    @CommandLine.Option(names = "--architect", description = "Run Architect agent with the given prompt.")
-    @Nullable
-    private String architectPrompt;
-
-    @CommandLine.Option(names = "--code", description = "Run Code agent with the given prompt.")
-    @Nullable
-    private String codePrompt;
-
-    @CommandLine.Option(names = "--ask", description = "Run Ask command with the given prompt.")
-    @Nullable
-    private String askPrompt;
-
-    @CommandLine.Option(
-            names = "--search-answer",
-            description = "Run Search agent to find an answer for the given prompt.")
-    @Nullable
-    private String searchAnswerPrompt;
-
-    @CommandLine.Option(
-            names = "--lutz",
-            description = "Research and execute a set of tasks to accomplish the given prompt")
-    @Nullable
-    private String lutzPrompt;
-
-    @CommandLine.Option(names = "--lutz-lite", description = "Execute a single task to solve the given issue.")
-    @Nullable
-    private String lutzLitePrompt;
-
-    @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
-    private boolean merge = false;
-
-    @CommandLine.Option(names = "--build", description = "Run verification build on the current workspace.")
-    private boolean build = false;
-
-    @CommandLine.Option(
-            names = "--worktree",
-            description = "Create a detached worktree at the given path, from the default branch's HEAD.")
-    @Nullable
-    private Path worktreePath;
-
-    //  Model overrides
-    @CommandLine.Option(names = "--planmodel", description = "Override the planning model to use.")
-    @Nullable
-    private String planModelName;
-
-    @CommandLine.Option(names = "--codemodel", description = "Override the code model to use.")
-    @Nullable
-    private String codeModelName;
-
-    @CommandLine.Option(
-            names = "--brokk-key",
-            description = "Brokk API key override (uses BROKK_API_KEY environment variable if not specified).")
-    @Nullable
-    private String brokkApiKey;
-
-    @CommandLine.Option(
-            names = "--deepscan",
-            arity = "0..1",
-            fallbackValue = "true",
-            description =
-                    "Perform a Deep Scan to suggest additional relevant context. Optionally provide a custom goal.")
-    private @Nullable String deepScanGoal;
-
-    @CommandLine.Option(
-            names = "--search-workspace",
-            description =
-                    "Run Search agent in benchmark mode to find relevant context for the given query. Outputs JSON report to stdout.")
-    @Nullable
-    private String searchWorkspace;
-
-    @CommandLine.Option(
-            names = "--commit",
-            description = "Git commit hash to checkout before running search. Used for benchmark reproducibility.")
-    @Nullable
-    private String commit;
-
-    @CommandLine.Option(
-            names = "--disable-context-scan",
-            description = "Skip the initial ContextAgent scan in --search-workspace mode.")
-    private boolean disableContextScan = false;
-
-    @CommandLine.Option(
-            names = "--list-models",
-            description = "List available model aliases and their corresponding model names as JSON and exit.")
-    private boolean listModels = false;
-
-    private ContextManager cm;
-    private AbstractProject project;
+    CommandLine.Model.CommandSpec spec;
 
     public static void main(String[] args) {
         logger.info("Starting Brokk CLI...");
         System.setProperty("java.awt.headless", "true");
 
-        int exitCode = new CommandLine(new BrokkCli()).execute(args);
+        var cmd = new CommandLine(new BrokkCli());
+        configureHelp(cmd);
+        int exitCode = cmd.execute(args);
         System.exit(exitCode);
     }
 
-    @SuppressWarnings("UnusedVariable")
+    private static void configureHelp(CommandLine cmd) {
+        cmd.getCommandSpec()
+                .usageMessage()
+                .footer(
+                        "",
+                        "Tip: Run 'brokk status --project <path>' to view available models and current project settings.",
+                        "");
+
+        cmd.getCommandSpec()
+                .usageMessage()
+                .sectionMap()
+                .put(
+                        CommandLine.Model.UsageMessageSpec.SECTION_KEY_COMMAND_LIST,
+                        help -> renderCommandGroups(help.commandSpec()));
+    }
+
+    private record CommandInfo(String name, String description) {}
+
+    private record CommandGroup(String title, List<String> commandNames) {}
+
+    private static List<CommandGroup> commandGroups() {
+        return List.of(
+                new CommandGroup(
+                        "Commands (Agentic Search)",
+                        List.of("scan", "find-symbols", "find-usages", "list-identifiers")),
+                new CommandGroup("Commands (Semantic Retrieval)", List.of("fetch-summary", "fetch-source")),
+                new CommandGroup("Commands (Agentic Coding)", List.of("code", "merge", "build")),
+                new CommandGroup("Commands (Account)", List.of("status", "login", "logout", "newsession")));
+    }
+
+    private static String renderCommandGroups(CommandLine.Model.CommandSpec spec) {
+        var groups = commandGroups();
+
+        Map<String, CommandLine.Model.CommandSpec> byName = spec.subcommands().entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getCommandSpec()));
+
+        var groupedNames =
+                groups.stream().flatMap(g -> g.commandNames().stream()).collect(Collectors.toSet());
+
+        List<String> ungroupedVisible = byName.entrySet().stream()
+                .filter(e -> !e.getValue().usageMessage().hidden())
+                .map(Map.Entry::getKey)
+                .filter(name -> !groupedNames.contains(name))
+                .sorted()
+                .toList();
+
+        List<String> lines = new ArrayList<>();
+
+        for (var group : groups) {
+            List<CommandInfo> visible = group.commandNames().stream()
+                    .map(name -> Map.entry(name, byName.get(name)))
+                    .filter(e -> e.getValue() != null)
+                    .filter(e -> !e.getValue().usageMessage().hidden())
+                    .map(e -> new CommandInfo(
+                            e.getKey(), firstOrEmpty(e.getValue().usageMessage().description())))
+                    .toList();
+
+            if (visible.isEmpty()) {
+                continue;
+            }
+
+            lines.add("");
+            lines.add("## " + group.title());
+            lines.add("");
+            for (var cmd : visible) {
+                String desc = cmd.description().isBlank() ? "" : " - " + cmd.description();
+                lines.add("  " + cmd.name() + desc);
+            }
+        }
+
+        if (!ungroupedVisible.isEmpty()) {
+            lines.add("");
+            lines.add("## Commands");
+            lines.add("");
+            for (var name : ungroupedVisible) {
+                var sub = requireNonNull(byName.get(name));
+                String desc = firstOrEmpty(sub.usageMessage().description());
+                String suffix = desc.isBlank() ? "" : " - " + desc;
+                lines.add("  " + name + suffix);
+            }
+        }
+
+        lines.add("");
+        lines.add("Use 'brokk <command> --help' to see command-specific options.");
+        lines.add("");
+        return String.join("\n", lines);
+    }
+
+    private static String firstOrEmpty(String[] values) {
+        if (values.length == 0) {
+            return "";
+        }
+        return values[0];
+    }
+
     @Override
-    @Blocking
-    public Integer call() throws Exception {
+    public Integer call() {
+        requireNonNull(spec).commandLine().usage(System.out);
+        return 0;
+    }
 
-        // Handle --list-models early exit
-        if (listModels) {
-            String modelsJson = getModelsJson();
-            System.out.println(modelsJson);
-            return 0;
+    static final class ProjectSelectionMixin {
+        @CommandLine.Option(
+                names = "--project",
+                defaultValue = ".",
+                description = "Path to the project root. Default: current directory.")
+        Path projectPath = Path.of(".");
+    }
+
+    static final class GoalRequiredMixin {
+        @CommandLine.Option(
+                names = "--goal",
+                required = true,
+                description = "Goal/prompt for the operation. Supports loading from file with @path/to/file.")
+        @Nullable
+        String goal;
+    }
+
+    static final class FilesMixin {
+        @CommandLine.Option(
+                names = "--file",
+                arity = "1..*",
+                description =
+                        "Add files for editing with code, or to narrow the radius of scan (space-separated or repeatable).")
+        List<String> files = new ArrayList<>();
+    }
+
+    static final class IncludeTestsMixin {
+        @CommandLine.Option(names = "--include-tests", description = "Include test files in results. Default: false.")
+        boolean includeTests = false;
+    }
+
+    static final class AutocommitMixin {
+        @CommandLine.Option(
+                names = "--autocommit",
+                description = "Automatically commit changes after a successful code task. Default: false.")
+        boolean autocommit = false;
+    }
+
+    static final class ModelSelectionMixin {
+        @CommandLine.Option(
+                names = "--codemodel",
+                description = "Code model name (e.g. 'gpt-5'). Overwrites project setting if provided.")
+        @Nullable
+        String codeModelName;
+
+        @CommandLine.Option(
+                names = "--planmodel",
+                description = "Planning model name (e.g. 'claude-opus-4-5'). Overwrites project setting if provided.")
+        @Nullable
+        String planModelName;
+    }
+
+    static final class BuildTestConfigMixin {
+        @CommandLine.Option(
+                names = "--build-only-cmd",
+                description = "Build/lint command (no tests). e.g. 'mvn compile' or 'cargo check'.")
+        @Nullable
+        String buildOnlyCmd;
+
+        @CommandLine.ArgGroup(exclusive = true, heading = "%nTest command (choose one)%n")
+        TestCommandGroup testCommandGroup = new TestCommandGroup();
+
+        static final class TestCommandGroup {
+            @CommandLine.Option(
+                    names = "--test-all-cmd",
+                    description =
+                            "Command to run all tests. WARNING: This may take minutes or hours in large repositories.")
+            @Nullable
+            String testAllCmd;
+
+            @CommandLine.Option(
+                    names = "--test-some-cmd",
+                    description =
+                            "Mustache template for running specific tests. Supports {{#files}}, {{#classes}}, {{#fqclasses}}, and {{#modules}} (Python).")
+            @Nullable
+            String testSomeCmd;
         }
 
-        // Validate --project is provided when not using --build-commit or --list-models
-        if (projectPath == null) {
-            System.err.println("Error: --project is required.");
-            return 1;
+        boolean hasAnyCliOverrides() {
+            return buildOnlyCmd != null || testCommandGroup.testAllCmd != null || testCommandGroup.testSomeCmd != null;
         }
+    }
 
-        // Process Brokk API key override (CLI flag > env var > global config)
-        String effectiveBrokkKey = brokkApiKey;
-        if (effectiveBrokkKey == null || effectiveBrokkKey.isBlank()) {
-            effectiveBrokkKey = System.getenv("BROKK_API_KEY");
-        }
-        if (effectiveBrokkKey != null && !effectiveBrokkKey.isBlank()) {
-            MainProject.setHeadlessBrokkApiKeyOverride(effectiveBrokkKey);
-            logger.info("Using CLI-specified Brokk API key (length={})", effectiveBrokkKey.length());
-        }
+    private static Path normalizeProjectPath(Path projectPath) {
+        return projectPath.toAbsolutePath().normalize();
+    }
 
-        // --- Action Validation ---
-        long actionCount = Stream.of(
-                        architectPrompt,
-                        codePrompt,
-                        askPrompt,
-                        searchAnswerPrompt,
-                        lutzPrompt,
-                        lutzLitePrompt,
-                        searchWorkspace)
-                .filter(p -> p != null && !p.isBlank())
-                .count();
-        if (merge) actionCount++;
-        if (build) actionCount++;
-        boolean deepScan = deepScanGoal != null;
-        if (actionCount > 1) {
-            System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
-            return 1;
+    private static Optional<String> effectiveApiKeyForNetworkCalls() {
+        String envKey = System.getenv("BROKK_API_KEY");
+        if (envKey != null && !envKey.isBlank()) {
+            return Optional.of(envKey);
         }
-        if (deepScan) actionCount++;
-        if (actionCount == 0 && worktreePath == null) {
-            System.err.println(
-                    "At least one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --deepscan) or --worktree is required.");
-            return 1;
+        String globalKey = MainProject.getBrokkKey();
+        if (!globalKey.isBlank()) {
+            return Optional.of(globalKey);
         }
+        return Optional.empty();
+    }
 
-        // Add search-workspace validation
-        if (searchWorkspace != null && !searchWorkspace.isBlank()) {
-            if (codeModelName != null) {
-                System.err.println("--codemodel is not valid with --search-workspace.");
-                return 1;
-            }
+    private static void applyApiKeyOverrideFromEnvIfPresent() {
+        String envKey = System.getenv("BROKK_API_KEY");
+        if (envKey != null && !envKey.isBlank()) {
+            MainProject.setHeadlessBrokkApiKeyOverride(envKey);
+            logger.info("Using BROKK_API_KEY environment variable (length={})", envKey.length());
         }
+    }
 
-        //  Expand @file syntax for prompt parameters
-        TaskFileInfo architectTaskInfo = null, codeTaskInfo = null, askTaskInfo = null;
-        TaskFileInfo searchAnswerTaskInfo = null, lutzTaskInfo = null, lutzLiteTaskInfo = null;
-        TaskFileInfo searchWorkspaceTaskInfo = null;
-
-        try {
-            if (architectPrompt != null) {
-                architectTaskInfo = maybeLoadFromFile(architectPrompt);
-                architectPrompt = architectTaskInfo.content;
-            }
-            if (codePrompt != null) {
-                codeTaskInfo = maybeLoadFromFile(codePrompt);
-                codePrompt = codeTaskInfo.content;
-            }
-            if (askPrompt != null) {
-                askTaskInfo = maybeLoadFromFile(askPrompt);
-                askPrompt = askTaskInfo.content;
-            }
-            if (searchAnswerPrompt != null) {
-                searchAnswerTaskInfo = maybeLoadFromFile(searchAnswerPrompt);
-                searchAnswerPrompt = searchAnswerTaskInfo.content;
-            }
-            if (lutzPrompt != null) {
-                lutzTaskInfo = maybeLoadFromFile(lutzPrompt);
-                lutzPrompt = lutzTaskInfo.content;
-            }
-            if (lutzLitePrompt != null) {
-                lutzLiteTaskInfo = maybeLoadFromFile(lutzLitePrompt);
-                lutzLitePrompt = lutzLiteTaskInfo.content;
-            }
-            if (searchWorkspace != null) {
-                searchWorkspaceTaskInfo = maybeLoadFromFile(searchWorkspace);
-                searchWorkspace = searchWorkspaceTaskInfo.content;
-            }
-        } catch (IOException e) {
-            System.err.println("Error reading prompt file: " + e.getMessage());
-            return 1;
-        }
-
-        // --- Validation ---
-        projectPath = requireNonNull(projectPath).toAbsolutePath();
+    private static boolean validateProject(Path projectPath) {
         if (!Files.isDirectory(projectPath)) {
-            System.err.println("Project path is not a directory: " + projectPath);
-            return 1;
+            System.err.printf(
+                    """
+                    # Error: Invalid --project path
+
+                    The provided path is not a directory:
+                      %s
+                    %n""",
+                    projectPath);
+            return false;
         }
         if (!GitRepoFactory.hasGitRepo(projectPath)) {
-            System.err.println("Brokk CLI requires to have a Git repo");
-            return 1;
+            System.err.printf(
+                    """
+                    # Error: Not a Git repository
+
+                    Brokk CLI requires --project to point at a Git worktree (a directory containing a .git folder or file).
+
+                    Provided:
+                      %s
+                    %n""",
+                    projectPath);
+            return false;
+        }
+        return true;
+    }
+
+    private static void resolveAndSaveModels(IProject project, ModelSelectionMixin modelParam) {
+        if (modelParam.codeModelName == null && modelParam.planModelName == null) {
+            return;
         }
 
-        // Worktree setup
-        if (worktreePath != null) {
-            worktreePath = worktreePath.toAbsolutePath();
-            if (Files.exists(worktreePath)) {
-                logger.debug("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
-            } else {
-                try (var gitRepo = new GitRepo(projectPath)) {
-                    // Use --commit if provided, otherwise default branch HEAD
-                    String targetCommit;
-                    if (commit != null) {
-                        targetCommit = gitRepo.resolveToCommit(commit).getName();
-                        logger.debug("Using commit from --commit option: " + targetCommit);
-                    } else {
-                        var defaultBranch = gitRepo.getDefaultBranch();
-                        targetCommit = gitRepo.resolveToCommit(defaultBranch).getName();
-                        logger.debug("Using default branch " + defaultBranch + " at commit " + targetCommit);
-                    }
+        var favorites = MainProject.loadFavoriteModels();
 
-                    gitRepo.worktrees().addWorktreeDetached(worktreePath, targetCommit);
-                    logger.debug("Successfully created detached worktree at " + worktreePath);
-                } catch (GitRepo.GitRepoException | GitRepo.NoDefaultBranchException e) {
-                    logger.error("Error creating worktree", e);
-                    System.err.println("Error creating worktree: " + e.getMessage());
-                    return 1;
-                }
-            }
-            if (actionCount == 0) {
-                return 0; // successfully created worktree and no other action was requested
-            }
-            // If deepscan is the only action, continue to execute it below
-            projectPath = worktreePath;
-        }
-
-        // Create Project + ContextManager
-        var mainProject = new MainProject(projectPath);
-        project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
-        logger.trace("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
-        cm = new ContextManager(project);
-
-        // Build BuildDetails from environment variables
-        String buildLintCmd = System.getenv("BRK_BUILD_CMD");
-        String testAllCmd = System.getenv("BRK_TESTALL_CMD");
-        String testSomeCmd = System.getenv("BRK_TESTSOME_CMD");
-        var buildDetails = new BuildAgent.BuildDetails(
-                buildLintCmd != null ? buildLintCmd : "",
-                testAllCmd != null ? testAllCmd : "",
-                testSomeCmd != null ? testSomeCmd : "",
-                Set.of(),
-                Map.of("VIRTUAL_ENV", ".venv")); // venv is hardcoded to override swebench task runner
-        logger.info("Build Details: " + buildDetails);
-
-        cm.createHeadless(buildDetails);
-        var io = cm.getIo();
-
-        //  Model Overrides initialization
-        var service = cm.getService();
-
-        StreamingChatModel planModel = null;
-        StreamingChatModel codeModel = null;
-        StreamingChatModel taskModelOverride = null;
-
-        // Determine which models are required by the chosen action(s).
-        boolean needsPlanModel = architectPrompt != null
-                || searchAnswerPrompt != null
-                || lutzPrompt != null
-                || lutzLitePrompt != null
-                || deepScan
-                || merge
-                || (searchWorkspace != null && !searchWorkspace.isBlank());
-        boolean needsCodeModel =
-                codePrompt != null || askPrompt != null || architectPrompt != null || lutzLitePrompt != null || merge;
-
-        if (needsPlanModel && planModelName == null) {
-            System.err.println("Error: This action requires --planmodel to be specified.");
-            return 1;
-        }
-        if (needsCodeModel && codeModelName == null) {
-            System.err.println("Error: This action requires --codemodel to be specified.");
-            return 1;
-        }
-
-        if (planModelName != null) {
-            Service.FavoriteModel fav;
-            try {
-                fav = MainProject.getFavoriteModel(planModelName);
-            } catch (IllegalArgumentException e) {
-                System.err.println("Unknown planning model specified via --planmodel: " + planModelName);
-                return 1;
-            }
-            planModel = service.getModel(fav.config());
-            taskModelOverride = planModel;
-            assert planModel != null : service.getAvailableModels();
-        }
-
-        if (codeModelName != null) {
-            Service.FavoriteModel fav;
-            try {
-                fav = MainProject.getFavoriteModel(codeModelName);
-            } catch (IllegalArgumentException e) {
-                System.err.println("Unknown code model specified via --codemodel: " + codeModelName);
-                return 1;
-            }
-            codeModel = service.getModel(fav.config());
-            assert codeModel != null : service.getAvailableModels();
-        }
-
-        // --- Search Workspace Mode ---
-        if (searchWorkspace != null && !searchWorkspace.isBlank()) {
-            TaskResult searchResult;
-            boolean success;
-
-            try (var scope = cm.beginTaskUngrouped(searchWorkspace)) {
-                var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
-                // Honor --disable-context-scan flag via ScanConfig
-                var scanConfig = disableContextScan
-                        ? SearchAgent.ScanConfig.disabled()
-                        : SearchAgent.ScanConfig.withModel(searchModel);
-                var agent =
-                        new SearchAgent(cm.liveContext(), searchWorkspace, searchModel, scope, cm.getIo(), scanConfig);
-                searchResult = agent.execute();
-                scope.append(searchResult);
-                success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
-            }
-
-            return success ? 0 : 1;
-        }
-
-        // --- Name Resolution and Context Building ---
-
-        // Resolve and add to context using WorkspaceTools
-        var tools = new WorkspaceTools(cm.liveContext());
-
-        // Resolve files and classes
-        var resolvedEditFiles = resolveFiles(editFiles, "editable file");
-        var resolvedReadFiles = resolveFiles(readFiles, "read-only file");
-        var resolvedClasses = resolveClasses(addClasses, cm.getAnalyzer(), "class");
-        var resolvedSummaryClasses = resolveClasses(addSummaryClasses, cm.getAnalyzer(), "summary class");
-
-        // If any resolution failed, the helper methods will have printed an error.
-        if ((resolvedEditFiles.isEmpty() && !editFiles.isEmpty())
-                || (resolvedReadFiles.isEmpty() && !readFiles.isEmpty())
-                || (resolvedClasses.isEmpty() && !addClasses.isEmpty())
-                || (resolvedSummaryClasses.isEmpty() && !addSummaryClasses.isEmpty())) {
-            return 1;
-        }
-
-        if (!resolvedEditFiles.isEmpty()) {
-            tools.addFilesToWorkspace(resolvedEditFiles);
-        }
-
-        for (var readFile : resolvedReadFiles) {
-            var pf = cm.toFile(readFile);
-            var fragment = new ContextFragments.ProjectPathFragment(pf, cm);
-            tools.setContext(tools.getContext().addFragments(fragment).setReadonly(fragment, true));
-        }
-
-        if (!resolvedClasses.isEmpty()) tools.addClassesToWorkspace(resolvedClasses);
-        if (!resolvedSummaryClasses.isEmpty()) tools.addClassSummariesToWorkspace(resolvedSummaryClasses);
-        if (!addSummaryFiles.isEmpty()) tools.addFileSummariesToWorkspace(addSummaryFiles);
-        if (!addMethodSources.isEmpty()) tools.addMethodsToWorkspace(addMethodSources);
-        for (var url : addUrls) {
-            tools.addUrlContentsToWorkspace(url);
-        }
-        for (var symbol : addUsages) {
-            tools.addSymbolUsagesToWorkspace(symbol);
-        }
-        for (var entry : addCallers.entrySet()) {
-            tools.addSymbolUsagesToWorkspace(entry.getKey());
-        }
-        for (var entry : addCallees.entrySet()) {
-            tools.addSymbolUsagesToWorkspace(entry.getKey());
-        }
-        cm.pushContext(ctx -> tools.getContext());
-        var context = cm.liveContext();
-
-        // --- Deep Scan ------------------------------------------------------
-        boolean isStandaloneDeepScan = deepScan
-                && architectPrompt == null
-                && codePrompt == null
-                && askPrompt == null
-                && searchAnswerPrompt == null
-                && lutzPrompt == null
-                && lutzLitePrompt == null
-                && !merge
-                && !build
-                && searchWorkspace == null;
-
-        if (deepScan) {
-            if (planModel == null) {
-                System.err.println("Deep Scan requires --planmodel to be specified.");
-                return 1;
-            }
-
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    ContextFragment.describe(cm.liveContext().allFragments()));
-
-            String goalForScan;
-            if (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank()) {
-                goalForScan = deepScanGoal;
-            } else if (isStandaloneDeepScan) {
-                goalForScan = "Analyze the workspace and suggest relevant context";
-            } else {
-                goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
-                        .filter(s -> s != null && !s.isBlank())
-                        .findFirst()
-                        .orElseThrow();
-            }
-
-            // Determine task file for cache
-            @Nullable
-            Path taskFile = Stream.of(
-                            architectTaskInfo,
-                            codeTaskInfo,
-                            askTaskInfo,
-                            searchAnswerTaskInfo,
-                            lutzTaskInfo,
-                            lutzLiteTaskInfo)
-                    .filter(Objects::nonNull)
-                    .map(info -> info.taskFile)
-                    .filter(Objects::nonNull)
+        if (modelParam.codeModelName != null) {
+            String target = modelParam.codeModelName;
+            favorites.stream()
+                    .filter(f -> f.config().name().equals(target))
                     .findFirst()
-                    .orElse(null);
-
-            // Attempt to serve recommendation from cache (properties file if available, otherwise JSON)
-            ContextAgent.RecommendationResult recommendations;
-            var cached = readRecommendationFromCache(taskFile, cm);
-            if (cached.isPresent()) {
-                recommendations = cached.get();
-            } else {
-                var agent = new ContextAgent(cm, planModel, goalForScan);
-                recommendations = agent.getRecommendations(cm.liveContext());
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
-                // Persist successful results to cache; failures are not cached.
-                if (recommendations.success() && getCacheMode().canWrite()) {
-                    writeRecommendationToCache(recommendations, taskFile);
-                }
-            }
-
-            if (recommendations.success()) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Deep Scan suggested "
-                                + recommendations.fragments().stream()
-                                        .map(ContextFragment::shortDescription)
-                                        .toList());
-                for (var fragment : recommendations.fragments()) {
-                    switch (fragment.getType()) {
-                        case SKELETON -> {
-                            cm.addFragments(fragment);
-                            io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
-                        }
-                        default -> cm.addSummaries(fragment.files().renderNowOr(Set.of()), Set.of());
-                    }
-                }
-            } else {
-                io.toolError("Deep Scan did not complete successfully");
-            }
-
-            // Output metrics if BRK_COLLECT_METRICS is set
-            if ("true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))) {
-                var metrics = SearchMetrics.tracking();
-                // Collect files added from recommendations
-                var filesAddedPaths = recommendations.fragments().stream()
-                        .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
-                        .map(pf -> pf.getRelPath().toString())
-                        .collect(Collectors.toSet());
-                metrics.recordContextScan(
-                        filesAddedPaths.size(),
-                        !recommendations.success(),
-                        filesAddedPaths,
-                        recommendations.metadata());
-                // Record outcome (no search turns for deepscan)
-                metrics.recordOutcome(
-                        recommendations.success() ? TaskResult.StopReason.SUCCESS : TaskResult.StopReason.LLM_ERROR,
-                        filesAddedPaths.size());
-                metrics.recordFinalWorkspaceFiles(filesAddedPaths);
-                var json = metrics.toJson(goalForScan, recommendations.success());
-                System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
-            }
-
-            // If deepscan is standalone, exit here with success
-            if (isStandaloneDeepScan || "true".equals(System.getenv().get("BRK_SCAN_ONLY"))) {
-                return 0;
-            }
+                    .ifPresentOrElse(
+                            fav -> project.setModelConfig(ModelProperties.ModelType.CODE, fav.config()),
+                            () -> project.setModelConfig(ModelProperties.ModelType.CODE, new ModelConfig(target)));
         }
 
-        // --- Run Action ---
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                ContextFragment.describe(cm.liveContext().allFragments()));
+        if (modelParam.planModelName != null) {
+            String target = modelParam.planModelName;
+            favorites.stream()
+                    .filter(f -> f.config().name().equals(target))
+                    .findFirst()
+                    .ifPresentOrElse(
+                            fav -> project.setModelConfig(ModelProperties.ModelType.ARCHITECT, fav.config()),
+                            () -> project.setModelConfig(ModelProperties.ModelType.ARCHITECT, new ModelConfig(target)));
+        }
+    }
+
+    private static BuildAgent.BuildDetails resolveBuildDetails(
+            AbstractProject project, BuildTestConfigMixin buildTestConfig) {
+        var existingDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+        if (!buildTestConfig.hasAnyCliOverrides()) {
+            return existingDetails;
+        }
+
+        String buildCmd = buildTestConfig.buildOnlyCmd != null
+                ? buildTestConfig.buildOnlyCmd
+                : existingDetails.buildLintCommand();
+
+        String testAll = existingDetails.testAllCommand();
+        String testSome = existingDetails.testSomeCommand();
+
+        if (buildTestConfig.testCommandGroup.testAllCmd != null) {
+            testAll = buildTestConfig.testCommandGroup.testAllCmd;
+            testSome = "";
+            project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        } else if (buildTestConfig.testCommandGroup.testSomeCmd != null) {
+            testSome = buildTestConfig.testCommandGroup.testSomeCmd;
+            testAll = "";
+            project.setCodeAgentTestScope(IProject.CodeAgentTestScope.WORKSPACE);
+        }
+
+        Map<String, String> env = existingDetails.environmentVariables();
+        if (!env.containsKey("VIRTUAL_ENV")) {
+            var newEnv = new HashMap<>(env);
+            newEnv.put("VIRTUAL_ENV", ".venv");
+            env = Map.copyOf(newEnv);
+        }
+
+        var bd = new BuildAgent.BuildDetails(
+                buildCmd,
+                testAll,
+                testSome,
+                existingDetails.exclusionPatterns(),
+                env,
+                existingDetails.maxBuildAttempts());
+
+        project.setBuildDetails(bd);
+        project.saveBuildDetails(bd);
+        return bd;
+    }
+
+    private static String maybeLoadFromFile(String text) throws IOException {
+        if (!text.startsWith("@")) {
+            return text;
+        }
+
+        String rawPath = text.substring(1).trim();
+        if (rawPath.isEmpty()) {
+            throw new IOException(
+                    "Invalid @file syntax for --goal: '@' must be followed by a readable file path, e.g. --goal \"@goal.txt\".");
+        }
+
+        var path = Path.of(rawPath);
+        try {
+            return Files.readString(path);
+        } catch (IOException e) {
+            throw new IOException(
+                    "Failed to read --goal from @" + rawPath + ". Ensure the file exists and is readable.", e);
+        }
+    }
+
+    private static void addFilesToWorkspaceIfAny(ContextManager cm, List<String> files) {
+        if (files.isEmpty()) {
+            return;
+        }
+        var tools = new WorkspaceTools(cm.liveContext());
+        tools.addFilesToWorkspace(files);
+        cm.pushContext(ctx -> tools.getContext());
+    }
+
+    private static void prepareHeadless(ContextManager cm, BuildAgent.BuildDetails bd, boolean newSession) {
+        cm.createHeadless(bd, newSession, new CliConsole());
+        cm.dropWithHistorySemantics(List.of());
+    }
+
+    private static boolean modelsInitializedOk(ContextManager cm, AbstractProject project) {
+        var service = cm.getService();
+        StreamingChatModel codeModel = service.getModel(project.getModelConfig(ModelProperties.ModelType.CODE));
+        StreamingChatModel planModel = service.getModel(project.getModelConfig(ModelProperties.ModelType.ARCHITECT));
+        if (codeModel == null || planModel == null) {
+            System.err.println("Error: Failed to initialize models. Check your API key or model configuration.");
+            return false;
+        }
+        return true;
+    }
+
+    private static StreamingChatModel requireCodeModel(ContextManager cm, AbstractProject project) {
+        return requireNonNull(cm.getService().getModel(project.getModelConfig(ModelProperties.ModelType.CODE)));
+    }
+
+    private static StreamingChatModel requirePlanModel(ContextManager cm, AbstractProject project) {
+        return requireNonNull(cm.getService().getModel(project.getModelConfig(ModelProperties.ModelType.ARCHITECT)));
+    }
+
+    private static int runMergeMode(ContextManager cm, StreamingChatModel planModel, StreamingChatModel codeModel) {
+        var io = cm.getIo();
+        var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
+        if (conflictOpt.isEmpty()) {
+            System.err.println("Error: Repository is not in a merge/rebase/cherry-pick/revert conflict state.");
+            return 1;
+        }
+
+        var conflict = conflictOpt.get();
+        logger.debug("Conflict detected: {}", conflict);
+        logger.debug("Running MergeAgent...");
 
         TaskResult result;
-        // Decide scope action/input
-        String scopeInput;
-        if (architectPrompt != null) {
-            scopeInput = architectPrompt;
-        } else if (codePrompt != null) {
-            scopeInput = codePrompt;
-        } else if (askPrompt != null) {
-            scopeInput = requireNonNull(askPrompt);
-        } else if (merge) {
-            scopeInput = "Merge";
-        } else if (searchAnswerPrompt != null) {
-            scopeInput = requireNonNull(searchAnswerPrompt);
-        } else if (build) {
-            scopeInput = "Build";
-        } else if (lutzLitePrompt != null) {
-            scopeInput = requireNonNull(lutzLitePrompt);
-        } else { // lutzPrompt != null
-            scopeInput = requireNonNull(lutzPrompt);
+        try (var scope = cm.beginTaskUngrouped("Merge")) {
+            MergeAgent mergeAgent =
+                    new MergeAgent(cm, planModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+            result = mergeAgent.execute();
+            scope.append(result);
+        } catch (Exception e) {
+            io.showNotification(NotificationRole.ERROR, "Error during merge execution: " + e.getMessage());
+            logger.error("Merge mode error", e);
+            return 1;
         }
 
-        try (var scope = cm.beginTaskUngrouped(scopeInput)) {
-            try {
-                if (architectPrompt != null) {
-                    // Architect requires a plan model and a code model
-                    if (planModel == null) {
-                        System.err.println("Error: --architect requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    if (codeModel == null) {
-                        System.err.println("Error: --architect requires --codemodel to be specified.");
-                        return 1;
-                    }
-                    var agent = new ArchitectAgent(cm, planModel, codeModel, architectPrompt, scope);
-                    result = agent.execute();
-                    context = scope.append(result);
-                } else if (codePrompt != null) {
-                    // CodeAgent must use codemodel only
-                    if (codeModel == null) {
-                        System.err.println("Error: --code requires --codemodel to be specified.");
-                        return 1;
-                    }
-                    var agent = new CodeAgent(cm, codeModel);
-                    result = agent.execute(codePrompt, Set.of());
-                    context = scope.append(result);
-                } else if (askPrompt != null) {
-                    if (codeModel == null) {
-                        System.err.println("Error: --ask requires --codemodel to be specified.");
-                        return 1;
-                    }
-                    result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
-                    context = scope.append(result);
-                } else if (merge) {
-                    if (planModel == null) {
-                        System.err.println("Error: --merge requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    if (codeModel == null) {
-                        System.err.println("Error: --merge requires --codemodel to be specified.");
-                        return 1;
-                    }
-
-                    var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
-                    if (conflictOpt.isEmpty()) {
-                        System.err.println(
-                                "Cannot run --merge: Repository is not in a merge/rebase/cherry-pick/revert conflict state");
-                        return 1;
-                    }
-                    var conflict = conflictOpt.get();
-                    logger.debug(conflict.toString());
-                    MergeAgent mergeAgent = new MergeAgent(
-                            cm, planModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
-                    try {
-                        result = mergeAgent.execute();
-                        // Merge orchestrates planning and code models; TaskMeta is ambiguous here.
-                        context = scope.append(result);
-                    } catch (Exception e) {
-                        io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
-                        return 1;
-                    }
-                    return 0; // merge is terminal for this CLI command
-                } else if (searchAnswerPrompt != null) {
-                    if (planModel == null) {
-                        System.err.println("Error: --search-answer requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(
-                            cm.liveContext(),
-                            requireNonNull(searchAnswerPrompt),
-                            planModel,
-                            SearchPrompts.Objective.ANSWER_ONLY,
-                            scope);
-                    result = agent.execute();
-                    context = scope.append(result);
-                } else if (build) {
-                    String buildError = BuildAgent.runVerification(cm);
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            buildError.isEmpty()
-                                    ? "Build verification completed successfully."
-                                    : "Build verification failed:\n" + buildError);
-                    // we have no `result` since we did not interact with the LLM
-                    System.exit(buildError.isEmpty() ? 0 : 1);
-                    // make the compiler happy
-                    result = null;
-                } else if (lutzLitePrompt != null) {
-                    if (planModel == null) {
-                        System.err.println("Error: --lutz-lite requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    if (codeModel == null) {
-                        System.err.println("Error: --lutz-lite requires --codemodel to be specified.");
-                        return 1;
-                    }
-
-                    var taskText =
-                            """
-                            Solve the following issue. Pull appropriate existing tests into the Workspace; if you are adding new functionality, add new tests if you can do so within the existing constraints.
-
-                            Issue: """
-                                    + requireNonNull(lutzLitePrompt);
-                    var task = new TaskList.TaskItem("", taskText, false);
-
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
-                    var taskResult = cm.executeTask(task, planModel, codeModel);
-                    context = scope.append(taskResult);
-                    result = taskResult;
-                } else { // lutzPrompt != null
-                    if (planModel == null) {
-                        System.err.println("Error: --lutz requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    if (codeModel == null) {
-                        System.err.println("Error: --lutz requires --codemodel to be specified.");
-                        return 1;
-                    }
-                    // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(
-                            cm.liveContext(),
-                            requireNonNull(lutzPrompt),
-                            planModel,
-                            SearchPrompts.Objective.TASKS_ONLY,
-                            scope);
-                    result = agent.execute();
-                    context = scope.append(result);
-
-                    // Execute pending tasks sequentially
-                    var tasksData = cm.getTaskList();
-                    var pendingTasks =
-                            tasksData.tasks().stream().filter(t -> !t.done()).toList();
-
-                    if (!pendingTasks.isEmpty()) {
-                        io.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                "Executing " + pendingTasks.size() + " task" + (pendingTasks.size() == 1 ? "" : "s")
-                                        + " from Task List...");
-
-                        for (var task : pendingTasks) {
-                            io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
-
-                            var taskResult = cm.executeTask(task, planModel, codeModel);
-                            context = scope.append(taskResult);
-                            result = taskResult; // Track last result for final status check
-
-                            if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                                io.toolError(taskResult.stopDetails().explanation(), "Task failed: " + task.text());
-                                break; // Stop on first failure
-                            }
-                        }
-                    } else {
-                        io.showNotification(IConsoleIO.NotificationRole.INFO, "No pending tasks to execute.");
-                    }
-                }
-            } catch (Throwable th) {
-                logger.error("Internal error", th);
-                io.toolError(requireNonNull(th.getMessage()), "Internal error");
-                return 1; // internal error
-            }
-        }
-
-        result = castNonNull(result);
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            io.toolError(
-                    result.stopDetails().explanation(),
-                    result.stopDetails().reason().toString());
-            // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent to let
-            // harness see how we did
+            io.showNotification(
+                    NotificationRole.ERROR,
+                    "Merge failed: " + result.stopDetails().reason() + "\n"
+                            + result.stopDetails().explanation());
+            return 1;
         }
 
         return 0;
     }
 
-    private List<String> resolveFiles(List<String> inputs, String entityType) {
-        // Files can only be added as editable via CLI, so we only consider tracked files
-        // and allow listing all tracked files as a primary source.
-        Supplier<Collection<ProjectFile>> primarySource =
-                () -> project.getRepo().getTrackedFiles();
-
-        return inputs.stream()
-                .map(input -> {
-                    var pf = cm.toFile(input);
-                    if (pf.exists() && project.getRepo().getTrackedFiles().contains(pf)) {
-                        return Optional.of(pf);
-                    }
-                    return resolve(input, primarySource, List::of, ProjectFile::toString, entityType);
-                })
-                .flatMap(Optional::stream)
-                .map(ProjectFile::toString)
-                .toList();
+    private static int runBuildMode(ContextManager cm) throws InterruptedException {
+        var io = cm.getIo();
+        String buildError = BuildAgent.runVerification(cm);
+        if (buildError.isEmpty()) {
+            logger.debug("Build verification completed successfully.");
+        } else {
+            io.showNotification(NotificationRole.ERROR, "Build verification failed:\n" + buildError);
+        }
+        return buildError.isEmpty() ? 0 : 1;
     }
 
-    private List<String> resolveClasses(List<String> inputs, IAnalyzer analyzer, String entityType) {
-        if (inputs.isEmpty()) {
-            return List.of();
+    private static ContextAgent.RecommendationResult runContextAgentScan(
+            ContextManager cm, String goalText, boolean includeTests) throws InterruptedException {
+        var io = cm.getIo();
+        logger.debug("Running context scan...");
+
+        var scanModel = cm.getService().getScanModel();
+        var agent = new ContextAgent(cm, scanModel, goalText, new MutedConsoleIO(io));
+        var recommendations = agent.getRecommendations(cm.liveContext());
+
+        if (recommendations.success()) {
+            var st = recommendations.fragments().stream();
+            if (!includeTests) {
+                st = st.filter(f -> f.files().join().stream()
+                        .noneMatch(pf -> ContextManager.isTestFile(pf, cm.getAnalyzerUninterrupted())));
+            }
+            st.flatMap(f -> toSummaryFragments(cm, f).stream()).forEach(f -> {
+                System.out.printf(
+                        "## %s:\n%s\n\n%n", f.description().join(), f.text().join());
+            });
+            cm.pushContext(ctx -> ctx.addFragments(recommendations.fragments()));
+        } else {
+            io.showNotification(NotificationRole.ERROR, "Scan did not complete successfully.");
         }
-        Supplier<Collection<CodeUnit>> source = () ->
-                analyzer.getAllDeclarations().stream().filter(CodeUnit::isClass).toList();
-        return inputs.stream()
-                .map(input -> resolve(input, source, List::of, CodeUnit::fqName, entityType))
-                .flatMap(Optional::stream)
-                .map(CodeUnit::fqName)
-                .toList();
+
+        return recommendations;
     }
 
-    private <T> Optional<T> resolve(
-            String userInput,
-            Supplier<Collection<T>> primarySourceSupplier,
-            Supplier<Collection<T>> secondarySourceSupplier,
-            Function<T, String> nameExtractor,
-            String entityType) {
-        var primarySource = primarySourceSupplier.get();
-        var primaryResult = findUnique(userInput, primarySource, nameExtractor, entityType, "primary source");
+    private static List<SummaryFragment> toSummaryFragments(ContextManager cm, ContextFragment fragment) {
+        var results = new ArrayList<SummaryFragment>();
 
-        if (primaryResult.isPresent()) {
-            return primaryResult;
+        var files = fragment.files().join();
+        for (var file : files) {
+            results.add(new SummaryFragment(cm, file.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
         }
 
-        // if findUnique returned empty, we need to know if it was because of ambiguity or no matches
-        if (!findMatches(userInput, primarySource, nameExtractor, true).isEmpty()) {
-            // it was ambiguous; findUnique already printed the error. we must stop.
-            return Optional.empty();
+        var sources = fragment.sources().join();
+        for (var codeUnit : sources) {
+            if (codeUnit.isClass()) {
+                results.add(new SummaryFragment(cm, codeUnit.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON));
+            }
         }
 
-        // no matches in primary, so try secondary
-        var secondarySource = secondarySourceSupplier.get();
-        var secondaryResult = findUnique(userInput, secondarySource, nameExtractor, entityType, "secondary source");
-
-        if (secondaryResult.isPresent()) {
-            return secondaryResult;
-        }
-
-        // if we are here, there were no unique matches in primary or secondary.
-        // if there were no matches at all in either, report "not found"
-        if (findMatches(userInput, secondarySource, nameExtractor, true).isEmpty()) {
-            System.err.printf("Error: Could not find %s '%s'.%n", entityType, userInput);
-        }
-
-        return Optional.empty();
+        return results;
     }
 
-    private <T> Optional<T> findUnique(
-            String userInput,
-            Collection<T> candidates,
-            Function<T, String> nameExtractor,
-            String entityType,
-            String sourceDescription) {
-        // 1. Case-insensitive
-        var matches = findMatches(userInput, candidates, nameExtractor, true);
-        if (matches.size() == 1) return Optional.of(matches.getFirst());
-        if (matches.size() > 1) {
-            reportAmbiguity(
-                    userInput,
-                    matches.stream().map(nameExtractor).toList(),
-                    entityType,
-                    "case-insensitive, from " + sourceDescription);
-            return Optional.empty();
+    private static int runCodeMode(
+            ContextManager cm,
+            StreamingChatModel planModel,
+            StreamingChatModel codeModel,
+            String goalText,
+            boolean autocommit) {
+        var io = cm.getIo();
+        var context = cm.liveContext();
+
+        TaskResult result;
+        try (var scope = cm.beginTaskUngrouped(goalText)) {
+            if (context.getEditableFragments().findAny().isPresent()) {
+                logger.debug("Editable context present - running ArchitectAgent");
+                var agent = new ArchitectAgent(
+                        cm, planModel, codeModel, goalText, scope, cm.liveContext(), new MutedConsoleIO(io));
+                result = agent.executeWithScan(false);
+            } else {
+                logger.debug("No editable context - running SearchAgent with CODE_ONLY objective...");
+                var agent = new SearchAgent(
+                        context,
+                        goalText,
+                        planModel,
+                        SearchPrompts.Objective.CODE_ONLY,
+                        scope,
+                        new MutedConsoleIO(io),
+                        SearchAgent.ScanConfig.defaults(),
+                        null);
+                result = agent.execute();
+            }
+
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS && autocommit) {
+                new ai.brokk.git.GitWorkflow(cm).performAutoCommit(goalText);
+            }
+
+            scope.append(result);
+        } catch (Exception e) {
+            io.showNotification(NotificationRole.ERROR, "Error during code execution: " + e.getMessage());
+            logger.error("Code mode error", e);
+            return 1;
         }
 
-        // 2. Case-sensitive
-        matches = findMatches(userInput, candidates, nameExtractor, false);
-        if (matches.size() == 1) return Optional.of(matches.getFirst());
-        if (matches.size() > 1) {
-            reportAmbiguity(
-                    userInput,
-                    matches.stream().map(nameExtractor).toList(),
-                    entityType,
-                    "case-sensitive, from " + sourceDescription);
-            return Optional.empty();
+        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            io.showNotification(
+                    NotificationRole.ERROR,
+                    "Task failed: " + result.stopDetails().reason() + "\n"
+                            + result.stopDetails().explanation());
+            return 1;
         }
 
-        return Optional.empty(); // Not found in this source
+        return 0;
     }
 
-    private <T> List<T> findMatches(
-            String userInput, Collection<T> candidates, Function<T, String> nameExtractor, boolean caseInsensitive) {
-        if (caseInsensitive) {
-            var lowerInput = userInput.toLowerCase(Locale.ROOT);
-            return candidates.stream()
-                    .filter(c -> nameExtractor.apply(c).toLowerCase(Locale.ROOT).contains(lowerInput))
-                    .toList();
-        }
-        return candidates.stream()
-                .filter(c -> nameExtractor.apply(c).contains(userInput))
-                .toList();
-    }
+    @CommandLine.Command(
+            name = "status",
+            description = "Show available models, project settings, and (if configured) account balance.")
+    static final class StatusCommand implements Callable<Integer> {
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
 
-    private void reportAmbiguity(String input, List<String> matches, String entityType, String context) {
-        System.err.printf(
-                "Error: Ambiguous %s '%s' (%s). Found multiple matches:%n%s%n",
-                entityType,
-                input,
-                context,
-                matches.stream().map(s -> "  - " + s).collect(Collectors.joining("\n")));
-    }
+        @Override
+        @Blocking
+        public Integer call() {
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
 
-    private static class TaskFileInfo {
-        final String content;
-        final @Nullable Path taskFile;
+            System.out.println("Available Models:");
+            var models = MainProject.loadFavoriteModels();
+            for (var model : models) {
+                System.out.println("  " + model.config().name());
+            }
 
-        TaskFileInfo(String content, @Nullable Path taskFile) {
-            this.content = content;
-            this.taskFile = taskFile;
-        }
-    }
+            System.out.println();
+            System.out.println("Current Settings:");
 
-    /*
-     * If the prompt begins with '@', treat the remainder as a filename and return the file's contents; otherwise return
-     * the original prompt. Also returns the task file path if loaded from @file.
-     */
-    private TaskFileInfo maybeLoadFromFile(@Nullable String prompt) throws IOException {
-        if (prompt == null) {
-            prompt = "";
-        }
-        if (prompt.isBlank() || prompt.charAt(0) != '@') {
-            return new TaskFileInfo(prompt, null);
-        }
-        var path = Path.of(prompt.substring(1));
-        return new TaskFileInfo(Files.readString(path), path);
-    }
+            if (!Files.isDirectory(projectPath) || !GitRepoFactory.hasGitRepo(projectPath)) {
+                System.out.println("  Project:   " + projectPath);
+                System.out.println("  (project not found; run with --project to view project settings)");
+            } else {
+                try (var p = new MainProject(projectPath)) {
+                    System.out.println("  Project:   " + projectPath);
+                    System.out.println("  Architect: "
+                            + p.getModelConfig(ModelProperties.ModelType.ARCHITECT)
+                                    .name());
+                    System.out.println("  Code:      "
+                            + p.getModelConfig(ModelProperties.ModelType.CODE).name());
 
-    private String getStackTrace(Throwable throwable) {
-        var sb = new StringBuilder();
-        for (var element : throwable.getStackTrace()) {
-            sb.append(element.toString());
-            sb.append("\n");
-        }
-        return sb.toString();
-    }
+                    p.loadBuildDetails().ifPresent(bd -> {
+                        if (!bd.buildLintCommand().isBlank()) {
+                            System.out.println("  Build:     " + bd.buildLintCommand());
+                        } else {
+                            System.out.println("  No build configured");
+                        }
 
-    private static String getModelsJson() {
-        var models = MainProject.loadFavoriteModels();
-        var modelInfos = models.stream()
-                .map(m -> new ModelInfo(m.alias(), m.config().name()))
-                .toList();
-        try {
-            return AbstractProject.objectMapper.writeValueAsString(modelInfos);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize models list", e);
-        }
-    }
+                        boolean isWorkspaceScope = p.getCodeAgentTestScope() == IProject.CodeAgentTestScope.WORKSPACE;
+                        if (isWorkspaceScope && !bd.testSomeCommand().isBlank()) {
+                            System.out.println("  Test (Some): " + bd.testSomeCommand());
+                        } else if (!bd.testAllCommand().isBlank()) {
+                            System.out.println("  Test (All):  " + bd.testAllCommand());
+                        } else {
+                            System.out.println("  No tests configured");
+                        }
+                    });
+                }
+            }
 
-    /**
-     * Model information for JSON serialization.
-     */
-    private record ModelInfo(String alias, String model) {}
+            System.out.println();
+            effectiveApiKeyForNetworkCalls()
+                    .ifPresentOrElse(
+                            key -> {
+                                try {
+                                    float balance = ai.brokk.Service.getUserBalance(key);
+                                    System.out.printf("Brokk balance: $%.2f%n", balance);
+                                } catch (Exception e) {
+                                    System.out.println("Brokk balance: (failed to fetch) " + e.getMessage());
+                                }
+                            },
+                            () -> System.out.println(
+                                    "Brokk balance: (no API key configured; set BROKK_API_KEY or run 'brokk login <key>')"));
 
-    // -------------------------
-    // CA cache helpers (JSON)
-    // -------------------------
-
-    private static @Nullable Path getTaskPropertiesFile(@Nullable Path taskFile) {
-        if (taskFile == null) return null;
-        var fileName = taskFile.getFileName().toString();
-        if (!fileName.endsWith(".txt")) return null;
-        var propertiesName = fileName.substring(0, fileName.length() - 4) + ".properties";
-        return requireNonNull(taskFile.getParent()).resolve(propertiesName);
-    }
-
-    private static List<String> parseFromCdl(@Nullable String cdl) {
-        if (cdl == null || cdl.isBlank()) return List.of();
-        return List.of(cdl.split(","));
-    }
-
-    /**
-     * Cache mode derived from BRK_CONTEXT_CACHE.
-     *
-     * Supported values (case-insensitive):
-     *  - "RW" (default): read from and write to the cache.
-     *  - "READ": read from cache but do not write.
-     *  - "WRITE": write to cache but do not read.
-     *  - "OFF": neither read from nor write to the cache.
-     */
-    private enum CacheMode {
-        OFF(0),
-        READ(1),
-        WRITE(2),
-        RW(1 | 2);
-
-        private static final int READ_BIT = 1;
-        private static final int WRITE_BIT = 2;
-
-        private final int mask;
-
-        CacheMode(int mask) {
-            this.mask = mask;
-        }
-
-        boolean canRead() {
-            return (mask & READ_BIT) != 0;
-        }
-
-        boolean canWrite() {
-            return (mask & WRITE_BIT) != 0;
+            return 0;
         }
     }
 
-    private static CacheMode getCacheMode() {
-        String val = System.getenv("BRK_CONTEXT_CACHE");
-        if (val == null || val.isBlank()) {
-            return CacheMode.RW;
+    @CommandLine.Command(name = "login", description = "Set the global Brokk API key.")
+    static final class LoginCommand implements Callable<Integer> {
+        @CommandLine.Parameters(paramLabel = "KEY", description = "Brokk API key.")
+        @Nullable
+        String key;
+
+        @Override
+        public Integer call() {
+            String requiredKey = requireNonNull(key);
+            MainProject.setBrokkKey(requiredKey);
+            try {
+                float balance = ai.brokk.Service.getUserBalance(requiredKey);
+                System.out.printf("Global Brokk API key updated. Current Brokk balance: $%.2f%n", balance);
+            } catch (Exception e) {
+                System.err.println("Error: Failed to validate Brokk API key by fetching balance: " + e.getMessage());
+                return 1;
+            }
+            return 0;
         }
-        return switch (val.trim().toUpperCase(Locale.ROOT)) {
-            case "READ" -> CacheMode.READ;
-            case "WRITE" -> CacheMode.WRITE;
-            case "OFF" -> CacheMode.OFF;
-            case "RW" -> CacheMode.RW;
-            default -> CacheMode.RW;
-        };
     }
 
-    static Optional<ContextAgent.RecommendationResult> readRecommendationFromCache(
-            @Nullable Path taskFile, ContextManager cm) {
-        CacheMode mode = getCacheMode();
-        if (!mode.canRead()) {
-            logger.debug(
-                    "Context cache mode {}: skipping read (BRK_CONTEXT_CACHE={})",
-                    mode,
-                    System.getenv("BRK_CONTEXT_CACHE"));
-            return Optional.empty();
+    @CommandLine.Command(name = "logout", description = "Clear the global Brokk API key.")
+    static final class LogoutCommand implements Callable<Integer> {
+        @Override
+        public Integer call() {
+            MainProject.setBrokkKey("");
+            System.out.println("Global Brokk API key cleared.");
+            return 0;
+        }
+    }
+
+    @CommandLine.Command(
+            name = "newsession",
+            description = "Create a fresh session. Optionally provide a session name.  Run this once per project.")
+    static final class NewSessionCommand implements Callable<Integer> {
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Parameters(arity = "0..1", paramLabel = "NAME", description = "Optional session name.")
+        @Nullable
+        String name;
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            checkAndPerformAutoInstall();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+                prepareHeadless(cm, bd, true);
+
+                String sessionName = (name != null && !name.isBlank()) ? name : ContextManager.DEFAULT_SESSION_NAME;
+                cm.createSessionAsync(sessionName).get();
+                System.out.printf("Created new session: %s%n", sessionName);
+            }
+            return 0;
         }
 
-        // Only try task-specific properties file
-        if (taskFile != null) {
-            var propsFile = getTaskPropertiesFile(taskFile);
-            if (propsFile != null && Files.exists(propsFile)) {
+        private void checkAndPerformAutoInstall() {
+            Path homeDir = Path.of(System.getProperty("user.home", "."));
+            var targets = List.of(
+                    homeDir.resolve(".claude").resolve("skills").resolve("brokk"),
+                    homeDir.resolve(".agents").resolve("skills").resolve("brokk"));
+
+            ai.brokk.util.Version current = new ai.brokk.util.Version(ai.brokk.BuildInfo.version);
+
+            boolean needsInstall = false;
+            for (var dir : targets) {
+                if (!Files.isDirectory(dir)) {
+                    continue;
+                }
+                Path versionFile = dir.resolve(".brokk-version");
+                if (!Files.exists(versionFile)) {
+                    needsInstall = true;
+                    break;
+                }
                 try {
-                    var props = new Properties();
-                    try (var in = Files.newBufferedReader(propsFile)) {
-                        props.load(in);
-                    }
-
-                    var filesCdl = props.getProperty("files");
-                    var classesCdl = props.getProperty("classes");
-
-                    if (filesCdl != null || classesCdl != null) {
-                        var files = parseFromCdl(filesCdl);
-                        var classes = parseFromCdl(classesCdl);
-
-                        logger.debug(
-                                "Read {} files and {} classes from properties cache", files.size(), classes.size());
-
-                        var fileFragments = files.stream()
-                                .map(fname -> (ContextFragment) new ContextFragments.SummaryFragment(
-                                        cm, fname, ContextFragment.SummaryType.FILE_SKELETONS))
-                                .toList();
-                        var classFragments = classes.stream()
-                                .map(fqcn -> (ContextFragment) new ContextFragments.SummaryFragment(
-                                        cm, fqcn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
-                                .toList();
-
-                        return Optional.of(new ContextAgent.RecommendationResult(
-                                true,
-                                Streams.concat(fileFragments.stream(), classFragments.stream())
-                                        .toList(),
-                                null));
+                    ai.brokk.util.Version installed = new ai.brokk.util.Version(
+                            Files.readString(versionFile).strip());
+                    if (current.compareTo(installed) > 0) {
+                        needsInstall = true;
+                        break;
                     }
                 } catch (IOException e) {
-                    logger.warn("Failed to read properties cache from {}: {}", propsFile, e.getMessage());
+                    needsInstall = true;
+                    break;
+                }
+            }
+
+            if (needsInstall) {
+                try {
+                    new InstallCommand().call();
+                } catch (Exception e) {
+                    logger.error("Failed to auto-update Brokk skill", e);
                 }
             }
         }
-
-        return Optional.empty();
     }
 
-    static void writeRecommendationToCache(ContextAgent.RecommendationResult rec, @Nullable Path taskFile)
-            throws IOException {
-        CacheMode mode = getCacheMode();
-        if (!mode.canWrite()) {
-            logger.debug(
-                    "Context cache mode {}: skipping write (BRK_CONTEXT_CACHE={})",
-                    mode,
-                    System.getenv("BRK_CONTEXT_CACHE"));
-            return;
-        }
+    @CommandLine.Command(
+            name = "scan",
+            description = "Agentic scan for relevant files and classes. Run this first to orient yourself.")
+    static final class ScanCommand implements Callable<Integer> {
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
 
-        var files = new ArrayList<String>();
-        var classes = new ArrayList<String>();
-        for (var cf : rec.fragments()) {
-            if (cf instanceof ContextFragments.SummaryFragment sf) {
-                if (sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS) {
-                    files.add(sf.getTargetIdentifier());
-                } else {
-                    classes.add(sf.getTargetIdentifier());
+        @CommandLine.Mixin
+        GoalRequiredMixin goalRequired = new GoalRequiredMixin();
+
+        @CommandLine.Mixin
+        FilesMixin filesMixin = new FilesMixin();
+
+        @CommandLine.Mixin
+        IncludeTestsMixin includeTestsMixin = new IncludeTestsMixin();
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
+
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+
+                prepareHeadless(cm, bd, false);
+                if (!modelsInitializedOk(cm, project)) {
+                    return 1;
                 }
-            } else if (cf instanceof ContextFragments.ProjectPathFragment ppf) {
-                files.add(ppf.file().toString());
-            } else {
-                throw new IllegalArgumentException(cf.toString());
+
+                addFilesToWorkspaceIfAny(cm, filesMixin.files);
+
+                var scanResult = runContextAgentScan(cm, goal, includeTestsMixin.includeTests);
+                return scanResult.success() ? 0 : 1;
+            }
+        }
+    }
+
+    @CommandLine.Command(
+            name = "code",
+            description =
+                    "Implement the changes asked for in --goal. Will search for relevant files if none are provided via --file.")
+    static final class CodeCommand implements Callable<Integer> {
+        @CommandLine.Spec
+        @Nullable
+        CommandLine.Model.CommandSpec spec;
+
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Mixin
+        GoalRequiredMixin goalRequired = new GoalRequiredMixin();
+
+        @CommandLine.Mixin
+        FilesMixin filesMixin = new FilesMixin();
+
+        @CommandLine.Mixin
+        AutocommitMixin autocommitMixin = new AutocommitMixin();
+
+        @CommandLine.Mixin
+        ModelSelectionMixin modelSelection = new ModelSelectionMixin();
+
+        @CommandLine.Mixin
+        BuildTestConfigMixin buildTestConfig = new BuildTestConfigMixin();
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
+
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                var bd = resolveBuildDetails(project, buildTestConfig);
+
+                boolean missingBuild = bd.equals(BuildAgent.BuildDetails.EMPTY)
+                        || bd.buildLintCommand().isBlank();
+                boolean missingTests =
+                        bd.testAllCommand().isBlank() && bd.testSomeCommand().isBlank();
+
+                if (missingBuild || missingTests) {
+                    var missingLines = new ArrayList<String>();
+                    if (missingBuild) {
+                        missingLines.add("  - Build command (configure with --build-only-cmd \"...\")");
+                    }
+                    if (missingTests) {
+                        missingLines.add(
+                                "  - Test command (configure with --test-some-cmd \"...\" or --test-all-cmd \"...\")");
+                    }
+
+                    System.err.printf(
+                            """
+                            # Error: Missing required project commands for code
+
+                            The following required configuration is missing:
+                            %s
+                            %n""",
+                            String.join("\n", missingLines));
+                    requireNonNull(spec).commandLine().usage(System.err);
+                    return 1;
+                }
+
+                resolveAndSaveModels(project, modelSelection);
+
+                prepareHeadless(cm, bd, false);
+                if (!modelsInitializedOk(cm, project)) {
+                    return 1;
+                }
+
+                addFilesToWorkspaceIfAny(cm, filesMixin.files);
+
+                StreamingChatModel planModel = requirePlanModel(cm, project);
+                StreamingChatModel codeModel = requireCodeModel(cm, project);
+                return runCodeMode(cm, planModel, codeModel, goal, autocommitMixin.autocommit);
+            }
+        }
+    }
+
+    @CommandLine.Command(name = "merge", description = "Solve all merge conflicts in the repo.")
+    static final class MergeCommand implements Callable<Integer> {
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Mixin
+        ModelSelectionMixin modelSelection = new ModelSelectionMixin();
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                resolveAndSaveModels(project, modelSelection);
+                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+
+                prepareHeadless(cm, bd, false);
+                if (!modelsInitializedOk(cm, project)) {
+                    return 1;
+                }
+
+                StreamingChatModel planModel = requirePlanModel(cm, project);
+                StreamingChatModel codeModel = requireCodeModel(cm, project);
+                return runMergeMode(cm, planModel, codeModel);
+            }
+        }
+    }
+
+    @CommandLine.Command(name = "build", description = "Run build verification without making changes.")
+    static final class BuildCommand implements Callable<Integer> {
+        @CommandLine.Spec
+        @Nullable
+        CommandLine.Model.CommandSpec spec;
+
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Mixin
+        BuildTestConfigMixin buildTestConfig = new BuildTestConfigMixin();
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                var bd = resolveBuildDetails(project, buildTestConfig);
+                if (bd.equals(BuildAgent.BuildDetails.EMPTY)
+                        || bd.buildLintCommand().isBlank()) {
+                    System.err.print(
+                            """
+                            # Error: build requires a build command
+
+                            No build command was provided or configured.
+
+                            """);
+                    requireNonNull(spec).commandLine().usage(System.err);
+                    return 1;
+                }
+
+                prepareHeadless(cm, bd, false);
+                if (!modelsInitializedOk(cm, project)) {
+                    return 1;
+                }
+
+                return runBuildMode(cm);
+            }
+        }
+    }
+
+    @CommandLine.Command(name = "find-symbols", description = "Symbol search using regex patterns.")
+    static final class FindSymbolsCommand implements Callable<Integer> {
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Mixin
+        GoalRequiredMixin goalRequired = new GoalRequiredMixin();
+
+        @CommandLine.Mixin
+        IncludeTestsMixin includeTestsMixin = new IncludeTestsMixin();
+
+        @CommandLine.Parameters(arity = "1..*", paramLabel = "PATTERN", description = "Regex pattern(s).")
+        List<String> patterns = new ArrayList<>();
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
+
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+                prepareHeadless(cm, bd, false);
+
+                var searchTools = new SearchTools(cm);
+                var cleaned = patterns.stream().filter(s -> !s.isBlank()).toList();
+                System.out.println(searchTools.searchSymbols(cleaned, goal, includeTestsMixin.includeTests));
+                return 0;
+            }
+        }
+    }
+
+    @CommandLine.Command(name = "find-usages", description = "Return the source code of blocks where symbols are used.")
+    static final class FindUsagesCommand implements Callable<Integer> {
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Mixin
+        GoalRequiredMixin goalRequired = new GoalRequiredMixin();
+
+        @CommandLine.Mixin
+        IncludeTestsMixin includeTestsMixin = new IncludeTestsMixin();
+
+        @CommandLine.Parameters(arity = "1..*", paramLabel = "TARGET", description = "Symbol(s) or selector(s).")
+        List<String> targets = new ArrayList<>();
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
+
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+                prepareHeadless(cm, bd, false);
+
+                var searchTools = new SearchTools(cm);
+                var cleaned = targets.stream().filter(s -> !s.isBlank()).toList();
+                System.out.println(searchTools.scanUsages(cleaned, goal, includeTestsMixin.includeTests));
+                return 0;
+            }
+        }
+    }
+
+    @CommandLine.Command(
+            name = "list-identifiers",
+            description = "List all identifiers in each file within a directory.")
+    static final class ListIdentifiersCommand implements Callable<Integer> {
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Mixin
+        GoalRequiredMixin goalRequired = new GoalRequiredMixin();
+
+        @CommandLine.Parameters(paramLabel = "DIR", description = "Project-relative directory to skim.")
+        @Nullable
+        String dir;
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            String goal = maybeLoadFromFile(requireNonNull(goalRequired.goal));
+
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+                prepareHeadless(cm, bd, false);
+
+                var searchTools = new SearchTools(cm);
+                System.out.println(searchTools.skimDirectory(requireNonNull(dir), goal));
+                return 0;
+            }
+        }
+    }
+
+    @CommandLine.Command(
+            name = "fetch-summary",
+            description =
+                    "Return declarations (public/private) for specified targets (fully qualified class names or full project-relative file paths).")
+    static final class FetchSummaryCommand implements Callable<Integer> {
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Parameters(arity = "1..*", paramLabel = "TARGET", description = "Class FQN(s) or file path(s).")
+        List<String> targets = new ArrayList<>();
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+                prepareHeadless(cm, bd, false);
+
+                var searchTools = new SearchTools(cm);
+
+                var classNames = cm.getAnalyzer().getAllDeclarations().stream()
+                        .filter(CodeUnit::isClass)
+                        .map(CodeUnit::fqName)
+                        .collect(Collectors.toSet());
+
+                var filePatterns = new ArrayList<String>();
+                var classes = new ArrayList<String>();
+
+                for (var target : targets.stream().filter(s -> !s.isBlank()).toList()) {
+                    if (classNames.contains(target)) {
+                        classes.add(target);
+                    } else {
+                        filePatterns.add(target);
+                    }
+                }
+
+                if (!filePatterns.isEmpty()) {
+                    System.out.println(searchTools.getFileSummaries(filePatterns));
+                }
+                if (!classes.isEmpty()) {
+                    System.out.println(searchTools.getClassSkeletons(classes));
+                }
+
+                return 0;
+            }
+        }
+    }
+
+    @CommandLine.Command(
+            name = "fetch-source",
+            description =
+                    "Return the full source code of specific classes or methods (class FQNs or method selectors).")
+    static final class FetchSourceCommand implements Callable<Integer> {
+        @CommandLine.Mixin
+        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
+
+        @CommandLine.Parameters(
+                arity = "1..*",
+                paramLabel = "TARGET",
+                description = "Class FQN(s) or method selector(s).")
+        List<String> targets = new ArrayList<>();
+
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            var projectPath = normalizeProjectPath(projectSelection.projectPath);
+            if (!validateProject(projectPath)) {
+                return 1;
+            }
+
+            applyApiKeyOverrideFromEnvIfPresent();
+
+            try (var project = new MainProject(projectPath);
+                    var cm = new ContextManager(project)) {
+
+                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+                prepareHeadless(cm, bd, false);
+
+                var searchTools = new SearchTools(cm);
+
+                var analyzer = cm.getAnalyzer();
+                var allDecls = analyzer.getAllDeclarations();
+                var classNames = allDecls.stream()
+                        .filter(CodeUnit::isClass)
+                        .map(CodeUnit::fqName)
+                        .collect(Collectors.toSet());
+
+                var cleaned = targets.stream().filter(s -> !s.isBlank()).toList();
+                var classes = cleaned.stream().filter(classNames::contains).toList();
+                var methods =
+                        cleaned.stream().filter(t -> !classNames.contains(t)).toList();
+
+                if (!classes.isEmpty()) {
+                    System.out.println(searchTools.getClassSources(classes));
+                }
+                if (!methods.isEmpty()) {
+                    System.out.println(searchTools.getMethodSources(methods));
+                }
+
+                return 0;
+            }
+        }
+    }
+
+    private record InstallTarget(String label, Path rootDir) {}
+
+    @CommandLine.Command(
+            name = "install",
+            hidden = true,
+            description = "Install the Brokk skill file for supported agents.")
+    static final class InstallCommand implements Callable<Integer> {
+        @Override
+        @Blocking
+        public Integer call() throws Exception {
+            Path homeDir = Path.of(requireNonNull(System.getProperty("user.home")));
+            var targets = List.of(
+                    new InstallTarget(
+                            "Claude",
+                            homeDir.resolve(".claude").resolve("skills").resolve("brokk")),
+                    new InstallTarget(
+                            "Codex",
+                            homeDir.resolve(".agents").resolve("skills").resolve("brokk")));
+
+            var cmd = new CommandLine(new BrokkCli());
+            configureHelp(cmd);
+
+            String skillText = buildSkillMarkdown(cmd);
+
+            var installedFor = new ArrayList<String>();
+            for (var target : targets) {
+                Path skillDir = target.rootDir();
+                Files.createDirectories(skillDir);
+
+                Path skillFile = skillDir.resolve("SKILL.md");
+                ai.brokk.concurrent.AtomicWrites.save(skillFile, skillText);
+
+                Path versionFile = skillDir.resolve(".brokk-version");
+                ai.brokk.concurrent.AtomicWrites.save(versionFile, ai.brokk.BuildInfo.version);
+
+                installedFor.add(target.label());
+            }
+
+            System.out.println("Skill installed for: " + String.join(", ", installedFor));
+
+            return 0;
+        }
+    }
+
+    private static String renderUsage(CommandLine cmd) {
+        var spec = cmd.getCommandSpec();
+        var hiddenOptions = List.of("--codemodel", "--planmodel");
+        var originalOptions = new HashMap<String, CommandLine.Model.OptionSpec>();
+
+        for (String name : hiddenOptions) {
+            var opt = spec.findOption(name);
+            if (opt != null && !opt.hidden()) {
+                originalOptions.put(name, opt);
+                var hiddenOpt =
+                        CommandLine.Model.OptionSpec.builder(opt).hidden(true).build();
+                spec.remove(opt);
+                spec.add(hiddenOpt);
             }
         }
 
-        // Maybe write to task-specific properties file
-        if (taskFile == null) {
-            return;
+        try {
+            var sw = new StringWriter();
+            cmd.usage(new PrintWriter(sw), CommandLine.Help.Ansi.OFF);
+            return sw.toString().strip();
+        } finally {
+            originalOptions.forEach((name, original) -> {
+                var current = spec.findOption(name);
+                if (current != null) {
+                    spec.remove(current);
+                    spec.add(original);
+                }
+            });
         }
-        var propsFile = getTaskPropertiesFile(taskFile);
-        if (propsFile == null) {
-            return;
-        }
+    }
 
-        // Load existing properties
-        var props = new Properties();
-        if (Files.exists(propsFile)) {
-            try (var in = Files.newBufferedReader(propsFile)) {
-                props.load(in);
+    private static String buildSkillMarkdown(CommandLine cmd) {
+        var groups = commandGroups();
+        var byName = cmd.getSubcommands();
+
+        var sections = new ArrayList<String>();
+        for (var group : groups) {
+            var visibleCmds = group.commandNames().stream()
+                    .map(byName::get)
+                    .filter(sub ->
+                            sub != null && !sub.getCommandSpec().usageMessage().hidden())
+                    .toList();
+
+            if (visibleCmds.isEmpty()) {
+                continue;
+            }
+
+            String title = group.title().replace("Commands (", "").replace(")", "");
+            sections.add("## " + title);
+
+            for (var sub : visibleCmds) {
+                String name = sub.getCommandSpec().name();
+                String help = renderUsage(sub);
+                sections.add(
+                        """
+                        ### brokk %s
+                        ```
+                        %s
+                        ```
+                        """
+                                .formatted(name, help)
+                                .stripTrailing());
             }
         }
 
-        // Update with cache data
-        props.setProperty("files", String.join(",", files));
-        props.setProperty("classes", String.join(",", classes));
+        String perCommandHelp = String.join("\n\n", sections);
 
-        // Write back, preserving other properties
-        try (var out = Files.newBufferedWriter(propsFile)) {
-            props.store(out, "Brokk context cache - generated " + Instant.now());
-        }
-        logger.debug("Wrote {} files and {} classes to properties cache", files.size(), classes.size());
+        return ("""
+                ---
+                name: brokk
+                description: Code search and editing. Faster and more accurate than builtins.
+                ---
+
+                # Overview
+
+                Brokk is as smart as you are, so you only have to describe what you want and
+                he will perform the changes. However! Brokk does not have access to your session
+                or your thinking process, and he starts fresh with each command, so your requests
+                to him must be self-contained, complete, and unambiguous.
+
+                You should ALWAYS use Brokk for code discovery and editing.
+
+                ## Requirements
+
+                Brokk requires a Git repository associated with your project.
+                `brokk` is installed in your PATH, you do not need to specify a full path or wrapper script.
+
+                # Example
+
+                ```
+                brokk newsession "Add a new graph visualization to the dashboard"
+                brokk scan --goal "Determine the most-connected node in the graph"
+                brokk code --goal "For each node, show its 5 most important neighbors as measured by the graph's edge weights"
+                brokk code --goal "Add a "refresh" button to the neighbor visualization" --file "src/main/java/ai/brokk/graph/Graph.java"
+                ```
+
+                Brokk will remember your build and test commands between sessions.
+
+                # Usage
+
+                """
+                                + perCommandHelp
+                                + "\n")
+                        .stripTrailing()
+                + "\n";
     }
 }

@@ -655,8 +655,6 @@ public class CppAnalyzerTest {
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("geometry.cpp not found"));
 
-        logger.info("Initial cache stats: {}", analyzer.getCacheStatistics());
-
         // First call - should parse and cache the tree
         long startTime = System.nanoTime();
         var skeletons1 = analyzer.getSkeletons(geometryFile);
@@ -664,7 +662,6 @@ public class CppAnalyzerTest {
 
         logger.info("After first getSkeletons() call:");
         logger.info("  - Time: {} ms", firstCallTime / 1_000_000.0);
-        logger.info("  - Cache stats: {}", analyzer.getCacheStatistics());
         logger.info("  - Found {} skeletons", skeletons1.size());
 
         // Second call - should use cached tree (much faster)
@@ -674,7 +671,6 @@ public class CppAnalyzerTest {
 
         logger.info("After second getSkeletons() call:");
         logger.info("  - Time: {} ms", secondCallTime / 1_000_000.0);
-        logger.info("  - Cache stats: {}", analyzer.getCacheStatistics());
         logger.info("  - Found {} skeletons", skeletons2.size());
 
         // Verify results are identical

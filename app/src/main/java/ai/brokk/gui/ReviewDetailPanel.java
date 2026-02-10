@@ -23,8 +23,6 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -256,7 +254,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         var copyBtn = new MaterialButton("Copy Markdown");
         copyBtn.addActionListener(e -> {
             String combined = String.join("\n\n", markdownChunks);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(combined), null);
+            contextManager.copyToClipboard(combined);
             copyBtn.setText("Copied");
             Timer timer = new Timer(1000, evt -> copyBtn.setText("Copy Markdown"));
             timer.setRepeats(false);

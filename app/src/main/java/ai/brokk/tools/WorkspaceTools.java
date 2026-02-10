@@ -11,11 +11,10 @@ import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HtmlToMarkdown;
-import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.model.output.structured.Description;
+import dev.langchain4j.model.output.structured.D;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -62,9 +61,9 @@ public class WorkspaceTools {
      * Used by {@link #dropWorkspaceFragments(List)} to structure the input.
      */
     public record FragmentRemoval(
-            @Description("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
-            @Description(KEY_FACTS_DESCRIPTION) String keyFacts,
-            @Description(DROP_REASON_DESCRIPTION) String dropReason) {}
+            @D("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
+            @D(KEY_FACTS_DESCRIPTION) String keyFacts,
+            @D(DROP_REASON_DESCRIPTION) String dropReason) {}
 
     /** Updates the working Context for this WorkspaceTools instance. */
     public void setContext(Context newContext) {
@@ -238,7 +237,7 @@ public class WorkspaceTools {
         var protectedFragments = NullnessUtil.castNonNull(partitioned.get(false));
 
         // Merge explanations for successfully dropped fragments (new overwrites old)
-        var existingDiscardedMap = context.getDiscardedFragmentsNote();
+        var existingDiscardedMap = context.getDiscardedFragmentsNotes();
         Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
         for (var f : toDrop) {
             var removal = idToRemoval.get(f.id());
@@ -250,14 +249,7 @@ public class WorkspaceTools {
         }
 
         // Serialize updated JSON
-        String discardedJson;
-        try {
-            discardedJson = Json.getMapper().writeValueAsString(mergedDiscarded);
-        } catch (Exception e) {
-            logger.error("Failed to serialize DISCARDED_CONTEXT JSON", e);
-            context.getContextManager().reportException(e);
-            return "Error: Failed to serialize DISCARDED_CONTEXT JSON: " + e.getMessage();
-        }
+        String discardedJson = SpecialTextType.serializeDiscardedContext(mergedDiscarded);
 
         // Apply removal and upsert DISCARDED_CONTEXT in the local context
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
@@ -271,42 +263,26 @@ public class WorkspaceTools {
                 unknownIds.size(),
                 mergedDiscarded.size());
 
-        var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
-        var baseMsg = "Dropped: %s.".formatted(droppedReprs);
+        List<String> lines = new ArrayList<>();
+
+        if (!toDrop.isEmpty()) {
+            var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
+            lines.add("Dropped: %s.".formatted(droppedReprs));
+        }
 
         if (!protectedFragments.isEmpty()) {
             var protectedDescriptions = protectedFragments.stream()
                     .map(ContextFragment::description)
                     .map(ComputedValue::join)
                     .collect(Collectors.joining(", "));
-            baseMsg += "\nPinned (not dropped): " + protectedDescriptions + ".";
+            lines.add("Pinned (not dropped): %s.".formatted(protectedDescriptions));
         }
 
         if (!unknownIds.isEmpty()) {
-            baseMsg += "\nUnknown fragment IDs (not dropped): " + String.join(", ", unknownIds);
-        }
-        return baseMsg;
-    }
-
-    @Tool(
-            """
-                  Finds usages of a specific symbol (class, method, field) and adds the full source of the calling methods to the Workspace. Only call when you have identified specific symbols.
-                  Use this for questions like “how is X used/accessed/obtained/wired”.
-                  If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
-                  """)
-    public String addSymbolUsagesToWorkspace(
-            @P(
-                            "Fully qualified symbol name (e.g., 'com.example.MyClass', 'com.example.MyClass.myMethod', 'com.example.MyClass.myField') to find usages for.")
-                    String symbol) {
-        assert !getAnalyzer().isEmpty() : "Cannot add usages: Code Intelligence is not available.";
-        if (symbol.isBlank()) {
-            return "Cannot add usages: symbol cannot be empty";
+            lines.add("Unknown fragment IDs (not dropped): %s.".formatted(String.join(", ", unknownIds)));
         }
 
-        var fragment = new ContextFragments.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
-        context = context.addFragments(List.of(fragment));
-
-        return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
+        return lines.isEmpty() ? "No changes." : String.join("\n", lines);
     }
 
     @Tool(
@@ -466,12 +442,11 @@ public class WorkspaceTools {
             "addClassesToWorkspace",
             "addClassSummariesToWorkspace",
             "addMethodsToWorkspace",
-            "addSymbolUsagesToWorkspace",
             "addFileSummariesToWorkspace",
             // Search tools
             "searchSymbols",
             "getSymbolLocations",
-            "getUsages",
+            "scanUsages",
             "skimDirectory");
 
     /**
@@ -534,15 +509,21 @@ public class WorkspaceTools {
             """;
 
     public record TaskListEntry(
-            @P("Short display title for the task.") String title,
-            @P("The full task description (Markdown encouraged).") String instructions,
-            @P("Files and fully qualified method/class names important to implement the task.") String keyLocations,
-            @P(
-                            "Useful discoveries from OUTSIDE the key locations. Note: the Workspace will change as tasks are loaded and executed, so you must capture important discoveries here to preserve them for future tasks.")
+            @D("Short display title for the task.") String title,
+            @D("The full task description (Markdown encouraged).") String instructions,
+            @D(
+                            "How to verify success. Optional for purely mechanical refactors with no behavior change. Wherever possible, include automated tests in Acceptance; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.")
+                    String acceptance,
+            @D("Files and fully qualified method/class names important to implement the task.") String keyLocations,
+            @D(
+                            "Useful discoveries from OUTSIDE the key locations that the Code Agent should know to load into his Workspace.")
                     String keyDiscoveries) {
 
         public TaskList.TaskItem toTaskItem() {
             String combinedText = instructions.strip();
+            if (!acceptance.isBlank()) {
+                combinedText += "\n\n**Acceptance:**\n" + acceptance.strip();
+            }
             if (!keyLocations.isBlank()) {
                 combinedText += "\n\n**Key Locations:**\n" + keyLocations.strip();
             }
