@@ -95,6 +95,39 @@ ChatPanel {
     color: $text-disabled;
 }
 
+#chat-input-chips {
+    height: auto;
+    min-height: 0;
+    margin: 0 2;
+    layout: horizontal;
+}
+
+.paste-chip {
+    width: auto;
+    height: 3;
+    background: $panel-lighten-1;
+    border: thin $primary;
+    margin-right: 1;
+    padding: 0 1;
+    content-align: left middle;
+}
+
+.paste-chip .chip-label {
+    width: auto;
+    margin-right: 1;
+    color: $text-secondary;
+    content-align: left middle;
+}
+
+.paste-chip Button {
+    min-width: 3;
+    width: 3;
+    height: 1;
+    border: none;
+    margin: 0;
+    padding: 0;
+}
+
 #chat-input {
     margin: 1 2;
     border: solid $primary;

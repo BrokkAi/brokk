@@ -267,6 +267,7 @@ class BrokkApp(App):
             chat.add_system_message(
                 f"Added large submission to context (chars={char_count}, id={fragment_id})"
             )
+            chat.add_paste_chip(f"Paste ({char_count} chars)", fragment_id=fragment_id)
             await self._refresh_context_panel()
         except Exception as e:
             chat.add_system_message(f"Failed to add paste to context: {e}", level="ERROR")
@@ -274,6 +275,7 @@ class BrokkApp(App):
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
+        chat.clear_paste_chips()
         chat.set_job_running(True)
         chat.set_response_pending()
         try:

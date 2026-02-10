@@ -209,3 +209,10 @@ async def test_large_paste_routing_to_context():
 
         add_call = next(c for c in stub.calls if c["type"] == "add_context_text")
         assert add_call["text"] == large_text
+
+        # Verify chip presence
+        from brokk_code.widgets.chat_panel import PasteChip
+
+        chips = app.query(PasteChip)
+        assert len(chips) == 1
+        assert "Paste" in str(chips[0].label)

@@ -10,7 +10,24 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import Button, LoadingIndicator, RichLog, Static, TextArea
+
+
+class PasteChip(Horizontal):
+    """A small chip representing a text fragment added to context."""
+
+    def __init__(self, label: str, fragment_id: Optional[str] = None) -> None:
+        super().__init__(classes="paste-chip")
+        self.label = label
+        self.fragment_id = fragment_id
+
+    def compose(self) -> ComposeResult:
+        yield Static(self.label, classes="chip-label")
+        yield Button("x", id="remove-chip", variant="error")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "remove-chip":
+            self.remove()
 
 
 class ChatInput(TextArea):
@@ -90,7 +107,18 @@ class ChatPanel(Vertical):
             yield Static(id="chat-timer", classes="ml-1 hidden")
             yield Static(id="chat-token-usage", classes="token-usage")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
+        yield Horizontal(id="chat-input-chips")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
+
+    def add_paste_chip(self, label: str, fragment_id: Optional[str] = None) -> None:
+        """Adds a chip representing a pasted fragment above the input."""
+        chips = self.query_one("#chat-input-chips", Horizontal)
+        chips.mount(PasteChip(label, fragment_id))
+
+    def clear_paste_chips(self) -> None:
+        """Removes all chips from the input area."""
+        for chip in self.query("#chat-input-chips PasteChip"):
+            chip.remove()
 
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
