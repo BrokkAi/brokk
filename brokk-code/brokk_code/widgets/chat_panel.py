@@ -85,7 +85,7 @@ class ChatPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
-        with Horizontal(id="chat-spinner-area"):
+        with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
             yield Static(id="chat-token-usage", classes="token-usage")

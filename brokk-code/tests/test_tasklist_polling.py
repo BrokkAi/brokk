@@ -77,8 +77,8 @@ async def test_tasklist_polling_updates_ui(tmp_path):
             panel.update_tasklist_details(mock_tasklist)
 
             content_widget = panel.query_one("#tasklist-content")
-            # Using plain_text to avoid markup/styling variations across versions
-            content_text = content_widget.renderable.plain
+            # Using plain to avoid markup/styling variations across versions
+            content_text = content_widget.render().plain
 
             assert "Refactor Authentication" in content_text
             assert "Update LoginController" in content_text
@@ -129,20 +129,20 @@ async def test_context_polling_updates_ui(tmp_path):
             # Verify Header
             panel = app.query_one("#side-context", ContextPanel)
             header = panel.query_one("#context-header")
-            assert "1,500 / 100,000 tokens" in str(header.renderable)
+            assert "1,500 / 100,000 tokens" in str(header.render())
 
             # Verify ChatPanel Token Usage
             chat_panel = app.query_one(ChatPanel)
             usage_label = chat_panel.query_one("#chat-token-usage")
             # The UI renders a progress bar when max_tokens is present
-            assert "1,500 / 100,000" in str(usage_label.renderable)
+            assert "1,500 / 100,000" in str(usage_label.render())
 
             # Verify List Contents
             list_view = panel.query_one("#context-list")
             assert len(list_view.children) == 2
 
             # Check for specific text in list items
-            items_text = "".join(str(child.renderable) for child in list_view.children)
+            items_text = "".join(str(child.render()) for child in list_view.children)
             assert "Modified UserAuth.java" in items_text
             assert "Previous chat history" in items_text
             assert "EDIT" in items_text
@@ -189,4 +189,4 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
 
             mock_ctx.assert_called()
             panel = app.query_one(ContextPanel)
-            assert "100 /" in str(panel.query_one("#context-header").renderable)
+            assert "100 /" in str(panel.query_one("#context-header").render())

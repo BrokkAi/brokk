@@ -34,7 +34,7 @@ async def test_spinner_and_timer_lifecycle():
         # Initial state: hidden, no timer text, display is 'none'
         assert "hidden" in spinner_area.classes
         assert spinner_area.styles.display == "none"
-        assert str(timer_label.renderable) == ""
+        assert str(timer_label.render()) == ""
 
         # Start job
         panel.set_job_running(True)
@@ -43,7 +43,7 @@ async def test_spinner_and_timer_lifecycle():
 
         # Wait for the update worker to run once
         await asyncio.sleep(0.1)
-        assert str(timer_label.renderable) == "Elapsed: 00:00"
+        assert str(timer_label.render()) == "Elapsed: 00:00"
 
         # Advance time by 65 seconds
         current_time += 65.0
@@ -51,17 +51,17 @@ async def test_spinner_and_timer_lifecycle():
         # We may need multiple pauses to ensure the interval task is scheduled and executed
         await pilot.pause()
         await pilot.pause()
-        assert str(timer_label.renderable) == "Elapsed: 01:05"
+        assert str(timer_label.render()) == "Elapsed: 01:05"
 
         # Advance time to cross 1 hour (3600s + 65s = 3665s)
         current_time += 3600.0
         await pilot.pause()
-        assert str(timer_label.renderable) == "Elapsed: 01:01:05"
+        assert str(timer_label.render()) == "Elapsed: 01:01:05"
 
         # Verify timer continues even with NO tokens arriving
         current_time += 10.0
         await pilot.pause()
-        assert str(timer_label.renderable) == "Elapsed: 01:01:15"
+        assert str(timer_label.render()) == "Elapsed: 01:01:15"
 
         # Append tokens - spinner should STAY visible
         panel.append_token(
@@ -80,7 +80,7 @@ async def test_spinner_and_timer_lifecycle():
 
         current_time += 5.0
         await asyncio.sleep(0.2)
-        assert str(timer_label.renderable) == "Elapsed: 01:10"
+        assert str(timer_label.render()) == "Elapsed: 01:10"
 
         # Explicit job finish - hides area and clears timer
         panel.set_job_running(False)
@@ -88,7 +88,7 @@ async def test_spinner_and_timer_lifecycle():
         assert spinner_area.styles.display == "none"
         # Wait for worker to exit and check final state
         await asyncio.sleep(0.1)
-        assert str(timer_label.renderable) == ""
+        assert str(timer_label.render()) == ""
 
 
 @pytest.mark.asyncio
@@ -106,24 +106,24 @@ async def test_token_usage_update():
         usage_label = panel.query_one("#chat-token-usage", Static)
 
         # Initial empty
-        assert str(usage_label.renderable) == ""
+        assert str(usage_label.render()) == ""
 
         # Update with used and max
         panel.set_token_usage(1500, 100000)
         # 1,500 / 100,000 is 1.5%. In a 20-char bar, that's 0 blocks filled.
         # bar_width = 20, ratio = 0.015, filled_len = 0
         expected_bar = "░" * 20
-        assert str(usage_label.renderable) == f"[{expected_bar}] 1,500 / 100,000"
+        assert str(usage_label.render()) == f"[{expected_bar}] 1,500 / 100,000"
 
         # Update with half usage
         panel.set_token_usage(50000, 100000)
         expected_half_bar = "█" * 10 + "░" * 10
-        assert str(usage_label.renderable) == f"[{expected_half_bar}] 50,000 / 100,000"
+        assert str(usage_label.render()) == f"[{expected_half_bar}] 50,000 / 100,000"
 
         # Update with only used
         panel.set_token_usage(2500)
-        assert str(usage_label.renderable) == "Tokens: 2,500"
+        assert str(usage_label.render()) == "Tokens: 2,500"
 
         # Update with 0 clears it
         panel.set_token_usage(0)
-        assert str(usage_label.renderable) == ""
+        assert str(usage_label.render()) == ""

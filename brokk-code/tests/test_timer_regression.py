@@ -86,7 +86,7 @@ async def test_timer_ticks_during_run_job():
         chat_panel._get_now = mock_now
 
         # Initial state
-        assert str(timer_label.renderable) == ""
+        assert str(timer_label.render()) == ""
 
         # Manually trigger a job via the app's internal method
         # This simulates what happens when a user submits a prompt
@@ -98,7 +98,7 @@ async def test_timer_ticks_during_run_job():
 
         # Check that timer started
         assert app.job_in_progress is True
-        assert str(timer_label.renderable) == "Elapsed: 00:00"
+        assert str(timer_label.render()) == "Elapsed: 00:00"
 
         # Advance deterministic time by 2 seconds
         current_time += 2.0
@@ -109,7 +109,7 @@ async def test_timer_ticks_during_run_job():
 
         # The timer should have updated to 00:02 even though FakeExecutor
         # is still sleeping (no tokens yielded yet).
-        assert str(timer_label.renderable) == "Elapsed: 00:02"
+        assert str(timer_label.render()) == "Elapsed: 00:02"
 
         # Finish the job
         current_time += 1.0
@@ -120,4 +120,4 @@ async def test_timer_ticks_during_run_job():
 
         # Verify cleanup
         assert app.job_in_progress is False
-        assert str(timer_label.renderable) == ""
+        assert str(timer_label.render()) == ""
