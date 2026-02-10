@@ -44,14 +44,20 @@ async def test_spinner_and_timer_lifecycle():
 
         # Advance time by 65 seconds
         current_time += 65.0
-        await asyncio.sleep(0.2) # Give worker time to loop
+        # Give the Textual interval a moment to fire and process the mock time update
+        await pilot.pause()
         assert str(timer_label.renderable) == "Elapsed: 01:05"
 
         # Advance time to cross 1 hour (3600s + 65s = 3665s)
         current_time += 3600.0
-        await asyncio.sleep(0.2)
+        await pilot.pause()
         assert str(timer_label.renderable) == "Elapsed: 01:01:05"
-        
+
+        # Verify timer continues even with NO tokens arriving
+        current_time += 10.0
+        await pilot.pause()
+        assert str(timer_label.renderable) == "Elapsed: 01:01:15"
+
         # Append tokens - spinner should STAY visible
         panel.append_token("Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=False)
         assert "hidden" not in spinner_area.classes

@@ -101,18 +101,20 @@ async def test_timer_ticks_during_run_job():
         # Advance deterministic time by 2 seconds
         current_time += 2.0
         
-        # Wait for the ChatPanel's _update_elapsed_time worker to loop (it sleeps 0.1s)
-        await asyncio.sleep(0.2)
+        # Process the Textual interval callback
+        await pilot.pause()
         
-        # The timer should have updated to 00:02
-        # On current 'main', this fails because the worker is only triggered 
-        # when tokens arrive if not handled correctly.
+        # The timer should have updated to 00:02 even though FakeExecutor 
+        # is still sleeping (no tokens yielded yet).
         assert str(timer_label.renderable) == "Elapsed: 00:02"
 
-        # Wait for job to finish
+        # Finish the job
         current_time += 1.0
-        await pilot.pause() # Process any pending events/tasks
+        # We need to wait for the stream_delay (0.5s) in real time since 
+        # FakeExecutor uses real asyncio.sleep
+        await asyncio.sleep(0.6)
+        await pilot.pause()
         
-        # Eventually job completes (after fake_executor.stream_delay)
-        # We don't necessarily need to wait for it for this test, 
-        # but let's ensure cleanup.
+        # Verify cleanup
+        assert app.job_in_progress is False
+        assert str(timer_label.renderable) == ""
