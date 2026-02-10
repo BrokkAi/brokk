@@ -169,7 +169,7 @@ public final class WorktreeProject extends AbstractProject {
             liveDepsNames = names;
         }
 
-        return namesToDependencies(liveDepsNames);
+        return resolveDependencies(liveDepsNames);
     }
 
     @Override

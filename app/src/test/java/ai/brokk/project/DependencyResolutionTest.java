@@ -24,9 +24,8 @@ class DependencyResolutionTest {
         // Use MainProject.forTests to avoid sealed class subclassing issues
         MainProject project = MainProject.forTests(root);
 
-        // Test resolving via namesToDependencies helper
-        // namesToDependencies calls getAllOnDiskDependencies() which scans .brokk/dependencies
-        Set<IProject.Dependency> resolved = project.namesToDependencies("dep1, dep2");
+        // Test resolving via resolveDependencies default method
+        Set<IProject.Dependency> resolved = project.resolveDependencies("dep1, dep2");
 
         assertEquals(2, resolved.size());
         Set<String> names = resolved.stream()

@@ -19,7 +19,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -782,46 +781,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
-    protected Set<Dependency> namesToDependencies(String liveDepsNames) {
-        Set<ProjectFile> selected;
-        var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
-
-        var allDeps = getAllOnDiskDependencies();
-        selected = allDeps.stream()
-                .filter(dep -> {
-                    Path fileName = dep.getRelPath().getFileName();
-                    assert fileName != null : "Dependency path must have a file name: " + dep.getRelPath();
-                    return liveNamesSet.contains(fileName.toString());
-                })
-                .collect(Collectors.toSet());
-
-        // Wrap with detected language for each dependency root directory
-        return selected.stream()
-                .map(dep -> new Dependency(dep, detectLanguageForDependency(dep)))
-                .collect(Collectors.toSet());
-    }
-
     /**
-     * Determine the predominant language for a dependency directory by scanning files inside it.
-     * This is shared between MainProject and WorktreeProject to avoid duplication.
+     * @deprecated Use {@link IProject#resolveDependencies(String)}
      */
-    protected static Language detectLanguageForDependency(ProjectFile depDir) {
-        var counts = new IProject.Dependency(depDir, Languages.NONE)
-                .files().stream()
-                        .map(pf -> com.google.common.io.Files.getFileExtension(
-                                pf.absPath().toString()))
-                        .filter(ext -> !ext.isEmpty())
-                        .map(Languages::fromExtension)
-                        .filter(lang -> lang != Languages.NONE)
-                        .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
-
-        return counts.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(Languages.NONE);
+    @Deprecated
+    protected Set<Dependency> namesToDependencies(String liveDepsNames) {
+        return resolveDependencies(liveDepsNames);
     }
 
     @Nullable
