@@ -5,28 +5,47 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Queue;
+import org.jetbrains.annotations.Nullable;
 
 public class TestScriptedLanguageModel implements StreamingChatModel {
-    private final Queue<String> responses;
-    private final String fallbackResponse;
+    private final Queue<AiMessage> responses;
+    private final AiMessage fallbackResponse;
+    private final List<ChatRequest> seenRequests = new ArrayList<>();
 
     public TestScriptedLanguageModel(String... cannedTexts) {
-        this.responses = new LinkedList<>(Arrays.asList(cannedTexts));
-        this.fallbackResponse =
-                cannedTexts.length == 0 ? "TestScriptedLanguageModel: fallback response" : cannedTexts[0];
+        this(Arrays.stream(cannedTexts).map(AiMessage::new).toList());
+    }
+
+    public TestScriptedLanguageModel(List<AiMessage> cannedResponses) {
+        this.responses = new LinkedList<>(cannedResponses);
+        this.fallbackResponse = cannedResponses.isEmpty()
+                ? new AiMessage("TestScriptedLanguageModel: fallback response")
+                : cannedResponses.getFirst();
+    }
+
+    public List<ChatRequest> seenRequests() {
+        return List.copyOf(seenRequests);
     }
 
     @Override
     public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
-        String responseText = responses.poll();
-        if (responseText == null) {
-            responseText = fallbackResponse;
+        seenRequests.add(chatRequest);
+
+        @Nullable AiMessage ai = responses.poll();
+        if (ai == null) {
+            ai = fallbackResponse;
         }
-        handler.onPartialResponse(responseText);
-        var cr = ChatResponse.builder().aiMessage(new AiMessage(responseText)).build();
+
+        String text = ai.text() == null ? "" : ai.text();
+        if (!text.isEmpty()) {
+            handler.onPartialResponse(text);
+        }
+        var cr = ChatResponse.builder().aiMessage(ai).build();
         handler.onCompleteResponse(cr);
     }
 }

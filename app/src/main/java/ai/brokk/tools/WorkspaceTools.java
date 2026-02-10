@@ -14,7 +14,7 @@ import ai.brokk.util.HtmlToMarkdown;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.model.output.structured.Description;
+import dev.langchain4j.model.output.structured.D;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -61,9 +61,9 @@ public class WorkspaceTools {
      * Used by {@link #dropWorkspaceFragments(List)} to structure the input.
      */
     public record FragmentRemoval(
-            @Description("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
-            @Description(KEY_FACTS_DESCRIPTION) String keyFacts,
-            @Description(DROP_REASON_DESCRIPTION) String dropReason) {}
+            @D("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
+            @D(KEY_FACTS_DESCRIPTION) String keyFacts,
+            @D(DROP_REASON_DESCRIPTION) String dropReason) {}
 
     /** Updates the working Context for this WorkspaceTools instance. */
     public void setContext(Context newContext) {
@@ -509,13 +509,13 @@ public class WorkspaceTools {
             """;
 
     public record TaskListEntry(
-            @P("Short display title for the task.") String title,
-            @P("The full task description (Markdown encouraged).") String instructions,
-            @P(
+            @D("Short display title for the task.") String title,
+            @D("The full task description (Markdown encouraged).") String instructions,
+            @D(
                             "How to verify success. Optional for purely mechanical refactors with no behavior change. Wherever possible, include automated tests in Acceptance; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.")
                     String acceptance,
-            @P("Files and fully qualified method/class names important to implement the task.") String keyLocations,
-            @P(
+            @D("Files and fully qualified method/class names important to implement the task.") String keyLocations,
+            @D(
                             "Useful discoveries from OUTSIDE the key locations that the Code Agent should know to load into his Workspace.")
                     String keyDiscoveries) {
 

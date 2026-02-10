@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -107,8 +109,11 @@ class ExceptionReporterIntegrationTest {
         // Format the stack trace
         String stacktrace = formatStackTrace(testException);
 
+        // Build exception report JSON
+        var exceptionReport = buildExceptionReport(stacktrace);
+
         // Report to staging server and verify response
-        var response = service.reportClientException(stacktrace, BuildInfo.version);
+        var response = service.reportClientException(exceptionReport);
 
         // Verify the response structure
         assertNotNull(response, "Response should not be null");
@@ -127,8 +132,9 @@ class ExceptionReporterIntegrationTest {
     void shouldHandleExceptionWithNullMessage() throws IOException {
         Exception testException = new RuntimeException((String) null);
         String stacktrace = formatStackTrace(testException);
+        var exceptionReport = buildExceptionReport(stacktrace);
 
-        var response = service.reportClientException(stacktrace, BuildInfo.version);
+        var response = service.reportClientException(exceptionReport);
 
         assertNotNull(response, "Response should not be null");
         System.out.println("✓ Successfully reported exception with null message");
@@ -139,8 +145,9 @@ class ExceptionReporterIntegrationTest {
     void shouldHandleExceptionWithLongStackTrace() throws IOException {
         Exception testException = createDeepStackTraceException(100);
         String stacktrace = formatStackTrace(testException);
+        var exceptionReport = buildExceptionReport(stacktrace);
 
-        var response = service.reportClientException(stacktrace, BuildInfo.version);
+        var response = service.reportClientException(exceptionReport);
 
         assertNotNull(response, "Response should not be null");
         System.out.println("✓ Successfully reported exception with deep stack trace");
@@ -153,8 +160,9 @@ class ExceptionReporterIntegrationTest {
         Exception cause = new IllegalStateException("Root cause of the problem");
         Exception wrapper = new RuntimeException("Wrapper exception", cause);
         String stacktrace = formatStackTrace(wrapper);
+        var exceptionReport = buildExceptionReport(stacktrace);
 
-        var response = service.reportClientException(stacktrace, BuildInfo.version);
+        var response = service.reportClientException(exceptionReport);
 
         assertNotNull(response, "Response should not be null");
         System.out.println("✓ Successfully reported exception with cause chain");
@@ -168,9 +176,10 @@ class ExceptionReporterIntegrationTest {
 
         Exception testException = createTestException();
         String stacktrace = formatStackTrace(testException);
+        var exceptionReport = buildExceptionReport(stacktrace);
 
         // Should throw exception due to authentication failure
-        assertThrows(Exception.class, () -> service.reportClientException(stacktrace, BuildInfo.version));
+        assertThrows(Exception.class, () -> service.reportClientException(exceptionReport));
 
         // Restore valid key for subsequent tests
         MainProject.setBrokkKey(stagingApiKey);
@@ -213,5 +222,14 @@ class ExceptionReporterIntegrationTest {
         PrintWriter pw = new PrintWriter(sw);
         throwable.printStackTrace(pw);
         return sw.toString();
+    }
+
+    private JsonNode buildExceptionReport(String stacktrace) {
+        ObjectMapper mapper = new ObjectMapper();
+        var body = mapper.createObjectNode();
+        body.put("stacktrace", stacktrace);
+        body.put("client_version", BuildInfo.version);
+        body.set("context", mapper.createObjectNode());
+        return body;
     }
 }

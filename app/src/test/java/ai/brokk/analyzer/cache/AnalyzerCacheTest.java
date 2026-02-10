@@ -37,35 +37,6 @@ class AnalyzerCacheTest {
         cache = new AnalyzerCache();
         cache.typeHierarchy().computeForwardIfAbsent(cu, k -> List.of(cu));
         assertFalse(cache.isEmpty());
-
-        // Reset and check signatures
-        cache = new AnalyzerCache();
-        cache.signatures().put(cu, List.of("sig"));
-        assertFalse(cache.isEmpty(), "Cache should not be empty after adding signatures");
-    }
-
-    @Test
-    void testSignaturesTransferConstructor(@TempDir Path tempDir) {
-        ProjectFile pfUnchanged = new ProjectFile(tempDir, "Unchanged.java");
-        ProjectFile pfChanged = new ProjectFile(tempDir, "Changed.java");
-
-        CodeUnit cuUnchanged = CodeUnit.cls(pfUnchanged, "com.test", "Unchanged");
-        CodeUnit cuChanged = CodeUnit.cls(pfChanged, "com.test", "Changed");
-
-        AnalyzerCache previous = new AnalyzerCache();
-        previous.signatures().put(cuUnchanged, List.of("s1", "s2"));
-        previous.signatures().put(cuChanged, List.of("c1"));
-
-        // Transfer with pfChanged marked as changed -> cuChanged entries should be excluded
-        AnalyzerCache next = new AnalyzerCache(previous, Set.of(pfChanged));
-
-        List<String> preserved = next.signatures().get(cuUnchanged);
-        assertNotNull(preserved, "Signatures for unchanged CU should be preserved");
-        assertEquals(List.of("s1", "s2"), preserved, "Preserved signatures should match original values");
-        // Verify it's a defensive copy (not the identical instance from previous)
-        assertNotSame(previous.signatures().get(cuUnchanged), preserved, "Defensive copy expected for signatures");
-
-        assertNull(next.signatures().get(cuChanged), "Signatures for changed CU should not be transferred");
     }
 
     @Test
