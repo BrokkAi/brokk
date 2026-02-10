@@ -70,7 +70,6 @@ ChatPanel {
     height: 1;
     margin: 0 2;
     layout: horizontal;
-    align: left middle;
 }
 
 #chat-spinner-area.hidden {
@@ -88,6 +87,12 @@ ChatPanel {
 #chat-timer {
     height: 1;
     content-align: left middle;
+}
+
+.token-usage {
+    width: 1fr;
+    content-align: right middle;
+    color: $text-disabled;
 }
 
 #chat-input {

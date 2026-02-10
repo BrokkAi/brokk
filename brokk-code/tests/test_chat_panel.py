@@ -80,3 +80,32 @@ async def test_spinner_and_timer_lifecycle():
         # Wait for worker to exit and check final state
         await asyncio.sleep(0.1)
         assert str(timer_label.renderable) == ""
+
+@pytest.mark.asyncio
+async def test_token_usage_update():
+    """Verify that updating token usage updates the widget text."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        usage_label = panel.query_one("#chat-token-usage", Static)
+
+        # Initial empty
+        assert str(usage_label.renderable) == ""
+
+        # Update with used and max
+        panel.set_token_usage(1500, 100000)
+        assert str(usage_label.renderable) == "Tokens: 1,500 / 100,000"
+
+        # Update with only used
+        panel.set_token_usage(2500)
+        assert str(usage_label.renderable) == "Tokens: 2,500"
+
+        # Update with 0 clears it
+        panel.set_token_usage(0)
+        assert str(usage_label.renderable) == ""

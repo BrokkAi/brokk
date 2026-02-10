@@ -48,6 +48,7 @@ class ChatPanel(Vertical):
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner")
             yield Static(id="chat-timer", classes="ml-1")
+            yield Static(id="chat-token-usage", classes="token-usage")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield Input(placeholder="Type a message or /command...", id="chat-input")
 
@@ -345,3 +346,19 @@ class ChatPanel(Vertical):
             output.append(f"{author}: ", style="bold green")
             output.append(text)
             log.write(output)
+
+    def set_token_usage(self, used: int, max_tokens: Optional[int] = None) -> None:
+        """Updates the token usage display in the spinner area."""
+        try:
+            usage_label = self.query_one("#chat-token-usage", Static)
+        except Exception:
+            return
+
+        if used <= 0:
+            usage_label.update("")
+            return
+
+        if max_tokens:
+            usage_label.update(f"Tokens: {used:,} / {max_tokens:,}")
+        else:
+            usage_label.update(f"Tokens: {used:,}")

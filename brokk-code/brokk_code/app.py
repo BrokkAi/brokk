@@ -154,13 +154,19 @@ class BrokkApp(App):
             await asyncio.sleep(random.uniform(10.0, 15.0))
 
     async def _refresh_context_panel(self) -> None:
-        """Fetches latest context and updates context and task list panels."""
+        """Fetches latest context and updates context, task list, and chat panels."""
         if not self._executor_ready:
             return
         try:
             context_data = await self.executor.get_context()
             self.query_one(ContextPanel).refresh_context(context_data)
             self.query_one(TaskListPanel).refresh_tasklist(context_data)
+
+            # Update token usage in ChatPanel
+            used = context_data.get("usedTokens", 0)
+            max_tokens = context_data.get("maxTokens")
+            self.query_one(ChatPanel).set_token_usage(used, max_tokens)
+
             # Clear error tracking on success
             self._reported_refresh_errors.clear()
         except Exception as e:
