@@ -59,6 +59,7 @@ class BrokkApp(App):
         self._pending_prompt: Optional[str] = None
         self._last_ctrl_c_time: float = 0
         self._executor_ready: bool = False
+        self._reported_refresh_errors: set[str] = set()
 
     @property
     def current_mode(self) -> str:
@@ -140,9 +141,15 @@ class BrokkApp(App):
             context_data = await self.executor.get_context()
             self.query_one(ContextPanel).refresh_context(context_data)
             self.query_one(TaskListPanel).refresh_tasklist(context_data)
-        except Exception:
-            # Silently fail for background refreshes unless panel is visible?
-            # For now, just log to avoid spamming the chat while allowing debugging
+            # Clear error tracking on success
+            self._reported_refresh_errors.clear()
+        except Exception as e:
+            # Rate-limit notifications to once per unique exception type per session
+            err_key = type(e).__name__
+            if err_key not in self._reported_refresh_errors:
+                chat = self.query_one(ChatPanel)
+                chat.add_system_message(f"Context refresh failed: {e}", level="ERROR")
+                self._reported_refresh_errors.add(err_key)
             logger.debug("Failed to refresh context panel", exc_info=True)
 
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:

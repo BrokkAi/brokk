@@ -471,18 +471,32 @@ class ExecutorManager:
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
-        resp = await self._http_client.get("/v1/context", params={"tokens": "true"})
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = await self._http_client.get("/v1/context", params={"tokens": "true"})
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            response = getattr(e, "response", None)
+            status = getattr(response, "status_code", "N/A")
+            raise ExecutorError(
+                f"Failed GET /v1/context (status={status}): {type(e).__name__}: {e}"
+            ) from e
 
     async def get_tasklist(self) -> Dict[str, Any]:
         """Returns the current task list data."""
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
-        resp = await self._http_client.get("/v1/tasklist")
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = await self._http_client.get("/v1/tasklist")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            response = getattr(e, "response", None)
+            status = getattr(response, "status_code", "N/A")
+            raise ExecutorError(
+                f"Failed GET /v1/tasklist (status={status}): {type(e).__name__}: {e}"
+            ) from e
 
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
