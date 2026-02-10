@@ -371,17 +371,22 @@ class ExecutorManager:
         reasoning_level: Optional[str] = None,
         reasoning_level_code: Optional[str] = None,
         mode: str = "LUTZ",
+        tags: Optional[Dict[str, str]] = None,
     ) -> str:
         """Submits a new job to the executor."""
         if not self._http_client:
             raise ExecutorError("Executor not started")
+
+        job_tags = (tags or {}).copy()
+        if "mode" not in job_tags:
+            job_tags["mode"] = mode
 
         payload = {
             "taskInput": task_input,
             "plannerModel": planner_model,
             "autoCommit": True,
             "autoCompress": True,
-            "tags": {"mode": mode},
+            "tags": job_tags,
         }
 
         # Add optional fields only if they are set
