@@ -745,6 +745,49 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void loadStateWithNullListFieldsDoesNotThrowNPE(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("null_lists.smile.gz");
+
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        // Simulate a cache entry where children, signatures, and ranges are null
+        Map<String, Object> propsWithNulls = new HashMap<>();
+        propsWithNulls.put("children", null);
+        propsWithNulls.put("signatures", null);
+        propsWithNulls.put("ranges", null);
+        propsWithNulls.put("hasBody", false);
+
+        Map<String, Object> entry = Map.of("key", cuDto, "value", propsWithNulls);
+
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 1L);
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, stateDtoMap);
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Should load state with null list fields");
+        var loadedState = loadedOpt.get();
+
+        var loadedCu = loadedState.codeUnitState().keySet().iterator().next();
+        var loadedProps = loadedState.codeUnitState().get(loadedCu);
+        assertNotNull(loadedProps);
+        assertTrue(loadedProps.children().isEmpty(), "Null children should become empty list");
+        assertTrue(loadedProps.signatures().isEmpty(), "Null signatures should become empty list");
+        assertTrue(loadedProps.ranges().isEmpty(), "Null ranges should become empty list");
+    }
+
+    @Test
     void loadIgnoresLegacyRawSupertypesField(@TempDir Path tempDir) throws Exception {
         Path out = tempDir.resolve("legacy_raw_supertypes.smile.gz");
 
