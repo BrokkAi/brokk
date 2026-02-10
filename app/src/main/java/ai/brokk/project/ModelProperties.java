@@ -32,10 +32,17 @@ public final class ModelProperties {
     private static final String GPT_5_MINI = "gpt-5-mini";
     private static final String GPT_5_2 = "gpt-5.2";
 
+    private static final String GPT_5_1_CODEX_MINI_OAUTH = "gpt-5.1-codex-mini-oauth";
+    public static final String GPT_5_2_CODEX_OAUTH = "gpt-5.2-codex-oauth";
+    public static final String GPT_5_2_OAUTH = "gpt-5.2-oauth";
+
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
     private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.LOW);
     private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.DISABLE);
+
+    private static final ModelConfig gpt51CodexMiniOauth =
+            new ModelConfig(GPT_5_1_CODEX_MINI_OAUTH, ReasoningLevel.LOW);
 
     private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
     private static final ModelConfig haiku4_5 = new ModelConfig(HAIKU_4_5);
@@ -154,6 +161,16 @@ public final class ModelProperties {
                             ModelType.COMMIT_MESSAGE, gpt5Mini,
                             ModelType.SCAN, gpt5Mini,
                             ModelType.BUILD_PROCESSOR, gpt5Mini));
+            map.put(
+                    "OpenAI - Codex",
+                    Map.of(
+                            ModelType.SUMMARIZE, gpt51CodexMiniOauth,
+                            ModelType.USAGES, gpt51CodexMiniOauth,
+                            ModelType.QUICK_EDIT, gpt51CodexMiniOauth,
+                            ModelType.QUICKEST, gpt51CodexMiniOauth,
+                            ModelType.COMMIT_MESSAGE, gpt51CodexMiniOauth,
+                            ModelType.SCAN, gpt51CodexMiniOauth,
+                            ModelType.BUILD_PROCESSOR, gpt51CodexMiniOauth));
 
             // Validate that all vendors have configurations for all internal ModelTypes
             for (var entry : map.entrySet()) {
