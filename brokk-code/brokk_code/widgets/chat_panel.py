@@ -110,16 +110,6 @@ class ChatPanel(Vertical):
         yield Horizontal(id="chat-input-chips")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
 
-    def add_paste_chip(self, label: str, fragment_id: Optional[str] = None) -> None:
-        """Adds a chip representing a pasted fragment above the input."""
-        chips = self.query_one("#chat-input-chips", Horizontal)
-        chips.mount(PasteChip(label, fragment_id))
-
-    def clear_paste_chips(self) -> None:
-        """Removes all chips from the input area."""
-        for chip in self.query("#chat-input-chips PasteChip"):
-            chip.remove()
-
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
         self.query_one("#chat-input", ChatInput).focus()

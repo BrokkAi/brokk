@@ -106,7 +106,7 @@ ChatPanel {
     width: auto;
     height: 3;
     background: $panel-lighten-1;
-    border: thin $primary;
+    border: solid $primary;
     margin-right: 1;
     padding: 0 1;
     content-align: left middle;
