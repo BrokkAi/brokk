@@ -788,18 +788,7 @@ public final class MainProject extends AbstractProject {
             // 2) Live dependencies
             for (IProject.Dependency dep : getLiveDependencies()) {
                 try {
-                    Language depLang = dep.language();
-                    if (depLang != Languages.NONE) {
-                        detectedLanguages.add(depLang);
-                    } else {
-                        // Fallback: scan files in the dep to discover any non-NONE languages
-                        for (ProjectFile depFile : dep.files()) {
-                            Language lang = Languages.fromExtension(depFile.extension());
-                            if (lang != Languages.NONE) {
-                                detectedLanguages.add(lang);
-                            }
-                        }
-                    }
+                    detectedLanguages.addAll(dep.languages());
                 } catch (Exception e) {
                     logger.warn("Error detecting languages for dependency {} in {}", dep, root, e);
                 }

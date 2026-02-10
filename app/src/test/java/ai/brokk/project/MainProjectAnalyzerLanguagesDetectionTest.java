@@ -150,6 +150,33 @@ public class MainProjectAnalyzerLanguagesDetectionTest {
         }
     }
 
+    @Test
+    public void testDetectsMultipleLanguagesFromSingleLiveDependency() throws IOException {
+        // Setup: No recognizable files in the main repo
+        Files.writeString(tempDir.resolve("README.md"), "# Project");
+
+        // Create a dependency with both Java and Python files
+        Path dependenciesDir = tempDir.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+        Files.createDirectories(dependenciesDir);
+        Path depDir = dependenciesDir.resolve("multi-lang-dep");
+        Files.createDirectories(depDir);
+        Files.writeString(depDir.resolve("Main.java"), "public class Main {}");
+        Files.writeString(depDir.resolve("script.py"), "print('hello')");
+
+        try (MainProject project = MainProject.forTests(tempDir)) {
+            // Mark dependency as live
+            project.saveLiveDependencies(Set.of(depDir));
+
+            // Act
+            Set<Language> languages = project.getAnalyzerLanguages();
+
+            // Assert: Should detect both Java and Python from the single dependency
+            assertEquals(2, languages.size(), "Should detect exactly 2 languages from the dependency");
+            assertTrue(languages.contains(Languages.JAVA), "Should contain JAVA");
+            assertTrue(languages.contains(Languages.PYTHON), "Should contain PYTHON");
+        }
+    }
+
     /**
      * Helper to create a dependency directory under .brokk/dependencies/<depName> with a simple
      * Java source file. Returns the top-level dependency directory Path suitable for passing to

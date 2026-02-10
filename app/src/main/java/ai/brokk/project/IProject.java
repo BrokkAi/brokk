@@ -587,6 +587,13 @@ public interface IProject extends AutoCloseable {
     record Dependency(ProjectFile root, Language language) {
         private static final Logger logger = LogManager.getLogger(Dependency.class);
 
+        public Set<Language> languages() {
+            return files().stream()
+                    .map(pf -> Languages.fromExtension(pf.extension()))
+                    .filter(l -> l != Languages.NONE)
+                    .collect(Collectors.toSet());
+        }
+
         public Set<ProjectFile> files() {
             try (var pathStream = Files.walk(root.absPath())) {
                 var masterRoot = root.getRoot();
