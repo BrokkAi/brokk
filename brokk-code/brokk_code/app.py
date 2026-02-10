@@ -316,9 +316,14 @@ class BrokkApp(App):
             chat.set_response_finished()
 
             if self._pending_prompt:
+                # Yield to the event loop once to allow any other rapid submissions
+                # (e.g. from the same pilot loop in tests) to overwrite _pending_prompt.
+                await asyncio.sleep(0)
+
                 next_prompt = self._pending_prompt
                 self._pending_prompt = None
-                # Recurse immediately within the same worker context to prevent
+
+                # Recurse within the same worker context to prevent
                 # the app from flickering to 'idle' and allowing race-condition submits.
                 # We keep job_in_progress = True during this transition.
                 await self._run_job(next_prompt)
