@@ -397,34 +397,68 @@ class ExecutorManager:
         return resp.json()["jobId"]
 
     async def stream_events(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
-        """Streams events for a specific job until it reaches a terminal state."""
+        """Streams events for a specific job until it reaches a terminal state with adaptive polling."""
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
         after_seq = -1
         terminal_states = {"COMPLETED", "FAILED", "CANCELLED"}
+        
+        # Polling configuration
+        min_sleep = 0.05
+        max_sleep = 0.5
+        current_sleep = min_sleep
+        
+        last_status_check = 0.0
+        status_interval = 2.0  # Seconds between status checks when events are flowing
+        state = "QUEUED"
 
         while True:
-            # Check job status
-            status_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
-            status_resp.raise_for_status()
-            status_data = status_resp.json()
-            state = status_data.get("state")
+            now = asyncio.get_event_loop().time()
+            
+            # 1. Check job status if enough time has passed
+            if now - last_status_check > status_interval:
+                status_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
+                status_resp.raise_for_status()
+                status_data = status_resp.json()
+                state = status_data.get("state", "QUEUED")
+                last_status_check = now
 
-            # Fetch events
+            # 2. Fetch events
             events_url = f"/v1/jobs/{job_id}/events?after={after_seq}&limit=100"
             events_resp = await self._http_client.get(events_url)
             events_resp.raise_for_status()
             events_data = events_resp.json()
 
-            for event in events_data.get("events", []):
+            events = events_data.get("events", [])
+            after_seq = events_data.get("nextAfter", after_seq)
+
+            for event in events:
                 yield event
-                after_seq = max(after_seq, event.get("seq", -1))
 
+            # 3. Check for termination
             if state in terminal_states:
-                break
+                # If we just hit a terminal state, check one last time for any race-condition events
+                if not events:
+                    break
+                # If we did get events, we continue one more loop without sleeping to clear the buffer
 
-            await asyncio.sleep(0.5)
+            # 4. Adaptive sleep
+            if events:
+                # Events are flowing, stay aggressive
+                current_sleep = min_sleep
+                # We don't sleep at all if we got a full batch, to catch up faster
+                if len(events) < 100:
+                    await asyncio.sleep(min_sleep)
+            else:
+                # No events, back off and check status on next loop if we haven't recently
+                if state in terminal_states:
+                    break
+                
+                await asyncio.sleep(current_sleep)
+                current_sleep = min(max_sleep, current_sleep * 2)
+                # Force status check on next loop if we are idling
+                last_status_check = 0.0
 
     async def get_context(self) -> Dict[str, Any]:
         """Returns the current session context."""
