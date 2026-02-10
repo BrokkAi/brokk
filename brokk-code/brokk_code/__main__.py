@@ -35,6 +35,25 @@ def main():
         dest="executor_snapshot",
         help="Download the latest stable release instead of the snapshot",
     )
+    parser.add_argument(
+        "--session",
+        type=str,
+        default=None,
+        help="Attempt to resume a specific session by ID",
+    )
+    parser.add_argument(
+        "--no-resume",
+        action="store_false",
+        dest="resume_session",
+        default=True,
+        help="Always create a new session instead of resuming the last one",
+    )
+    parser.add_argument(
+        "--new-session",
+        action="store_false",
+        dest="resume_session",
+        help="Synonym for --no-resume",
+    )
     args = parser.parse_args()
 
     try:
@@ -51,6 +70,8 @@ def main():
             jar_path=jar_path,
             executor_version=args.executor_version,
             executor_snapshot=args.executor_snapshot,
+            session_id=args.session,
+            resume_session=args.resume_session,
         )
         app.run()
     except ImportError:

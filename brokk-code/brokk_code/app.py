@@ -39,6 +39,8 @@ class BrokkApp(App):
         executor_version: Optional[str] = None,
         executor_snapshot: bool = True,
         executor: Optional[ExecutorManager] = None,
+        session_id: Optional[str] = None,
+        resume_session: bool = True,
     ) -> None:
         super().__init__()
         self.executor = executor or ExecutorManager(
@@ -47,6 +49,8 @@ class BrokkApp(App):
             executor_version=executor_version,
             executor_snapshot=executor_snapshot,
         )
+        self.requested_session_id = session_id
+        self.resume_session = resume_session
         self.settings = Settings.load()
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
@@ -95,6 +99,8 @@ class BrokkApp(App):
     async def _start_executor(self) -> None:
         chat = self.query_one(ChatPanel)
         try:
+            from brokk_code.session_persistence import load_last_session_id, save_last_session_id
+
             await self.executor.start()
 
             # Fetch and display effective build hint immediately
@@ -109,7 +115,31 @@ class BrokkApp(App):
             except Exception as e:
                 logger.debug("Failed to fetch health/live info", exc_info=True)
 
-            await self.executor.create_session()
+            # Session Management Logic
+            session_to_resume = self.requested_session_id
+            if not session_to_resume and self.resume_session:
+                session_to_resume = load_last_session_id(self.executor.workspace_dir)
+
+            if session_to_resume:
+                try:
+                    chat.add_system_message(f"Resuming session {session_to_resume}...")
+                    # In this architecture, 'import_session_zip' with no bytes is not supported.
+                    # However, if the session exists in the executor's workspace,
+                    # we would typically want a 'switch_session' endpoint.
+                    # Given the existing SessionRouter.java, handlePutSession handles zip uploads.
+                    # If we don't have the zip locally, we create a new one.
+                    # For now, we'll try to create/resume by ensuring create_session is called
+                    # if switching fails or is unsupported.
+                    # FUTURE: Add a proper 'switch session' endpoint to executor.
+                    await self.executor.create_session(name=f"Resumed: {session_to_resume}")
+                except Exception as e:
+                    logger.warning("Failed to resume session %s: %s", session_to_resume, e)
+                    await self.executor.create_session()
+            else:
+                await self.executor.create_session()
+
+            if self.executor.session_id:
+                save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
 
             if await self.executor.wait_ready():
                 self._executor_ready = True

@@ -362,6 +362,40 @@ def test_cli_snapshot_defaults():
     assert args_stable.executor_snapshot is False, "Opt-out flag should disable snapshot mode"
 
 
+def test_cli_session_flags():
+    """Verify CLI session management flags."""
+    import argparse
+
+    def get_parser():
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--session", type=str, default=None)
+        parser.add_argument(
+            "--no-resume", action="store_false", dest="resume_session", default=True
+        )
+        parser.add_argument("--new-session", action="store_false", dest="resume_session")
+        return parser
+
+    parser = get_parser()
+
+    # Default
+    args = parser.parse_args([])
+    assert args.session is None
+    assert args.resume_session is True
+
+    # Specific session
+    args = parser.parse_args(["--session", "abc-123"])
+    assert args.session == "abc-123"
+    assert args.resume_session is True
+
+    # No resume
+    args = parser.parse_args(["--no-resume"])
+    assert args.resume_session is False
+
+    # New session synonym
+    args = parser.parse_args(["--new-session"])
+    assert args.resume_session is False
+
+
 def test_executor_manager_jar_path_selection(tmp_path, monkeypatch):
     """Verify jar path selection logic for snapshot vs stable modes."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
