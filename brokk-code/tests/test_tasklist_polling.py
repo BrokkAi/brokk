@@ -1,16 +1,43 @@
-import asyncio
 from unittest.mock import AsyncMock, patch
 import pytest
 from brokk_code.app import BrokkApp
+from brokk_code.executor import ExecutorManager
+from brokk_code.widgets.chat_panel import ChatPanel
+from brokk_code.widgets.context_panel import ContextPanel
+
+
+class StubExecutor(ExecutorManager):
+    def __init__(self, workspace_dir):
+        super().__init__(workspace_dir=workspace_dir)
+
+    async def start(self):
+        pass
+
+    async def stop(self):
+        pass
+
+    async def create_session(self, name: str = "TUI Session") -> str:
+        self.session_id = "session-1"
+        return self.session_id
+
+    async def wait_ready(self, timeout: float = 30.0) -> bool:
+        return True
+
+    def check_alive(self) -> bool:
+        return True
+
+    async def get_health_live(self):
+        return {"version": "test", "protocolVersion": "1", "execId": "test-id"}
 
 
 @pytest.mark.asyncio
-async def test_tasklist_polling_updates_ui():
+async def test_tasklist_polling_updates_ui(tmp_path):
     """
     Verifies that the background tasklist polling worker calls the
     appropriate methods on TaskListPanel.
     """
-    app = BrokkApp()
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
 
     # Mock data
     mock_tasklist = {
@@ -67,11 +94,12 @@ async def test_tasklist_polling_updates_ui():
 
 
 @pytest.mark.asyncio
-async def test_context_polling_updates_ui():
+async def test_context_polling_updates_ui(tmp_path):
     """
     Verifies that the background context polling worker updates the ContextPanel.
     """
-    app = BrokkApp()
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
 
     # Mock data
     mock_context = {
@@ -126,12 +154,13 @@ async def test_context_polling_updates_ui():
 
 
 @pytest.mark.asyncio
-async def test_polling_triggers_immediately_after_ready():
+async def test_polling_triggers_immediately_after_ready(tmp_path):
     """
     Verifies that once _executor_ready is True, the polling loops
     successfully trigger their respective refresh calls.
     """
-    app = BrokkApp()
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
 
     mock_context = {"usedTokens": 100, "fragments": []}
     mock_tasklist = {"bigPicture": "Test", "tasks": []}

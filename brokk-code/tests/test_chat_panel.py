@@ -108,7 +108,15 @@ async def test_token_usage_update():
 
         # Update with used and max
         panel.set_token_usage(1500, 100000)
-        assert str(usage_label.renderable) == "Tokens: 1,500 / 100,000"
+        # 1,500 / 100,000 is 1.5%. In a 20-char bar, that's 0 blocks filled.
+        # bar_width = 20, ratio = 0.015, filled_len = 0
+        expected_bar = "░" * 20
+        assert str(usage_label.renderable) == f"[{expected_bar}] 1,500 / 100,000"
+
+        # Update with half usage
+        panel.set_token_usage(50000, 100000)
+        expected_half_bar = "█" * 10 + "░" * 10
+        assert str(usage_label.renderable) == f"[{expected_half_bar}] 50,000 / 100,000"
 
         # Update with only used
         panel.set_token_usage(2500)

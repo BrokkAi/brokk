@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -36,7 +37,7 @@ async def test_startup_creates_new_session_when_no_resume(tmp_path):
     app = BrokkApp(executor=stub, workspace_dir=workspace, resume_session=False)
 
     with patch("brokk_code.app.ChatPanel"):
-        await app._start_executor()
+        await asyncio.wait_for(app._start_executor(), timeout=3.0)
 
     assert len(stub.create_calls) == 1
     assert len(stub.import_calls) == 0
@@ -55,7 +56,7 @@ async def test_startup_imports_when_last_session_exists(tmp_path):
     app = BrokkApp(executor=stub, workspace_dir=workspace, resume_session=True)
 
     with patch("brokk_code.app.ChatPanel"):
-        await app._start_executor()
+        await asyncio.wait_for(app._start_executor(), timeout=3.0)
 
     assert len(stub.import_calls) == 1
     assert stub.import_calls[0][1] == last_id
@@ -78,7 +79,7 @@ async def test_startup_prefers_cli_session(tmp_path):
     app = BrokkApp(executor=stub, workspace_dir=workspace, session_id=cli_id)
 
     with patch("brokk_code.app.ChatPanel"):
-        await app._start_executor()
+        await asyncio.wait_for(app._start_executor(), timeout=3.0)
 
     assert len(stub.import_calls) == 1
     assert stub.import_calls[0][1] == cli_id
@@ -95,7 +96,7 @@ async def test_shutdown_exports_session(tmp_path):
     app._executor_ready = True
 
     with patch("brokk_code.app.ChatPanel"):
-        await app.action_quit()
+        await asyncio.wait_for(app.action_quit(), timeout=3.0)
 
     assert "active-789" in stub.download_calls
     zip_path = get_session_zip_path(workspace, "active-789")

@@ -191,8 +191,8 @@ async def test_app_startup_messages(tmp_path, monkeypatch):
 
     # Trigger on_mount logic
     await app.on_mount()
-    # Manually run the start executor worker logic
-    await app._start_executor()
+    # Manually run the start executor worker logic with a timeout to avoid hangs
+    await asyncio.wait_for(app._start_executor(), timeout=3.0)
 
     # Essential status should be there
     assert any("Starting Brokk executor" in msg for msg in system_messages)
@@ -221,7 +221,7 @@ async def test_app_startup_fetches_live_info(tmp_path, monkeypatch):
         app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock()
     )
 
-    await app._start_executor()
+    await asyncio.wait_for(app._start_executor(), timeout=3.0)
 
     # Verify health/live was called
     app.executor.get_health_live.assert_called_once()

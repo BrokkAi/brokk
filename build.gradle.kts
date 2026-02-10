@@ -142,7 +142,7 @@ tasks.register<Exec>("brokkCodeRuffFormat") {
     description = "Formats brokk-code using ruff"
     group = "formatting"
     workingDir = file("brokk-code")
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "ruff", "format") else listOf("uv", "run", "ruff", "format"))
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "ruff", "format") else listOf("uv", "run", "--group", "dev", "python", "-m", "ruff", "format"))
 
     inputs.dir("brokk-code/brokk_code")
     inputs.file("brokk-code/pyproject.toml")
@@ -160,7 +160,7 @@ tasks.register<Exec>("brokkCodeRuffCheck") {
     description = "Lints brokk-code using ruff"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "ruff", "check") else listOf("uv", "run", "ruff", "check"))
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "ruff", "check") else listOf("uv", "run", "--group", "dev", "python", "-m", "ruff", "check"))
 
     inputs.dir("brokk-code/brokk_code")
     inputs.file("brokk-code/pyproject.toml")
@@ -178,7 +178,8 @@ tasks.register<Exec>("brokkCodePytest") {
     description = "Runs brokk-code tests using pytest"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "pytest") else listOf("uv", "run", "pytest"))
+    // Ensure dependencies are installed before running
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "pytest") else listOf("uv", "run", "--group", "dev", "python", "-m", "pytest"))
 
     inputs.dir("brokk-code/brokk_code")
     inputs.dir("brokk-code/tests")

@@ -359,7 +359,17 @@ class ChatPanel(Vertical):
 
         if used <= 0:
             usage_label.update("")
-        elif max_tokens:
-            usage_label.update(f"Tokens: {used:,} / {max_tokens:,}")
+            return
+
+        if max_tokens and max_tokens > 0:
+            bar_width = 20
+            # Clamp ratio between 0 and 1
+            ratio = max(0.0, min(1.0, used / max_tokens))
+            filled_len = int(bar_width * ratio)
+            bar = "█" * filled_len + "░" * (bar_width - filled_len)
+            usage_text = f"[{bar}] {used:,} / {max_tokens:,}"
         else:
-            usage_label.update(f"Tokens: {used:,}")
+            usage_text = f"Tokens: {used:,}"
+
+        # Using Text object to avoid markup injection/crashes
+        usage_label.update(Text(usage_text))
