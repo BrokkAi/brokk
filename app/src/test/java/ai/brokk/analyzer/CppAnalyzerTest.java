@@ -1668,6 +1668,75 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testTemplateClassConstructorSignatures() throws IOException {
+        String content =
+                """
+            // Primary template (forward declaration)
+            template <class IdxSeq, class... ValueTypes>
+            struct CombinedReducerValue;
+
+            // Partial specialization
+            template <size_t... Idxs, class... ValueTypes>
+            struct CombinedReducerValue<void, ValueTypes...> {
+                CombinedReducerValue() = default;
+                CombinedReducerValue(ValueTypes... args);
+            };
+
+            // Another specialization with different template params
+            template <class T>
+            struct CombinedReducerValue<T, int> {
+                CombinedReducerValue() = default;
+                CombinedReducerValue(int x);
+            };
+            """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "template_ctors.hpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile).stream()
+                    .filter(CodeUnit::isFunction)
+                    .filter(cu -> getBaseFunctionName(cu).equals("CombinedReducerValue"))
+                    .toList();
+
+            logger.debug("Found {} constructor declarations", declarations.size());
+            declarations.forEach(cu -> logger.debug("  - {} (signature: {})", cu.fqName(), cu.signature()));
+
+            // Should find constructors from both specializations
+            assertTrue(
+                    declarations.size() >= 4,
+                    "Should find at least 4 constructors (2 per specialization). Found: " + declarations.size());
+
+            // Collect all signatures
+            var signatures = declarations.stream()
+                    .map(CodeUnit::signature)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            logger.debug("Unique signatures: {}", signatures);
+
+            // Signatures should be distinct due to enclosing template params
+            // Even default constructors should have different signatures:
+            // - <size_t... Idxs, class... ValueTypes>()
+            // - <class T>()
+            assertTrue(
+                    signatures.size() >= 2,
+                    "Should have at least 2 distinct signature patterns (one per specialization). Found: "
+                            + signatures);
+
+            // Verify enclosing template params are included
+            boolean hasVariadicEnclosing = signatures.stream()
+                    .anyMatch(sig -> sig.contains("size_t... Idxs") || sig.contains("class... ValueTypes"));
+            boolean hasSingleTypeEnclosing = signatures.stream().anyMatch(sig -> sig.contains("<class T>"));
+
+            assertTrue(
+                    hasVariadicEnclosing || hasSingleTypeEnclosing,
+                    "At least one signature should include enclosing template parameters. Signatures: " + signatures);
+        }
+    }
+
+    @Test
     public void testGetDefinitionsStableOrderingPrefersDefinitions() {
         // Lookup overloads by base name via the analyzer lookup (uses normalizeFullName)
         var defs = analyzer.getDefinitions("overloadedFunction").stream().toList();
