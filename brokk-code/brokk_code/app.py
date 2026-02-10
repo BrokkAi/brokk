@@ -53,6 +53,7 @@ class BrokkApp(App):
         self.reasoning_level_code: Optional[str] = "disable"
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
+        self._pending_prompt: Optional[str] = None
         self._last_ctrl_c_time: float = 0
         self._executor_ready: bool = False
 
@@ -138,13 +139,15 @@ class BrokkApp(App):
         else:
             chat = self.query_one(ChatPanel)
             chat.add_user_message(text)
-            self.run_worker(self._run_job(text))
+
+            if self.job_in_progress and self.current_job_id:
+                self._pending_prompt = text
+                chat.add_system_message("Interrupting current job to start new request...")
+                self.run_worker(self.executor.cancel_job(self.current_job_id))
+            else:
+                self.run_worker(self._run_job(text))
 
     async def _run_job(self, task_input: str) -> None:
-        if self.job_in_progress:
-            self.query_one(ChatPanel).add_system_message("A job is already in progress.")
-            return
-
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
         chat.set_job_running(True)
@@ -166,7 +169,15 @@ class BrokkApp(App):
             self.job_in_progress = False
             self.current_job_id = None
             chat.set_response_finished()
-            chat.set_job_running(False)
+
+            if self._pending_prompt:
+                next_prompt = self._pending_prompt
+                self._pending_prompt = None
+                # Small delay to ensure UI/state settles before restarting
+                await asyncio.sleep(0.1)
+                self.run_worker(self._run_job(next_prompt))
+            else:
+                chat.set_job_running(False)
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
@@ -304,6 +315,7 @@ class BrokkApp(App):
         now = time.time()
 
         if self.job_in_progress and self.current_job_id:
+            self._pending_prompt = None  # Clear any pending prompt on manual cancel
             self.query_one(ChatPanel).add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)
             # Reset double-tap timer so they don't accidentally quit while cancelling
