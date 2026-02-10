@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -83,6 +84,7 @@ class BrokkApp(App):
         self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
         self.run_worker(self._poll_tasklist())
+        self.run_worker(self._poll_context())
 
     async def _start_executor(self) -> None:
         chat = self.query_one(ChatPanel)
@@ -122,6 +124,15 @@ class BrokkApp(App):
                     self.query_one(TaskListPanel).update_tasklist_details(tasklist_data)
                 except Exception:
                     logger.debug("Periodic tasklist poll failed", exc_info=True)
+
+    async def _poll_context(self) -> None:
+        """Periodically refreshes the context panel."""
+        while True:
+            # Sleep 10-15s with jitter
+            await asyncio.sleep(random.uniform(10.0, 15.0))
+            if self._executor_ready:
+                # refresh_context_panel handles both ContextPanel and TaskListPanel overview
+                await self._refresh_context_panel()
 
     async def _refresh_context_panel(self) -> None:
         """Fetches latest context and updates context and task list panels."""
