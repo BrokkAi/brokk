@@ -1729,6 +1729,10 @@ public class CppAnalyzerTest {
                     props -> props.getOrDefault(singleT, TreeSitterAnalyzer.CodeUnitProperties.empty())
                             .hasBody());
             assertTrue(hasBody, "TemplateStruct<T> should have hasBody=true");
+
+            // Strengthen: Verify the skeleton contains the definition members
+            var skeleton = analyzer.getSkeleton(singleT).orElse("");
+            assertCodeContains(skeleton, "T value;", "Definition skeleton should contain member 'value'");
         }
     }
 

@@ -2339,7 +2339,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             boolean hasBody = false;
             SkeletonType primarySkeletonType = getSkeletonTypeForCapture(primaryCaptureName);
             if (primarySkeletonType == SkeletonType.FUNCTION_LIKE || primarySkeletonType == SkeletonType.CLASS_LIKE) {
-                langProfile = getLanguageSyntaxProfile();
+                var langProfileForBody = getLanguageSyntaxProfile();
                 TSNode nodeForBody = node;
 
                 if (shouldUnwrapExportStatements() && "export_statement".equals(nodeForBody.getType())) {
@@ -2350,11 +2350,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 }
 
                 if (hasWrappingDecoratorNode()) {
-                    nodeForBody =
-                            extractContentFromDecoratedNode(nodeForBody, new ArrayList<>(), sourceContent, langProfile);
+                    nodeForBody = extractContentFromDecoratedNode(
+                            nodeForBody, new ArrayList<>(), sourceContent, langProfileForBody);
                 }
 
-                TSNode bodyNodeCandidate = nodeForBody.getChildByFieldName(langProfile.bodyFieldName());
+                TSNode bodyNodeCandidate = nodeForBody.getChildByFieldName(langProfileForBody.bodyFieldName());
                 hasBody = bodyNodeCandidate != null
                         && !bodyNodeCandidate.isNull()
                         && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
