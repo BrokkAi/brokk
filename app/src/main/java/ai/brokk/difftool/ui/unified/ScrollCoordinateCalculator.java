@@ -141,4 +141,50 @@ public final class ScrollCoordinateCalculator {
         boolean isValid = startLine >= 0 && endLine >= startLine;
         return new VisibleLineRange(startLine, endLine, isValid);
     }
+
+    /**
+     * Calculate a viewport Y position that centers a target region within the viewport.
+     *
+     * <p>This is useful for scrolling to a hunk or highlighted region such that it appears
+     * centered in the visible area. The result is clamped to valid scroll bounds.
+     *
+     * @param targetStartY The Y coordinate of the start of the target region
+     * @param targetEndY The Y coordinate of the end of the target region
+     * @param viewportHeight The height of the viewport
+     * @param maxY The maximum valid viewport Y (typically contentHeight - viewportHeight)
+     * @return The viewport Y position to pass to {@code JViewport#setViewPosition}
+     */
+    public static int calculateCenteredViewportY(int targetStartY, int targetEndY, int viewportHeight, int maxY) {
+        return calculateCenteredViewportY(targetStartY, targetEndY, viewportHeight, maxY, 0);
+    }
+
+    /**
+     * Calculate a viewport Y position that centers a target region within the viewport, with optional padding.
+     *
+     * <p>This is useful for scrolling to a hunk or highlighted region such that it appears
+     * centered in the visible area. The result is clamped to valid scroll bounds.
+     *
+     * @param targetStartY The Y coordinate of the start of the target region
+     * @param targetEndY The Y coordinate of the end of the target region
+     * @param viewportHeight The height of the viewport
+     * @param maxY The maximum valid viewport Y (typically contentHeight - viewportHeight)
+     * @param padding Additional padding to add above the target when centering is not possible
+     * @return The viewport Y position to pass to {@code JViewport#setViewPosition}
+     */
+    public static int calculateCenteredViewportY(
+            int targetStartY, int targetEndY, int viewportHeight, int maxY, int padding) {
+        // Fallback: if viewport height is invalid, just clamp targetStartY (minus padding)
+        if (viewportHeight <= 0) {
+            return Math.max(0, Math.min(targetStartY - padding, maxY));
+        }
+
+        // Calculate midpoint of target region
+        int targetMidY = (targetStartY + targetEndY) / 2;
+
+        // Center the midpoint in the viewport
+        int viewportY = targetMidY - (viewportHeight / 2);
+
+        // Clamp to valid range [0, maxY]
+        return Math.max(0, Math.min(viewportY, maxY));
+    }
 }

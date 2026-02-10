@@ -368,6 +368,143 @@ class ScrollCoordinateCalculatorTest {
     }
 
     @Nested
+    @DisplayName("Centered Viewport Calculation")
+    class CenteredViewportCalculation {
+
+        @Test
+        @DisplayName("Simple centering in middle of scroll range")
+        void simpleCenteringInMiddle() {
+            // Target region at y=400-450 (midpoint 425), viewport height 200, content allows scrolling to 800
+            // Centered: 425 - 100 = 325
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(400, 450, 200, 800);
+            assertEquals(325, result);
+        }
+
+        @Test
+        @DisplayName("Larger target range - multi-line hunk block")
+        void largerTargetRange() {
+            // Target region at y=300-500 (midpoint 400), viewport height 200
+            // Centered: 400 - 100 = 300
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(300, 500, 200, 1000);
+            assertEquals(300, result);
+        }
+
+        @Test
+        @DisplayName("Clamping at top - target near beginning")
+        void clampingAtTop() {
+            // Target region at y=10-30 (midpoint 20), viewport height 200
+            // Centered: 20 - 100 = -80, clamped to 0
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(10, 30, 200, 800);
+            assertEquals(0, result);
+        }
+
+        @Test
+        @DisplayName("Clamping at bottom - target near end")
+        void clampingAtBottom() {
+            // Target region at y=780-800 (midpoint 790), viewport height 200, maxY=600
+            // Centered: 790 - 100 = 690, clamped to 600
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(780, 800, 200, 600);
+            assertEquals(600, result);
+        }
+
+        @Test
+        @DisplayName("viewportHeight <= 0 fallback - zero height")
+        void viewportHeightZeroFallback() {
+            // With zero viewport height, should fallback to clamped targetStartY
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(150, 200, 0, 800);
+            assertEquals(150, result);
+        }
+
+        @Test
+        @DisplayName("viewportHeight <= 0 fallback - negative height")
+        void viewportHeightNegativeFallback() {
+            // With negative viewport height, should fallback to clamped targetStartY
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(150, 200, -50, 800);
+            assertEquals(150, result);
+        }
+
+        @Test
+        @DisplayName("viewportHeight <= 0 fallback with clamping at top")
+        void viewportHeightZeroFallbackClampTop() {
+            // Fallback to targetStartY, but targetStartY is negative - clamp to 0
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(-50, 100, 0, 800);
+            assertEquals(0, result);
+        }
+
+        @Test
+        @DisplayName("viewportHeight <= 0 fallback with clamping at bottom")
+        void viewportHeightZeroFallbackClampBottom() {
+            // Fallback to targetStartY, but targetStartY exceeds maxY - clamp to maxY
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(900, 1000, 0, 800);
+            assertEquals(800, result);
+        }
+
+        @Test
+        @DisplayName("With padding parameter")
+        void withPaddingParameter() {
+            // Zero viewport height with padding=20
+            // Should return targetStartY - padding = 150 - 20 = 130
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(150, 200, 0, 800, 20);
+            assertEquals(130, result);
+        }
+
+        @Test
+        @DisplayName("Padding clamped at top")
+        void paddingClampedAtTop() {
+            // Zero viewport height with padding=60 and targetStartY=50
+            // Should return max(0, 50 - 60) = 0
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(50, 100, 0, 800, 60);
+            assertEquals(0, result);
+        }
+
+        @Test
+        @DisplayName("Target region equals single point")
+        void singlePointTarget() {
+            // Target at y=400-400 (midpoint 400), viewport height 200
+            // Centered: 400 - 100 = 300
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(400, 400, 200, 800);
+            assertEquals(300, result);
+        }
+
+        @Test
+        @DisplayName("Target larger than viewport - still centers on midpoint")
+        void targetLargerThanViewport() {
+            // Target region at y=100-500 (midpoint 300), viewport height 100
+            // Centered: 300 - 50 = 250
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(100, 500, 100, 800);
+            assertEquals(250, result);
+        }
+
+        @Test
+        @DisplayName("maxY is zero - always returns 0")
+        void maxYIsZero() {
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(100, 200, 200, 0);
+            assertEquals(0, result);
+        }
+
+        @ParameterizedTest
+        @CsvSource({
+            "400, 450, 200, 800, 325", // Simple centering
+            "0, 50, 200, 800, 0", // Clamp at top
+            "750, 800, 200, 600, 600", // Clamp at bottom
+            "500, 500, 100, 1000, 450", // Single point
+            "200, 600, 200, 1000, 300" // Large range
+        })
+        @DisplayName("Parameterized centering scenarios")
+        void parameterizedCenteringScenarios(
+                int targetStart, int targetEnd, int viewportHeight, int maxY, int expected) {
+            int result =
+                    ScrollCoordinateCalculator.calculateCenteredViewportY(targetStart, targetEnd, viewportHeight, maxY);
+            assertEquals(
+                    expected,
+                    result,
+                    String.format(
+                            "Center [%d,%d] in viewport %d with maxY %d should be %d",
+                            targetStart, targetEnd, viewportHeight, maxY, expected));
+        }
+    }
+
+    @Nested
     @DisplayName("Edge Cases and Stress Tests")
     class EdgeCasesAndStressTests {
 
