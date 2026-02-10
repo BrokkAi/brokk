@@ -137,6 +137,8 @@ class BrokkApp(App):
 
     async def _refresh_context_panel(self) -> None:
         """Fetches latest context and updates context and task list panels."""
+        if not self._executor_ready:
+            return
         try:
             context_data = await self.executor.get_context()
             self.query_one(ContextPanel).refresh_context(context_data)
@@ -324,7 +326,7 @@ class BrokkApp(App):
     def action_toggle_context(self) -> None:
         panel = self.query_one(ContextPanel)
         panel.display = not panel.display
-        if panel.display:
+        if panel.display and self._executor_ready:
             self.run_worker(self._refresh_context_panel())
 
     def action_toggle_tasklist(self) -> None:

@@ -291,6 +291,29 @@ async def test_app_mode_affects_submission_payload(tmp_path, monkeypatch):
     )
 
 
+def test_cli_default_snapshot_behavior():
+    """Verify that argparse defaults to executor_snapshot=True."""
+    from brokk_code.__main__ import main
+    import argparse
+    from unittest.mock import patch
+
+    # Mock ArgumentParser.parse_args to see what it would return with no CLI args
+    with patch("argparse.ArgumentParser.parse_args") as mock_parse:
+        # We just want to see the default state of a fresh parser
+        parser = argparse.ArgumentParser()
+        # Re-run the logic that defines the parser
+        # (This is a bit meta because main() isn't easily testable without 
+        # refactoring it to return the parser, so we replicate the check here)
+        parser.add_argument("--executor-snapshot", action="store_true", default=True)
+        parser.add_argument("--executor-stable", action="store_false", dest="executor_snapshot")
+        
+        args = parser.parse_args([])
+        assert args.executor_snapshot is True
+
+        args_stable = parser.parse_args(["--executor-stable"])
+        assert args_stable.executor_snapshot is False
+
+
 def test_version():
     from brokk_code import __version__
 

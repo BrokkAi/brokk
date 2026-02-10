@@ -21,12 +21,19 @@ def main():
         "--executor-version",
         type=str,
         default=None,
-        help="Specific version/tag of the executor to download (default: latest stable)",
+        help="Specific version/tag of the executor to download (default: latest snapshot)",
     )
     parser.add_argument(
         "--executor-snapshot",
         action="store_true",
-        help="Download the latest snapshot release if no specific version is provided",
+        default=True,
+        help="Download the latest snapshot release if no specific version is provided (default: True)",
+    )
+    parser.add_argument(
+        "--executor-stable",
+        action="store_false",
+        dest="executor_snapshot",
+        help="Download the latest stable release instead of the snapshot",
     )
     args = parser.parse_args()
 
