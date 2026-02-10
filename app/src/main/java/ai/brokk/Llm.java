@@ -972,10 +972,20 @@ public class Llm {
     }
 
     public record ResponseMetadata(
-            int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens, long elapsedMs) {
+            int inputTokens,
+            int cachedInputTokens,
+            int thinkingTokens,
+            int outputTokens,
+            long elapsedMs,
+            @Nullable String modelName,
+            @Nullable String finishReason,
+            @Nullable String created,
+            @Nullable String serviceTier,
+            @Nullable String error) {
         /**
          * Combines two ResponseMetadata objects by summing their token counts and elapsed time.
          * Handles null values: returns the other metadata if one is null.
+         * Note: categorical fields (modelName, etc.) are taken from the second operand if present.
          */
         public static @Nullable ResponseMetadata sum(@Nullable ResponseMetadata a, @Nullable ResponseMetadata b) {
             if (a == null) return b;
@@ -985,7 +995,12 @@ public class Llm {
                     a.cachedInputTokens() + b.cachedInputTokens(),
                     a.thinkingTokens() + b.thinkingTokens(),
                     a.outputTokens() + b.outputTokens(),
-                    a.elapsedMs() + b.elapsedMs());
+                    a.elapsedMs() + b.elapsedMs(),
+                    requireNonNullElse(b.modelName(), a.modelName()),
+                    requireNonNullElse(b.finishReason(), a.finishReason()),
+                    requireNonNullElse(b.created(), a.created()),
+                    requireNonNullElse(b.serviceTier(), a.serviceTier()),
+                    requireNonNullElse(b.error(), a.error()));
         }
     }
 
@@ -1030,10 +1045,13 @@ public class Llm {
         }
 
         public @Nullable ResponseMetadata metadata() {
-            if (originalResponse() == null) {
-                return null;
+            var response = originalResponse();
+            if (response == null) {
+                return error == null
+                        ? null
+                        : new ResponseMetadata(0, 0, 0, 0, elapsedMs, null, null, null, null, error.getMessage());
             }
-            var usage = (OpenAiTokenUsage) originalResponse().tokenUsage();
+            var usage = (OpenAiTokenUsage) response.tokenUsage();
             if (usage == null) {
                 logger.warn("Response is present but tokenUsage is null. Litellm bug?");
                 return null;
@@ -1055,7 +1073,34 @@ public class Llm {
                 thinkingTokens = outputDetails.reasoningTokens();
             }
 
-            return new ResponseMetadata(inputTokens, cachedInputTokens, thinkingTokens, outputTokens, elapsedMs);
+            String modelName = response.metadata().modelName();
+            String finishReason = response.finishReason() == null
+                    ? null
+                    : response.finishReason().name();
+            String created = null;
+            String serviceTier = null;
+
+            if (response.metadata() instanceof dev.langchain4j.model.openai.OpenAiChatResponseMetadata meta) {
+                if (meta.created() != null) {
+                    created = LocalDateTime.ofInstant(
+                                    java.time.Instant.ofEpochSecond(meta.created()), ZoneId.systemDefault())
+                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                }
+                serviceTier =
+                        meta.serviceTier() == null ? null : meta.serviceTier().name();
+            }
+
+            return new ResponseMetadata(
+                    inputTokens,
+                    cachedInputTokens,
+                    thinkingTokens,
+                    outputTokens,
+                    elapsedMs,
+                    modelName,
+                    finishReason,
+                    created,
+                    serviceTier,
+                    error == null ? null : error.getMessage());
         }
 
         public String text() {
@@ -1127,6 +1172,10 @@ public class Llm {
                     metadata.put("cachedInputTokens", meta.cachedInputTokens());
                     metadata.put("thinkingTokens", meta.thinkingTokens());
                     metadata.put("outputTokens", meta.outputTokens());
+                    if (meta.modelName() != null) metadata.put("modelName", meta.modelName());
+                    if (meta.finishReason() != null) metadata.put("finishReason", meta.finishReason());
+                    if (meta.created() != null) metadata.put("created", meta.created());
+                    if (meta.serviceTier() != null) metadata.put("serviceTier", meta.serviceTier());
                 }
                 metadata.put("elapsedMs", elapsedMs);
                 metadataJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(metadata);
