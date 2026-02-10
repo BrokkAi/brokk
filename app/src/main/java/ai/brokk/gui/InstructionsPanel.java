@@ -835,7 +835,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Command Input Field
         JScrollPane commandScrollPane = new JScrollPane(instructionsArea);
-        commandScrollPane.setBorder(BorderFactory.createEmptyBorder());
         commandScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         commandScrollPane.setPreferredSize(new Dimension(600, 80));
         commandScrollPane.setMinimumSize(new Dimension(100, 0));
