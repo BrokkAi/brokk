@@ -139,11 +139,13 @@ async def test_context_polling_updates_ui(tmp_path):
 
             # Verify List Contents
             list_view = panel.query_one("#context-list")
-            fragment_items = list_view.query("ContextFragmentItem")
-            assert len(fragment_items) == 2
+            # Query explicitly for ContextFragmentItem to avoid counting internal ListView nodes
+            fragment_items = list_view.query(ContextFragmentItem)
+            assert fragment_items.count() == 2
 
             # Check for specific text in list items
-            items_text = "".join(str(child.render()) for child in fragment_items)
+            # We iterate and render each fragment item to ensure content is present
+            items_text = "".join(str(item.render()) for item in fragment_items)
             assert "Modified UserAuth.java" in items_text
             assert "Previous chat history" in items_text
             assert "EDIT" in items_text
