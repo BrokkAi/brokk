@@ -1,0 +1,269 @@
+package ai.brokk.gui.components;
+
+import ai.brokk.gui.SwingUtil;
+import ai.brokk.gui.util.KeyboardShortcutUtil;
+import com.formdev.flatlaf.extras.FlatSVGIcon;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.Insets;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import javax.swing.BorderFactory;
+import javax.swing.Icon;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.KeyStroke;
+import javax.swing.UIManager;
+import javax.swing.border.LineBorder;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * A borderless, link-styled button that can optionally manage a global keyboard shortcut.
+ *
+ * <p>This implementation relies on the Look-and-Feel for rollover visuals by enabling rollover and keeping the content
+ * area filled, rather than managing hover colors via a dedicated MouseListener.
+ */
+public class MaterialButton extends JButton {
+    private @Nullable KeyStroke keyStroke;
+    private @Nullable String originalTooltipText;
+    private boolean appendShortcutToTooltip = false;
+    private @Nullable Icon originalIcon;
+
+    public MaterialButton() {
+        this(null);
+    }
+
+    public MaterialButton(@Nullable String text) {
+        super();
+        applyStyling();
+        // Use standard setText.
+        super.setText(text);
+    }
+
+    private void applyStyling() {
+        setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        setBorderPainted(true);
+        setFocusable(true);
+        setOpaque(false);
+
+        if (isForceBorderless()) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+            setBorderPainted(false);
+        } else {
+            var borderColor = UIManager.getColor("Component.borderColor");
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+            setMargin(new Insets(4, 8, 4, 8));
+        }
+        // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
+        // and enabling rollover support on the button model.
+        setContentAreaFilled(true);
+        setRolloverEnabled(true);
+
+        Color linkColor = UIManager.getColor("Label.linkForeground");
+        if (linkColor == null) {
+            linkColor = UIManager.getColor("Label.foreground");
+        }
+        if (linkColor == null) {
+            linkColor = Color.BLUE;
+        }
+        setForeground(linkColor);
+    }
+
+    @Override
+    public void setToolTipText(@Nullable String text) {
+        this.originalTooltipText = text;
+        updateTooltip();
+    }
+
+    /**
+     * Registers a global keyboard shortcut for this button's action.
+     *
+     * @param keyStroke The KeyStroke to register.
+     * @param parentComponent The component (typically a root pane) to associate the shortcut with.
+     * @param actionName A unique name for the action.
+     * @param action The Runnable to execute when the shortcut is activated.
+     */
+    public void setShortcut(
+            @Nullable KeyStroke keyStroke,
+            @Nullable JComponent parentComponent,
+            @Nullable String actionName,
+            @Nullable Runnable action) {
+        this.keyStroke = keyStroke;
+        if (keyStroke != null && parentComponent != null && actionName != null && action != null) {
+            KeyboardShortcutUtil.registerGlobalShortcut(parentComponent, keyStroke, actionName, action);
+        }
+        updateTooltip();
+    }
+
+    /**
+     * If set to true, the keyboard shortcut text will be appended to the button's tooltip.
+     *
+     * @param append whether to append the shortcut text.
+     */
+    public void setAppendShortcutToTooltip(boolean append) {
+        this.appendShortcutToTooltip = append;
+        updateTooltip();
+    }
+
+    private void applyBorderless() {
+        putClientProperty("JButton.buttonType", "borderless");
+        setBorder(null);
+        setBorderPainted(false);
+    }
+
+    @Override
+    public void setText(@Nullable String text) {
+        super.setText(text);
+
+        if (isForceBorderless()) {
+            applyBorderless();
+            return;
+        }
+
+        if (text == null || text.isBlank()) {
+            applyBorderlessIfIconOnly();
+        } else {
+            var borderColor = UIManager.getColor("Component.borderColor");
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+            setBorderPainted(true);
+        }
+    }
+
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        applyStyling();
+        updateIconForEnabledState();
+        updateCursorForEnabledState();
+        updateTooltip();
+        if (isForceBorderless()) {
+            applyBorderless();
+        } else {
+            applyBorderlessIfIconOnly();
+        }
+    }
+
+    private void updateTooltip() {
+        if (appendShortcutToTooltip && keyStroke != null) {
+            String shortcutText = formatKeyStroke(keyStroke);
+            if (originalTooltipText != null && !originalTooltipText.isBlank()) {
+                super.setToolTipText(originalTooltipText + " (" + shortcutText + ")");
+            } else {
+                super.setToolTipText(shortcutText);
+            }
+        } else {
+            super.setToolTipText(originalTooltipText);
+        }
+    }
+
+    @Override
+    public void setIcon(@Nullable Icon icon) {
+        this.originalIcon = icon;
+        if (icon != null) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+        }
+        updateIconForEnabledState();
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        updateIconForEnabledState();
+        updateCursorForEnabledState();
+    }
+
+    private void updateIconForEnabledState() {
+        if (originalIcon == null) {
+            super.setIcon(null);
+            return;
+        }
+
+        if (isEnabled()) {
+            super.setIcon(originalIcon);
+        } else {
+            Icon disabledIcon = createDisabledVersion(originalIcon);
+            super.setIcon(disabledIcon);
+        }
+    }
+
+    private void updateCursorForEnabledState() {
+        if (isEnabled()) {
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        } else {
+            setCursor(Cursor.getDefaultCursor());
+        }
+    }
+
+    private Icon createDisabledVersion(Icon icon) {
+        // Handle ThemedIcon wrapper from SwingUtil
+        if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+            Icon delegate = themedIcon.delegate();
+            if (delegate instanceof FlatSVGIcon svgIcon) {
+                return svgIcon.getDisabledIcon();
+            }
+        }
+
+        // Handle direct FlatSVGIcon
+        if (icon instanceof FlatSVGIcon svgIcon) {
+            return svgIcon.getDisabledIcon();
+        }
+
+        // Fallback for non-FlatSVG icons - return as-is
+        return icon;
+    }
+
+    private boolean isIconOnly() {
+        Icon icon = originalIcon != null ? originalIcon : getIcon();
+        String text = getText();
+        return icon != null && (text == null || text.isBlank());
+    }
+
+    private boolean isForceBorderless() {
+        Object v = getClientProperty("MaterialButton.forceBorderless");
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        return false;
+    }
+
+    private void applyBorderlessIfIconOnly() {
+        if (isIconOnly()) {
+            applyBorderless();
+        }
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        // When the component becomes displayable / is added to a hierarchy, register for dialog sizing
+        DialogButtonSizing.registerIfInDialog(this);
+    }
+
+    @Override
+    public void removeNotify() {
+        // When the component is removed from the hierarchy or destroyed, unregister and allow cleanup
+        DialogButtonSizing.unregister(this);
+        super.removeNotify();
+    }
+
+    private static String formatKeyStroke(KeyStroke ks) {
+        try {
+            int modifiers = ks.getModifiers();
+            int keyCode = ks.getKeyCode();
+            String modText = InputEvent.getModifiersExText(modifiers);
+            String keyText = KeyEvent.getKeyText(keyCode);
+            if (modText == null || modText.isBlank()) {
+                return keyText;
+            }
+            return modText + "+" + keyText;
+        } catch (Exception e) {
+            return ks.toString();
+        }
+    }
+}

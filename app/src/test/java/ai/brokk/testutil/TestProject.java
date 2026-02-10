@@ -1,0 +1,208 @@
+package ai.brokk.testutil;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import ai.brokk.agents.BuildAgent;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.mcp.McpConfig;
+import ai.brokk.project.IProject;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
+
+/** Lightweight IProject implementation for unit-testing Tree-sitter analyzers. */
+public class TestProject implements IProject {
+    private final Path root;
+    private final Language language;
+
+    private long runCommandTimeoutSeconds = 0L;
+
+    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
+            CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
+    private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
+    private boolean buildDetailsExplicitlySet = false;
+
+    private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
+    private String styleGuide = "";
+    private Set<String> exclusionPatterns = Set.of();
+    private boolean hasGit = false;
+    private @Nullable String jdk;
+
+    public TestProject(Path root) {
+        this(root, Languages.NONE);
+    }
+
+    public TestProject(Path root, Language language) {
+        assertTrue(Files.exists(root), "TestProject root does not exist: " + root);
+        assertTrue(Files.isDirectory(root), "TestProject root is not a directory: " + root);
+        this.root = root;
+        this.language = language;
+    }
+
+    public void setBuildDetails(BuildAgent.BuildDetails buildDetails) {
+        this.buildDetails = buildDetails;
+        this.buildDetailsExplicitlySet = true;
+
+        if (!detailsFuture.isDone()) {
+            detailsFuture.complete(buildDetails);
+            return;
+        }
+
+        detailsFuture = CompletableFuture.completedFuture(buildDetails);
+    }
+
+    @Override
+    public boolean hasBuildDetails() {
+        return buildDetailsExplicitlySet;
+    }
+
+    @Override
+    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
+        return detailsFuture;
+    }
+
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        setBuildDetails(details);
+    }
+
+    @Override
+    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
+        return Optional.of(this.buildDetails);
+    }
+
+    @Override
+    public BuildAgent.BuildDetails awaitBuildDetails() {
+        return detailsFuture.join();
+    }
+
+    @Override
+    public void setCodeAgentTestScope(IProject.CodeAgentTestScope scope) {
+        this.codeAgentTestScope = scope;
+    }
+
+    @Override
+    public IProject.CodeAgentTestScope getCodeAgentTestScope() {
+        return this.codeAgentTestScope;
+    }
+
+    @Override
+    public String getStyleGuide() {
+        return styleGuide;
+    }
+
+    public void setExclusionPatterns(Set<String> patterns) {
+        this.exclusionPatterns = patterns;
+    }
+
+    @Override
+    public Set<String> getExclusionPatterns() {
+        return exclusionPatterns;
+    }
+
+    public void setHasGit(boolean hasGit) {
+        this.hasGit = hasGit;
+    }
+
+    @Override
+    public boolean hasGit() {
+        return hasGit;
+    }
+
+    @Override
+    public @Nullable String getJdk() {
+        return jdk;
+    }
+
+    @Override
+    public void setJdk(@Nullable String jdkHome) {
+        this.jdk = jdkHome;
+    }
+
+    @Override
+    public boolean hasJdkOverride() {
+        return jdk != null;
+    }
+
+    public TestProject withJdk(@Nullable String jdkHome) {
+        setJdk(jdkHome);
+        return this;
+    }
+
+    @Override
+    public McpConfig getMcpConfig() {
+        return McpConfig.EMPTY;
+    }
+
+    @Override
+    public void setMcpConfig(McpConfig config) {}
+
+    /** Creates a TestProject rooted under src/test/resources/{subDir}. */
+    public static TestProject createTestProject(String subDir, Language lang) {
+        Path testDir = Path.of("src/test/resources", subDir);
+        assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
+        assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");
+        return new TestProject(testDir.toAbsolutePath(), lang);
+    }
+
+    @Override
+    public Set<Language> getAnalyzerLanguages() {
+        return Set.of(language);
+    }
+
+    @Override
+    public Language getBuildLanguage() {
+        return language;
+    }
+
+    @Override
+    public Path getRoot() {
+        return root;
+    }
+
+    @Override
+    public Path getMasterRootPathForConfig() {
+        return getRoot();
+    }
+
+    @Override
+    public Set<ProjectFile> getAllFiles() {
+        try (Stream<Path> stream = Files.walk(root)) {
+            return stream.filter(p -> Files.isRegularFile(p))
+                    .map(p -> new ProjectFile(root, root.relativize(p)))
+                    .collect(Collectors.toSet());
+        } catch (IOException | UncheckedIOException e) {
+            System.err.printf("ERROR (TestProject.getAllFiles): walk failed on %s: %s%n", root, e.getMessage());
+            // NoSuchFileException can occur directly (from Files.walk) or wrapped in UncheckedIOException (from stream
+            // iteration)
+            Throwable cause = e instanceof UncheckedIOException ? e.getCause() : e;
+            if (!(cause instanceof NoSuchFileException)) {
+                e.printStackTrace(System.err);
+            }
+            return Collections.emptySet();
+        }
+    }
+
+    /**
+     * Returns true if this test project contains no analyzable source files.
+     */
+    public boolean isEmptyProject() {
+        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
+                .filter(lang -> lang != Languages.NONE)
+                .flatMap(lang -> lang.getExtensions().stream())
+                .collect(Collectors.toSet());
+
+        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
+    }
+}

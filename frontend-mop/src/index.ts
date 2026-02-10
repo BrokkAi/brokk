@@ -1,0 +1,393 @@
+import './styles/global.scss';
+import {mount, tick} from 'svelte';
+import {get} from 'svelte/store';
+import Mop from './MOP.svelte';
+import {bubblesStore, onBrokkEvent, reparseAll, setLiveTaskInProgress, getCurrentLiveThreadId} from './stores/bubblesStore';
+import {onHistoryEvent} from './stores/historyStore';
+import {spinnerStore} from './stores/spinnerStore';
+import {transientStore} from './stores/transientStore';
+import {themeStore} from './stores/themeStore';
+import { threadStore } from './stores/threadStore';
+import {createSearchController, type SearchController} from './search/search';
+import {log, createLogger} from './lib/logging';
+import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
+import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePathCacheStore';
+import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from './stores/zoomStore';
+import './components/ZoomWidget.ts';
+import { envStore } from './stores/envStore';
+import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree, summaryStore } from './stores/summaryStore';
+import { register, unregister, isRegistered } from './worker/parseRouter';
+import { parse } from './worker/worker-bridge';
+import { allocSummarySeq, allocStaticDocSeq } from './shared/seq';
+import { staticDocStore } from './stores/staticDocStore';
+
+const mainLog = createLogger('main');
+
+let searchCtrl: SearchController | null = null;
+
+ // Initialization calls at the top
+checkWorkerSupport();
+initializeApp();
+const buffer = setupBrokkInterface();
+replayBufferedItems(buffer);
+void initSearchController();
+setupSearchRehighlight();
+setupZoomDisplayObserver();
+
+// Function definitions below
+function checkWorkerSupport(): void {
+    if (!('Worker' in window)) {
+        alert('This version of Brokk requires a newer runtime with Web Worker support.');
+        throw new Error('Web Workers unsupported');
+    }
+}
+
+
+function initializeApp(): void {
+    mount(Mop, {
+        target: document.getElementById('mop-root')!,
+        props: {bubblesStore, spinnerStore}
+    } as any);
+
+    // Set initial production class on body for dev mode detection
+    const isProduction = !import.meta.env.DEV;
+    document.body.classList.toggle('production', isProduction);
+}
+
+function setupBrokkInterface(): any[] {
+    // Replace the temporary brokk proxy with the real implementation
+    const buffer = window.brokk._buffer;
+    window.brokk = {
+        _buffer: [],
+        onEvent: handleEvent,
+        getSelection: getCurrentSelection,
+        clear: clearChat,
+        setTheme: setAppTheme,
+        showSpinner: showSpinnerMessage,
+        hideSpinner: hideSpinnerMessage,
+        // Task progress API
+        setTaskInProgress: (inProgress: boolean) => {
+            if (!inProgress) {
+                transientStore.hide();
+            }
+            setLiveTaskInProgress(inProgress);
+        },
+        // Transient message API
+        showTransientMessage: (msg: string) => transientStore.show(msg),
+        hideTransientMessage: () => transientStore.hide(),
+
+        // Search API
+        setSearch: (query: string, caseSensitive: boolean) => searchCtrl?.setQuery(query, caseSensitive),
+        clearSearch: () => searchCtrl?.clear(),
+        nextMatch: () => searchCtrl?.next(),
+        prevMatch: () => searchCtrl?.prev(),
+        scrollToCurrent: () => searchCtrl?.scrollCurrent(),
+        getSearchState: () => searchCtrl?.getState(),
+
+        // Symbol lookup API
+        refreshSymbolLookup: refreshSymbolLookup,
+        onSymbolLookupResponse: onSymbolResolutionResponse,
+
+        // File path lookup API
+        refreshFilePathLookup: refreshFilePathLookup,
+        onFilePathLookupResponse: onFilePathResolutionResponse,
+        // Zoom API
+        zoomIn: () => {
+            zoomIn();
+        },
+        zoomOut: () => {
+            zoomOut();
+        },
+        resetZoom: () => {
+            resetZoom();
+        },
+        setZoom: (value: number) => {
+            setZoom(value);
+        },
+
+        // Debug API
+        toggleWrapStatus: () => typeof window !== 'undefined' && window.toggleWrapStatus ? window.toggleWrapStatus() : undefined,
+
+        // Environment info API
+        setEnvironmentInfo: (info) => {
+            envStore.set(info);
+        },
+
+    };
+
+    // Signal to Java that the bridge is ready
+    if (window.javaBridge && window.javaBridge.onBridgeReady) {
+        window.javaBridge.onBridgeReady();
+    }
+
+    return buffer;
+}
+
+async function handleEvent(payload: any): Promise<void> {
+    if (payload.type === 'history-reset' || payload.type === 'history-task') {
+        onHistoryEvent(payload);
+    } else if (payload.type === 'live-summary') {
+        onLiveSummary(payload);
+    } else if (payload.type === 'static-document') {
+        onStaticDocument(payload);
+    } else {
+        // live-streaming
+        onBrokkEvent(payload);
+    }
+
+    // Wait until Svelte updated *and* browser painted
+    await tick();
+    requestAnimationFrame(() => {
+        if (payload.epoch) window.javaBridge?.onAck(payload.epoch);
+    });
+}
+
+function onLiveSummary(payload: any): void {
+    const { compressed, summary } = payload;
+
+    // Get the current live thread's threadId directly (doesn't depend on bubbles existing)
+    const threadId = getCurrentLiveThreadId();
+
+    // Clear any previous summary entry for this threadId
+    const prevEntry = getSummaryEntry(threadId);
+    if (prevEntry && isRegistered(prevEntry.seq)) {
+        unregister(prevEntry.seq);
+    }
+    deleteSummaryEntry(threadId);
+
+    // Create a new sequence number for this summary parse
+    const summarySeq = allocSummarySeq();
+
+    // Store the summary entry in summaryParseStore (merged metadata)
+    setSummaryEntry(threadId, {
+        seq: summarySeq,
+        text: summary,
+        compressed,
+    });
+
+    // Register a parse result handler
+    register(summarySeq, (msg: any) => {
+        updateSummaryTree(threadId, msg.tree);
+    });
+
+    // Trigger parsing with the worker (slow parse, don't update buffer)
+    parse(summary, summarySeq, false, false);
+}
+
+// Track current static doc sequence to cancel stale parse results
+let currentStaticDocSeq: number | null = null;
+
+function onStaticDocument(payload: any): void {
+    const markdown = payload.markdown;
+
+    // Clean up any existing handler for previous static doc
+    if (currentStaticDocSeq !== null) {
+        unregister(currentStaticDocSeq);
+        currentStaticDocSeq = null;
+    }
+
+    // Null/empty markdown means exit static mode
+    if (markdown == null || markdown === '') {
+        staticDocStore.set(null);
+        return;
+    }
+
+    // Allocate new unique sequence for this static doc
+    const seq = allocStaticDocSeq();
+    currentStaticDocSeq = seq;
+
+    register(seq, (msg: any) => {
+        // Only apply if this is still the current document
+        if (currentStaticDocSeq === seq) {
+            staticDocStore.set({seq, text: markdown, tree: msg.tree});
+        }
+    });
+
+    parse(markdown, seq, false, false);
+    staticDocStore.set({seq, text: markdown});
+}
+
+function getCurrentSelection(): string {
+    return window.getSelection()?.toString() ?? '';
+}
+
+function clearChat(): void {
+    onBrokkEvent({type: 'clear', epoch: 0});
+    onHistoryEvent({type: 'history-reset', epoch: 0});
+    onStaticDocument({type: 'static-document', markdown: null, epoch: 0});
+}
+
+function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {
+    console.info('setTheme executed: themeName=' + themeName + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode + ', zoom=' + zoom);
+
+    // Store dark mode status for backward compatibility with components that use themeStore
+    const isDark = themeName !== 'light';
+    themeStore.set(isDark);
+
+    const html = document.querySelector('html')!;
+
+    // Handle theme classes - remove all theme classes first, then add the correct one
+    html.classList.remove('theme-dark', 'theme-light', 'theme-high-contrast', 'theme-dark-plus', 'theme-light-plus');
+
+    if (themeName === 'light') {
+        html.classList.add('theme-light');
+    } else if (themeName === 'dark') {
+        html.classList.add('theme-dark');
+    } else if (themeName === 'dark-plus') {
+        // Dark+ reuses dark variables/tokens for readability, plus a marker class for optional future overrides
+        html.classList.add('theme-dark');
+        html.classList.add('theme-dark-plus');
+    } else if (themeName === 'light-plus') {
+        // Light+ reuses light variables/tokens for readability, plus a marker class for optional future overrides
+        html.classList.add('theme-light');
+        html.classList.add('theme-light-plus');
+    } else if (themeName === 'high-contrast') {
+        html.classList.add('theme-high-contrast');
+    } else {
+        // Fallback for unknown theme names: treat as dark
+        html.classList.add('theme-dark');
+    }
+
+    // Set zoom if provided
+    if (zoom !== undefined) {
+        setZoom(zoom);
+    }
+
+    // Handle wrap mode classes - default to wrap mode enabled
+    const shouldWrap = wrapMode !== undefined ? wrapMode : true;
+    if (shouldWrap) {
+        html.classList.add('code-wrap-mode');
+        console.info('Applied code-wrap-mode class');
+    } else {
+        html.classList.remove('code-wrap-mode');
+        console.info('Removed code-wrap-mode class');
+    }
+
+    // Trigger status update for debug display
+    if (typeof window !== 'undefined' && window.updateWrapStatus) {
+        window.updateWrapStatus();
+    }
+
+    // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
+    mainLog.info(`set theme: ${themeName} dev mode: ${isDevMode}`);
+    let isProduction: boolean;
+    if (isDevMode !== undefined) {
+        // Java explicitly told us dev mode status
+        isProduction = !isDevMode;
+    } else {
+        // Fall back to frontend-only detection (for compatibility)
+        isProduction = !import.meta.env.DEV;
+    }
+    document.body.classList.toggle('production', isProduction);
+}
+
+function showSpinnerMessage(message = ''): void {
+    spinnerStore.show(message);
+}
+
+function hideSpinnerMessage(): void {
+    spinnerStore.hide();
+}
+
+/**
+ * Generic symbol refresh mechanism that clears cache and triggers UI refresh.
+ * Can be called from multiple scenarios: analyzer ready, context switch,
+ * manual refresh, configuration changes, error recovery, etc.
+ *
+ * @param contextId - The context ID to refresh symbols for (defaults to 'main-context')
+ */
+function refreshSymbolLookup(contextId: string = 'main-context'): void {
+    mainLog.debug(`[symbol-refresh] Refreshing symbols for context: ${contextId}, clearing cache and triggering UI refresh`);
+
+    // Clear symbol cache to ensure fresh lookups
+    clearSymbolCache(contextId);
+
+    // Trigger symbol lookup for visible symbols to highlight them
+    reparseAll(contextId);
+}
+
+/**
+ * Refresh file path lookup by clearing the cache and triggering a fresh lookup for all visible file paths.
+ * This is called when the analyzer becomes ready or when context switches.
+ *
+ * @param contextId - The context ID to refresh file paths for (defaults to 'main-context')
+ */
+function refreshFilePathLookup(contextId: string = 'main-context'): void {
+    mainLog.debug(`[file-path-refresh] Refreshing file paths for context: ${contextId}, clearing cache and triggering UI refresh`);
+
+    // Clear file path cache to ensure fresh lookups
+    clearFilePathCache(contextId);
+
+    // Trigger file path lookup for visible file paths to highlight them
+    reparseAll(contextId);
+}
+
+
+function replayBufferedItems(buffer: any[]): void {
+    // Replay buffered calls and events in sequence order
+    if (buffer.length > 0) {
+        console.log('Replaying', buffer.length, 'buffered items');
+        buffer.sort((a, b) => a.seq - b.seq).forEach(item => {
+            if (item.type === 'event' && item.payload) {
+                console.log('Replaying event with epoch:', JSON.stringify(item.payload));
+                window.brokk.onEvent(item.payload);
+            } else if (item.type === 'call' && item.method) {
+                console.log('Replaying call to', item.method, 'with args:', item.args);
+                const brokk = window.brokk as Record<string, (...args: unknown[]) => unknown>;
+                if (typeof brokk[item.method] === 'function') {
+                    brokk[item.method](...(item.args ?? []));
+                } else {
+                    console.warn('Method', item.method, 'no longer exists; skipping replay');
+                }
+            }
+        });
+    }
+}
+
+async function initSearchController(): Promise<void> {
+    await tick();
+    const container = document.getElementById('chat-container') ?? document.getElementById('mop-root')!;
+    if (!container) {
+        console.warn('[search] container not found');
+        return;
+    }
+    searchCtrl = createSearchController(container);
+}
+
+function setupSearchRehighlight(): void {
+    let pending = false;
+    const trigger = () => {
+        if (!searchCtrl || !searchCtrl.getState().query) return;
+        if (pending) return;
+        pending = true;
+
+        tick().then(() => {
+            requestAnimationFrame(() => {
+                pending = false;
+                searchCtrl?.onContentChanged();
+            });
+        });
+    };
+    bubblesStore.subscribe(trigger);
+    threadStore.subscribe(trigger);
+}
+
+function setupZoomDisplayObserver(): void {
+    const render = (zoom: number) => {
+        const el = document.getElementById('zoom-display');
+        if (el) {
+            el.textContent = getZoomPercentage(zoom);
+        }
+    };
+
+    // Initial render and ongoing updates
+    render(get(zoomStore));
+    zoomStore.subscribe((zoom) => {
+        render(zoom);
+        try {
+            (window as any).javaBridge?.onZoomChanged?.(zoom);
+        } catch (e) {
+            // ignore when bridge not ready or in dev
+        }
+    });
+}

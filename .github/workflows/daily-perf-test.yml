@@ -1,0 +1,179 @@
+name: Daily Performance Test
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # Run daily at 3 AM UTC
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  performance-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Fetch remote branches
+        run: |
+          git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
+
+      - name: Prepare CI tools (scripts)
+        run: |
+          mkdir -p .ci-tools
+          cp -v ./scripts/run-treesitter-repos.sh ./.ci-tools/run-treesitter-repos.sh
+          cp -v ./scripts/compare-perf-results.py ./.ci-tools/compare-perf-results.py
+          chmod +x ./.ci-tools/run-treesitter-repos.sh
+          # Absolute paths for stability across checkouts
+          echo "CI_TOOLS=$GITHUB_WORKSPACE/.ci-tools" >> $GITHUB_ENV
+          echo "REPORT_ROOT=$GITHUB_WORKSPACE/perf" >> $GITHUB_ENV
+          mkdir -p "$GITHUB_WORKSPACE/.ci-tools"
+          mkdir -p "$GITHUB_WORKSPACE/perf"
+          chmod +x "$GITHUB_WORKSPACE/.ci-tools/run-treesitter-repos.sh"
+
+      - name: Get commit hashes
+        id: get_commits
+        run: |
+          # HEAD (current checkout)
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "HEAD_SHA=$HEAD_SHA" >> $GITHUB_ENV
+          echo "HEAD_SHA_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+          # Determine baseline branch:
+          # - For PRs: use the PR base branch (e.g., master)
+          # - For scheduled/manual runs: default to master
+          BRANCH="${{ github.base_ref }}"
+          if [ -z "$BRANCH" ]; then
+            BRANCH="master"
+          fi
+          echo "Using baseline branch: $BRANCH"
+
+          # Ensure remote branches are present (in case checkout was shallow or remote refs missing)
+          git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
+
+          # Find the most recent commit on the baseline branch that is older than 24 hours
+          BASE_SHA=$(git rev-list -n 1 --before="24 hours ago" "origin/$BRANCH" || true)
+          echo "BASE_SHA=$BASE_SHA" >> $GITHUB_ENV
+          if [ -n "$BASE_SHA" ]; then
+            echo "BASE_SHA_SHORT=$(git rev-parse --short $BASE_SHA)" >> $GITHUB_ENV
+          else
+            echo "BASE_SHA_SHORT=none" >> $GITHUB_ENV
+          fi
+
+      - name: Check for new commits
+        id: check_commits
+        run: |
+          if [ "${{ env.HEAD_SHA }}" == "${{ env.BASE_SHA }}" ] || [ -z "${{ env.BASE_SHA }}" ]; then
+            echo "No new commits in the last 24 hours or no prior commit found. Skipping performance test."
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "New commits found. Running performance test."
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up JBR 21
+        if: steps.check_commits.outputs.should_skip == 'false'
+        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+
+      - name: Set up Python
+        if: steps.check_commits.outputs.should_skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Setup Gradle
+        if: steps.check_commits.outputs.should_skip == 'false'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup test projects
+        if: steps.check_commits.outputs.should_skip == 'false'
+        run: ${{ env.CI_TOOLS }}/run-treesitter-repos.sh setup
+
+      - name: Run benchmark on HEAD (3 iterations with 1 warm-up)
+        if: steps.check_commits.outputs.should_skip == 'false'
+        run: |
+          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/head" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
+
+      - id: coarse_memory
+        name: Coarse memory regression test (HEAD)
+        if: steps.check_commits.outputs.should_skip == 'false'
+        run: |
+          set +e
+          RUNNER_XMX=100M "${{ env.CI_TOOLS }}/run-treesitter-repos.sh" directory --project intellij-community --language java --max-files 1800 --iterations 1 --warm-up-iterations 0 --fail-on-thrashing --stats --verbose
+          exit_code=$?
+          # restore errexit just in case
+          set -e
+          if [ "$exit_code" -eq 0 ]; then
+            echo "coarse_memory_ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "coarse_memory_ok=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Clean build artifacts
+        if: steps.check_commits.outputs.should_skip == 'false'
+        run: ./gradlew clean
+
+      - name: Checkout BASE
+        if: steps.check_commits.outputs.should_skip == 'false'
+        run: git checkout ${{ env.BASE_SHA }}
+
+      - name: Run benchmark on BASE (3 iterations with 1 warm-up)
+        if: steps.check_commits.outputs.should_skip == 'false'
+        run: |
+          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/base" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
+
+      - name: Compare results
+        if: steps.check_commits.outputs.should_skip == 'false'
+        id: compare
+        run: |
+          summary_json=$(python3 "${{ env.CI_TOOLS }}/compare-perf-results.py" --format=json "${{ env.REPORT_ROOT }}/base" "${{ env.REPORT_ROOT }}/head")
+          echo "$summary_json" | tee "${{ env.REPORT_ROOT }}/summary.json"
+          # Expose granular variables for Slack Workflow
+          echo "ok=$(echo "$summary_json" | jq -r '.ok')" >> $GITHUB_OUTPUT
+          echo "error_text=$(echo "$summary_json" | jq -r '.error // empty')" >> $GITHUB_OUTPUT
+          # Analysis Time
+          echo "time_base=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.base_str // empty')" >> $GITHUB_OUTPUT
+          echo "time_head=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.head_str // empty')" >> $GITHUB_OUTPUT
+          echo "time_change_pct=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.change_pct // empty')" >> $GITHUB_OUTPUT
+          echo "time_change_str=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.change_str // empty')" >> $GITHUB_OUTPUT
+          echo "time_status=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.status // empty')" >> $GITHUB_OUTPUT
+          echo "time_status_emoji=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.status_emoji // empty')" >> $GITHUB_OUTPUT
+          # Files per Second
+          echo "fps_base=$(echo "$summary_json" | jq -r '.metrics.files_per_second.base_str // empty')" >> $GITHUB_OUTPUT
+          echo "fps_head=$(echo "$summary_json" | jq -r '.metrics.files_per_second.head_str // empty')" >> $GITHUB_OUTPUT
+          echo "fps_change_pct=$(echo "$summary_json" | jq -r '.metrics.files_per_second.change_pct // empty')" >> $GITHUB_OUTPUT
+          echo "fps_change_str=$(echo "$summary_json" | jq -r '.metrics.files_per_second.change_str // empty')" >> $GITHUB_OUTPUT
+          echo "fps_status=$(echo "$summary_json" | jq -r '.metrics.files_per_second.status // empty')" >> $GITHUB_OUTPUT
+          echo "fps_status_emoji=$(echo "$summary_json" | jq -r '.metrics.files_per_second.status_emoji // empty')" >> $GITHUB_OUTPUT
+
+      - name: Send performance data to Slack Workflow
+        if: steps.check_commits.outputs.should_skip == 'false'
+        uses: slackapi/slack-github-action@v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_DAILY_PERF_WEBHOOK_URL }}
+          webhook-type: webhook-trigger
+          payload: |
+            {
+              "ok": "${{ steps.compare.outputs.ok }}",
+              "error_text": "${{ steps.compare.outputs.error_text }}",
+              "head_sha_short": "${{ env.HEAD_SHA_SHORT }}",
+              "base_sha_short": "${{ env.BASE_SHA_SHORT }}",
+              "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+
+              "time_base": "${{ steps.compare.outputs.time_base }}",
+              "time_head": "${{ steps.compare.outputs.time_head }}",
+              "time_change_pct": "${{ steps.compare.outputs.time_change_pct }}",
+              "time_change_str": "${{ steps.compare.outputs.time_change_str }}",
+              "time_status": "${{ steps.compare.outputs.time_status }}",
+              "time_status_emoji": "${{ steps.compare.outputs.time_status_emoji }}",
+
+
+              "fps_base": "${{ steps.compare.outputs.fps_base }}",
+              "fps_head": "${{ steps.compare.outputs.fps_head }}",
+              "fps_change_pct": "${{ steps.compare.outputs.fps_change_pct }}",
+              "fps_change_str": "${{ steps.compare.outputs.fps_change_str }}",
+              "fps_status": "${{ steps.compare.outputs.fps_status }}",
+              "fps_status_emoji": "${{ steps.compare.outputs.fps_status_emoji }}",
+              "coarse_memory_ok": "${{ steps.coarse_memory.outputs.coarse_memory_ok }}"
+            }

@@ -1,0 +1,1980 @@
+package ai.brokk.gui;
+
+import static java.util.Objects.requireNonNull;
+
+import ai.brokk.ContextManager;
+import ai.brokk.GitHubAuth;
+import ai.brokk.IConsoleIO;
+import ai.brokk.agents.ConflictInspector;
+import ai.brokk.agents.MergeAgent;
+import ai.brokk.agents.ReviewAgent;
+import ai.brokk.agents.ReviewGenerationException;
+import ai.brokk.agents.ReviewScope;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextHistory;
+import ai.brokk.context.DiffService;
+import ai.brokk.context.SpecialTextType;
+import ai.brokk.difftool.node.JMDiffNode;
+import ai.brokk.difftool.ui.AbstractContentPanel;
+import ai.brokk.difftool.ui.AbstractDiffPanel;
+import ai.brokk.difftool.ui.BrokkDiffPanel;
+import ai.brokk.difftool.ui.BufferDiffPanel;
+import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.ui.DiffDisplayCore;
+import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
+import ai.brokk.difftool.ui.DiffToolbarCallbacks;
+import ai.brokk.difftool.ui.DiffToolbarPanel;
+import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.difftool.ui.FileTreePanel;
+import ai.brokk.difftool.ui.ToolbarFeature;
+import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
+import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
+import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.git.CommitInfo;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoData.FileDiff;
+import ai.brokk.git.GitWorkflow;
+import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.components.MaterialProgressButton;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
+import ai.brokk.gui.dialogs.CreatePullRequestDialog;
+import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.Icons;
+import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.ReviewParser;
+import java.awt.*;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+import javax.swing.*;
+import javax.swing.border.CompoundBorder;
+import javax.swing.border.EmptyBorder;
+import javax.swing.border.LineBorder;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * A panel that displays an aggregated diff of changes for the current session/branch.
+ */
+public class SessionChangesPanel extends JPanel implements ThemeAware {
+    private static final Logger logger = LogManager.getLogger(SessionChangesPanel.class);
+    private final Chrome chrome;
+    private final ContextManager cm;
+    private final GitRepo repo;
+    private final DeferredUpdateHelper deferredUpdateHelper;
+    private final ReviewTabListener reviewTabListener;
+
+    /** The operational mode of the panel. */
+    private enum PanelMode {
+        /** Live preview of uncommitted changes vs auto-resolved branch baseline */
+        PREVIEW,
+        /** Frozen review with explicit commit range */
+        REVIEW,
+        /** No changes to display (working tree clean, or no diff) */
+        EMPTY,
+        /** Couldn't resolve baseline */
+        ERROR
+    }
+
+    private PanelMode currentMode = PanelMode.PREVIEW;
+
+    private void setMode(PanelMode newMode) {
+        assert SwingUtilities.isEventDispatchThread();
+        this.currentMode = newMode;
+
+        updateGuidedReviewButton();
+
+        if (newMode == PanelMode.REVIEW) {
+            codeReviewPanel.clearSelection();
+            fileTreePanel.clearSelection();
+            diffContainer.removeAll();
+            diffActive = false;
+            updateDiffToolbarVisibility();
+            diffContainer.revalidate();
+            diffContainer.repaint();
+        }
+
+        if (newMode == PanelMode.EMPTY || newMode == PanelMode.ERROR) {
+            diffCore.updateFileComparisons(List.of());
+            emptyLabel.setText(getEmptyStateMessage());
+            mainCardLayout.show(cardsPanel, "EMPTY");
+        } else {
+            mainCardLayout.show(cardsPanel, "MAIN");
+            updateLayoutForMode(newMode);
+        }
+    }
+
+    @Nullable
+    private DiffService.CumulativeChanges lastCumulativeChanges = null;
+
+    @Nullable
+    private volatile List<Map.Entry<String, FileDiff>> lastPreparedPerFile = null;
+
+    /** Monotonically increasing token to track the latest requestUpdate invocation. */
+    private final AtomicLong updateGeneration = new AtomicLong(0);
+
+    public record ReviewState(@Nullable String commitHash, long generatedAtMillis) {}
+
+    public record StalenessInfo(
+            int commitsBehind, int uncommittedChanges, boolean differentBranch, boolean unknownCommit) {}
+
+    @Nullable
+    private ReviewState lastReviewState = null;
+
+    private final DiffDisplayCore diffCore;
+
+    /** If non-null, an explicit commit/ref to compare against. If null, we auto-resolve based on branch. */
+    @Nullable
+    private String reviewBaselineRef = null;
+
+    /** Target commit (HEAD) when the review was generated, for staleness checks. */
+    @Nullable
+    private String reviewTargetCommit = null;
+
+    private final FileTreePanel fileTreePanel;
+
+    private final CommitsTablePanel commitsTable;
+
+    private final CodeReviewPanel codeReviewPanel;
+
+    private final JSplitPane leftSplitPane;
+
+    private final JPanel diffContainer;
+    private final DiffToolbarPanel diffToolbar;
+
+    private final JLabel branchLabel;
+
+    private final JLabel baselineLabel;
+
+    private final MaterialButton commitBtn;
+
+    private final MaterialButton resolveConflictsBtn;
+
+    private final MaterialButton pullBtn;
+
+    private final MaterialButton pushBtn;
+
+    private final MaterialButton prBtn;
+
+    private final MaterialProgressButton guidedReviewBtn;
+
+    private final MaterialButton captureBtn;
+
+    private final CardLayout mainCardLayout;
+    private final JPanel cardsPanel;
+    private final JLabel emptyLabel;
+
+    private boolean guidedReviewBusy = false;
+
+    /** Track the current detected conflict for the Resolve Conflicts button */
+    @Nullable
+    private MergeAgent.MergeConflict currentConflict = null;
+
+    private final JSplitPane rightVerticalSplitPane;
+
+    private final JSplitPane mainSplitPane;
+
+    @Nullable
+    private ReviewParser.CodeExcerpt activeExcerpt = null;
+
+    private boolean diffActive = false;
+
+    private List<FileComparisonInfo> fileComparisons = List.of();
+
+    public record ReviewTabState(String title, String tooltip, int uncommittedCount) {}
+
+    @FunctionalInterface
+    public interface ReviewTabListener {
+        void onReviewTabStateChanged(ReviewTabState state);
+    }
+
+    public SessionChangesPanel(Chrome chrome, ContextManager contextManager, ReviewTabListener reviewTabListener) {
+        super(new BorderLayout());
+        this.chrome = chrome;
+        this.cm = contextManager;
+        this.reviewTabListener = reviewTabListener;
+
+        var maybeRepo = contextManager.getProject().getRepo();
+        if (!(maybeRepo instanceof GitRepo gr)) {
+            throw new IllegalStateException("SessionChangesPanel requires a GitRepo");
+        }
+        this.repo = gr;
+
+        setOpaque(false);
+        setBorder(new CompoundBorder(
+                new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
+
+        this.branchLabel = new JLabel();
+        this.branchLabel.setOpaque(false);
+        this.branchLabel.setFont(this.branchLabel.getFont().deriveFont(Font.BOLD));
+
+        this.baselineLabel = new JLabel();
+        this.baselineLabel.setOpaque(false);
+
+        this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
+
+        this.resolveConflictsBtn = new MaterialButton("") {
+            @Override
+            public Dimension getPreferredSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMinimumSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(24, 24);
+            }
+        };
+        this.resolveConflictsBtn.setIcon(Icons.MERGE);
+        this.resolveConflictsBtn.setToolTipText("Resolve merge conflicts with AI assistance");
+        this.resolveConflictsBtn.setEnabled(false);
+        this.resolveConflictsBtn.setMargin(new Insets(0, 0, 0, 0));
+
+        this.pullBtn = createIconButton(Icons.DOWNLOAD, "Pull changes from the remote repository");
+        this.pushBtn = createIconButton(Icons.PUBLISH, "Push your commits to the remote repository");
+        this.prBtn = createIconButton(Icons.ADD_DIAMOND, "Create a pull request for the current branch");
+        this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
+        this.guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
+
+        this.captureBtn =
+                createIconButton(Icons.CONTENT_CAPTURE, "Capture these changes and add them to the workspace context");
+        this.commitsTable = new CommitsTablePanel();
+        this.commitsTable.addSelectionListener(this::onCommitSelectionChanged);
+        this.commitsTable.setGuidedReviewActionListener(e -> handleCommitRangeReview());
+        this.commitsTable.setCaptureDiffActionListener(e -> handleCaptureSelectedDiff());
+
+        this.diffContainer = new JPanel(new BorderLayout());
+        this.diffContainer.setOpaque(false);
+
+        // Create toolbar with navigation and font controls only (no view mode toggle or tools menu)
+        var reviewFeatures = java.util.EnumSet.of(
+                ToolbarFeature.CHANGE_NAVIGATION, ToolbarFeature.FILE_NAVIGATION, ToolbarFeature.FONT_CONTROLS);
+        this.diffToolbar = new DiffToolbarPanel(reviewFeatures, createToolbarCallbacks());
+
+        // Wrap diffContainer with toolbar at top
+        var diffWithToolbar = new JPanel(new BorderLayout());
+        diffWithToolbar.setOpaque(false);
+        diffWithToolbar.add(diffToolbar, BorderLayout.NORTH);
+        diffWithToolbar.add(diffContainer, BorderLayout.CENTER);
+
+        this.codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
+        this.fileTreePanel =
+                new FileTreePanel(List.of(), contextManager.getProject().getRoot());
+
+        // leftSplitPane starts with commitsTable in PREVIEW mode
+        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitsTable, fileTreePanel);
+        this.leftSplitPane.setResizeWeight(0.4);
+
+        // Right side: ReviewDetailPanel above diff view (only shown in REVIEW mode)
+        this.rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, null, diffWithToolbar);
+        this.rightVerticalSplitPane.setResizeWeight(0.0);
+
+        // Main split: left (commits/review list + file tree), right (review detail + diff)
+        this.mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
+        this.mainSplitPane.setDividerLocation(300);
+
+        this.mainCardLayout = new CardLayout();
+        this.cardsPanel = new JPanel(mainCardLayout);
+        this.cardsPanel.setOpaque(false);
+
+        this.emptyLabel = new JLabel("", SwingConstants.CENTER);
+        this.emptyLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
+        this.cardsPanel.add(emptyLabel, "EMPTY");
+        this.cardsPanel.add(mainSplitPane, "MAIN");
+
+        var headerPanel = new JPanel(new BorderLayout(8, 0));
+        headerPanel.setOpaque(false);
+        headerPanel.setBorder(new EmptyBorder(0, 0, 5, 0));
+        var leftHeader = new JPanel();
+        leftHeader.setLayout(new BoxLayout(leftHeader, BoxLayout.X_AXIS));
+        leftHeader.setOpaque(false);
+        branchLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        baselineLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        leftHeader.add(branchLabel);
+        leftHeader.add(Box.createHorizontalStrut(12));
+        leftHeader.add(baselineLabel);
+        headerPanel.add(leftHeader, BorderLayout.WEST);
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        buttonPanel.setOpaque(false);
+        buttonPanel.add(commitBtn);
+        buttonPanel.add(resolveConflictsBtn);
+        buttonPanel.add(pullBtn);
+        buttonPanel.add(pushBtn);
+        buttonPanel.add(prBtn);
+        buttonPanel.add(captureBtn);
+        buttonPanel.add(guidedReviewBtn);
+        headerPanel.add(buttonPanel, BorderLayout.EAST);
+
+        add(headerPanel, BorderLayout.NORTH);
+        add(cardsPanel, BorderLayout.CENTER);
+
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
+
+        var dummyPanel =
+                new BrokkDiffPanel(new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
+        // Initialize font from GlobalUiSettings so UnifiedEditorArea.hasExplicitFontSize() returns true
+        float savedFontSize = GlobalUiSettings.getEditorFontSize();
+        if (savedFontSize > 0f) {
+            int fontIdx = dummyPanel.findClosestFontIndex(savedFontSize);
+            dummyPanel.setCurrentFontIndex(fontIdx);
+        }
+        this.diffCore = createDiffCore(dummyPanel);
+
+        // One-time listener installations
+        fileTreePanel.setSelectionListener(new DiffProjectFileNavigationTarget() {
+            @Override
+            public void navigateToFile(int fileIndex) {
+                codeReviewPanel.clearSelection();
+                activeExcerpt = null;
+                diffCore.showFile(fileIndex);
+            }
+
+            @Override
+            public void navigateToFile(ProjectFile file) {
+                codeReviewPanel.clearSelection();
+                activeExcerpt = null;
+                diffCore.showFile(file);
+            }
+
+            @Override
+            public void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
+                codeReviewPanel.clearSelection();
+                activeExcerpt = null;
+                diffCore.showLocation(file, lineNumber, side);
+            }
+        });
+
+        codeReviewPanel.addReviewNavigationListener(ce -> {
+            if (ce != null) {
+                fileTreePanel.selectFileQuietly(ce.file());
+                activeExcerpt = ce;
+                diffCore.showLocation(ce.file(), ce.line(), ce.side());
+            } else {
+                fileTreePanel.clearSelection();
+                diffContainer.removeAll();
+                diffActive = false;
+                updateDiffToolbarVisibility();
+                diffContainer.revalidate();
+                diffContainer.repaint();
+                activeExcerpt = null;
+            }
+        });
+
+        commitBtn.addActionListener(e -> showCommitDialog());
+        resolveConflictsBtn.addActionListener(e -> {
+            if (currentConflict != null) {
+                openResolveConflictsDialog(currentConflict);
+            }
+        });
+        pullBtn.addActionListener(e -> performPull());
+        pushBtn.addActionListener(e -> performPush());
+        prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
+        captureBtn.addActionListener(e -> handleCaptureDiff());
+
+        fileTreePanel.setContextMenuProvider(selectedFiles -> {
+            if (!commitsTable.isOnlyWorkingSelected() || selectedFiles.isEmpty()) {
+                return null;
+            }
+
+            var menu = new JPopupMenu();
+
+            var commitItem = new JMenuItem("Commit");
+            commitItem.addActionListener(evt -> {
+                var owner = chrome.getFrame();
+                var dialog = new CommitDialog(
+                        owner,
+                        chrome,
+                        cm,
+                        selectedFiles,
+                        commitResult -> SwingUtilities.invokeLater(() -> {
+                            chrome.notifyActionComplete("Committed " + commitResult.commitId());
+                            requestUpdate();
+                        }));
+                dialog.setVisible(true);
+            });
+            menu.add(commitItem);
+
+            var stashItem = new JMenuItem("Stash");
+            stashItem.addActionListener(evt -> cm.submitExclusiveAction(() -> {
+                try {
+                    repo.createPartialStash("Stash selected files", selectedFiles);
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Stashed selected files.");
+                        requestUpdate();
+                    });
+                } catch (Exception ex) {
+                    SwingUtilities.invokeLater(
+                            () -> chrome.toolError("Stash failed: " + ex.getMessage(), "Stash Error"));
+                }
+                return null;
+            }));
+            menu.add(stashItem);
+
+            return menu;
+        });
+
+        SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
+        guidedReviewBtn.setIdleAction(this::generateGuidedReview);
+        guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
+    }
+
+    private MaterialButton createIconButton(Icon icon, @Nullable String tooltip) {
+        var btn = new MaterialButton("") {
+            @Override
+            public Dimension getPreferredSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMinimumSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(24, 24);
+            }
+        };
+        btn.setIcon(icon);
+        if (tooltip != null) {
+            btn.setToolTipText(tooltip);
+        }
+        return btn;
+    }
+
+    private DiffDisplayCore createDiffCore(BrokkDiffPanel dummyPanel) {
+        return new DiffDisplayCore(dummyPanel, cm, chrome.getTheme(), fileComparisons, false, 0) {
+            @Override
+            protected AbstractDiffPanel createPanel(int index, JMDiffNode diffNode) {
+                // Review panel always uses unified view with full context
+                var panel = new UnifiedDiffPanel(dummyPanel, chrome.getTheme(), diffNode);
+                panel.setContextMode(UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
+                panel.applyTheme(chrome.getTheme());
+                return panel;
+            }
+
+            @Override
+            public void showFile(int index) {
+                super.showFile(index);
+                fileTreePanel.selectFile(index);
+            }
+
+            @Override
+            protected void displayPanel(
+                    int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
+                diffContainer.removeAll();
+                diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+                diffActive = true;
+                updateDiffToolbarVisibility();
+
+                // Apply saved font size to the panel
+                applyFontSizeToPanel(panel);
+
+                if (targetLine > 0) {
+                    panel.resetAutoScrollFlag();
+                    panel.diff(false);
+                    if (panel instanceof BufferDiffPanel bp) {
+                        var side = (targetSide == ReviewParser.DiffSide.OLD)
+                                ? BufferDiffPanel.PanelSide.LEFT
+                                : BufferDiffPanel.PanelSide.RIGHT;
+                        bp.scrollToLine(targetLine, side);
+                    } else if (panel instanceof UnifiedDiffPanel up) {
+                        up.clearExcerptHighlight();
+                        up.scrollToLine(targetLine, targetSide);
+                        if (activeExcerpt != null) {
+                            String[] lines = activeExcerpt.excerpt().split("\\r?\\n", -1);
+                            int endLine = targetLine + Math.max(0, lines.length - 1);
+                            up.highlightExcerptLines(targetLine, endLine, targetSide);
+                        }
+                    }
+                } else {
+                    if (panel instanceof UnifiedDiffPanel up) {
+                        up.clearExcerptHighlight();
+                    }
+                    panel.resetToFirstDifference();
+                    panel.diff(true);
+                }
+
+                diffContainer.revalidate();
+                diffContainer.repaint();
+
+                // Update toolbar button states after panel is displayed
+                SwingUtilities.invokeLater(() -> {
+                    diffToolbar.updateButtonStates();
+                    // Request focus on the panel to prevent focus going elsewhere
+                    panel.getComponent().requestFocusInWindow();
+                });
+            }
+        };
+    }
+
+    public void requestUpdate() {
+        if (currentMode == PanelMode.REVIEW) {
+            SwingUtilities.invokeLater(() -> {
+                StalenessInfo staleness = computeStaleness();
+                if (staleness != null) {
+                    codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
+                }
+                emitReviewTabStateFromCached();
+            });
+            return;
+        }
+
+        final long thisGeneration = updateGeneration.incrementAndGet();
+
+        SwingUtilities.invokeLater(() -> reviewTabListener.onReviewTabStateChanged(
+                new ReviewTabState("Review (...)", "Computing branch-based changes...", computeUncommittedCount())));
+
+        LoggingFuture.supplyAsync(() -> {
+                    var state = resolveBaselineState();
+                    var reviewCtx = ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
+                    return new ComputedUpdate(state, reviewCtx);
+                })
+                .thenAccept(computed -> {
+                    if (thisGeneration != updateGeneration.get()) {
+                        return;
+                    }
+
+                    if (!computed.scope.changes().equals(lastCumulativeChanges)) {
+                        lastCumulativeChanges = computed.scope.changes();
+                        deferredUpdateHelper.requestUpdate();
+                    }
+
+                    SwingUtilities.invokeLater(() -> {
+                        if (thisGeneration != updateGeneration.get()) return;
+                        emitReviewTabStateFromResult(computed.scope.changes(), computed.state.baselineLabel());
+                    });
+                })
+                .exceptionally(ex -> {
+                    if (thisGeneration != updateGeneration.get()) return null;
+                    logger.warn("Failed to compute cumulative changes", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        if (thisGeneration != updateGeneration.get()) return;
+                        reviewTabListener.onReviewTabStateChanged(
+                                new ReviewTabState("Review", "Failed to compute changes", computeUncommittedCount()));
+                    });
+                    return null;
+                });
+    }
+
+    private record ComputedUpdate(BaselineState state, ReviewScope scope) {}
+
+    /**
+     * Result of baseline resolution.
+     * @param baselineLabel The display label (e.g., "origin/main", "HEAD", or error message)
+     * @param resolvedLeftRef The actual git ref to use for the left side of the diff
+     * @param isWorkingTreeComparison True when comparing WORKING against HEAD (no branch baseline)
+     * @param isError True when baseline resolution failed
+     */
+    private record BaselineState(
+            String baselineLabel, String resolvedLeftRef, boolean isWorkingTreeComparison, boolean isError) {}
+
+    private @Nullable String resolvedBaselineBranch = null;
+
+    /** Cached baseline state from last resolution, for use in getEmptyStateMessage() */
+    @Nullable
+    private BaselineState lastBaselineState = null;
+
+    private BaselineState resolveBaselineState() {
+        if (reviewBaselineRef != null) {
+            return new BaselineState(reviewBaselineRef, reviewBaselineRef, false, false);
+        }
+
+        try {
+            String defaultBranch = repo.getDefaultBranch();
+            String currentBranch = repo.getCurrentBranch();
+
+            String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+            String upstreamRefCandidate = remoteName == null ? null : remoteName + "/" + defaultBranch;
+            boolean hasUpstream =
+                    upstreamRefCandidate != null && repo.listRemoteBranches().contains(upstreamRefCandidate);
+
+            String baseline = defaultBranch;
+            if (hasUpstream && upstreamRefCandidate != null) {
+                // If upstream is ahead of our local default branch, use upstream as the baseline
+                String mergeBase = repo.getMergeBase(defaultBranch, upstreamRefCandidate);
+                var resolvedUpstream = repo.resolveToCommit(upstreamRefCandidate);
+                if (mergeBase != null && !mergeBase.equals(resolvedUpstream.name())) {
+                    baseline = upstreamRefCandidate;
+                }
+            }
+
+            resolvedBaselineBranch = baseline;
+
+            String label = baseline;
+            boolean isWorkingTreeComparison = false;
+            if (currentBranch.equals(defaultBranch)) {
+                if (hasUpstream) {
+                    label = upstreamRefCandidate;
+                } else {
+                    label = "HEAD";
+                    isWorkingTreeComparison = true;
+                }
+            }
+
+            String resolvedRef = label;
+            if (!"HEAD".equals(label)) {
+                String mergeBase = repo.getMergeBase("HEAD", requireNonNull(label));
+                resolvedRef = requireNonNull(mergeBase, "Merge base cannot be null for " + label);
+            }
+
+            return new BaselineState(
+                    requireNonNull(label), requireNonNull(resolvedRef), isWorkingTreeComparison, false);
+        } catch (Exception e) {
+            logger.warn("Failed to compute baseline for changes", e);
+            String errorLabel = e.getMessage();
+            return new BaselineState(errorLabel != null ? errorLabel : "Unknown Error", "HEAD", false, true);
+        }
+    }
+
+    /**
+     * Called by DeferredUpdateHelper when the panel becomes visible (or immediately if already visible).
+     * This handles only the GUI update using the cached lastCumulativeChanges.
+     */
+    private void performRefresh() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        var result = lastCumulativeChanges;
+        if (result == null) {
+            // No cached result yet; nothing to display
+            return;
+        }
+
+        var prepared = DiffService.preparePerFileSummaries(result);
+        lastPreparedPerFile = prepared;
+
+        StalenessInfo staleness = null;
+        if (lastReviewState != null) {
+            staleness = computeStaleness();
+        }
+
+        // Detect conflicts
+        var detectedConflict = ConflictInspector.inspectFromProject(cm.getProject());
+        this.currentConflict = detectedConflict.orElse(null);
+        resolveConflictsBtn.setEnabled(currentConflict != null);
+
+        var state = resolveBaselineState();
+        lastBaselineState = state;
+
+        PanelMode nextMode = currentMode;
+        if (state.isError()) {
+            nextMode = PanelMode.ERROR;
+        } else if (result.filesChanged() == 0 && currentMode != PanelMode.REVIEW) {
+            nextMode = PanelMode.EMPTY;
+        } else if (currentMode != PanelMode.REVIEW) {
+            nextMode = PanelMode.PREVIEW;
+        }
+        setMode(nextMode);
+
+        String label = state.baselineLabel();
+
+        emitReviewTabStateFromResult(result, label);
+        updateContent(result, prepared, label);
+
+        if (staleness != null) {
+            codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
+        }
+    }
+
+    private void emitReviewTabStateFromCached() {
+        var result = lastCumulativeChanges;
+        if (result != null) {
+            var state = lastBaselineState;
+            String baselineLabel = state == null ? "" : state.baselineLabel();
+            emitReviewTabStateFromResult(result, baselineLabel);
+        } else {
+            reviewTabListener.onReviewTabStateChanged(
+                    new ReviewTabState("Review", "No data", computeUncommittedCount()));
+        }
+    }
+
+    private void emitReviewTabStateFromResult(DiffService.CumulativeChanges result, String baselineLabel) {
+        int uncommittedCount = computeUncommittedCount();
+
+        if (currentMode == PanelMode.REVIEW) {
+            reviewTabListener.onReviewTabStateChanged(
+                    new ReviewTabState("Review (Guided)", "Guided review is open", uncommittedCount));
+            return;
+        }
+
+        String title;
+        String tooltip;
+
+        if (result.filesChanged() == 0) {
+            title = "Review (No Changes)";
+            tooltip = "No changes" + (baselineLabel.isEmpty() ? "" : " vs " + baselineLabel);
+        } else {
+            boolean isDark = chrome.getTheme().isDarkTheme();
+            Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
+            Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
+            String baselineSuffix = baselineLabel.isEmpty() ? "" : " vs " + baselineLabel;
+
+            title = String.format(
+                    "<html>Review (<span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
+                    ColorUtil.toHex(plusColor),
+                    result.totalAdded(),
+                    ColorUtil.toHex(minusColor),
+                    result.totalDeleted());
+
+            tooltip = String.format(
+                    "%d files changed, %d insertions, %d deletions%s",
+                    result.filesChanged(), result.totalAdded(), result.totalDeleted(), baselineSuffix);
+        }
+
+        reviewTabListener.onReviewTabStateChanged(new ReviewTabState(title, tooltip, uncommittedCount));
+    }
+
+    private int computeUncommittedCount() {
+        try {
+            return repo.getModifiedFiles().size();
+        } catch (GitAPIException e) {
+            logger.debug("Unable to determine uncommitted file count for badge", e);
+            return 0;
+        }
+    }
+
+    public void updateContent(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, FileDiff>> prepared, String baselineLabel) {
+
+        refreshUI(res, prepared);
+    }
+
+    private String getEmptyStateMessage() {
+        var state = lastBaselineState;
+        if (currentMode == PanelMode.ERROR || state == null || state.isError()) {
+            return "No baseline to compare";
+        } else if (state.isWorkingTreeComparison()) {
+            return "Working tree is clean (no uncommitted changes).";
+        } else {
+            return "No changes vs " + state.baselineLabel() + ".";
+        }
+    }
+
+    // TODO migrate BrokkDiffPanel to FileDiff
+    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, FileDiff> entry) {
+        ProjectFile pf = null;
+        try {
+            pf = cm.toFile(entry.getKey());
+        } catch (Exception e) {
+            logger.debug("Failed to resolve ProjectFile for {}", entry.getKey(), e);
+        }
+        return new FileComparisonInfo(
+                pf,
+                new BufferSource.StringSource(entry.getValue().oldText(), "", entry.getKey(), null),
+                new BufferSource.StringSource(entry.getValue().newText(), "", entry.getKey(), null));
+    }
+
+    private void updateBaselineLabel() {
+        String currentBranch = "unknown";
+        try {
+            currentBranch = repo.getCurrentBranch();
+        } catch (Exception e) {
+            logger.debug("Failed to get current branch", e);
+        }
+        branchLabel.setText("Branch: " + currentBranch);
+
+        String branchBaseline = resolvedBaselineBranch != null ? resolvedBaselineBranch : "branch";
+
+        if (reviewBaselineRef != null) {
+            baselineLabel.setText("Changes from " + repo.shortHash(reviewBaselineRef));
+        } else {
+            baselineLabel.setText("Changes vs " + branchBaseline);
+        }
+    }
+
+    private void refreshUI(DiffService.CumulativeChanges res, List<Map.Entry<String, FileDiff>> prepared) {
+        lastPreparedPerFile = prepared;
+
+        updateBaselineLabel();
+
+        if (currentMode == PanelMode.EMPTY || currentMode == PanelMode.ERROR) {
+            revalidate();
+            repaint();
+            return;
+        }
+
+        boolean hasUncommittedChanges = false;
+        try {
+            hasUncommittedChanges = !repo.getModifiedFiles().isEmpty();
+        } catch (GitAPIException e) {
+            logger.debug("Unable to determine uncommitted changes state", e);
+        }
+
+        commitBtn.setEnabled(hasUncommittedChanges && currentMode == PanelMode.PREVIEW);
+        commitBtn.setVisible(true);
+
+        commitsTable.updateCommits(res.commits(), hasUncommittedChanges);
+
+        updateGuidedReviewButton();
+
+        var pushPull = res.pushPullState();
+        boolean canPull = pushPull != null && pushPull.canPull();
+        pullBtn.setEnabled(canPull && !hasUncommittedChanges);
+        if (hasUncommittedChanges) {
+            pullBtn.setToolTipText(
+                    "Commit or stash your uncommitted changes before pulling from the remote repository");
+        } else if (!canPull) {
+            pullBtn.setToolTipText(
+                    pushPull != null && pushPull.hasUpstream()
+                            ? "Already up to date - no new changes to pull from the remote repository"
+                            : "No upstream branch configured - set up remote tracking to enable pulling");
+        } else {
+            pullBtn.setToolTipText("Pull the latest changes from the remote repository into your local branch");
+        }
+        pullBtn.setVisible(true);
+
+        boolean canPush = pushPull != null && pushPull.canPush();
+        boolean hasLocalChanges = res.filesChanged() > 0 || hasUncommittedChanges;
+        pushBtn.setEnabled(canPush && !hasUncommittedChanges && hasLocalChanges);
+        if (hasUncommittedChanges) {
+            pushBtn.setToolTipText("Commit your uncommitted changes before pushing to the remote repository");
+        } else if (!hasLocalChanges) {
+            pushBtn.setToolTipText("No changes to push");
+        } else if (!canPush) {
+            pushBtn.setToolTipText("No local commits to push to the remote repository");
+        } else {
+            pushBtn.setToolTipText("Push your local commits to the remote repository");
+        }
+        pushBtn.setVisible(true);
+
+        boolean isDefaultBranch = false;
+        try {
+            isDefaultBranch = repo.getCurrentBranch().equals(repo.getDefaultBranch());
+        } catch (Exception e) {
+            logger.debug("Failed to check if current branch is default branch", e);
+        }
+
+        // Show PR button when in preview mode
+        boolean isPreviewMode = currentMode == PanelMode.PREVIEW;
+        boolean showPR = isPreviewMode;
+
+        boolean prBtnEnabled = isPreviewMode && !hasUncommittedChanges && hasLocalChanges;
+        String prBtnTooltip;
+
+        if (!isPreviewMode) {
+            prBtnEnabled = false;
+            prBtnTooltip = "Pull requests can only be created from change preview mode";
+        } else if (hasUncommittedChanges) {
+            prBtnEnabled = false;
+            prBtnTooltip = "Commit your uncommitted changes before creating a pull request";
+        } else if (!hasLocalChanges) {
+            prBtnEnabled = false;
+            prBtnTooltip = "No changes to create a pull request";
+        } else if (isDefaultBranch && res.filesChanged() == 0) {
+            prBtnEnabled = false;
+            prBtnTooltip = "No changes to create a pull request from the default branch";
+        } else {
+            prBtnTooltip = "Create a pull request to merge the current branch into the default branch";
+            try {
+                String currentBranch = repo.getCurrentBranch();
+                if (GitHubAuth.getOrCreateInstance(cm.getProject()).hasOpenPullRequestForBranch(currentBranch)) {
+                    prBtnEnabled = false;
+                    prBtnTooltip = "A pull request already exists for branch " + currentBranch;
+                }
+            } catch (Exception e) {
+                logger.debug("Could not check for existing PRs: {}", e.getMessage());
+            }
+        }
+        prBtn.setEnabled(prBtnEnabled);
+        prBtn.setToolTipText(prBtnTooltip);
+        prBtn.setVisible(showPR);
+
+        String projectName = "Project";
+        var root = cm.getProject().getRoot();
+        if (root.getFileName() != null) projectName = root.getFileName().toString();
+
+        List<FileComparisonInfo> nextComparisons =
+                prepared.stream().map(this::toFileComparisonInfo).toList();
+
+        refreshDiffAndFileTree(nextComparisons, projectName);
+
+        revalidate();
+        repaint();
+    }
+
+    private void refreshDiffAndFileTree(List<FileComparisonInfo> nextComparisons, String projectName) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        var root = cm.getProject().getRoot();
+
+        // If the file set changed significantly and we aren't showing a review, clear the excerpt
+        if (!nextComparisons.equals(this.fileComparisons)) {
+            activeExcerpt = null;
+        }
+
+        this.fileComparisons = nextComparisons;
+        this.diffCore.updateFileComparisons(this.fileComparisons, 0);
+        diffToolbar.updateButtonStates();
+
+        fileTreePanel.updateData(fileComparisons, root, projectName);
+
+        if (!nextComparisons.isEmpty()) {
+            this.diffCore.showFile(0);
+        } else {
+            diffContainer.removeAll();
+            diffContainer.add(new JLabel("No file changes to display", SwingConstants.CENTER), BorderLayout.CENTER);
+            diffActive = false;
+            updateDiffToolbarVisibility();
+        }
+        applyTheme(chrome.getTheme());
+    }
+
+    private void showCommitDialog() {
+        var filesToCommit = cm.getProject().getRepo().getModifiedProjectFiles();
+        if (filesToCommit.isEmpty()) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No uncommitted changes to commit.");
+            return;
+        }
+
+        var dialog = new CommitDialog(
+                chrome.getFrame(),
+                chrome,
+                cm,
+                filesToCommit,
+                commitResult -> SwingUtilities.invokeLater(() -> {
+                    chrome.notifyActionComplete("Committed " + commitResult.commitId());
+                    requestUpdate();
+                }));
+        dialog.setVisible(true);
+    }
+
+    private void performPull() {
+        cm.submitExclusiveAction(() -> {
+            try {
+                String branch = repo.getCurrentBranch();
+                chrome.showOutputSpinner("Pulling " + branch + "...");
+                var result = new GitWorkflow(cm).pull(branch);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
+                    if (result.isEmpty()) {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull completed successfully.");
+                    } else {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + result);
+                    }
+                });
+                CompletableFuture.runAsync(chrome::updateGitRepo);
+            } catch (GitAPIException e) {
+                SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
+                    chrome.toolError("Pull failed: " + e.getMessage(), "Pull Error");
+                });
+            }
+            return null;
+        });
+    }
+
+    private void performPush() {
+        cm.submitExclusiveAction(() -> {
+            try {
+                String branch = repo.getCurrentBranch();
+                chrome.showOutputSpinner("Pushing " + branch + "...");
+                var result = new GitWorkflow(cm).push(branch);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
+                    if (result.isEmpty()) {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push completed successfully.");
+                    } else {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + result);
+                    }
+                    requestUpdate();
+                });
+                CompletableFuture.runAsync(chrome::updateGitRepo);
+            } catch (GitAPIException e) {
+                SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
+                    chrome.toolError("Push failed: " + e.getMessage(), "Push Error");
+                });
+            }
+            return null;
+        });
+    }
+
+    public @Nullable StalenessInfo computeStaleness() {
+        var state = lastReviewState;
+        if (state == null || reviewTargetCommit == null) {
+            return null;
+        }
+
+        String hash = reviewTargetCommit;
+        int uncommittedChanges = 0;
+        try {
+            uncommittedChanges = repo.getModifiedFiles().size();
+        } catch (GitAPIException e) {
+            logger.debug("Failed to get modified files for staleness check", e);
+        }
+
+        if (hash == null) {
+            logger.debug("Review has unknown commit hash; cannot compute staleness");
+            return new StalenessInfo(0, uncommittedChanges, false, true);
+        }
+
+        int commitsBehind = repo.countCommitsSince(hash);
+
+        boolean differentBranch = false;
+        try {
+            differentBranch = !repo.isCommitReachableFrom(hash, "HEAD");
+        } catch (Exception e) {
+            logger.debug("Failed to check commit reachability for staleness check", e);
+        }
+
+        return new StalenessInfo(commitsBehind, uncommittedChanges, differentBranch, false);
+    }
+
+    private static int defaultSplitPaneDividerSize() {
+        int size = UIManager.getInt("SplitPane.dividerSize");
+        return size > 0 ? size : 8;
+    }
+
+    private void updateLayoutForMode(PanelMode mode) {
+        SwingUtil.runOnEdt(() -> {
+            boolean isReview = (mode == PanelMode.REVIEW);
+
+            // Left: commits table in PREVIEW, review list in REVIEW
+            Component leftTopComponent = isReview ? codeReviewPanel.getListPanel() : commitsTable;
+            leftSplitPane.setTopComponent(leftTopComponent);
+            leftSplitPane.setDividerSize(defaultSplitPaneDividerSize());
+            leftSplitPane.setResizeWeight(0.4);
+
+            // Right: review detail above diff in REVIEW, diff-only in PREVIEW
+            rightVerticalSplitPane.setTopComponent(isReview ? codeReviewPanel.getDetailPanel() : null);
+            rightVerticalSplitPane.setDividerSize(isReview ? defaultSplitPaneDividerSize() : 0);
+
+            mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
+            mainSplitPane.setDividerLocation(300);
+
+            // Ensure navigation buttons are visible
+            diffToolbar.setNavigationVisible(true);
+            updateDiffToolbarVisibility();
+
+            revalidate();
+            repaint();
+        });
+    }
+
+    private void setGuidedReviewBusy(boolean busy) {
+        SwingUtil.runOnEdt(() -> {
+            guidedReviewBusy = busy;
+            if (!busy) {
+                guidedReviewBtn.resetToIdle();
+            }
+        });
+    }
+
+    @Blocking
+    private void ensureReviewSession(ReviewScope reviewCtx) {
+        // Check if any overlapping session is already active
+        UUID currentId = cm.getCurrentSessionId();
+        if (reviewCtx.metadata().sessionIds().contains(currentId)) {
+            return;
+        }
+
+        // if the commits aren't in current session, create a new one.
+        Set<String> currentSessionCommits = cm.getContextHistory().getGitStates().values().stream()
+                .map(ContextHistory.GitState::commitHash)
+                .collect(Collectors.toSet());
+        List<String> reviewCommits =
+                reviewCtx.changes().commits().stream().map(CommitInfo::id).toList();
+
+        if (!currentSessionCommits.containsAll(reviewCommits) && !reviewCommits.isEmpty()) {
+            // Create a new session for this review
+            String branchName = null;
+            try {
+                branchName = repo.getCurrentBranch();
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
+            String time = LocalTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"));
+            String sessionName = "Review " + branchName + " " + time;
+            cm.createSessionAsync(sessionName).join();
+        }
+    }
+
+    private void updateGuidedReviewButton() {
+        guidedReviewBtn.setVisible(true);
+        if (currentMode == PanelMode.REVIEW) {
+            guidedReviewBtn.setText("Close Review");
+            guidedReviewBtn.setToolTipText("Exit review mode and return to change preview");
+            guidedReviewBtn.setEnabled(true);
+        } else {
+            guidedReviewBtn.setText("Guided Review");
+            guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
+            guidedReviewBtn.setEnabled(
+                    commitsTable.getSelectedCommitIds().isEmpty() || commitsTable.isSelectionContiguous());
+        }
+    }
+
+    private void onCommitSelectionChanged() {
+        List<String> selectedIds = commitsTable.getSelectedCommitIds();
+        updateGuidedReviewButton();
+
+        if (selectedIds.isEmpty()) {
+            // Restore full range
+            performRefresh();
+            return;
+        }
+
+        if (!commitsTable.isSelectionContiguous()) {
+            fileTreePanel.updateData(
+                    List.of(), cm.getProject().getRoot(), "Select a contiguous range of commits to view changes");
+            diffCore.updateFileComparisons(List.of());
+            diffContainer.removeAll();
+            diffContainer.add(
+                    new JLabel("Select a contiguous range of commits to view changes", SwingConstants.CENTER));
+            diffContainer.revalidate();
+            diffContainer.repaint();
+            return;
+        }
+
+        // Contiguous selection: compute diff for the range
+        // Commits are ordered newest to oldest in the table/list
+        String newest = selectedIds.getFirst();
+        String oldest = selectedIds.getLast();
+
+        // If oldest is WORKING, it means ONLY the uncommitted changes row is selected.
+        // In that case, we compare against HEAD. Otherwise, we compare against the parent of the oldest commit.
+        String fromRef = oldest.equals("WORKING") ? "HEAD" : oldest + "^";
+        String toRef = newest.equals("WORKING") ? "WORKING" : newest;
+
+        LoggingFuture.supplyAsync(() -> ReviewScope.fromBaseline(cm, fromRef, toRef))
+                .thenAccept(scope -> {
+                    var prepared = DiffService.preparePerFileSummaries(scope.changes());
+                    lastPreparedPerFile = prepared;
+                    var root = cm.getProject().getRoot();
+
+                    SwingUtilities.invokeLater(() -> {
+                        String projectName = "Project";
+                        if (root.getFileName() != null)
+                            projectName = root.getFileName().toString();
+                        refreshDiffAndFileTree(
+                                prepared.stream()
+                                        .map(this::toFileComparisonInfo)
+                                        .toList(),
+                                projectName);
+                        revalidate();
+                        repaint();
+                    });
+                })
+                .exceptionally(ex -> {
+                    logger.error("Failed to compute selection diff", ex);
+                    return null;
+                });
+    }
+
+    /**
+     * Generates a guided review using the currently cached cumulative changes.
+     * Called by the Guided Review button when there's already data available.
+     */
+    private void generateGuidedReview() {
+        if (currentMode == PanelMode.REVIEW) {
+            closeReview();
+            return;
+        }
+
+        if (lastCumulativeChanges == null || lastCumulativeChanges.filesChanged() == 0) return;
+
+        List<String> selectedIds = commitsTable.getSelectedCommitIds();
+        if (selectedIds.isEmpty() || commitsTable.isAllSelected()) {
+            startReviewAllChanges();
+            return;
+        }
+
+        // Clicking the Guided Review button (not the context menu) should prompt when a subset is selected.
+        String[] options = {"Review All Changes", "Review Selected Changes", "Cancel"};
+        int choice = MaterialOptionPane.showOptionDialog(
+                chrome.getFrame(),
+                "Review all changes, or only the selected commits?",
+                "Guided Review Scope",
+                JOptionPane.YES_NO_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]);
+
+        if (choice == 2 || choice == JOptionPane.CLOSED_OPTION) {
+            return;
+        }
+
+        if (choice == 0) {
+            startReviewAllChanges();
+        } else {
+            handleCommitRangeReview();
+        }
+    }
+
+    private void startReviewAllChanges() {
+        setGuidedReviewBusy(true);
+        codeReviewPanel.setBusy(true);
+        guidedReviewBtn.setProgress(0);
+
+        LoggingFuture.supplyAsync(() -> {
+                    var state = resolveBaselineState();
+                    return ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
+                })
+                .thenAccept(this::generateGuidedReviewAsync)
+                .exceptionally(ex -> {
+                    logger.error("Failed to prepare review", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        setGuidedReviewBusy(false);
+                        codeReviewPanel.setBusy(false);
+                        chrome.toolError("Failed to prepare review: " + ex.getMessage());
+                    });
+                    return null;
+                });
+    }
+
+    private void handleCommitRangeReview() {
+        List<String> selectedIds = commitsTable.getSelectedCommitIds();
+        if (selectedIds.isEmpty()) return;
+
+        // Commits are ordered newest to oldest in the table
+        String newestId = selectedIds.getFirst();
+        String oldestId = selectedIds.getLast();
+
+        String fromRef = oldestId.equals("WORKING") ? "HEAD" : oldestId + "^";
+        String toRef = newestId;
+
+        String newestNonWorking = selectedIds.stream()
+                .filter(id -> !id.equals("WORKING"))
+                .findFirst()
+                .orElse(null);
+
+        if (newestNonWorking == null) {
+            // Only WORKING selected
+            startCommitRangeReview(fromRef, toRef);
+            return;
+        }
+
+        LoggingFuture.supplyAsync(() -> {
+                    try {
+                        return repo.getCurrentCommitId();
+                    } catch (GitAPIException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .thenAccept(currentHead -> SwingUtilities.invokeLater(() -> {
+                    boolean needsCheckout = !newestNonWorking.equals(currentHead);
+
+                    Runnable proceed = () -> {
+                        if (!needsCheckout) {
+                            startCommitRangeReview(fromRef, toRef);
+                            return;
+                        }
+
+                        int choice = chrome.showConfirmDialog(
+                                chrome.getFrame(),
+                                "Your working tree must match the commits being reviewed. Checkout to "
+                                        + repo.shortHash(newestNonWorking) + "?",
+                                "Checkout Required",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.QUESTION_MESSAGE);
+
+                        if (choice != JOptionPane.YES_OPTION) {
+                            return;
+                        }
+
+                        cm.submitExclusiveAction(() -> {
+                            try {
+                                repo.checkout(newestNonWorking);
+                                SwingUtilities.invokeLater(() -> startCommitRangeReview(fromRef, toRef));
+                            } catch (GitAPIException e) {
+                                logger.error("Checkout failed", e);
+                                chrome.toolError("Checkout failed: " + e.getMessage());
+                            }
+                            return null;
+                        });
+                    };
+
+                    if (needsCheckout && !repo.getModifiedProjectFiles().isEmpty()) {
+                        ensureCleanThenReview(proceed);
+                    } else {
+                        proceed.run();
+                    }
+                }))
+                .exceptionally(ex -> {
+                    logger.error("Failed to determine current HEAD", ex);
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Git error: " + ex.getMessage()));
+                    return null;
+                });
+    }
+
+    private void handleCaptureSelectedDiff() {
+        List<String> selectedIds = commitsTable.getSelectedCommitIds();
+        if (selectedIds.isEmpty()) {
+            handleCaptureDiff();
+            return;
+        }
+
+        String newest = selectedIds.getFirst();
+        String oldest = selectedIds.getLast();
+        String fromRef = oldest + "^";
+        String toRef = newest.equals("WORKING") ? "WORKING" : newest;
+
+        LoggingFuture.supplyAsync(() -> ReviewScope.fromBaseline(cm, fromRef, toRef))
+                .thenAccept(scope -> SwingUtilities.invokeLater(() -> {
+                    var diffFragment = SpecialTextType.REVIEW_DIFF.create(
+                            cm, scope.changes().toDiff());
+                    cm.addFragments(diffFragment);
+                }))
+                .exceptionally(ex -> {
+                    logger.error("Failed to capture selected diff", ex);
+                    chrome.toolError("Failed to capture diff: " + ex.getMessage());
+                    return null;
+                });
+    }
+
+    private void closeReview() {
+        reviewBaselineRef = null;
+        lastReviewState = null;
+        reviewTargetCommit = null;
+        activeExcerpt = null;
+        codeReviewPanel.getDetailPanel().showPlaceholder();
+        codeReviewPanel.getListPanel().setStalenessNotice(null);
+        setMode(PanelMode.PREVIEW);
+        requestUpdate();
+    }
+
+    /**
+     * Shows a dialog if the working tree is dirty, offering to commit first or cancel.
+     * If the tree is clean, the action runs immediately.
+     */
+    private void ensureCleanThenReview(Runnable action) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        var dirtyFiles = cm.getProject().getRepo().getModifiedProjectFiles();
+        if (dirtyFiles.isEmpty()) {
+            action.run();
+            return;
+        }
+
+        var owner = SwingUtilities.getWindowAncestor(this);
+        var dialog = new BaseThemedDialog(owner, "Uncommitted Changes", Dialog.ModalityType.APPLICATION_MODAL);
+
+        var content = new JPanel(new BorderLayout(8, 8));
+        content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        String message =
+                "Your working tree has %d uncommitted change(s).\nWould you like to commit before starting the review?"
+                        .formatted(dirtyFiles.size());
+        var msgArea = new JTextArea(message);
+        msgArea.setEditable(false);
+        msgArea.setOpaque(false);
+        msgArea.setLineWrap(true);
+        msgArea.setWrapStyleWord(true);
+        content.add(msgArea, BorderLayout.CENTER);
+
+        var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        var commitFirstBtn = new MaterialButton("Commit First");
+        SwingUtil.applyPrimaryButtonStyle(commitFirstBtn);
+        var cancelBtn = new MaterialButton("Cancel");
+        buttons.add(commitFirstBtn);
+        buttons.add(cancelBtn);
+        content.add(buttons, BorderLayout.SOUTH);
+
+        final int[] choice = new int[] {-1}; // 0 = commit, 1 = cancel
+        commitFirstBtn.addActionListener(e -> {
+            choice[0] = 0;
+            dialog.dispose();
+        });
+        cancelBtn.addActionListener(e -> {
+            choice[0] = 1;
+            dialog.dispose();
+        });
+
+        dialog.getContentRoot().add(content);
+        dialog.getRootPane().setDefaultButton(commitFirstBtn);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+
+        if (choice[0] == 0) {
+            // Commit first, then proceed on success
+            var commitDialog = new CommitDialog(
+                    chrome.getFrame(), chrome, cm, dirtyFiles, commitResult -> SwingUtilities.invokeLater(action));
+            commitDialog.setVisible(true);
+        }
+        // choice[0] == 1 or -1 (dialog closed): do nothing (cancel)
+    }
+
+    /**
+     * Core review generation logic that accepts explicit parameters.
+     * This allows callers to provide their own computed data rather than relying on cached state.
+     */
+    private void generateGuidedReviewAsync(ReviewScope scope) {
+        LoggingFuture.runAsync(() -> {
+            // these are broken out separately to avoid deadlock (they both want to run on the exclusive UAM thread)
+            ensureReviewSession(scope);
+            generateGuidedReviewInternal(scope);
+        });
+    }
+
+    private void generateGuidedReviewInternal(ReviewScope scope) {
+        cm.submitLlmAction(() -> {
+            chrome.showOutputSpinner("Generating guided review...");
+            try {
+                // Wait for any pending session downloads (e.g. from PR checkout) before proceeding
+                cm.getProject().getSessionManager().awaitForeignDownloads();
+                var agent = new ReviewAgent(scope, cm.getProject().getModelConfig(ModelType.ARCHITECT), true, cm);
+
+                agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
+                    guidedReviewBtn.setProgress(p);
+                }));
+
+                var result = agent.execute();
+
+                String currentHash = repo.getCurrentCommitId();
+                long now = System.currentTimeMillis();
+
+                SwingUtilities.invokeLater(() -> {
+                    setGuidedReviewBusy(false);
+                    chrome.hideOutputSpinner();
+                    lastReviewState = new ReviewState(scope.metadata().fromRef(), now);
+                    reviewTargetCommit = currentHash;
+                    setMode(PanelMode.REVIEW);
+                    emitReviewTabStateFromCached();
+                    codeReviewPanel.displayReview(result.review(), result.context());
+                    chrome.notifyActionComplete("Guided Review is ready");
+                    codeReviewPanel.setBusy(false);
+                    codeReviewPanel.getListPanel().setStalenessNotice(null);
+                    revalidate();
+                    repaint();
+                });
+            } catch (InterruptedException ex) {
+                logger.debug("Review generation cancelled by user");
+                SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
+                    codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
+                    revalidate();
+                    repaint();
+                });
+            } catch (ReviewGenerationException ex) {
+                logger.warn("Review generation failed: {}", ex.getMessage());
+                SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
+                    codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
+
+                    String userMessage = ex.getStopDetails() != null
+                            ? "Review generation failed: " + ex.getStopDetails().explanation()
+                            : "Review generation failed: " + ex.getMessage();
+                    chrome.toolError(userMessage, "Review Error");
+                    revalidate();
+                    repaint();
+                });
+            } catch (Exception ex) {
+                logger.error("Unexpected error during review generation", ex);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.hideOutputSpinner();
+                    codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
+                    chrome.toolError("Review generation failed: " + ex.getMessage());
+                    revalidate();
+                    repaint();
+                });
+            }
+        });
+    }
+
+    /**
+     * Loads a review from markdown text that was previously generated.
+     * This parses the markdown as a GuidedReview and displays it in the review panels.
+     */
+    public void loadExternalReviewAsync(String markdown, Context context) {
+        LoggingFuture.runAsync(() -> {
+            ReviewScope scope;
+            try {
+                scope = ReviewScope.fromContext(cm, context);
+            } catch (ReviewScope.ReviewLoadException e) {
+                logger.warn("Failed to load review scope from context: {}", e.getMessage());
+                cm.getIo().toolError("Unable to load review: " + e.getMessage());
+                return;
+            }
+
+            var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(cm, markdown);
+            var review = ReviewParser.instance.parseMarkdownReview(markdown, resolvedExcerpts);
+
+            var hash = cm.getContextHistory()
+                    .getGitState(context.id())
+                    .map(ContextHistory.GitState::commitHash)
+                    .orElse(null);
+
+            SwingUtilities.invokeLater(() -> {
+                lastCumulativeChanges = scope.changes();
+
+                lastReviewState = new ReviewState(scope.metadata().fromRef(), System.currentTimeMillis());
+                reviewTargetCommit = hash;
+                setMode(PanelMode.REVIEW);
+
+                // Re-trigger UI refresh to show panels and handle card layout
+                deferredUpdateHelper.requestUpdate();
+
+                codeReviewPanel.displayReview(review, context);
+                StalenessInfo staleness = computeStaleness();
+                if (staleness != null) {
+                    codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
+                }
+            });
+        });
+    }
+
+    private void handleCaptureDiff() {
+        var changes = lastCumulativeChanges;
+        if (changes == null || changes.filesChanged() == 0) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No changes to capture.");
+            return;
+        }
+
+        var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, changes.toDiff());
+        cm.addFragments(diffFragment);
+    }
+
+    private void updateDiffToolbarVisibility() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (currentMode == PanelMode.PREVIEW) {
+            diffToolbar.setVisible(true);
+            if (!diffActive) {
+                diffToolbar.disableAllControlButtons();
+            }
+        } else if (currentMode == PanelMode.REVIEW) {
+            diffToolbar.setVisible(diffActive);
+            if (!diffActive) {
+                diffToolbar.disableAllControlButtons();
+            }
+        } else {
+            // EMPTY or ERROR
+            diffToolbar.setVisible(false);
+            diffToolbar.disableAllControlButtons();
+        }
+    }
+
+    private @Nullable String formatStalenessMessage(StalenessInfo staleness) {
+        int commits = staleness.commitsBehind();
+        int uncommitted = staleness.uncommittedChanges();
+        boolean differentBranch = staleness.differentBranch();
+        boolean unknownCommit = staleness.unknownCommit();
+
+        if (!unknownCommit && !differentBranch && commits == 0 && uncommitted == 0) {
+            return null;
+        }
+
+        StringBuilder sb = new StringBuilder("! ");
+        if (unknownCommit) {
+            sb.append("Review commit history unavailable; excerpts may not match current code");
+        } else if (differentBranch) {
+            sb.append("Review appears to be from a different branch; excerpts may not match");
+        } else if (commits > 0) {
+            sb.append("Review is ").append(commits).append(" commit(s) behind; excerpts may not match current code");
+        } else {
+            sb.append("Review may be stale");
+        }
+
+        if (uncommitted > 0) {
+            sb.append(" (").append(uncommitted).append(" uncommitted change(s) present)");
+        }
+
+        return sb.toString();
+    }
+
+    /** Apply current font size to a panel from GlobalUiSettings */
+    private void applyFontSizeToPanel(AbstractDiffPanel panel) {
+        float saved = GlobalUiSettings.getEditorFontSize();
+        if (saved > 0f) {
+            panel.applyEditorFontSize(saved);
+        }
+    }
+
+    @Nullable
+    private AbstractContentPanel getCurrentContentPanel() {
+        return diffCore.getCachedPanel(diffCore.getCurrentIndex());
+    }
+
+    private DiffToolbarCallbacks createToolbarCallbacks() {
+        return new SessionChangesToolbarCallbacks(this);
+    }
+
+    private static final class SessionChangesToolbarCallbacks implements DiffToolbarCallbacks {
+        private final SessionChangesPanel panel;
+
+        SessionChangesToolbarCallbacks(SessionChangesPanel panel) {
+            this.panel = panel;
+        }
+
+        @Override
+        public void ensureFontIndexInitialized() {
+            // No local state to initialize - GlobalUiSettings is the source of truth
+        }
+
+        @Override
+        public void navigateToNextChange() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel != null) {
+                if (contentPanel.isAtLastLogicalChange() && canNavigateToNextFile()) {
+                    nextFile();
+                } else {
+                    contentPanel.doDown();
+                }
+                panel.diffToolbar.updateButtonStates();
+            }
+        }
+
+        @Override
+        public void navigateToPreviousChange() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel != null) {
+                if (contentPanel.isAtFirstLogicalChange() && canNavigateToPreviousFile()) {
+                    previousFile();
+                    var newPanel = panel.getCurrentContentPanel();
+                    if (newPanel != null) {
+                        newPanel.goToLastLogicalChange();
+                    }
+                } else {
+                    contentPanel.doUp();
+                }
+                panel.diffToolbar.updateButtonStates();
+            }
+        }
+
+        @Override
+        public void nextFile() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            int current = panel.diffCore.getCurrentIndex();
+            if (current < panel.fileComparisons.size() - 1) {
+                panel.diffCore.showFile(current + 1);
+                panel.diffToolbar.updateButtonStates();
+            }
+        }
+
+        @Override
+        public void previousFile() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            int current = panel.diffCore.getCurrentIndex();
+            if (current > 0) {
+                panel.diffCore.showFile(current - 1);
+                panel.diffToolbar.updateButtonStates();
+            }
+        }
+
+        @Override
+        public void switchViewMode(boolean useUnifiedView) {
+            // Review panel always uses unified view
+        }
+
+        @Override
+        public void setShowBlame(boolean show) {
+            // Not supported in review panel
+        }
+
+        @Override
+        public void setShowAllLines(boolean show) {
+            // Review panel always shows all lines
+        }
+
+        @Override
+        public void setShowBlankLineDiffs(boolean show) {
+            // Not applicable - review panel uses unified view
+        }
+
+        @Override
+        public boolean canNavigateToNextChange() {
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel == null) return false;
+            return !contentPanel.isAtLastLogicalChange() || canNavigateToNextFile();
+        }
+
+        @Override
+        public boolean canNavigateToPreviousChange() {
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel == null) return false;
+            return !contentPanel.isAtFirstLogicalChange() || canNavigateToPreviousFile();
+        }
+
+        @Override
+        public boolean canNavigateToNextFile() {
+            return panel.fileComparisons.size() > 1
+                    && panel.diffCore.getCurrentIndex() < panel.fileComparisons.size() - 1;
+        }
+
+        @Override
+        public boolean canNavigateToPreviousFile() {
+            return panel.fileComparisons.size() > 1 && panel.diffCore.getCurrentIndex() > 0;
+        }
+
+        @Override
+        public boolean isUnifiedView() {
+            return true; // Review panel always uses unified view
+        }
+
+        @Override
+        public boolean isBlameAvailable() {
+            return false;
+        }
+
+        @Override
+        public boolean isMultiFile() {
+            return panel.fileComparisons.size() > 1;
+        }
+
+        @Override
+        public boolean isShowingBlame() {
+            return false;
+        }
+
+        @Override
+        public boolean isShowingAllLines() {
+            return true; // Review panel always shows all lines
+        }
+
+        @Override
+        public boolean isShowingBlankLineDiffs() {
+            return false; // Not applicable - review panel uses unified view
+        }
+
+        @Override
+        public int getCurrentFontIndex() {
+            float saved = GlobalUiSettings.getEditorFontSize();
+            return saved > 0f ? findClosestFontIndex(saved) : DEFAULT_FONT_INDEX;
+        }
+
+        @Override
+        public void setCurrentFontIndex(int index) {
+            // State is persisted via GlobalUiSettings in font change methods
+            // No local state to update
+        }
+
+        @Override
+        public void increaseEditorFont() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            int currentIdx = getCurrentFontIndex();
+            if (currentIdx >= FONT_SIZES.size() - 1) return;
+            float newSize = FONT_SIZES.get(currentIdx + 1);
+            GlobalUiSettings.saveEditorFontSize(newSize);
+            applyFontSizeToAllPanels();
+        }
+
+        @Override
+        public void decreaseEditorFont() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            int currentIdx = getCurrentFontIndex();
+            if (currentIdx <= 0) return;
+            float newSize = FONT_SIZES.get(currentIdx - 1);
+            GlobalUiSettings.saveEditorFontSize(newSize);
+            applyFontSizeToAllPanels();
+        }
+
+        @Override
+        public void resetEditorFont() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            float newSize = FONT_SIZES.get(DEFAULT_FONT_INDEX);
+            GlobalUiSettings.saveEditorFontSize(newSize);
+            applyFontSizeToAllPanels();
+        }
+
+        private void applyFontSizeToAllPanels() {
+            float fontSize = GlobalUiSettings.getEditorFontSize();
+            if (fontSize <= 0f) return;
+            for (AbstractDiffPanel diffPanel : panel.diffCore.getCachedPanels()) {
+                diffPanel.applyEditorFontSize(fontSize);
+            }
+        }
+    }
+    /**
+     * Starts a review for a specific commit range.
+     */
+    public void startCommitRangeReview(String fromRef, String toRef) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        this.reviewBaselineRef = fromRef;
+        this.reviewTargetCommit = toRef.equals("WORKING") ? "HEAD" : toRef;
+
+        setGuidedReviewBusy(true);
+        codeReviewPanel.setBusy(true);
+        guidedReviewBtn.setProgress(0);
+
+        LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(cm, fromRef, toRef))
+                .thenAccept(scope -> {
+                    // Update cached changes so the UI refresh shows the same data
+                    this.lastCumulativeChanges = scope.changes();
+                    generateGuidedReviewAsync(scope);
+                })
+                .exceptionally(ex -> {
+                    logger.error("Failed to prepare commit range review", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        codeReviewPanel.setBusy(false);
+                        setGuidedReviewBusy(false);
+                        chrome.toolError("Failed to prepare review: " + ex.getMessage());
+                    });
+                    return null;
+                });
+    }
+
+    /** Opens the resolve conflicts dialog, allowing the user to provide custom instructions. */
+    private void openResolveConflictsDialog(MergeAgent.MergeConflict conflict) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        var conflictCount = conflict.files().size();
+        var message =
+                """
+                Merge conflicts detected:
+                  - Mode: %s
+                  - Other: %s
+                  - Files with conflicts: %d
+
+                Would you like to resolve these conflicts with the Merge Agent?
+                """
+                        .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
+
+        // Create custom dialog with instructions textarea
+        var dialog = new BaseThemedDialog(chrome.getFrame(), "Merge Conflicts Detected");
+        var root = dialog.getContentRoot();
+        root.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
+
+        // Message panel
+        var messageArea = new JTextArea(message);
+        messageArea.setEditable(false);
+        messageArea.setOpaque(false);
+        messageArea.setFont(UIManager.getFont("Label.font"));
+        var messagePanel = new JPanel(new BorderLayout());
+        messagePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        messagePanel.add(messageArea, BorderLayout.CENTER);
+
+        // Custom instructions panel
+        var customInstructionsArea = new JTextArea(3, 40);
+        customInstructionsArea.setLineWrap(true);
+        customInstructionsArea.setWrapStyleWord(true);
+        customInstructionsArea.setText(MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+        var customScroll = new JScrollPane(customInstructionsArea);
+        customScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        customScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        var customPanel = new JPanel(new BorderLayout());
+        customPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createEmptyBorder(0, 10, 10, 10),
+                BorderFactory.createTitledBorder("Custom Instructions")));
+        customPanel.add(customScroll, BorderLayout.CENTER);
+
+        // Button panel with right-aligned buttons (platform standard for dialogs)
+        var dialogButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
+        dialogButtonPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+
+        var resolveButton = new MaterialButton("Resolve with Merge Agent");
+        SwingUtil.applyPrimaryButtonStyle(resolveButton);
+        var cancelButton = new MaterialButton("Cancel");
+
+        var dialogResult = new boolean[] {false};
+
+        resolveButton.addActionListener(e -> {
+            dialogResult[0] = true;
+            dialog.dispose();
+        });
+
+        cancelButton.addActionListener(e -> {
+            dialogResult[0] = false;
+            dialog.dispose();
+        });
+
+        dialogButtonPanel.add(resolveButton);
+        dialogButtonPanel.add(cancelButton);
+
+        // Layout
+        root.add(messagePanel, BorderLayout.NORTH);
+        root.add(customPanel, BorderLayout.CENTER);
+        root.add(dialogButtonPanel, BorderLayout.SOUTH);
+
+        dialog.pack();
+        dialog.setLocationRelativeTo(chrome.getFrame());
+        dialog.setVisible(true);
+
+        if (dialogResult[0]) {
+            runAiMerge(conflict, customInstructionsArea.getText());
+        }
+    }
+
+    /** Run MergeAgent using the InstructionsPanel-selected planning model and GPT-5-mini as code model. */
+    private void runAiMerge(MergeAgent.MergeConflict conflict, String customInstructions) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Create a new session for this merge, mirroring PR Review behavior
+        String sessionName = "Merge %s and %s"
+                .formatted(repo.shortHash(conflict.ourCommitId()), repo.shortHash(conflict.otherCommitId()));
+        cm.createSessionAsync(sessionName).whenComplete((ignored, err) -> {
+            SwingUtilities.invokeLater(() -> chrome.getRightPanel().selectBuildTab());
+            if (err != null) {
+                logger.error("Failed to create merge session '{}'", sessionName, err);
+                SwingUtilities.invokeLater(() -> chrome.toolError(
+                        "Unable to create merge session: " + sessionName + ": " + err.getMessage(),
+                        "Merge Agent Error"));
+                return;
+            }
+
+            // Now execute the merge in an exclusive action
+            cm.submitLlmAction(() -> {
+                var planningModel = chrome.getInstructionsPanel().getSelectedModel();
+                var codeModel = cm.getCodeModel();
+
+                try (var scope = cm.beginTask(customInstructions, true, "AI Merge")) {
+                    var agent = new MergeAgent(cm, planningModel, codeModel, conflict, scope, customInstructions);
+                    var result = agent.execute();
+                    // MergeAgent orchestrates both a planning model and a code model.
+                    scope.append(result);
+                    scope.compressTop();
+                } catch (Exception ex) {
+                    logger.error("AI merge failed", ex);
+                    SwingUtilities.invokeLater(
+                            () -> chrome.toolError("AI merge failed: " + ex.getMessage(), "Merge Agent Error"));
+                } finally {
+                    SwingUtilities.invokeLater(() -> {
+                        requestUpdate();
+                        chrome.updateLogTab();
+                    });
+                }
+            });
+        });
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        var buttonBg = UIManager.getColor("Button.background");
+        var buttonFg = UIManager.getColor("Button.foreground");
+        if (buttonBg != null) {
+            resolveConflictsBtn.setBackground(buttonBg);
+        }
+        if (buttonFg != null) {
+            resolveConflictsBtn.setForeground(buttonFg);
+        }
+
+        codeReviewPanel.applyTheme(guiTheme);
+        commitsTable.applyTheme(guiTheme);
+        fileTreePanel.applyTheme(guiTheme);
+        for (AbstractDiffPanel panel : diffCore.getCachedPanels()) {
+            panel.applyTheme(guiTheme);
+        }
+        guidedReviewBtn.repaint();
+    }
+
+    public void dispose() {
+        diffCore.clearCache();
+    }
+}

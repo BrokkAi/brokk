@@ -1,0 +1,1873 @@
+package ai.brokk.agents;
+
+import static java.util.Objects.requireNonNull;
+
+import ai.brokk.EditBlock;
+import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
+import ai.brokk.Llm;
+import ai.brokk.Llm.StreamingResult;
+import ai.brokk.LlmOutputMeta;
+import ai.brokk.Service;
+import ai.brokk.TaskResult;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextHistory;
+import ai.brokk.context.SpecialTextType;
+import ai.brokk.project.ModelProperties;
+import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.EditBlockParser;
+import ai.brokk.prompts.QuickEditPrompts;
+import ai.brokk.util.Messages;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.difflib.DiffUtils;
+import com.google.common.collect.Sets;
+import com.google.common.collect.Streams;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.SequencedSet;
+import java.util.Set;
+import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
+import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.dom.AST;
+import org.eclipse.jdt.core.dom.ASTParser;
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
+
+/**
+ * Manages interactions with a Language Model (LLM) to generate and apply code modifications based on user instructions.
+ * It handles parsing LLM responses, applying edits to files, verifying changes through build/test commands, and
+ * managing the conversation history. It supports both iterative coding tasks (potentially involving multiple LLM
+ * interactions and build attempts) and quick, single-shot edits.
+ */
+public class CodeAgent {
+    private static final Logger logger = LogManager.getLogger(CodeAgent.class);
+    private static final int MAX_PARSE_ATTEMPTS = 3;
+
+    static final int MAX_APPLY_FAILURES = 3;
+    /** maximum consecutive build failures before giving up */
+    final int MAX_BUILD_FAILURES;
+
+    final IContextManager contextManager;
+    private final StreamingChatModel model;
+    private final IConsoleIO io;
+
+    // A "global" for current task Context. Updated mid-task with new files and build status.
+    Context context;
+
+    public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
+        this(contextManager, model, contextManager.getIo());
+    }
+
+    public CodeAgent(IContextManager contextManager, StreamingChatModel model, IConsoleIO io) {
+        this.contextManager = contextManager;
+        this.model = model;
+        this.io = io;
+
+        @Nullable String rawAttempts = System.getenv("BRK_CODE_BUILD_ATTEMPTS");
+        int attempts = 3;
+        if (rawAttempts != null && !rawAttempts.isBlank()) {
+            try {
+                attempts = Integer.parseInt(rawAttempts.trim());
+            } catch (NumberFormatException e) {
+                // ignore
+            }
+        }
+        this.MAX_BUILD_FAILURES = Math.max(1, attempts);
+
+        // placeholder to make Null Away happy; initialized in runTaskInternal
+        this.context = new Context(contextManager);
+    }
+
+    public enum Option {
+        DEFER_BUILD
+    }
+
+    /** Implicitly includes the DEFER_BUILD option. */
+    public TaskResult execute(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
+        var ctx = new Context(contextManager)
+                .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
+        // TODO runTaskInternal allows creating new files, should we prevent that?
+        return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
+    }
+
+    /**
+     * @param userInput The user's goal/instructions.
+     * @return A TaskResult containing the conversation history and original file contents
+     */
+    public TaskResult execute(String userInput, Set<Option> options) {
+        return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
+    }
+
+    /**
+     * Executes the coding task against the given context, suppressing the conversation history
+     * for the duration of the task.
+     */
+    @Blocking
+    TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
+        if (context.getTaskHistory().isEmpty()) {
+            // special case no-history to avoid changing Context identity unnecessarily
+            return runTaskInternal(context, List.of(), userInput, options);
+        } else {
+            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
+                    .withHistory(context.getTaskHistory());
+        }
+    }
+
+    /**
+     * CodeAgent's "conversation" will be included in TaskResult.output, it will NOT be baked into
+     * TaskResult.context.
+     */
+    @Blocking
+    TaskResult runTaskInternal(
+            Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+        if (userInput.isBlank()) {
+            throw new IllegalStateException();
+        }
+
+        var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
+        // Seed the local Context reference for this task
+        context = initialContext;
+
+        @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
+
+        // Create Coder instance with the user's input as the task description
+        var coder = contextManager.getLlm(new Llm.Options(model, userInput, TaskResult.Type.CODE)
+                .withEcho()
+                .withPartialResponses());
+
+        coder.setOutput(io);
+
+        // Track changed files
+        var changedFiles = new HashSet<ProjectFile>();
+
+        // Retry-loop state tracking
+        int applyFailures = 0;
+        int blocksAppliedWithoutBuild = 0;
+        int totalBlocksParsed = 0;
+
+        Map<ProjectFile, String> originalFileContents = new HashMap<>();
+
+        TaskResult.StopDetails stopDetails;
+
+        var parser = EditBlockParser.instance;
+        // We'll collect the conversation as ChatMessages to store in context history.
+        var taskMessages = new ArrayList<ChatMessage>();
+        UserMessage nextRequest = CodePrompts.instance.codeRequest(context, userInput.trim(), model);
+
+        // FSM state - include original goal for build-retry compaction
+        var rawMessages = new ArrayList<ChatMessage>();
+        var cs = new ConversationState(rawMessages, taskMessages, nextRequest, 0, userInput.trim());
+        var es = new EditState(
+                0,
+                applyFailures,
+                0,
+                blocksAppliedWithoutBuild,
+                totalBlocksParsed,
+                "",
+                changedFiles,
+                originalFileContents,
+                Collections.emptyMap(),
+                !initialContext.getBuildError().isBlank(),
+                false);
+
+        // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
+        // to date before we paused it, but empirically that is not the case as of this writing.
+        try {
+            contextManager
+                    .getAnalyzerWrapper()
+                    .updateFiles(context.allFragments()
+                            .filter(f -> f.getType().isPath())
+                            .flatMap(cf -> cf.files().join().stream())
+                            .collect(Collectors.toSet()))
+                    .get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+
+        logger.debug("Starting task: {} with options {}", userInput, options);
+        TaskResult.TaskMeta meta = null;
+        while (true) {
+            if (Thread.interrupted()) {
+                logger.debug("CodeAgent interrupted");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+                break;
+            }
+
+            // Select the appropriate model for this turn
+            if (es.useArchitectModel()) {
+                var architectConfig = contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
+                coder.setModel(architectConfig);
+            } else {
+                coder.setModel(this.model);
+            }
+
+            // Make the LLM request
+            StreamingResult streamingResult;
+            // Populate TaskMeta because this task engaged an LLM
+            meta = new TaskResult.TaskMeta(
+                    TaskResult.Type.CODE, Service.ModelConfig.from(coder.getModel(), contextManager.getService()));
+
+            try {
+                var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
+                if (!es.showBuildError()) {
+                    suppressed.add(SpecialTextType.BUILD_RESULTS);
+                }
+                var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
+                        model,
+                        meta,
+                        context,
+                        prologue,
+                        cs.taskMessages(),
+                        requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
+                        suppressed,
+                        userInput.trim());
+                var llmStartNanos = System.nanoTime();
+                streamingResult = coder.sendRequest(allMessagesForLlm);
+                if (metrics != null) {
+                    metrics.llmWaitNanos += System.nanoTime() - llmStartNanos;
+                    Optional.ofNullable(streamingResult.metadata()).ifPresent(metrics::addTokens);
+                    metrics.addApiRetries(streamingResult.retries());
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                continue; // let main loop interruption check handle
+            }
+
+            // REQUEST PHASE handles the result of sendLlmRequest
+            var requestOutcome = requestPhase(cs, es, streamingResult, metrics);
+            if (requestOutcome instanceof Step.Fatal fatalReq) {
+                stopDetails = fatalReq.stopDetails();
+                break;
+            }
+            cs = requestOutcome.cs();
+            es = requestOutcome.es();
+
+            // PARSE PHASE parses edit blocks
+            var parseOutcome =
+                    parsePhase(cs, es, streamingResult.text(), parser, metrics); // Ensure parser is available
+            if (parseOutcome instanceof Step.Fatal fatalParse) {
+                stopDetails = fatalParse.stopDetails();
+                break;
+            }
+            if (parseOutcome instanceof Step.Retry retryParse) {
+                if (metrics != null) {
+                    metrics.parseRetries++;
+                }
+                cs = retryParse.cs();
+                es = retryParse.es();
+                continue; // Restart main loop
+            }
+            cs = parseOutcome.cs();
+            es = parseOutcome.es();
+
+            // APPLY PHASE applies blocks
+            var blocksToApply = ((Step.Continue) parseOutcome).blocks();
+            var applyOutcome = applyPhase(cs, es, blocksToApply, metrics);
+            if (applyOutcome instanceof Step.Fatal fatalApply) {
+                stopDetails = fatalApply.stopDetails();
+                break;
+            }
+            cs = applyOutcome.cs();
+            es = applyOutcome.es();
+
+            // Incorporate any newly created files into the live context immediately
+            var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
+                    .flatMap(f -> f.files().join().stream())
+                    .collect(Collectors.toSet());
+            var newlyCreated = es.changedFiles().stream()
+                    .filter(pf -> !filesInContext.contains(pf))
+                    .collect(Collectors.toSet());
+            if (!newlyCreated.isEmpty()) {
+                // Stage any files that were created during this task, regardless of stop reason
+                try {
+                    contextManager.getRepo().add(newlyCreated);
+                    contextManager.getRepo().invalidateCaches();
+                } catch (GitAPIException e) {
+                    io.toolError("Failed to add newly created files to git: " + e.getMessage());
+                }
+
+                var newFrags = newlyCreated.stream()
+                        .map(pf -> new ContextFragments.ProjectPathFragment(pf, contextManager))
+                        .collect(Collectors.toList());
+                context = context.addFragments(newFrags);
+            }
+
+            // Refresh analyzer + context fragments for any files that were modified (so LLM sees current contents)
+            try {
+                contextManager
+                        .getAnalyzerWrapper()
+                        .updateFiles(es.changedFiles())
+                        .get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                continue; // let main loop interruption check handle
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+            context = context.copyAndRefresh(es.changedFiles());
+
+            if (applyOutcome instanceof Step.Retry retryApply) {
+                cs = retryApply.cs();
+                es = retryApply.es();
+                continue; // Restart main loop
+            }
+
+            // If the response was partial, we must ask the LLM to continue *after* applying the blocks we got
+            if (streamingResult.isPartial()) {
+                UserMessage messageForContinue;
+                String consoleLogForContinue;
+                if (blocksToApply.isEmpty()) {
+                    // Treat "partial with no blocks" as a parse failure
+                    int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
+                    if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                        reportComplete(
+                                TaskResult.StopReason.PARSE_ERROR,
+                                "Parse error limit reached (partial with no blocks); ending task.");
+                        stopDetails = new TaskResult.StopDetails(
+                                TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
+                        break;
+                    }
+                    messageForContinue = new UserMessage(
+                            "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
+                    consoleLogForContinue =
+                            "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
+                    es = es.withConsecutiveParseFailures(updatedConsecutiveParseFailures);
+                } else {
+                    messageForContinue = new UserMessage(getContinueFromLastBlockPrompt(blocksToApply.getLast()));
+                    consoleLogForContinue =
+                            "LLM indicated response was partial after %d clean blocks; asking to continue"
+                                    .formatted(blocksToApply.size());
+                }
+                cs = cs.withNextRequest(messageForContinue);
+                report(consoleLogForContinue);
+                continue;
+            }
+
+            // PARSE-JAVA PHASE: If Java files were edited, run a parse-only check before full build
+            Step parseJavaOutcome;
+            try {
+                parseJavaOutcome = parseJavaPhase(cs, es, metrics);
+            } catch (Throwable e) {
+                var msg = "Parse Java phase encountered an unexpected error";
+                logger.error(msg, e);
+                contextManager.reportException(new JavaPreLintFalsePositiveException(msg, e));
+                parseJavaOutcome = new Step.Continue(cs, es);
+            }
+            if (parseJavaOutcome instanceof Step.Retry retryJava) {
+                cs = retryJava.cs();
+                es = retryJava.es();
+                continue;
+            }
+            if (parseJavaOutcome instanceof Step.Fatal fatalJava) {
+                stopDetails = fatalJava.stopDetails();
+                break;
+            }
+            cs = parseJavaOutcome.cs();
+            es = parseJavaOutcome.es();
+
+            // VERIFY or finish if build is deferred
+            if (options.contains(Option.DEFER_BUILD)) {
+                if (!es.javaLintDiagnostics().isEmpty()) {
+                    if (es.consecutiveBuildFailures() >= MAX_BUILD_FAILURES) {
+                        reportComplete(
+                                TaskResult.StopReason.BUILD_ERROR,
+                                "Java syntax errors persist after %d attempts; aborting."
+                                        .formatted(MAX_BUILD_FAILURES));
+                        stopDetails = new TaskResult.StopDetails(
+                                TaskResult.StopReason.BUILD_ERROR, "Java syntax issues persist.");
+                        break;
+                    }
+
+                    var diagnosticMessages = formatDiagnosticsReport(es.javaLintDiagnostics());
+                    report(diagnosticMessages);
+
+                    UserMessage nextRequestForLintFailure =
+                            new UserMessage("The following Java syntax issues were detected. Please fix them:\n\n"
+                                    + diagnosticMessages);
+                    cs = cs.withNextRequest(nextRequestForLintFailure);
+                    es = es.afterBuildFailure(diagnosticMessages.toString());
+                    continue;
+                }
+
+                reportComplete(
+                        TaskResult.StopReason.SUCCESS,
+                        es.blocksAppliedWithoutBuild() > 0
+                                ? "Edits applied. Build/check deferred."
+                                : "No edits to apply. Build/check deferred.");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+                break;
+            }
+
+            var verifyOutcome = verifyPhase(cs, es, metrics);
+
+            if (verifyOutcome instanceof Step.Retry retryVerify) {
+                cs = retryVerify.cs();
+                es = retryVerify.es();
+                continue;
+            }
+            if (verifyOutcome instanceof Step.Fatal fatalVerify) {
+                stopDetails = fatalVerify.stopDetails();
+                break;
+            }
+            throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
+        }
+
+        // everyone reports their own reasons for stopping, except for interruptions
+        if (stopDetails.reason() == TaskResult.StopReason.INTERRUPTED) {
+            reportComplete(TaskResult.StopReason.INTERRUPTED, "Cancelled by user.");
+        }
+
+        if (metrics != null) {
+            metrics.print(es.changedFiles(), stopDetails);
+        }
+
+        // create the Result for history
+        String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
+                ? userInput
+                : userInput + " [" + stopDetails.reason().name() + "]";
+        var tr = new TaskResult(contextManager, finalActionDescription, cs.taskMessages, context, stopDetails, meta);
+        logger.debug("Task result: {}", tr);
+        return tr;
+    }
+
+    void report(String message) {
+        logger.debug(message);
+        io.llmOutput("\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+    }
+
+    void reportComplete(TaskResult.StopReason reason, String message) {
+        logger.debug(message);
+        var badge = StatusBadge.badgeFor(reason);
+        io.llmOutput(
+                "\n## Code Agent Finished\n" + badge + "\n\n**Reason:** " + message,
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.DEFAULT);
+    }
+
+    Step parsePhase(
+            ConversationState cs, EditState es, String llmText, EditBlockParser parser, @Nullable Metrics metrics) {
+        logger.debug("Got response (potentially partial if LLM connection was cut off)");
+        var parseResult =
+                parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
+        var newlyParsedBlocks = parseResult.blocks();
+        int newlyParsedCount = newlyParsedBlocks.size();
+        if (metrics != null) {
+            metrics.totalEditBlocks += newlyParsedCount;
+        }
+
+        // Handle explicit parse errors from the parser
+        if (parseResult.parseError() != null) {
+            int updatedConsecutiveParseFailures = es.consecutiveParseFailures();
+            UserMessage messageForRetry;
+            String consoleLogForRetry;
+            if (newlyParsedBlocks.isEmpty()) {
+                // Pure parse failure
+                updatedConsecutiveParseFailures++;
+
+                // The bad response is the last message; the user request that caused it is the one before that.
+                // We will remove both from taskMessages, and create a new request that is the original + a reminder.
+                // Note: rawMessages is never modified, it preserves the full conversation history.
+                cs.taskMessages().removeLast(); // bad AI response
+                var lastRequest = (UserMessage) cs.taskMessages().removeLast(); // original user request
+
+                var reminder =
+                        "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!";
+                var newRequestText = Messages.getText(lastRequest) + "\n\n" + reminder;
+                messageForRetry = new UserMessage(newRequestText);
+                consoleLogForRetry = "Failed to parse LLM response; retrying with format reminder";
+            } else {
+                // Partial parse, then an error
+                updatedConsecutiveParseFailures = 0; // Reset, as we got some good blocks.
+                messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
+                consoleLogForRetry =
+                        "Malformed or incomplete response after %d blocks parsed; asking LLM to continue/fix"
+                                .formatted(newlyParsedCount);
+            }
+
+            if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                reportComplete(TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
+                return new Step.Fatal(new TaskResult.StopDetails(
+                        TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
+            }
+
+            var nextCs = cs.withNextRequest(messageForRetry);
+            // In the case of a parse error, we still want to update totalBlocksParsed with what we found
+            var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
+            report(consoleLogForRetry);
+            return new Step.Retry(nextCs, nextEs);
+        }
+
+        // No explicit parse error. Reset counter.
+        int updatedConsecutiveParseFailures = 0;
+        var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
+        return new Step.Continue(cs, nextEs, newlyParsedBlocks);
+    }
+
+    /**
+     * Runs a quick-edit task where we: 1) Gather the entire file content plus related context (buildAutoContext) 2) Use
+     * QuickEditPrompts to ask for a single fenced code snippet 3) Replace the old text with the new snippet in the file
+     *
+     * @return A TaskResult containing the conversation and original content.
+     */
+    public TaskResult runQuickTask(ProjectFile file, String oldText, String instructions) throws InterruptedException {
+        var llm = contextManager.getLlm(model, "QuickEdit: " + instructions, TaskResult.Type.CODE);
+        llm.setOutput(io);
+
+        // Use up to 5 related classes as context (format as combined summaries)
+        var relatedCode = contextManager.liveContext().buildAutoContext(5);
+        String fileContents = file.read().orElse("");
+        var styleGuide = contextManager.getProject().getStyleGuide();
+
+        // Build the prompt messages
+        var messages = QuickEditPrompts.instance.collectMessages(fileContents, relatedCode, styleGuide);
+        int messageHistoryStart = messages.size();
+        var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
+        messages.add(new UserMessage(instructionsMsg));
+
+        TaskResult.StopDetails stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+        int attempts = 0;
+        final int MAX_QUICK_FIX_ATTEMPTS = 3;
+
+        while (true) {
+            var result = llm.sendRequest(messages);
+            if (result.error() != null) {
+                stopDetails = TaskResult.StopDetails.fromResponse(result);
+                io.toolError("Quick edit failed: " + stopDetails.explanation());
+                break;
+            }
+            messages.add(result.aiMessage());
+
+            var responseText = Messages.getText(result.aiMessage());
+            var snippet = EditBlock.extractCodeFromTripleBackticks(responseText).trim();
+
+            if (snippet.isEmpty()) {
+                io.toolError("Could not extract code block from LLM response.", "Quick Edit Diagnostics");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR, "Empty code block");
+                break;
+            }
+
+            if (snippet.equals(oldText)) {
+                logger.debug("Quick Edit: LLM returned unchanged code, skipping diagnostics");
+                break; // No changes suggested
+            }
+
+            var updatedContent = fileContents.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
+            if (updatedContent.equals(fileContents)) {
+                logger.warn("Quick Edit: target text not found in file (may have changed)");
+                break;
+            }
+
+            // Validate Java syntax if applicable
+            if (!Languages.JAVA.getExtensions().contains(file.extension())) {
+                break; // Not Java, accept the result
+            }
+
+            var diags = parseJavaForDiagnostics(file, updatedContent);
+            if (diags.isEmpty()) {
+                break; // Valid Java
+            }
+
+            var diagnosticMessages = formatDiagnosticsReport(Map.of(file, diags));
+            io.llmOutput(diagnosticMessages, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
+            if (attempts++ >= MAX_QUICK_FIX_ATTEMPTS) {
+                report("Quick Edit: Maximum fix attempts reached.");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Syntax errors persist");
+                break;
+            }
+
+            messages.add(new UserMessage(
+                    "The following Java syntax issues were detected in your response. Please fix them and provide the full corrected code block:\n\n"
+                            + diagnosticMessages));
+            report("Quick Edit: Syntax errors detected, retrying...");
+        }
+
+        var quickMeta = new TaskResult.TaskMeta(
+                TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
+        return new TaskResult(
+                contextManager,
+                "Quick Edit: " + file.getFileName(),
+                messages.subList(messageHistoryStart, messages.size()),
+                context,
+                stopDetails,
+                quickMeta);
+    }
+
+    /**
+     * Generates a user message to ask the LLM to continue when a response appears to be cut off.
+     *
+     * @param lastBlock The last successfully parsed block from the incomplete response.
+     * @return A formatted string to be used as a UserMessage.
+     */
+    private static String getContinueFromLastBlockPrompt(EditBlock.SearchReplaceBlock lastBlock) {
+        return """
+                It looks like we got cut off. The last block I successfully parsed was:
+
+                <block>
+                %s
+                </block>
+
+                Please continue from there (WITHOUT repeating that one).
+                """
+                .formatted(lastBlock);
+    }
+
+    static class EditStopException extends RuntimeException {
+        final TaskResult.StopDetails stopDetails;
+
+        public EditStopException(TaskResult.StopDetails stopDetails) {
+            super(stopDetails.reason().name() + ": " + stopDetails.explanation());
+            this.stopDetails = stopDetails;
+        }
+    }
+
+    /**
+     * Appends request + AI message to the conversation or ends on error. After successfully recording the exchange,
+     * this method returns a ConversationState where {@code nextRequest} has been nulled out to enforce single-use
+     * semantics (see TODO resolution).
+     *
+     * If an error occurred but partial text was captured, proceeds with the partial so parsePhase can parse what
+     * was received and ask the LLM to continue, rather than treating it as a fatal error.
+     */
+    Step requestPhase(
+            ConversationState cs, EditState es, StreamingResult streamingResultFromLlm, @Nullable Metrics metrics) {
+        var llmError = streamingResultFromLlm.error();
+        if (llmError != null) {
+            // If there's no usable text, this is a fatal error
+            if (streamingResultFromLlm.isEmpty()) {
+                var fatalDetails = TaskResult.StopDetails.fromResponse(streamingResultFromLlm);
+                String message =
+                        "LLM returned an error even after retries: " + fatalDetails.explanation() + ". Ending task";
+                io.toolError(message);
+                return new Step.Fatal(fatalDetails);
+            }
+
+            // Partial text exists despite the error; proceed and let parsePhase handle it
+            logger.warn(
+                    "LLM connection dropped but partial text captured ({} chars); proceeding to parse",
+                    streamingResultFromLlm.text().length());
+            report("LLM connection interrupted; parsing partial response and asking to continue.");
+        }
+
+        // Append request and AI message to both rawMessages and taskMessages
+        cs.appendMessage(requireNonNull(cs.nextRequest(), "nextRequest must be non-null when recording request"));
+        cs.appendMessage(streamingResultFromLlm.aiMessage());
+
+        // Null out nextRequest after use (Task 3)
+        var nextCs = cs.withNextRequest(null);
+        return new Step.Continue(nextCs, es);
+    }
+
+    private EditBlock.EditResult applyBlocksAndHandleErrors(
+            Context ctx, Collection<EditBlock.SearchReplaceBlock> blocksToApply)
+            throws EditStopException, InterruptedException {
+
+        EditBlock.EditResult editResult;
+        try {
+            editResult = EditBlock.apply(ctx, io, blocksToApply);
+        } catch (IOException e) {
+            var eMessage = requireNonNull(e.getMessage());
+            // io.toolError is handled by caller if this exception propagates
+            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, eMessage));
+        }
+        return editResult;
+    }
+
+    Step verifyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
+        // Plan Invariant 3: Verify only runs when editsSinceLastBuild > 0.
+        if (es.blocksAppliedWithoutBuild() == 0) {
+            TaskResult.StopDetails stopDetails;
+            if (es.lastBuildError().isEmpty()) {
+                var text = Messages.getText(cs.taskMessages().getLast());
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, text);
+            } else {
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, es.lastBuildError());
+            }
+            reportComplete(
+                    stopDetails.reason(),
+                    "No edits found or applied in response, and no changes since last build; ending task.");
+            return new Step.Fatal(stopDetails);
+        }
+
+        String buildError;
+        try {
+            context = BuildAgent.runVerification(context);
+            buildError = context.getBuildError();
+        } catch (InterruptedException e) {
+            logger.debug("CodeAgent interrupted during build verification.");
+            Thread.currentThread().interrupt();
+            return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+        }
+
+        // Base success/failure decision on raw build result, not processed output
+        if (buildError.isEmpty()) {
+            // Report any false positives from the "lint" phase
+            for (var entry : es.javaLintDiagnostics().entrySet()) {
+                var pf = entry.getKey();
+                var diags = entry.getValue();
+
+                var diagnosticDetails =
+                        diags.stream().map(d -> "  * " + d.description()).collect(Collectors.joining("\n"));
+
+                var message =
+                        """
+                        Java pre-lint false positives in %s: %d issue(s)
+                        %s
+                        """
+                                .formatted(pf.getFileName(), diags.size(), diagnosticDetails);
+
+                // Report this file's exception with sourcefile in optional fields
+                contextManager.reportException(
+                        new JavaPreLintFalsePositiveException(message), Map.of("sourcefile", pf.getFileName()));
+            }
+            logger.debug("Build verification succeeded");
+            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
+            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
+        } else {
+            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
+            if (metrics != null) {
+                metrics.buildFailures++;
+            }
+
+            var lastAiText = cs.taskMessages.isEmpty()
+                    ? "" // taskMessages is never empty in prod, but our test code is lazy
+                    : Messages.getText(cs.taskMessages().getLast());
+            var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
+            var filesInContext = context.allFragments()
+                    .filter(f -> f.getType().isPath())
+                    .flatMap(f -> f.files().join().stream())
+                    .collect(Collectors.toSet());
+
+            var notInContext = Sets.difference(mentionedFiles, filesInContext);
+            if (!notInContext.isEmpty()) {
+                var quickModel = contextManager.getService().quickestModel();
+                var llm = contextManager.getLlm(quickModel, "Check if asking for files", TaskResult.Type.CLASSIFY);
+
+                var filterDescription =
+                        "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";
+                boolean isAskingForFiles;
+                try {
+                    isAskingForFiles = RelevanceClassifier.isRelevant(llm, filterDescription, lastAiText);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+                }
+
+                if (isAskingForFiles) {
+                    var fileNames =
+                            notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
+                    reportComplete(TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files");
+                    return new Step.Fatal(new TaskResult.StopDetails(
+                            TaskResult.StopReason.LLM_ABORTED,
+                            "Agent requested additional files not in context: " + fileNames));
+                }
+            }
+
+            int newBuildFailures = es.consecutiveBuildFailures() + 1;
+            if (newBuildFailures >= MAX_BUILD_FAILURES) {
+                reportComplete(
+                        TaskResult.StopReason.BUILD_ERROR,
+                        "Build failed %d consecutive times; aborting.".formatted(newBuildFailures));
+                return new Step.Fatal(new TaskResult.StopDetails(
+                        TaskResult.StopReason.BUILD_ERROR,
+                        "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, buildError)));
+            }
+            var buildPrompt =
+                    """
+                    The build failed.
+                    Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
+                    You should use the conversation history to understand your earlier thinking; since your changes
+                    have been incorporated into the Workspace, look at the current state of those files before
+                    generate SEARCH/REPLACE blocks. You have already made changes, but you made mistakes;
+                    that is why the build is failing!
+
+                    IMPORTANT: If solving the build or failure requires editing files or using APIs you do not have
+                    in your Workspace, do your best to explain the problem but DO NOT provide any edits.
+                    Otherwise, provide the edits as usual.
+
+                    <build_output>
+                    %s
+                    </build_output>
+                    """
+                            .formatted(buildError);
+            UserMessage nextRequest = new UserMessage(buildPrompt.trim());
+            // Compact conversation into a concise summary for the build step
+            var newCs = cs.forBuildRetry(nextRequest, es);
+            var newEs = es.afterBuildFailure(buildError);
+            report("Asking LLM to fix build/lint failures");
+            return new Step.Retry(newCs, newEs);
+        }
+    }
+
+    private static class JavaPreLintFalsePositiveException extends RuntimeException {
+        public JavaPreLintFalsePositiveException(String message) {
+            super(message);
+        }
+
+        public JavaPreLintFalsePositiveException(String msg, Throwable e) {
+            super(msg, e);
+        }
+    }
+
+    @Blocking
+    Step applyPhase(
+            ConversationState cs,
+            EditState es,
+            SequencedSet<EditBlock.SearchReplaceBlock> blocksToApply,
+            @Nullable Metrics metrics) {
+        if (blocksToApply.isEmpty()) {
+            logger.debug("nothing to apply, continuing to next phase");
+            return new Step.Continue(cs, es, blocksToApply);
+        }
+
+        // If any fragments need to be computed, we'll wait a bit
+        try {
+            context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.debug("Interrupted while waiting for contexts to be computed", e);
+        }
+
+        // Guardrail: block edits to files designated read-only in the current context
+        var readOnlyPaths = computeReadOnlyPaths(context);
+        var violating = blocksToApply.stream()
+                .map(EditBlock.SearchReplaceBlock::rawFileName)
+                .filter(readOnlyPaths::contains)
+                .collect(Collectors.toSet());
+        if (!violating.isEmpty()) {
+            var message = "Agent attempted to modify read-only file(s):\n"
+                    + violating.stream().map(p -> " - " + p).collect(Collectors.joining("\n"));
+            report("Read-only file constraint violation: " + String.join(", ", violating));
+            return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, message));
+        }
+
+        EditBlock.EditResult editResult;
+        int updatedConsecutiveApplyFailures = es.consecutiveApplyFailures();
+        EditState esForStep; // Will be updated
+        ConversationState csForStep = cs; // Will be updated
+
+        try {
+            editResult = applyBlocksAndHandleErrors(context, blocksToApply);
+
+            int attemptedBlockCount = blocksToApply.size();
+            var failedResults = editResult.failures();
+            if (metrics != null) {
+                metrics.failedEditBlocks += failedResults.size();
+            }
+            int succeededCount = attemptedBlockCount - failedResults.size();
+            assert succeededCount >= 0
+                    : "succeededCount cannot be negative: attempted=%d, failed=%d"
+                            .formatted(attemptedBlockCount, failedResults.size());
+            int newBlocksAppliedWithoutBuild = es.blocksAppliedWithoutBuild() + succeededCount;
+            assert newBlocksAppliedWithoutBuild >= 0
+                    : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
+                            .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
+
+            if (!failedResults.isEmpty()) { // Some blocks failed the direct apply
+                if (succeededCount == 0) { // Total failure for this batch of blocksToApply
+                    updatedConsecutiveApplyFailures++;
+                } else { // Partial success
+                    updatedConsecutiveApplyFailures = 0;
+                }
+
+                if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
+                    var files = failedResults.stream()
+                            .map(b -> b.block().rawFileName())
+                            .collect(Collectors.joining(","));
+                    var detailMsg = "Apply failed %d consecutive times; unable to apply %d blocks to %s"
+                            .formatted(updatedConsecutiveApplyFailures, failedResults.size(), files);
+                    reportComplete(
+                            TaskResult.StopReason.APPLY_ERROR,
+                            "Apply failed %d consecutive times; aborting.".formatted(updatedConsecutiveApplyFailures));
+                    var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, detailMsg);
+                    return new Step.Fatal(details);
+                } else { // Apply failed, but not yet time for full fallback -> ask LLM to retry
+                    if (metrics != null) {
+                        metrics.applyRetries++;
+                    }
+
+                    String lastAiText = cs.taskMessages().isEmpty()
+                            ? ""
+                            : Messages.getText(cs.taskMessages().getLast());
+                    String buildError = es.lastBuildError();
+
+                    // Retrieve the base index for the blocks parsed in this response
+                    int turnParsedBase = es.totalBlocksParsed() - attemptedBlockCount;
+                    var retryMessages = CodePrompts.buildApplyRetryMessages(
+                            lastAiText, editResult.blockResults(), buildError, turnParsedBase);
+
+                    // Replace the last AI message in taskMessages with the tagged version
+                    // Note: rawMessages is not modified - it preserves the original conversation
+                    if (!cs.taskMessages().isEmpty() && cs.taskMessages().getLast() instanceof AiMessage) {
+                        cs.taskMessages().removeLast();
+                        cs.taskMessages().add(retryMessages.taggedAiMessage());
+                    }
+
+                    UserMessage retryRequest = retryMessages.retryRequest();
+                    if (!es.lastBuildError().isBlank()) {
+                        String harnessNote =
+                                """
+                                [HARNESS NOTE: Apply did not fully succeed. I applied %d of %d of your SEARCH/REPLACE blocks, but I have NOT rerun the build yet.
+                                I will rerun the build once all of your proposed edits apply cleanly.
+                                If you believe no further edits are required and I should run the build now, simply explain why and do NOT provide any further SEARCH/REPLACE blocks.]
+                                """
+                                        .formatted(succeededCount, attemptedBlockCount)
+                                        .stripIndent()
+                                        .trim();
+                        retryRequest = new UserMessage(Messages.getText(retryRequest) + "\n\n" + harnessNote);
+                    }
+
+                    csForStep = cs.withNextRequest(retryRequest);
+                    esForStep = es.afterApply(
+                            updatedConsecutiveApplyFailures,
+                            newBlocksAppliedWithoutBuild,
+                            editResult.originalContents());
+                    report("Applied %d of %d unique block(s) successfully; asking LLM to retry"
+                            .formatted(succeededCount, attemptedBlockCount));
+                    return new Step.Retry(csForStep, esForStep);
+                }
+            } else { // All blocks applied successfully
+                if (succeededCount > 0) {
+                    report("Applied %d unique SEARCH/REPLACE block(s).".formatted(succeededCount));
+                }
+                updatedConsecutiveApplyFailures = 0; // Reset on success
+                esForStep = es.afterApply(
+                        updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, editResult.originalContents());
+                return new Step.Continue(csForStep, esForStep, blocksToApply);
+            }
+        } catch (EditStopException e) {
+            // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), or applyEditBlocks (IO)
+            // Log appropriate messages based on e.stopDetails.reason()
+            if (e.stopDetails.reason() == TaskResult.StopReason.READ_ONLY_EDIT) {
+                // already reported by applyBlocksAndHandleErrors
+            } else if (e.stopDetails.reason() == TaskResult.StopReason.IO_ERROR) {
+                io.toolError(e.stopDetails.explanation());
+            } else if (e.stopDetails.reason() == TaskResult.StopReason.APPLY_ERROR) {
+                reportComplete(e.stopDetails.reason(), e.stopDetails.explanation());
+            }
+            return new Step.Fatal(e.stopDetails);
+        } catch (InterruptedException e) {
+            logger.debug("CodeAgent interrupted during applyPhase");
+            Thread.currentThread().interrupt(); // Preserve interrupt status
+            return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+        }
+    }
+
+    /**
+     * If any edited files in this turn include Java sources, run a parse-only check before attempting a full build. On
+     * syntax errors, we construct a diagnostic summary and ask the LLM to fix those first.
+     */
+    static final Set<Integer> LOCAL_ONLY_IDS = Set.of(
+            IProblem.UninitializedLocalVariable, // PJ-9
+            IProblem.RedefinedLocal, // PJ-20
+            IProblem.RedefinedArgument, // PJ-22
+            IProblem.ShouldReturnValue, // PJ-10
+            IProblem.FinallyMustCompleteNormally, // PJ-23
+            IProblem.IncompatibleTypesInForeach, // PJ-15
+            IProblem.InvalidTypeForCollection, // PJ-15
+            IProblem.CodeCannotBeReached, // PJ-32
+            IProblem.CannotReturnInInitializer, // PJ-33
+            IProblem.DuplicateDefaultCase, // PJ-25
+            IProblem.DuplicateCase, // PJ-24
+            IProblem.InvalidBreak, // PJ-35
+            IProblem.InvalidContinue, // PJ-36
+            IProblem.UndefinedLabel, // PJ-37
+            IProblem.InvalidTypeToSynchronized, // PJ-38
+            IProblem.InvalidNullToSynchronized, // PJ-39
+            IProblem.InvalidVoidExpression, // PJ-34
+            IProblem.MethodRequiresBody, // PJ-28
+            IProblem.VarLocalInitializedToNull, // PJ-29
+            IProblem.VarLocalInitializedToVoid, // PJ-30
+            IProblem.VarLocalCannotBeArrayInitalizers, // PJ-31
+            IProblem.VoidMethodReturnsValue, // PJ-27
+            // leaving in but doesn't seem to work as expected
+            IProblem.DuplicateLabel,
+            IProblem.InitializerMustCompleteNormally,
+            IProblem.CannotThrowNull,
+            IProblem.MethodReturnsVoid);
+
+    static final Set<Integer> METHOD_LOCAL_IDS = Set.of(
+            // Parameter / applicability for calls (e.g., ThreadLocal.withInitial(() -> { }))
+            IProblem.ParameterMismatch, // PJ-16
+            // Constructor resolution when referenced types are on bootclasspath
+            IProblem.UndefinedConstructor, // PJ-17
+            // Override / implements correctness
+            IProblem.MethodMustOverride, // PJ-13
+            IProblem.MethodMustOverrideOrImplement, // PJ-13
+            // “must implement abstract method …”
+            IProblem.AbstractMethodMustBeImplemented, // PJ-14
+            // Return type compatibility for inherited/declared methods
+            IProblem.IncompatibleReturnType, // PJ-18
+            IProblem.IncompatibleReturnTypeForNonInheritedInterfaceMethod // PJ-18
+            );
+
+    static final Set<Integer> BLACKLIST_CATS = Set.of(
+            CategorizedProblem.CAT_IMPORT, // PJ-4
+            CategorizedProblem.CAT_MODULE, // exercised implicitly by PJ-11 classpath ignore
+            CategorizedProblem.CAT_COMPLIANCE, // not targeted by pre-lint tests
+            CategorizedProblem.CAT_PREVIEW_RELATED, // not targeted by pre-lint tests
+            CategorizedProblem.CAT_RESTRICTION, // not targeted by pre-lint tests
+            CategorizedProblem.CAT_JAVADOC, // PJ-11 (ignore missing external types in signatures)
+            CategorizedProblem.CAT_NLS, // not targeted
+            CategorizedProblem.CAT_CODE_STYLE, // not targeted
+            CategorizedProblem.CAT_UNNECESSARY_CODE, // not targeted
+            CategorizedProblem.CAT_POTENTIAL_PROGRAMMING_PROBLEM, // not targeted
+            CategorizedProblem.CAT_DEPRECATION, // not targeted
+            CategorizedProblem.CAT_UNCHECKED_RAW // PJ-5/7/8/12/19 (type/import/classpath noise ignored)
+            );
+
+    static final Set<Integer> CROSS_FILE_INFERENCE_IDS = Set.of(
+            IProblem.MissingTypeInLambda,
+            IProblem.CannotInferElidedTypes,
+            IProblem.CannotInferInvocationType,
+            IProblem.GenericInferenceError,
+            IProblem.MissingTypeForInference,
+            // Verified by PJ-19 (missing external type via var inference ignored)
+            IProblem.IncompatibleMethodReference
+            // PJ-22: method ref return type vs generic descriptor mismatch without full classpath
+            );
+
+    /**
+     * Problem IDs that indicate type resolution/inference is unreliable for this compilation unit. If any of these are
+     * present, we treat the CU as having "shaky type info" and suppress diagnostics that depend on precise symbol
+     * resolution.
+     */
+    static final Set<Integer> RESOLUTION_NOISE_IDS = Set.of(
+            IProblem.UndefinedType,
+            IProblem.UndefinedMethod,
+            IProblem.UndefinedField,
+            IProblem.UndefinedName,
+            IProblem.UnresolvedVariable,
+            IProblem.ImportNotFound,
+            IProblem.CannotInferInvocationType,
+            IProblem.CannotInferElidedTypes,
+            IProblem.GenericInferenceError,
+            IProblem.MissingTypeForInference);
+
+    /**
+     * Diagnostics that require stable type info and should be suppressed when the CU shows resolution/inference noise.
+     * Includes method applicability/override errors and foreach target/type errors.
+     */
+    static final Set<Integer> REQUIRES_STABLE_TYPE_INFO;
+
+    static {
+        var tmp = new HashSet<Integer>(METHOD_LOCAL_IDS);
+        tmp.add(IProblem.IncompatibleTypesInForeach);
+        tmp.add(IProblem.InvalidTypeForCollection);
+        // Be conservative and include the pre-1.4 target as well, though tests focus on the two above.
+        tmp.add(IProblem.InvalidTypeForCollectionTarget14);
+        REQUIRES_STABLE_TYPE_INFO = Collections.unmodifiableSet(tmp);
+    }
+
+    /** Decide if a JDT problem should be recorded by the pre-build Java parse step. */
+    static boolean shouldKeepJavaProblem(
+            int id, boolean isError, @Nullable Integer categoryId, boolean hasShakyTypeInfo) {
+        // 0) If type info is shaky, suppress diagnostics that require stable symbol resolution.
+        if (hasShakyTypeInfo && REQUIRES_STABLE_TYPE_INFO.contains(id)) {
+            return false;
+        }
+
+        // 1) Force-keep explicitly local problems (syntax/control-flow/value-category), independent of category.
+        // Note: foreach and method-override/applicability items are gated above via REQUIRES_STABLE_TYPE_INFO.
+        if (LOCAL_ONLY_IDS.contains(id) || METHOD_LOCAL_IDS.contains(id)) {
+            return true;
+        }
+
+        // 2) Otherwise, keep only errors.
+        if (!isError) return false;
+
+        // 3) Category blacklists.
+        if (categoryId != null) {
+            if (BLACKLIST_CATS.contains(categoryId)) return false;
+            if (categoryId == CategorizedProblem.CAT_TYPE) return false;
+        }
+
+        // 4) Classpath-ish symbol noise.
+        if (id == IProblem.UndefinedMethod || id == IProblem.UndefinedField) return false;
+        if (id == IProblem.UndefinedName || id == IProblem.UnresolvedVariable) return false;
+        if (id == IProblem.MissingTypeInMethod || id == IProblem.MissingTypeInConstructor) return false;
+
+        // 5) Cross-file inference noise.
+        if (CROSS_FILE_INFERENCE_IDS.contains(id)) return false;
+
+        // 6) Nullness analysis cluster (config-dependent).
+        if (id >= IProblem.RequiredNonNullButProvidedNull && id <= IProblem.FieldWithUnresolvedOwningAnnotation)
+            return false;
+
+        return true;
+    }
+
+    /**
+     * Quickly parse files in memory for local-only errors before proceeding to the expensive full build.
+     * Uses JDT binding resolution with empty environment (boot classpath only) to detect control-flow
+     * and value-category errors. Goal is to catch as many true positives as possible with zero false positives.
+     * Note: Binding resolution with empty environment may produce unstable results; we filter out diagnostics
+     * that require stable type information to avoid false positives.
+     */
+    Step parseJavaPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
+        // Only run if there were edits since the last build attempt (PJ-21)
+        if (es.blocksAppliedWithoutBuild() == 0) {
+            return new Step.Continue(cs, es);
+        }
+
+        // Collect changed .java files
+        var javaFiles = es.changedFiles().stream()
+                .filter(f -> Languages.JAVA.getExtensions().contains(f.extension()))
+                .toList();
+
+        if (javaFiles.isEmpty()) {
+            return new Step.Continue(cs, es);
+        }
+
+        // Map from ProjectFile -> diagnostic list for that file
+        var perFileProblems = new ConcurrentHashMap<ProjectFile, List<JavaDiagnostic>>();
+
+        // JDT internals are not threadsafe, even with a per-thread ASTParser
+        for (var file : javaFiles) {
+            String src = file.read().orElse("");
+            if (src.isBlank()) { // PJ-3: blank files should produce no diagnostics
+                continue;
+            }
+            var diags = parseJavaForDiagnostics(file, src);
+            if (!diags.isEmpty()) {
+                perFileProblems.put(file, diags);
+            }
+        }
+
+        // Save diagnostics per-file and continue (non-blocking pre-lint)
+        var nextEs = es.withJavaLintDiagnostics(perFileProblems);
+        return new Step.Continue(cs, nextEs);
+    }
+
+    /**
+     * Parse a Java source file using Eclipse JDT and return diagnostics.
+     * Used by both parseJavaPhase and Quick Edit.
+     *
+     * Performance/Stability Trade-off: Enables binding resolution with empty environment
+     * (boot classpath only). This is moderately expensive (~100-200ms per file) but necessary
+     * to detect control-flow and value-category errors (e.g., uninitialized variables, missing
+     * returns). Without bindings, JDT cannot analyze these issues.
+     *
+     * The empty environment means type resolution is incomplete, so we filter out diagnostics
+     * that require stable type information (see shouldKeepJavaProblem). This minimizes false
+     * positives while catching true local-only errors early, before the expensive full build.
+     */
+    static List<JavaDiagnostic> parseJavaForDiagnostics(ProjectFile file, String src) {
+        char[] sourceChars = src.toCharArray();
+
+        ASTParser parser = ASTParser.newParser(AST.JLS24);
+        parser.setKind(ASTParser.K_COMPILATION_UNIT);
+        parser.setSource(sourceChars);
+        // Enable binding resolution with recovery (see method javadoc for trade-off discussion)
+        parser.setResolveBindings(true);
+        parser.setStatementsRecovery(true);
+        parser.setBindingsRecovery(true);
+        parser.setUnitName(file.getFileName());
+        parser.setEnvironment(new String[0], new String[0], null, true);
+        var options = JavaCore.getOptions();
+        JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
+        // Disable annotation-based null analysis to avoid emitting JDT nullability diagnostics during parse-only
+        // lint
+        options.put(JavaCore.COMPILER_ANNOTATION_NULL_ANALYSIS, JavaCore.DISABLED);
+        // Enable preview features for maximum compatibility
+        options.put(JavaCore.COMPILER_PB_ENABLE_PREVIEW_FEATURES, JavaCore.ENABLED);
+        parser.setCompilerOptions(options);
+
+        CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+
+        IProblem[] problems = cu.getProblems();
+
+        // Determine if this CU has evidence of shaky type info (missing types/imports/inference).
+        boolean hasShakyTypeInfo = Arrays.stream(problems).anyMatch(p -> {
+            int pid = p.getID();
+            return RESOLUTION_NOISE_IDS.contains(pid) || CROSS_FILE_INFERENCE_IDS.contains(pid);
+        });
+
+        var diags = new ArrayList<JavaDiagnostic>();
+        for (IProblem prob : problems) {
+            int id = prob.getID();
+            @Nullable Integer catId = (prob instanceof CategorizedProblem cp) ? cp.getCategoryID() : null;
+
+            if (!shouldKeepJavaProblem(id, prob.isError(), catId, hasShakyTypeInfo)) {
+                continue;
+            }
+
+            var description = formatJdtProblem(file.absPath(), cu, prob, src);
+            diags.add(new JavaDiagnostic(id, catId, description));
+        }
+
+        return diags;
+    }
+
+    /**
+     * Format a diagnostics report from per-file Java lint diagnostics.
+     * Used by both runTaskInternal (DEFER_BUILD path) and runQuickTask.
+     */
+    static String formatDiagnosticsReport(Map<ProjectFile, List<JavaDiagnostic>> perFileDiags) {
+        return perFileDiags.entrySet().stream()
+                .map(entry -> {
+                    var pf = entry.getKey();
+                    var diags = entry.getValue();
+                    var diagLines = diags.stream()
+                            .map(diag -> "  - " + diag.description())
+                            .collect(Collectors.joining("\n"));
+                    return "**%s**: %d issue(s)\n%s".formatted(pf.getFileName(), diags.size(), diagLines);
+                })
+                .collect(Collectors.joining("\n\n", "Java syntax issues detected:\n\n", "\n"));
+    }
+
+    private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob, String src) {
+        int start = Math.max(0, prob.getSourceStart());
+        long line = Math.max(1, cu.getLineNumber(start));
+        long col = Math.max(1, cu.getColumnNumber(start));
+        var message = Objects.toString(prob.getMessage(), "Problem");
+
+        String lineText = extractLine(src, (int) line);
+        String pointer = lineText.isEmpty() ? "" : caretIndicator(lineText, (int) col);
+
+        return """
+                %s:%d:%d: %s
+                > %s
+                  %s
+                """
+                .formatted(absPath.toString(), line, col, message, lineText, pointer);
+    }
+
+    private static String extractLine(String src, int oneBasedLine) {
+        if (src.isEmpty() || oneBasedLine < 1) return "";
+        int len = src.length();
+        int current = 1;
+        int i = 0;
+        int lineStart = 0;
+
+        // Advance to the requested line start
+        while (i < len && current < oneBasedLine) {
+            char c = src.charAt(i++);
+            if (c == '\n') {
+                current++;
+                lineStart = i;
+            } else if (c == '\r') {
+                // handle CRLF or lone CR
+                if (i < len && src.charAt(i) == '\n') i++;
+                current++;
+                lineStart = i;
+            }
+        }
+
+        if (current != oneBasedLine) {
+            // Line beyond EOF
+            return "";
+        }
+
+        // Find end of line
+        int j = lineStart;
+        while (j < len) {
+            char c = src.charAt(j);
+            if (c == '\n' || c == '\r') break;
+            j++;
+        }
+        return src.substring(lineStart, j);
+    }
+
+    private static String caretIndicator(String lineText, int oneBasedCol) {
+        if (lineText.isEmpty()) return "";
+        int idx = Math.max(0, Math.min(oneBasedCol - 1, Math.max(0, lineText.length() - 1)));
+        return " ".repeat(idx) + "^";
+    }
+
+    /** next FSM state */
+    sealed interface Step permits Step.Continue, Step.Retry, Step.Fatal {
+        ConversationState cs();
+
+        EditState es();
+
+        /** continue to the next phase */
+        record Continue(ConversationState cs, EditState es, SequencedSet<EditBlock.SearchReplaceBlock> blocks)
+                implements Step {
+            public Continue(ConversationState cs, EditState es) {
+                this(cs, es, new LinkedHashSet<>());
+            }
+        }
+
+        /** this phase found a problem that it wants to send back to the llm */
+        record Retry(ConversationState cs, EditState es) implements Step {}
+
+        /** fatal error, stop the task */
+        record Fatal(TaskResult.StopDetails stopDetails) implements Step {
+            public Fatal(TaskResult.StopReason stopReason) {
+                this(new TaskResult.StopDetails(stopReason));
+            }
+
+            @Override
+            public ConversationState cs() {
+                throw new UnsupportedOperationException("Fatal step does not have a conversation state.");
+            }
+
+            @Override
+            public EditState es() {
+                throw new UnsupportedOperationException("Fatal step does not have an edit state.");
+            }
+        }
+    }
+
+    /**
+     * Conversation state for the current coding task.
+     *
+     * <p>Task 3: {@code nextRequest} is now {@code @Nullable}. We deliberately null it out in
+     * {@link #requestPhase(ConversationState, EditState, StreamingResult, Metrics)} after sending, to prevent stale
+     * reuse. Callers that need to send a request must {@link Objects#requireNonNull(Object) requireNonNull}
+     * it first.
+     *
+     * @param rawMessages  the unprocessed conversation messages, never modified after appending
+     * @param taskMessages derived/processed messages for LLM consumption (may be compacted)
+     * @param originalGoal the user's original goal/instructions, preserved for build-retry compaction
+     */
+    record ConversationState(
+            List<ChatMessage> rawMessages,
+            List<ChatMessage> taskMessages,
+            @Nullable UserMessage nextRequest,
+            int turnStartIndex,
+            String originalGoal) {
+
+        ConversationState(
+                List<ChatMessage> taskMessages,
+                @Nullable UserMessage nextRequest,
+                int turnStartIndex,
+                String originalGoal) {
+            this(new ArrayList<>(taskMessages), taskMessages, nextRequest, turnStartIndex, originalGoal);
+        }
+
+        ConversationState withNextRequest(@Nullable UserMessage request) {
+            return new ConversationState(rawMessages, taskMessages, request, turnStartIndex, originalGoal);
+        }
+
+        /**
+         * Append a message to both rawMessages and taskMessages.
+         */
+        void appendMessage(ChatMessage message) {
+            rawMessages.add(message);
+            taskMessages.add(message);
+        }
+
+        /**
+         * Compact the conversation for build-retry: extract all reasoning/redacted content from AI messages
+         * in rawMessages and return a minimal conversation of [originalGoal, accumulated reasoning].
+         *
+         * @return a new ConversationState with compacted taskMessages, preserving rawMessages
+         */
+        ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
+            var explanations = rawMessages.stream()
+                    .filter(AiMessage.class::isInstance)
+                    .map(AiMessage.class::cast)
+                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
+                            .map(AiMessage::text)
+                            .orElse(""))
+                    .filter(seg -> !seg.isBlank())
+                    .collect(Collectors.joining("\n\n"));
+            var changedFilesCdl =
+                    es.changedFiles().stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
+            var summaryText =
+                    """
+                    [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
+                     You made changes to %s. These changes are reflected in the Workspace contents above.
+                     Review the current contents carefully before proposing additional changes to fix the build.]
+
+                    %s
+                    """
+                            .formatted(
+                                    changedFilesCdl,
+                                    explanations.isBlank() ? "No explanations provided." : explanations);
+
+            var compactedMessages = new ArrayList<ChatMessage>();
+            compactedMessages.add(new UserMessage(originalGoal));
+            compactedMessages.add(new AiMessage(summaryText));
+            return new ConversationState(
+                    rawMessages, compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
+        }
+
+        /**
+         * Replace all messages in the current turn (starting from turnStartIndex) with: - the original starting
+         * UserMessage of the turn - a single synthetic AiMessage summarizing the edits.
+         *
+         * <p>Exposed for testing.
+         */
+        ConversationState replaceCurrentTurnMessages(String summaryText) {
+            var msgs = new ArrayList<>(taskMessages);
+            if (turnStartIndex < 0 || turnStartIndex >= msgs.size()) {
+                logger.warn("Invalid turnStartIndex {}; cannot replace current turn messages safely.", turnStartIndex);
+                // Fall back: just append a synthetic message (should never happen in practice)
+                msgs.add(new AiMessage(summaryText));
+                return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
+            }
+
+            var startMsg = msgs.get(turnStartIndex);
+            UserMessage startUser;
+            if (startMsg instanceof UserMessage su) {
+                startUser = su;
+            } else {
+                logger.warn(
+                        "Expected UserMessage at turnStartIndex {}, found {}. Using nextRequest as fallback.",
+                        turnStartIndex,
+                        startMsg.type());
+                // Fail fast if this unexpected branch occurs without a pending nextRequest.
+                startUser = requireNonNull(nextRequest, "nextRequest should be non-null at turn boundary");
+            }
+
+            // Drop everything from the start of this turn onward
+            while (msgs.size() > turnStartIndex) {
+                msgs.removeLast();
+            }
+
+            // Re-add the starting user message and the synthetic summary
+            msgs.add(startUser);
+            msgs.add(new AiMessage(summaryText));
+
+            logger.debug("Replaced current turn messages (from index {}) with synthetic summary.", turnStartIndex);
+
+            // After replacement, the next turn should start at the end of the current msgs
+            return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
+        }
+    }
+
+    public record JavaDiagnostic(int problemId, @Nullable Integer categoryId, String description) {}
+
+    record EditState(
+            int consecutiveParseFailures,
+            int consecutiveApplyFailures,
+            int consecutiveBuildFailures,
+            int blocksAppliedWithoutBuild,
+            int totalBlocksParsed,
+            String lastBuildError,
+            Set<ProjectFile> changedFiles,
+            Map<ProjectFile, String> originalFileContents,
+            Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
+            boolean showBuildError,
+            boolean useArchitectModel) {
+
+        public EditState(
+                int consecutiveParseFailures,
+                int consecutiveApplyFailures,
+                int consecutiveBuildFailures,
+                int blocksAppliedWithoutBuild,
+                String lastBuildError,
+                Set<ProjectFile> changedFiles,
+                Map<ProjectFile, String> originalFileContents,
+                Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
+                boolean hasAttemptedBuild) {
+            this(
+                    consecutiveParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    0,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    hasAttemptedBuild,
+                    false);
+        }
+
+        EditState withConsecutiveParseFailures(int count) {
+            return new EditState(
+                    count,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    totalBlocksParsed,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    showBuildError,
+                    false);
+        }
+
+        /** Returns a new WorkspaceState with updated parse failures and total parsed count. */
+        EditState withParsedBlocks(int newParseFailures, int newParsedCount) {
+            return new EditState(
+                    newParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    totalBlocksParsed + newParsedCount,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    showBuildError,
+                    false);
+        }
+
+        /**
+         * Returns a new WorkspaceState after a build failure, updating the error message. Also resets the per-turn
+         * baseline (originalFileContents) for the next turn.
+         */
+        EditState afterBuildFailure(String newBuildError) {
+            int newBuildFailures = consecutiveBuildFailures + 1;
+            return new EditState(
+                    consecutiveParseFailures,
+                    consecutiveApplyFailures,
+                    newBuildFailures,
+                    0,
+                    totalBlocksParsed,
+                    newBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    false,
+                    newBuildFailures >= 3);
+        }
+
+        /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
+        EditState afterApply(int newApplyFailures, int newBlocksApplied, Map<ProjectFile, String> newOriginalContents) {
+            // Merge affected files from this apply into the running changedFiles set.
+            var mergedChangedFiles = new HashSet<>(changedFiles);
+            mergedChangedFiles.addAll(newOriginalContents.keySet());
+
+            // Merge per-turn original contents, preserving the earliest snapshot for each file
+            var mergedOriginals = new HashMap<>(originalFileContents);
+            for (var e : newOriginalContents.entrySet()) {
+                mergedOriginals.putIfAbsent(e.getKey(), e.getValue());
+            }
+
+            boolean shouldUseArchitect = newApplyFailures > 0 && newBlocksApplied == 0;
+            return new EditState(
+                    consecutiveParseFailures,
+                    newApplyFailures,
+                    consecutiveBuildFailures,
+                    newBlocksApplied,
+                    totalBlocksParsed,
+                    lastBuildError,
+                    Collections.unmodifiableSet(mergedChangedFiles),
+                    Collections.unmodifiableMap(mergedOriginals),
+                    javaLintDiagnostics,
+                    showBuildError,
+                    shouldUseArchitect);
+        }
+
+        EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
+            return new EditState(
+                    consecutiveParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    totalBlocksParsed,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    diags,
+                    showBuildError,
+                    false);
+        }
+
+        /**
+         * Generate SEARCH/REPLACE blocks by diffing each changed file's current contents against the per-turn original
+         * contents captured at the start of the turn. For files that were created in this turn (no original content),
+         * generate a "new file" block (empty before / full after).
+         *
+         * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
+         * history compaction without depending on the diff library package structure at compile time.
+         */
+        @VisibleForTesting
+        SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
+            var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
+            var originals = originalFileContents();
+
+            // Sort for determinism
+            var sorted = originals.keySet().stream()
+                    .sorted(Comparator.comparing(ProjectFile::toString))
+                    .toList();
+
+            for (var file : sorted) {
+                String original = originals.getOrDefault(file, "");
+                String revised = file.read().orElse("");
+                if (Objects.equals(original, revised)) {
+                    continue; // No effective change
+                }
+
+                // New file created this turn
+                if (original.isBlank()) {
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "BRK_ENTIRE_FILE", revised));
+                    continue;
+                }
+
+                var originalLines = Arrays.asList(original.split("\n", -1));
+                var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
+
+                try {
+                    var patch = DiffUtils.diff(originalLines, revisedLines);
+
+                    // 1) Build minimal windows per delta in original line space
+                    record Window(int start, int end) {
+                        Window expandLeft() {
+                            return new Window(Math.max(0, start - 1), end);
+                        }
+
+                        Window expandRight(int max) {
+                            return new Window(start, Math.min(max, end + 1));
+                        }
+                    }
+                    var windows = new ArrayList<Window>();
+                    for (var delta : patch.getDeltas()) {
+                        var src = delta.getSource();
+                        int sPos = src.getPosition();
+                        int sSize = src.size();
+
+                        int wStart, wEnd;
+                        if (sSize > 0) {
+                            wStart = sPos;
+                            wEnd = sPos + sSize - 1;
+                        } else {
+                            // Pure insertion: anchor on previous line when possible, else next
+                            wStart = (sPos == 0) ? 0 : sPos - 1;
+                            wEnd = wStart;
+                        }
+                        if (!originalLines.isEmpty()) {
+                            wStart = Math.max(0, Math.min(wStart, originalLines.size() - 1));
+                            wEnd = Math.max(0, Math.min(wEnd, originalLines.size() - 1));
+                        }
+                        windows.add(new Window(wStart, wEnd));
+                    }
+
+                    // 2) Expand each window until its before-text is unique in the original
+                    int lastIdx = Math.max(0, originalLines.size() - 1);
+                    windows = windows.stream()
+                            .map(w -> {
+                                Window cur = w;
+                                String before = joinLines(originalLines, cur.start, cur.end);
+                                while (!before.isEmpty()
+                                        && countOccurrences(original, before) > 1
+                                        && (cur.start > 0 || cur.end < lastIdx)) {
+                                    if (cur.start > 0) cur = cur.expandLeft();
+                                    if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
+                                    before = joinLines(originalLines, cur.start, cur.end);
+                                }
+                                return cur;
+                            })
+                            .collect(Collectors.toCollection(ArrayList::new));
+
+                    // 3) Merge overlapping/adjacent windows after expansion
+                    windows.sort(Comparator.comparingInt(w -> w.start));
+                    var merged = new ArrayList<Window>();
+                    for (var w : windows) {
+                        if (merged.isEmpty()) {
+                            merged.add(w);
+                        } else {
+                            var last = merged.getLast();
+                            if (w.start <= last.end + 1) { // overlap or adjacent
+                                merged.set(merged.size() - 1, new Window(last.start, Math.max(last.end, w.end)));
+                            } else {
+                                merged.add(w);
+                            }
+                        }
+                    }
+
+                    // Precompute net line deltas for mapping original -> revised
+                    record DeltaShape(int pos, int size, int net) {}
+                    var shapes = patch.getDeltas().stream()
+                            .map(d -> new DeltaShape(
+                                    d.getSource().getPosition(),
+                                    d.getSource().size(),
+                                    d.getTarget().size() - d.getSource().size()))
+                            .sorted(Comparator.comparingInt(DeltaShape::pos))
+                            .toList();
+
+                    for (var w : merged) {
+                        // Map original start to revised start
+                        int netBeforeStart = shapes.stream()
+                                .filter(s -> s.pos + s.size <= w.start) // ends before start
+                                .mapToInt(s -> s.net)
+                                .sum();
+                        int revisedStart = w.start + netBeforeStart;
+
+                        int windowLen = w.end - w.start + 1;
+                        // Net deltas that intersect the window
+                        int netInWindow = 0;
+                        for (var d : patch.getDeltas()) {
+                            int p = d.getSource().getPosition();
+                            int sz = d.getSource().size();
+                            int net = d.getTarget().size() - sz;
+                            boolean overlaps;
+                            if (sz > 0) {
+                                overlaps = p < (w.end + 1) && (p + sz) > w.start;
+                            } else {
+                                overlaps = p >= w.start && p <= (w.end + 1);
+                            }
+                            if (overlaps) {
+                                netInWindow += net;
+                            }
+                        }
+                        int revisedEnd = revisedStart + windowLen + netInWindow - 1;
+
+                        String before = joinLines(originalLines, w.start, w.end);
+                        String after = joinLines(
+                                revisedLines,
+                                clamp(revisedStart, 0, Math.max(0, revisedLines.size() - 1)),
+                                clamp(revisedEnd, 0, Math.max(0, revisedLines.size() - 1)));
+
+                        // If uniqueness still fails (pathological), fall back to whole-file
+                        if (!before.isEmpty() && countOccurrences(original, before) > 1) {
+                            results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
+                            continue;
+                        }
+
+                        results.add(new EditBlock.SearchReplaceBlock(file.toString(), before, after));
+                    }
+                } catch (Exception e) {
+                    // If diffing fails for any reason, fall back to a conservative whole-file replacement
+                    logger.warn("Diff generation failed for {}; falling back to whole-file SRB", file, e);
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
+                }
+            }
+            return results;
+        }
+
+        private static String joinLines(List<String> lines, int start, int end) {
+            if (lines.isEmpty() || start > end) return "";
+            var sj = new StringJoiner("\n");
+            for (int i = start; i <= end; i++) {
+                sj.add(lines.get(i));
+            }
+            return sj.toString();
+        }
+
+        private static int countOccurrences(String text, String sub) {
+            if (sub.isEmpty()) return 0;
+            int count = 0;
+            int idx = 0;
+            while ((idx = text.indexOf(sub, idx)) != -1) {
+                count++;
+                idx += sub.length();
+            }
+            return count;
+        }
+
+        private static int clamp(int val, int min, int max) {
+            return Math.max(min, Math.min(max, val));
+        }
+    }
+
+    @Blocking
+    static Set<String> computeReadOnlyPaths(Context ctx) {
+        // Since ContextFragments can refer to multiple files, we need a way to resolve conflicting read-only status.
+        // Our priority is:
+        // 1. Files referred to by a ProjectPathFragment marked read-only should always be in our Set.
+        // 2. Files referred to by other editable Fragments should not be in our Set.
+        // 3. Files referred to by other read-only Fragments should be in our Set.
+
+        var readonlyPaths = ctx.getMarkedReadonlyFragments()
+                .filter(cf -> cf instanceof ContextFragments.ProjectPathFragment)
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .collect(Collectors.toSet());
+        var editableAll = ctx.getEditableFragments()
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .collect(Collectors.toSet());
+        var readonly = ctx.getReadonlyFragments()
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .collect(Collectors.toSet());
+        var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
+        return files.map(ProjectFile::toString).collect(Collectors.toSet());
+    }
+
+    static class Metrics {
+        private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+        final long startNanos = System.nanoTime();
+        long llmWaitNanos = 0;
+        int totalInputTokens = 0;
+        int totalCachedTokens = 0;
+        int totalThinkingTokens = 0;
+        int totalOutputTokens = 0;
+        int totalEditBlocks = 0;
+        int failedEditBlocks = 0;
+        int parseRetries = 0;
+        int buildFailures = 0;
+        int applyRetries = 0;
+        int apiRetries = 0;
+
+        void addTokens(@Nullable Llm.ResponseMetadata usage) {
+            if (usage == null) {
+                return;
+            }
+            totalInputTokens += usage.inputTokens();
+            totalCachedTokens += usage.cachedInputTokens();
+            totalThinkingTokens += usage.thinkingTokens();
+            totalOutputTokens += usage.outputTokens();
+        }
+
+        void addApiRetries(int retryCount) {
+            apiRetries += retryCount;
+        }
+
+        void print(Set<ProjectFile> changedFiles, TaskResult.StopDetails stopDetails) {
+            var changedFilesList =
+                    changedFiles.stream().map(ProjectFile::toString).toList();
+
+            var jsonMap = new LinkedHashMap<String, Object>();
+            jsonMap.put(
+                    "totalMillis",
+                    Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
+            jsonMap.put("llmMillis", Duration.ofNanos(llmWaitNanos).toMillis());
+            jsonMap.put("inputTokens", totalInputTokens);
+            jsonMap.put("cachedInputTokens", totalCachedTokens);
+            jsonMap.put("reasoningTokens", totalThinkingTokens);
+            jsonMap.put("outputTokens", totalOutputTokens);
+            jsonMap.put("editBlocksTotal", totalEditBlocks);
+            jsonMap.put("editBlocksFailed", failedEditBlocks);
+            jsonMap.put("buildFailures", buildFailures);
+            jsonMap.put("parseRetries", parseRetries);
+            jsonMap.put("applyRetries", applyRetries);
+            jsonMap.put("apiRetries", apiRetries);
+            jsonMap.put("changedFiles", changedFilesList);
+            jsonMap.put("stopReason", stopDetails.reason().name());
+            jsonMap.put("stopExplanation", stopDetails.explanation());
+
+            try {
+                var jsonString = OBJECT_MAPPER.writeValueAsString(jsonMap);
+                System.err.println("\nBRK_CODEAGENT_METRICS=" + jsonString);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+}

@@ -1,0 +1,368 @@
+package ai.brokk;
+
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
+
+/**
+ * Reports uncaught exceptions to the Brokk server for monitoring and debugging purposes. This class handles
+ * asynchronous reporting with deduplication to avoid flooding the server.
+ */
+public class ExceptionReporter {
+    private static final Logger logger = LogManager.getLogger(ExceptionReporter.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    private final Supplier<ReportingService> serviceSupplier;
+
+    // Deduplication: track when we last reported each exception signature
+    private final ConcurrentHashMap<String, Long> reportedExceptions = new ConcurrentHashMap<>();
+
+    // Only report the same exception once per hour
+    private static final long DEDUPLICATION_WINDOW_MS = TimeUnit.HOURS.toMillis(1);
+
+    // Maximum stacktrace length to send (prevent extremely large payloads)
+    private static final int MAX_STACKTRACE_LENGTH = 10000;
+
+    public ExceptionReporter(Supplier<ReportingService> serviceSupplier) {
+        this.serviceSupplier = serviceSupplier;
+    }
+
+    public ExceptionReporter(ReportingService service) {
+        this(() -> service);
+    }
+
+    /**
+     * Reports an exception to the Brokk server asynchronously. This method never throws exceptions - failures are
+     * logged but do not propagate.
+     *
+     * @param throwable The exception to report (must not be null)
+     */
+    @Blocking
+    public void reportException(Throwable throwable) {
+        reportException(throwable, Map.of());
+    }
+
+    /**
+     * Reports an exception to the Brokk server asynchronously with optional context fields. This method never throws
+     * exceptions - failures are logged but do not propagate.
+     *
+     * @param throwable The exception to report (must not be null)
+     * @param optionalFields Optional context fields to include with the report
+     */
+    @Blocking
+    public void reportException(Throwable throwable, Map<String, String> optionalFields) {
+        // Enrich with standard telemetry (preserve caller values if provided)
+        var enriched = enrichFields(optionalFields);
+
+        // Generate a signature for this exception for deduplication
+        String signature = generateExceptionSignature(throwable);
+
+        // Check if we've recently reported this exception
+        Long lastReportedTime = reportedExceptions.get(signature);
+        long currentTime = System.currentTimeMillis();
+
+        if (lastReportedTime != null && (currentTime - lastReportedTime) < DEDUPLICATION_WINDOW_MS) {
+            logger.debug(
+                    "Skipping duplicate exception report for {}: {} (last reported {} seconds ago)",
+                    throwable.getClass().getSimpleName(),
+                    throwable.getMessage(),
+                    (currentTime - lastReportedTime) / 1000);
+            return;
+        }
+
+        // Mark this exception as reported
+        reportedExceptions.put(signature, currentTime);
+
+        // Also write to local log file for debugging
+        writeLocalErrorReport(throwable, enriched);
+
+        // Clean up old entries from the deduplication map (keep it bounded)
+        if (reportedExceptions.size() > 1000) {
+            cleanupOldEntries();
+        }
+
+        // Build complete exception report JSON
+        JsonNode exceptionReport = buildExceptionReport(throwable, enriched);
+
+        try {
+            ReportingService service = serviceSupplier.get();
+            service.reportClientException(exceptionReport);
+            logger.debug(
+                    "Successfully reported exception: {} - {}",
+                    throwable.getClass().getSimpleName(),
+                    throwable.getMessage());
+        } catch (Exception e) {
+            // Log the failure but don't propagate - we don't want exception reporting
+            // to cause more exceptions
+            logger.warn(
+                    "Failed to report exception to server: {} (original exception: {})",
+                    e.getMessage(),
+                    throwable.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * Formats a throwable into a string stacktrace.
+     *
+     * @param throwable The throwable to format
+     * @return Formatted stacktrace string
+     */
+    public static String formatStackTrace(Throwable throwable) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        throwable.printStackTrace(pw);
+        String fullStacktrace = sw.toString();
+
+        // Truncate if too long to avoid extremely large payloads
+        if (fullStacktrace.length() > MAX_STACKTRACE_LENGTH) {
+            fullStacktrace = fullStacktrace.substring(0, MAX_STACKTRACE_LENGTH) + "\n... (truncated, total length: "
+                    + fullStacktrace.length() + " chars)";
+        }
+
+        return fullStacktrace;
+    }
+
+    /**
+     * Generates a signature for an exception to enable deduplication. The signature is based on the exception class and
+     * the first few stack frames.
+     *
+     * @param throwable The throwable to generate a signature for
+     * @return A signature string for deduplication
+     */
+    private String generateExceptionSignature(Throwable throwable) {
+        StringBuilder signature = new StringBuilder();
+        signature.append(throwable.getClass().getName());
+
+        // Include the message if it's not too long (it might contain variable data)
+        String message = throwable.getMessage();
+        if (message != null && message.length() < 100) {
+            signature.append(":").append(message);
+        }
+
+        // Include the first few stack frames to distinguish different locations
+        StackTraceElement[] stackTrace = throwable.getStackTrace();
+        int framesToInclude = Math.min(3, stackTrace.length);
+        for (int i = 0; i < framesToInclude; i++) {
+            StackTraceElement frame = stackTrace[i];
+            signature
+                    .append("|")
+                    .append(frame.getClassName())
+                    .append(".")
+                    .append(frame.getMethodName())
+                    .append(":")
+                    .append(frame.getLineNumber());
+        }
+
+        return signature.toString();
+    }
+
+    /**
+     * Writes the exception to .brokk/last-error.log in the active project directory.
+     */
+    private void writeLocalErrorReport(Throwable throwable, Map<String, String> optionalFields) {
+        Chrome activeWindow = SwingUtil.runOnEdt(Brokk::getActiveWindow, null);
+        if (activeWindow == null) {
+            return;
+        }
+
+        var project = activeWindow.getContextManager().getProject();
+        String stacktrace = formatStackTrace(throwable);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Timestamp: ").append(Instant.now()).append("\n");
+        sb.append("Exception: ").append(throwable.getClass().getName()).append("\n");
+        sb.append("Message:   ").append(throwable.getMessage()).append("\n");
+
+        if (!optionalFields.isEmpty()) {
+            sb.append("Context:\n");
+            optionalFields.forEach(
+                    (k, v) -> sb.append("  ").append(k).append(": ").append(v).append("\n"));
+        }
+
+        sb.append("\nStacktrace:\n").append(stacktrace).append("\n");
+
+        try {
+            ProjectFile errorLog = new ProjectFile(project.getRoot(), AbstractProject.BROKK_DIR + "/last-error.log");
+            errorLog.write(sb.toString());
+        } catch (Exception e) {
+            logger.warn("Failed to write local error report: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Cleans up old entries from the deduplication map to keep it bounded. Removes entries older than the deduplication
+     * window.
+     */
+    private void cleanupOldEntries() {
+        long currentTime = System.currentTimeMillis();
+        long cutoffTime = currentTime - DEDUPLICATION_WINDOW_MS;
+
+        reportedExceptions.entrySet().removeIf(entry -> entry.getValue() < cutoffTime);
+
+        logger.debug("Cleaned up old exception deduplication entries, map size: {}", reportedExceptions.size());
+    }
+
+    /**
+     * Convenience method to report an exception from the active project. This method handles all error cases gracefully
+     * and never throws exceptions. Uses the cached ExceptionReporter from the active ContextManager.
+     *
+     * <p>Exception reporting can be disabled via the exceptionReportingEnabled property in brokk.properties.
+     *
+     * @param throwable The exception to report
+     */
+    public static void tryReportException(Throwable throwable) {
+        // Check if exception reporting is enabled
+        if (!MainProject.getExceptionReportingEnabled()) {
+            logger.debug(
+                    "Exception reporting is disabled, skipping report for: {}",
+                    throwable.getClass().getName());
+            return;
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            Chrome activeWindow = Brokk.getActiveWindow();
+            if (activeWindow == null) {
+                logger.warn("Unable to report exceptions in headless mode");
+                return;
+            }
+
+            var cm = activeWindow.getContextManager();
+            cm.reportException(throwable);
+        });
+    }
+
+    /**
+     * Builds the complete exception report JSON body with all telemetry data.
+     *
+     * @param throwable The exception to report
+     * @param enrichedFields The enriched optional fields
+     * @return Complete JSON body ready for HTTP submission
+     */
+    private static JsonNode buildExceptionReport(Throwable throwable, Map<String, String> enrichedFields) {
+        var body = objectMapper.createObjectNode();
+        body.put("stacktrace", formatStackTrace(throwable));
+        body.put("client_version", BuildInfo.version);
+
+        // Build context node with all telemetry
+        var context = objectMapper.createObjectNode();
+
+        // Add enriched fields (activeWatchServiceImpl, launchMode, etc.)
+        enrichedFields.forEach(context::put);
+
+        // Add OS information
+        context.set("os", createOsNode());
+
+        // Add JVM information
+        context.set("jvm", createJvmNode());
+
+        body.set("context", context);
+        return body;
+    }
+
+    /**
+     * Creates the OS information node.
+     */
+    private static JsonNode createOsNode() {
+        var osNode = objectMapper.createObjectNode();
+        osNode.put("name", System.getProperty("os.name"));
+        osNode.put("version", System.getProperty("os.version"));
+        osNode.put("arch", System.getProperty("os.arch"));
+        return osNode;
+    }
+
+    /**
+     * Creates the JVM information node.
+     */
+    private static JsonNode createJvmNode() {
+        Runtime runtime = Runtime.getRuntime();
+        var jvmNode = objectMapper.createObjectNode();
+        jvmNode.put("availableProcessors", runtime.availableProcessors());
+        jvmNode.put("maxMemory", runtime.maxMemory());
+        jvmNode.put("freeMemory", runtime.freeMemory());
+        jvmNode.put("version", System.getProperty("java.version", "unknown"));
+        jvmNode.put(
+                "fullVersion",
+                String.format(
+                        "%s %s (%s)",
+                        System.getProperty("java.runtime.name", "unknown"),
+                        System.getProperty("java.runtime.version", System.getProperty("java.version", "unknown")),
+                        System.getProperty("java.vendor", "unknown")));
+        jvmNode.put("isJdk", isJdk());
+        return jvmNode;
+    }
+
+    /**
+     * Detects whether the current runtime is a JDK (has compiler) or JRE (runtime only).
+     * Uses reflection to check for javax.tools.ToolProvider because:
+     * - We build with JDK but support running on either JDK or JRE
+     * - Direct import would cause NoClassDefFoundError when ExceptionReporter loads on JRE
+     * - Reflection delays class loading until runtime check, returning false on JRE
+     */
+    private static boolean isJdk() {
+        try {
+            Class<?> toolProvider = Class.forName("javax.tools.ToolProvider");
+            var method = toolProvider.getMethod("getSystemJavaCompiler");
+            return method.invoke(null) != null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Enriches the provided fields with standard telemetry data.
+     * Uses putIfAbsent to preserve any caller-provided values.
+     *
+     * @param originalFields The original fields from the caller
+     * @return A new map with enriched telemetry fields
+     */
+    private static Map<String, String> enrichFields(Map<String, String> originalFields) {
+        var enriched = new HashMap<>(originalFields);
+
+        // Add watch service telemetry (but don't overwrite caller-provided values)
+        enriched.putIfAbsent("watchService", Environment.getActiveWatchServiceImpl());
+
+        // Launch mode detection
+        String jdeployLauncher = System.getProperty("jdeploy.launcher.path");
+        if (jdeployLauncher != null) {
+            enriched.putIfAbsent("launchMode", "jdeploy");
+            enriched.putIfAbsent("jdeployLauncherPath", jdeployLauncher);
+        } else {
+            enriched.putIfAbsent("launchMode", "other");
+        }
+
+        return enriched;
+    }
+
+    /**
+     * Interface for services that can report client exceptions.
+     * This interface allows for testing without requiring full Service initialization.
+     */
+    public interface ReportingService {
+        /**
+         * Reports a client exception to the server.
+         *
+         * @param exceptionReport Complete exception report JSON with stacktrace, client_version, and context
+         * @return JsonNode response from the server
+         * @throws IOException if the HTTP request fails
+         */
+        JsonNode reportClientException(JsonNode exceptionReport) throws IOException;
+    }
+}

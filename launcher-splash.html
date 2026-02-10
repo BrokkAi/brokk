@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brokk - Loading</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap"
+            rel="stylesheet"
+    />
+    <style>
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+
+        body {
+          width: 100vw;
+          height: 100vh;
+          background-color: #0f0f0f;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+            Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+
+        .logo-container {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+        }
+
+        .logo {
+          width: 300px;
+          max-width: 80vw;
+          height: auto;
+        }
+
+        .loading-section {
+          width: 100%;
+          padding: 40px;
+          padding-bottom: 60px;
+        }
+
+        .loading-bar-container {
+          width: 100%;
+          height: 8px;
+          background-color: #2a2a2a;
+          border-radius: 4px;
+          overflow: hidden;
+        }
+
+        .loading-bar {
+          height: 100%;
+          background-color: #eb3f33;
+          width: 0%;
+          animation: loadingAnimation 5s ease-in-out infinite;
+        }
+
+        .loading-text {
+          color: #f6f8e0;
+          text-align: center;
+          margin-top: 16px;
+          font-size: 14px;
+          letter-spacing: 0.5px;
+        }
+
+        @keyframes loadingAnimation {
+          0% {
+            width: 0%;
+          }
+          50% {
+            width: 70%;
+          }
+          100% {
+            width: 100%;
+          }
+        }
+    </style>
+</head>
+<body>
+<div class="logo-container">
+    <svg id="Capa_1" data-name="Capa 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 322.91" class="logo">
+        <defs>
+            <style>
+                .cls-1 {
+                  fill: #f6f8e0;
+                }
+
+                .cls-2 {
+                  fill: #eb3f33;
+                }
+            </style>
+        </defs>
+        <path class="cls-1" d="M489.24,60.39v232.55h25.23v-57.64l31.4-20.18,16.55,20.08v57.74h0s25.23,0,25.23,0h0v-67.97l-22.47-25.62,22.47-16.16v-74.5l-71.16-48.3M558.34,169.41l-41.85,29.89v-106.64l41.85,30.08v46.68Z"/>
+        <path class="cls-1" d="M668.02,60.39h-8.41l-50.98,107.47v15.35l51.5,108.04h15.77l51.5-108.04v-15.35l-50.98-107.47h-8.41ZM668.02,241.97l-32.58-67.85,32.58-67.14,32.58,67.14-32.58,67.85Z"/>
+        <path class="cls-1" d="M457.49,109.21l-71.17-48.82h-2.01s-25.23,0-25.23,0v232.55h0s25.23,0,25.23,0h0s47.95,0,47.95,0h0s25.23,0,25.23,0h0v-67.97l-22.47-25.62,22.47-16.16v-73.98ZM386.33,92.66l41.85,30.08v46.68l-41.85,29.89v-106.64ZM384.31,268.08v-32.79l30.34-21.6,17.62,21.5v32.89h-47.95Z"/>
+        <g>
+            <path class="cls-2" d="M97.23,135.25s-18.95,24.68-22.48,43.63c0,0-79.77-31.73-34.38-107.54,0,0,1.32,44.96,56.86,63.91Z"/>
+            <path class="cls-2" d="M46.99,65.17s-2.64,18.95,8.81,30.41c0,0,46.46-66.55-4.54-86.83,0,0,22.17,31.73-4.28,56.42Z"/>
+            <path class="cls-2" d="M215.83,135.25s18.95,24.68,22.48,43.63c0,0,79.77-31.73,34.38-107.54,0,0-1.32,44.96-56.86,63.91Z"/>
+            <path class="cls-2" d="M265.23,65.17s2.64,18.95-8.81,30.41c0,0-46.46-66.55,4.54-86.83,0,0-22.17,31.73,4.28,56.42Z"/>
+            <g>
+                <polygon class="cls-2" points="145.48 295.41 156.36 303.78 167.73 295.03 167.73 108.8 157.28 104.3 157.28 104.3 156.67 104.03 156.67 104.08 156.53 104.03 145.48 108.8 145.48 295.41"/>
+                <path class="cls-2" d="M179.15,212.48c30.29-1.99,48.53-16.87,55.6-23.98-7.43-22.92-23.02-51.66-55.6-75.16v99.14Z"/>
+                <path class="cls-2" d="M239.71,208.54c-.56-3.24-1.28-6.78-2.24-10.57-9.68,8.68-28.72,21.44-58.32,23.21v17.58c8.92-.4,34.72-4.01,60.56-30.21Z"/>
+                <path class="cls-2" d="M175.7,245.17l-1.55-.09v52.13l-17.36,14.04-17.74-13.65v-52.15l-1.56.09c-1.4.1-32.63,2-65.15-28.76-.8,7.43-.6,11.9-.6,11.9,40.11,36.58,64.19,31.29,64.19,31.29v1.65l-.07-.04v38.09l20.68,14.49,20.66-14.49v-35.68l.07-.05v-3.97s24.08,5.29,64.19-31.29c0,0,.2-4.61-.64-12.24-32.49,30.7-63.72,28.83-65.13,28.73Z"/>
+                <path class="cls-2" d="M134.06,212.85v-99.51c-32.71,23.6-48.29,52.48-55.69,75.44,7,7.07,25.27,22.07,55.69,24.07Z"/>
+                <path class="cls-2" d="M134.06,239.12v-17.57c-29.69-1.77-48.75-14.59-58.4-23.27-.95,3.8-1.66,7.34-2.21,10.58,25.86,26.25,51.69,29.86,60.61,30.27Z"/>
+            </g>
+        </g>
+        <path class="cls-1" d="M820.46,60.39v109.03l-41.85,29.89V60.39h-27.24v232.55h25.23v-57.64l30.34-21.6,17.62,21.5v57.74h0s25.23,0,25.23,0h0v-67.97l-22.47-25.62,22.47-16.16V60.39"/>
+        <path class="cls-1" d="M944.28,60.39v109.03l-41.85,29.89V60.39h-27.24v232.55h25.23v-57.64l30.34-21.6,17.62,21.5v57.74h0s25.23,0,25.23,0h0v-67.97l-22.47-25.62,22.47-16.16V60.39"/>
+    </svg>
+</div>
+
+</body>
+</html>
