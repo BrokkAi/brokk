@@ -103,6 +103,13 @@ async def test_stream_events_adaptive_backoff():
     empty_events.status_code = 200
     empty_events.json.return_value = {"events": [], "nextAfter": -1}
 
+    # Sequence:
+    # 1. Start: last_status_check is -inf -> triggers status check
+    # 2. Iter 1: Get status (RUNNING), Get events (Empty) -> last_status_check set to 0.0, sleep 0.05, last_status_check reset to 0.0
+    # 3. Iter 2: now (3.0) - last_status_check (0.0) > 2.0 -> triggers status check
+    # 4. Iter 2: Get status (RUNNING), Get events (Empty) -> sleep 0.1, last_status_check reset to 0.0
+    # 5. Iter 3: now (6.0) - last_status_check (0.0) > 2.0 -> triggers status check
+    # 6. Iter 3: Get status (COMPLETED), Get events (Empty) -> Exit
     mock_client.get.side_effect = [
         status_running,
         empty_events,  # Iter 1: sleep 0.05

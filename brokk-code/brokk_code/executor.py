@@ -472,7 +472,7 @@ class ExecutorManager:
         max_sleep = 0.5
         current_sleep = min_sleep
 
-        last_status_check = 0.0
+        last_status_check = -float("inf")
         status_interval = 2.0  # Seconds between status checks when events are flowing
         state = "QUEUED"
 
