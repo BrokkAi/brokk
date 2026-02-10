@@ -247,7 +247,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     /** Represents the parsed Brokk API key components. */
-    public record KeyParts(UUID userId, String token) {}
+    public record KeyParts(UUID userId, String token) {
+        private static final KeyParts DUMMY = new KeyParts(new UUID(0, 0), "dummy-key");
+    }
 
     /** Represents a cost estimate with both the raw value and formatted string. */
     public record CostEstimate(double cost, String formatted) {}
@@ -511,26 +513,28 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         logger.trace(
                 "Creating new model instance for '{}' with reasoning '{}' via LiteLLM", config.name, config.reasoning);
 
-        var kp = parseKey(MainProject.getBrokkKey());
-
         var params = OpenAiChatRequestParameters.builder();
         String baseUrl = MainProject.getProxyUrl();
         var split = config.name.split("/", -1);
         var shortName = split[split.length - 1];
+
+        String brokkKey = MainProject.getBrokkKey();
+        var kp = !brokkKey.isBlank() && brokkKey.contains("+") ? parseKey(brokkKey) : KeyParts.DUMMY;
+
         var builder = OpenAiStreamingChatModel.builder()
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .serviceTier(config.tier)
+                .apiKey(kp.token())
+                .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
                 .promptCacheKey(shortName + kp.userId())
                 .timeout(Duration.ofSeconds(
                         config.tier == ProcessingTier.FLEX
                                 ? FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
                                 : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
         params = params.maxCompletionTokens(getMaxOutputTokens(config.name));
-
-        builder = builder.apiKey(kp.token()).customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
         params = params.user(kp.userId().toString());
 
         params = params.modelName(config.name);
