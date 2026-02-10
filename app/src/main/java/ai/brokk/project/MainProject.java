@@ -727,7 +727,7 @@ public final class MainProject extends AbstractProject {
      *         to an empty set, or null if no explicit configuration is present.
      */
     @Nullable
-    protected Set<Language> getConfiguredAnalyzerLanguagesOrNull() {
+    private Set<Language> getConfiguredAnalyzerLanguagesOrNull() {
         String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
         if (langsProp == null || langsProp.isBlank()) {
             return null;
@@ -776,7 +776,7 @@ public final class MainProject extends AbstractProject {
         for (IProject.Dependency dep : getLiveDependencies()) {
             try {
                 Language depLang = dep.language();
-                if (depLang != null && depLang != Languages.NONE) {
+                if (depLang != Languages.NONE) {
                     detectedLanguages.add(depLang);
                 } else {
                     // Fallback: if dependency language is NONE for some reason, attempt to scan files in the dep
