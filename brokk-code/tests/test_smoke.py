@@ -348,6 +348,41 @@ def test_version():
     assert __version__ == "0.1.0"
 
 
+@pytest.mark.asyncio
+async def test_get_context_404_diagnostics():
+    """Verify that a 404 on /v1/context triggers a diagnostic call to /v1/executor."""
+    executor = ExecutorManager(workspace_dir=Path("/tmp"))
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    executor._http_client = mock_client
+
+    # 1. Mock 404 for context
+    context_404 = MagicMock(spec=httpx.Response)
+    context_404.status_code = 404
+    context_404.request = MagicMock()
+    
+    # 2. Mock 200 for executor info
+    executor_info = MagicMock(spec=httpx.Response)
+    executor_info.status_code = 200
+    executor_info.json.return_value = {"version": "0.1.2-old", "protocolVersion": 0}
+
+    def mock_get(url, **kwargs):
+        if "/v1/context" in url:
+            raise httpx.HTTPStatusError("Not Found", request=context_404.request, response=context_404)
+        if "/v1/executor" in url:
+            return executor_info
+        return MagicMock(status_code=404)
+
+    mock_client.get.side_effect = mock_get
+
+    with pytest.raises(ExecutorError) as exc_info:
+        await executor.get_context()
+
+    assert "too old" in str(exc_info.value)
+    assert "Executor Version: 0.1.2-old" in str(exc_info.value)
+    assert "Protocol: 0" in str(exc_info.value)
+    mock_client.get.assert_any_call("/v1/executor")
+
+
 def test_executor_manager_stop_closes_http_client():
     """Verify stop() calls aclose() on the HTTP client."""
     workspace = Path("/tmp/fake-workspace")

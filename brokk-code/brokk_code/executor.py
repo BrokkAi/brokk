@@ -489,9 +489,27 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             response = getattr(e, "response", None)
-            status = getattr(response, "status_code", "N/A")
+            status = getattr(response, "status_code", None)
+
+            if status == 404:
+                # Perform best-effort diagnostic to check version/protocol
+                diag_info = ""
+                try:
+                    diag_resp = await self._http_client.get("/v1/executor")
+                    if diag_resp.status_code == 200:
+                        data = diag_resp.json()
+                        ver = data.get("version", "unknown")
+                        p_ver = data.get("protocolVersion", "unknown")
+                        diag_info = f" (Executor Version: {ver}, Protocol: {p_ver})"
+                except Exception:
+                    pass
+                raise ExecutorError(
+                    f"Endpoint /v1/context not found (404). Your executor version may be too old{diag_info}."
+                ) from e
+
+            status_str = str(status) if status is not None else "N/A"
             raise ExecutorError(
-                f"Failed GET /v1/context (status={status}): {type(e).__name__}: {e}"
+                f"Failed GET /v1/context (status={status_str}): {type(e).__name__}: {e}"
             ) from e
 
     async def get_tasklist(self) -> Dict[str, Any]:
