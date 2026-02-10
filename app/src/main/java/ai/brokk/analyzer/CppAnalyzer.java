@@ -920,12 +920,16 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         if (skeletonType == SkeletonType.FUNCTION_LIKE) {
             String paramSignature = buildCppOverloadSuffix(definitionNode, sourceContent);
             String qualifierSuffix = buildCppQualifierSuffix(definitionNode, sourceContent);
+            String templateSignature = buildCppTemplateSignature(definitionNode, sourceContent);
 
-            if (!paramSignature.isEmpty()) {
-                return "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+            String paramsAndQualifiers =
+                    "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+
+            // Prepend template params if present: "<T>(params) qualifiers"
+            if (templateSignature != null && !templateSignature.isEmpty()) {
+                return templateSignature + paramsAndQualifiers;
             }
-            // Empty parameter list: still return "()" for stable function identity, optionally with qualifiers
-            return "()" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+            return paramsAndQualifiers;
         }
 
         if (skeletonType == SkeletonType.CLASS_LIKE) {
