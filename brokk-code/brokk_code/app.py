@@ -36,9 +36,10 @@ class BrokkApp(App):
         jar_path: Optional[Path] = None,
         executor_version: Optional[str] = None,
         executor_snapshot: bool = False,
+        executor: Optional[ExecutorManager] = None,
     ) -> None:
         super().__init__()
-        self.executor = ExecutorManager(
+        self.executor = executor or ExecutorManager(
             workspace_dir or Path.cwd(),
             jar_path,
             executor_version=executor_version,
@@ -174,7 +175,7 @@ class BrokkApp(App):
                 next_prompt = self._pending_prompt
                 self._pending_prompt = None
                 # Small delay to ensure UI/state settles before restarting
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 self.run_worker(self._run_job(next_prompt))
             else:
                 chat.set_job_running(False)
