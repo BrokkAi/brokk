@@ -27,7 +27,7 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
-        Binding("f2", "cycle_theme", "Cycle Theme", show=True),
+        Binding("f2", "cycle_theme", "Change Theme", show=True),
     ]
 
     def __init__(
@@ -218,9 +218,9 @@ class BrokkApp(App):
                     self._set_theme(theme_val)
                     chat.add_system_message_markup(f"Theme changed to: [bold]{escape(theme_val)}[/]")
                 else:
-                    available = ", ".join(sorted(self.available_themes))
                     chat.add_system_message(
-                        f"Invalid theme '{parts[1]}'. Available: {available}", level="ERROR"
+                        f"Invalid theme '{parts[1]}'. Use /theme list to see valid themes.",
+                        level="ERROR",
                     )
         elif base == "/help":
             help_text = (
@@ -229,7 +229,7 @@ class BrokkApp(App):
                 "  /model-code <name>    - Change the code LLM model\n"
                 "  /reasoning <level>    - Set reasoning level for planner\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
-                "  /theme [list|<name>]  - List or set UI theme\n"
+                "  /theme [list|<name>]  - List available themes or switch to a specific one\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
             )

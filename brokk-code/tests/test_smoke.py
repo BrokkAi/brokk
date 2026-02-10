@@ -106,6 +106,11 @@ def test_app_theme_commands(tmp_path, monkeypatch):
     # Test /theme (smoke test for no crash)
     app._handle_command("/theme")
 
+    # Test help output includes /theme list and updated description
+    # Since append_message doesn't return anything, we check the chat log logic if accessible, 
+    # but here we just ensure the command handler doesn't crash and covers logic.
+    app._handle_command("/help")
+
 
 def test_version():
     from brokk_code import __version__

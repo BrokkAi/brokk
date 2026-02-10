@@ -85,13 +85,13 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 ### Textual vs Java Themes
 `brokk-code` is a Terminal UI built with the **Textual** framework. It uses Textual's built-in theme system and CSS (`app.tcss`).
 - **Does NOT use** Java/FlatLaf `*.theme.json` files found in the Java executor resources.
-- **Available Themes**: Currently limited to `textual-dark` and `textual-light`.
+- **Available Themes**: Supports all built-in Textual themes (like `textual-dark`, `textual-light`).
 - **Customization**: UI colors are defined via TCSS variables in `brokk_code/styles/app.tcss`.
 
 ### Persistence & Interaction
 - **Settings**: The current theme is persisted in `~/.brokk/settings.json` under the `theme` key.
-- **Toggle (F2)**: Pressing `F2` cycles between `textual-dark` and `textual-light`.
-- **Command**: You can also use `/theme dark` or `/theme light` in the chat.
+- **Toggle (F2)**: Pressing `F2` cycles through all available themes.
+- **Command**: You can also use `/theme list` to see available options, or `/theme <name>` to switch.
 
 ### Commands
 
