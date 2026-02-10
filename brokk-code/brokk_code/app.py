@@ -10,6 +10,7 @@ from textual.containers import Horizontal
 from textual.widgets import Footer, Header
 
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.prompt_history import append_prompt
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
@@ -148,7 +149,7 @@ class BrokkApp(App):
         if text.startswith("/"):
             self._handle_command(text)
         else:
-            # TODO: Implement prompt persistence here
+            append_prompt(self.executor.workspace_dir, text)
             chat = self.query_one(ChatPanel)
             chat.add_user_message(text)
 
