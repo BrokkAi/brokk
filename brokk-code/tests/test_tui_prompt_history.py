@@ -154,3 +154,68 @@ async def test_tui_history_navigation(tmp_path):
         # Down -> draft text
         await pilot.press("down")
         assert app.query_one("#chat-input").value == "draft text"
+
+@pytest.mark.asyncio
+async def test_tui_history_navigation_complex(tmp_path):
+    """
+    Verify complex history navigation:
+    1. Submit multiple prompts.
+    2. Check Up/Down cycling.
+    3. Ensure draft is preserved when navigating away and back.
+    """
+    workspace = tmp_path / "project_nav_complex"
+    workspace.mkdir()
+
+    stub = StubExecutor()
+    stub.workspace_dir = workspace
+    stub.release_stream.set()
+
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+
+    async with app.run_test() as pilot:
+        # Submit: one, two, three
+        prompts = ["one", "two", "three"]
+        for p in prompts:
+            await pilot.click("#chat-input")
+            await pilot.press_ascii(p)
+            await pilot.press("enter")
+            await pilot.pause()
+
+        chat_input = app.query_one("#chat-input")
+
+        # Start a draft
+        await pilot.click("#chat-input")
+        await pilot.press_ascii("draft")
+        assert chat_input.value == "draft"
+
+        # Up x1 -> "three"
+        await pilot.press("up")
+        assert chat_input.value == "three"
+
+        # Up x1 -> "two"
+        await pilot.press("up")
+        assert chat_input.value == "two"
+
+        # Up x1 -> "one"
+        await pilot.press("up")
+        assert chat_input.value == "one"
+
+        # Up x1 -> stays at "one"
+        await pilot.press("up")
+        assert chat_input.value == "one"
+
+        # Down x1 -> "two"
+        await pilot.press("down")
+        assert chat_input.value == "two"
+
+        # Down x1 -> "three"
+        await pilot.press("down")
+        assert chat_input.value == "three"
+
+        # Down x1 -> "draft"
+        await pilot.press("down")
+        assert chat_input.value == "draft"
+
+        # Down x1 -> stays at "draft"
+        await pilot.press("down")
+        assert chat_input.value == "draft"
