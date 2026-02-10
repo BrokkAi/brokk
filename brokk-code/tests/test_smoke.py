@@ -574,3 +574,24 @@ def test_chat_panel_notification_safety():
     args = mock_notif_log.write.call_args[0][0]
     assert isinstance(args, Text)
     assert "[WARNING] This is [bold]not[/bold] markup [/]" in args.plain
+
+
+def test_chat_panel_lifecycle_states():
+    """Verify ChatPanel correctly tracks its response lifecycle state."""
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    panel = ChatPanel()
+    assert not panel.response_pending
+    assert not panel.response_active
+
+    panel.set_response_pending()
+    assert panel.response_pending
+    assert not panel.response_active
+
+    panel.set_response_active()
+    assert not panel.response_pending
+    assert panel.response_active
+
+    panel.set_response_finished()
+    assert not panel.response_pending
+    assert not panel.response_active

@@ -24,6 +24,8 @@ class ChatPanel(Vertical):
         self._current_message_buffer: str = ""
         self._current_message_type: Optional[str] = None
         self._is_reasoning: bool = False
+        self.response_pending: bool = False
+        self.response_active: bool = False
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
@@ -39,6 +41,21 @@ class ChatPanel(Vertical):
             self.post_message(self.Submitted(event.value))
             event.input.value = ""
 
+    def set_response_pending(self) -> None:
+        """Called when a job is submitted and we are waiting for the first token."""
+        self.response_pending = True
+        self.response_active = False
+
+    def set_response_active(self) -> None:
+        """Called when the first token of a response (or new message in stream) arrives."""
+        self.response_pending = False
+        self.response_active = True
+
+    def set_response_finished(self) -> None:
+        """Called when the job is complete or failed."""
+        self.response_pending = False
+        self.response_active = False
+
     def append_token(
         self,
         token: str,
@@ -49,6 +66,7 @@ class ChatPanel(Vertical):
     ) -> None:
         """Appends a token to the current buffer and handles rendering transitions."""
         if is_new_message:
+            self.set_response_active()
             self._flush_message()
             self._current_message_type = message_type
             self._is_reasoning = is_reasoning

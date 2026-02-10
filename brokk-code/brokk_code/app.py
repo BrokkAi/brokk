@@ -118,7 +118,9 @@ class BrokkApp(App):
         if text.startswith("/"):
             self._handle_command(text)
         else:
-            self.query_one(ChatPanel).add_user_message(text)
+            chat = self.query_one(ChatPanel)
+            chat.add_user_message(text)
+            chat.set_response_pending()
             self.run_worker(self._run_job(text))
 
     async def _run_job(self, task_input: str) -> None:
@@ -143,6 +145,7 @@ class BrokkApp(App):
         finally:
             self.job_in_progress = False
             self.current_job_id = None
+            self.query_one(ChatPanel).set_response_finished()
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
