@@ -332,6 +332,16 @@ public interface IProject extends AutoCloseable {
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
+    /**
+     * Invalidates any cached auto-detected languages. This should be called when project
+     * structure or dependencies change in a way that might affect language detection.
+     *
+     * <p>The next call to {@link #getAnalyzerLanguages()} will re-detect languages from
+     * the filesystem if no explicit user configuration exists. This does not clear
+     * explicit user configuration set via {@link #setAnalyzerLanguages(Set)}.
+     */
+    default void invalidateAutoDetectedLanguages() {}
+
     // Primary build language configuration
     @Blocking
     default Language getBuildLanguage() {

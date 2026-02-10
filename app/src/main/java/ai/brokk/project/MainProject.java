@@ -79,6 +79,9 @@ public final class MainProject extends AbstractProject {
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
+    private volatile Set<Language> autoDetectedLanguagesCache = null;
+
+    @Nullable
     private volatile StringDiskCache diskCache = null;
 
     @Nullable
@@ -760,51 +763,66 @@ public final class MainProject extends AbstractProject {
             return configured;
         }
 
-        // Auto-detect: consider both tracked repository files and live dependencies.
-        Set<Language> detectedLanguages = new HashSet<>();
-
-        // 1) Repo-tracked files (existing behavior)
-        for (ProjectFile pf : repo.getTrackedFiles()) {
-            Language lang = Languages.fromExtension(pf.extension());
-            if (lang != Languages.NONE) {
-                detectedLanguages.add(lang);
-            }
+        Set<Language> cached = autoDetectedLanguagesCache;
+        if (cached != null) {
+            return cached;
         }
 
-        // 2) Live dependencies: namesToDependencies / getLiveDependencies already detect a predominant language
-        // for each live dependency (via AbstractProject.detectLanguageForDependency). Merge those languages as well.
-        for (IProject.Dependency dep : getLiveDependencies()) {
-            try {
-                Language depLang = dep.language();
-                if (depLang != Languages.NONE) {
-                    detectedLanguages.add(depLang);
-                } else {
-                    // Fallback: if dependency language is NONE for some reason, attempt to scan files in the dep
-                    // to discover any non-NONE languages (covers edge cases).
-                    for (ProjectFile depFile : dep.files()) {
-                        Language lang = Languages.fromExtension(depFile.extension());
-                        if (lang != Languages.NONE) {
-                            detectedLanguages.add(lang);
+        synchronized (this) {
+            cached = autoDetectedLanguagesCache;
+            if (cached != null) {
+                return cached;
+            }
+
+            // Auto-detect: consider both tracked repository files and live dependencies.
+            Set<Language> detectedLanguages = new HashSet<>();
+
+            // 1) Repo-tracked files (existing behavior)
+            for (ProjectFile pf : repo.getTrackedFiles()) {
+                Language lang = Languages.fromExtension(pf.extension());
+                if (lang != Languages.NONE) {
+                    detectedLanguages.add(lang);
+                }
+            }
+
+            // 2) Live dependencies: namesToDependencies / getLiveDependencies already detect a predominant language
+            // for each live dependency (via AbstractProject.detectLanguageForDependency). Merge those languages as
+            // well.
+            for (IProject.Dependency dep : getLiveDependencies()) {
+                try {
+                    Language depLang = dep.language();
+                    if (depLang != Languages.NONE) {
+                        detectedLanguages.add(depLang);
+                    } else {
+                        // Fallback: if dependency language is NONE for some reason, attempt to scan files in the dep
+                        // to discover any non-NONE languages (covers edge cases).
+                        for (ProjectFile depFile : dep.files()) {
+                            Language lang = Languages.fromExtension(depFile.extension());
+                            if (lang != Languages.NONE) {
+                                detectedLanguages.add(lang);
+                            }
                         }
                     }
+                } catch (Exception e) {
+                    logger.warn("Error detecting languages for dependency {} in {}", dep, root, e);
                 }
-            } catch (Exception e) {
-                logger.warn("Error detecting languages for dependency {} in {}", dep, root, e);
             }
-        }
 
-        if (detectedLanguages.isEmpty()) {
+            if (detectedLanguages.isEmpty()) {
+                logger.debug(
+                        "No files with recognized (non-NONE) languages found for {} (repo files and live dependencies checked). Defaulting to Language.NONE.",
+                        root);
+                autoDetectedLanguagesCache = Set.of(Languages.NONE);
+                return autoDetectedLanguagesCache;
+            }
+
             logger.debug(
-                    "No files with recognized (non-NONE) languages found for {} (repo files and live dependencies checked). Defaulting to Language.NONE.",
-                    root);
-            return Set.of(Languages.NONE);
+                    "Auto-detected languages for {} (including live dependencies): {}",
+                    root,
+                    detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
+            autoDetectedLanguagesCache = Set.copyOf(detectedLanguages);
+            return autoDetectedLanguagesCache;
         }
-
-        logger.debug(
-                "Auto-detected languages for {} (including live dependencies): {}",
-                root,
-                detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
-        return detectedLanguages;
     }
 
     @Override
@@ -816,6 +834,12 @@ public final class MainProject extends AbstractProject {
             projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
         saveProjectProperties();
+        invalidateAutoDetectedLanguages();
+    }
+
+    @Override
+    public void invalidateAutoDetectedLanguages() {
+        autoDetectedLanguagesCache = null;
     }
 
     @Override
