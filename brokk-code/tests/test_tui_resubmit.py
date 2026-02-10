@@ -127,3 +127,39 @@ async def test_cancel_and_resubmit_flow():
         assert cancels[1]["job_id"] == "job-1"
         assert submits[1]["input"] == "third"
         assert len(submits) == 2  # "second" must have been dropped
+
+
+@pytest.mark.asyncio
+async def test_multiline_paste_and_submit():
+    """
+    Verify that multiline text (like a paste) is submitted with newlines intact.
+    """
+    stub = StubExecutor(auto_release=True)
+    app = BrokkApp(executor=stub)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        await pilot.click("#chat-input")
+
+        # 1. Test Shift+Enter behavior
+        await type_text(pilot, "line1")
+        await pilot.press("shift+enter")
+        await type_text(pilot, "line2")
+        
+        # Verify UI state before submit
+        assert chat_input.text == "line1\nline2"
+        
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # 2. Test "Paste" behavior (direct text setting)
+        multiline_paste = "first line\nsecond line\nthird line"
+        chat_input.text = multiline_paste
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Verify executor calls
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 2
+        assert submits[0]["input"] == "line1\nline2"
+        assert submits[1]["input"] == multiline_paste
