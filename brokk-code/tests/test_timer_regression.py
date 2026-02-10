@@ -103,8 +103,9 @@ async def test_timer_ticks_during_run_job():
         # Advance deterministic time by 2 seconds
         current_time += 2.0
 
+        # Wait for at least one interval tick (0.2s) to fire in real time
+        await asyncio.sleep(0.3)
         # Process the Textual interval callback
-        await pilot.pause()
         await pilot.pause()
 
         # The timer should have updated to 00:02 even though FakeExecutor
