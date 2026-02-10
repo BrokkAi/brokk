@@ -67,6 +67,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             FileFilteringService.createPatternMatcher(Set.of());
 
     public AbstractProject(Path root) {
+        assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
         this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
         this.masterRootPathForConfig = computeMasterRootForConfig(this.root, this.repo);
