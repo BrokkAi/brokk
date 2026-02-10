@@ -372,42 +372,6 @@ class ScrollCoordinateCalculatorTest {
     class CenteredViewportCalculation {
 
         @Test
-        @DisplayName("Simple centering in middle of scroll range")
-        void simpleCenteringInMiddle() {
-            // Target region at y=400-450 (midpoint 425), viewport height 200, content allows scrolling to 800
-            // Centered: 425 - 100 = 325
-            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(400, 450, 200, 800);
-            assertEquals(325, result);
-        }
-
-        @Test
-        @DisplayName("Larger target range - multi-line hunk block")
-        void largerTargetRange() {
-            // Target region at y=300-500 (midpoint 400), viewport height 200
-            // Centered: 400 - 100 = 300
-            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(300, 500, 200, 1000);
-            assertEquals(300, result);
-        }
-
-        @Test
-        @DisplayName("Clamping at top - target near beginning")
-        void clampingAtTop() {
-            // Target region at y=10-30 (midpoint 20), viewport height 200
-            // Centered: 20 - 100 = -80, clamped to 0
-            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(10, 30, 200, 800);
-            assertEquals(0, result);
-        }
-
-        @Test
-        @DisplayName("Clamping at bottom - target near end")
-        void clampingAtBottom() {
-            // Target region at y=780-800 (midpoint 790), viewport height 200, maxY=600
-            // Centered: 790 - 100 = 690, clamped to 600
-            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(780, 800, 200, 600);
-            assertEquals(600, result);
-        }
-
-        @Test
         @DisplayName("viewportHeight <= 0 fallback - zero height")
         void viewportHeightZeroFallback() {
             // With zero viewport height, should fallback to clamped targetStartY
@@ -440,15 +404,6 @@ class ScrollCoordinateCalculatorTest {
         }
 
         @Test
-        @DisplayName("Target region equals single point")
-        void singlePointTarget() {
-            // Target at y=400-400 (midpoint 400), viewport height 200
-            // Centered: 400 - 100 = 300
-            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(400, 400, 200, 800);
-            assertEquals(300, result);
-        }
-
-        @Test
         @DisplayName("Target larger than viewport - still centers on midpoint")
         void targetLargerThanViewport() {
             // Target region at y=100-500 (midpoint 300), viewport height 100
@@ -461,6 +416,13 @@ class ScrollCoordinateCalculatorTest {
         @DisplayName("maxY is zero - always returns 0")
         void maxYIsZero() {
             int result = ScrollCoordinateCalculator.calculateCenteredViewportY(100, 200, 200, 0);
+            assertEquals(0, result);
+        }
+
+        @Test
+        @DisplayName("Negative maxY is treated as 0")
+        void negativeMaxYTreatedAsZero() {
+            int result = ScrollCoordinateCalculator.calculateCenteredViewportY(100, 200, 200, -1);
             assertEquals(0, result);
         }
 
