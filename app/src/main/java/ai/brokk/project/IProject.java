@@ -68,6 +68,19 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
+     * Finds a file in the project by its relative path.
+     *
+     * @param relPath the relative path to look up
+     * @return an Optional containing the ProjectFile if found, or empty otherwise
+     */
+    @Blocking
+    default Optional<ProjectFile> getFileByRelPath(Path relPath) {
+        return getAllFiles().stream()
+                .filter(f -> f.getRelPath().equals(relPath))
+                .findFirst();
+    }
+
+    /**
      * Returns true if this project contains no analyzable source files.
      * A project is considered "empty" when none of its files have extensions
      * matching any language in Languages.ALL_LANGUAGES (excluding NONE).

@@ -793,6 +793,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Nullable
     private volatile Set<ProjectFile> allFilesCache;
 
+    @Nullable
+    private volatile Map<Path, ProjectFile> filesByRelPathCache;
+
     private Set<ProjectFile> getAllFilesRaw() {
         // Use getFilesForAnalysis() which handles fallback to filesystem scan for empty Git repos
         var trackedFiles = repo.getFilesForAnalysis();
@@ -814,9 +817,21 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Blocking
     public final synchronized Set<ProjectFile> getAllFiles() {
         if (allFilesCache == null) {
-            allFilesCache = filterExcludedFiles(getAllFilesRaw());
+            var files = filterExcludedFiles(getAllFilesRaw());
+            allFilesCache = files;
+            filesByRelPathCache = files.stream()
+                    .collect(Collectors.toMap(ProjectFile::getRelPath, f -> f, (existing, replacement) -> existing));
         }
         return allFilesCache;
+    }
+
+    @Override
+    @Blocking
+    public final synchronized Optional<ProjectFile> getFileByRelPath(Path relPath) {
+        if (filesByRelPathCache == null) {
+            getAllFiles();
+        }
+        return Optional.ofNullable(filesByRelPathCache.get(relPath));
     }
 
     @Override
@@ -828,6 +843,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public synchronized void invalidateAllFiles() {
         allFilesCache = null;
+        filesByRelPathCache = null;
         try {
             fileFilteringService.invalidateCaches();
         } catch (Exception e) {
