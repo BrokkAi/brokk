@@ -64,7 +64,8 @@ async def test_stream_events_polling_logic():
         mock_loop = MagicMock()
         # Advance time by 3.0s on each call to trigger status_interval (2.0s) checks.
         # stream_events calls time() at the start of each while loop iteration.
-        # We provide a very long sequence to avoid StopAsyncIteration/RuntimeError if the loop runs many times.
+        # We provide a very long sequence to avoid StopAsyncIteration/RuntimeError
+        # if the loop runs many times.
         mock_loop.time.side_effect = [float(i * 3.0) for i in range(1000)]
         mock_loop_factory.return_value = mock_loop
         collected_events = []
@@ -107,9 +108,11 @@ async def test_stream_events_adaptive_backoff():
 
     # Sequence:
     # 1. Start: last_status_check is -inf -> triggers status check
-    # 2. Iter 1: Get status (RUNNING), Get events (Empty) -> last_status_check set to 0.0, sleep 0.05, last_status_check reset to 0.0
+    # 2. Iter 1: Get status (RUNNING), Get events (Empty) -> last_status_check set to 0.0,
+    #    sleep 0.05, last_status_check reset to 0.0
     # 3. Iter 2: now (3.0) - last_status_check (0.0) > 2.0 -> triggers status check
-    # 4. Iter 2: Get status (RUNNING), Get events (Empty) -> sleep 0.1, last_status_check reset to 0.0
+    # 4. Iter 2: Get status (RUNNING), Get events (Empty) -> sleep 0.1,
+    #    last_status_check reset to 0.0
     # 5. Iter 3: now (6.0) - last_status_check (0.0) > 2.0 -> triggers status check
     # 6. Iter 3: Get status (COMPLETED), Get events (Empty) -> Exit
     mock_client.get.side_effect = [
