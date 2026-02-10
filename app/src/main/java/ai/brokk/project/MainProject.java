@@ -720,28 +720,44 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
+    /**
+     * Returns the explicitly configured analyzer languages from project properties, if any.
+     *
+     * @return a non-empty set of Languages, or Set.of(Languages.NONE) if the configuration parses
+     *         to an empty set, or null if no explicit configuration is present.
+     */
+    @Nullable
+    protected Set<Language> getConfiguredAnalyzerLanguagesOrNull() {
+        String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
+        if (langsProp == null || langsProp.isBlank()) {
+            return null;
+        }
+
+        Set<Language> parsed = Arrays.stream(langsProp.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(langName -> {
+                    try {
+                        return Languages.valueOf(langName.toUpperCase(Locale.ROOT));
+                    } catch (IllegalArgumentException e) {
+                        logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (parsed.isEmpty()) {
+            return Set.of(Languages.NONE);
+        }
+        return parsed;
+    }
+
     @Override
     public Set<Language> getAnalyzerLanguages() {
-        String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
-        if (langsProp != null && !langsProp.isBlank()) {
-            Set<Language> parsed = Arrays.stream(langsProp.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .map(langName -> {
-                        try {
-                            return Languages.valueOf(langName.toUpperCase(Locale.ROOT));
-                        } catch (IllegalArgumentException e) {
-                            logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
-                            return null;
-                        }
-                    })
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
-
-            if (parsed.isEmpty()) {
-                return Set.of(Languages.NONE);
-            }
-            return parsed;
+        Set<Language> configured = getConfiguredAnalyzerLanguagesOrNull();
+        if (configured != null) {
+            return configured;
         }
 
         // Auto-detect: consider both tracked repository files and live dependencies.
