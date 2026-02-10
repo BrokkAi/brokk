@@ -55,11 +55,14 @@ async def test_spinner_and_timer_lifecycle():
 
         # Advance time to cross 1 hour (3600s + 65s = 3665s)
         current_time += 3600.0
+        # Give the Textual interval a moment to fire
+        await pilot.pause()
         await pilot.pause()
         assert str(timer_label.render()) == "Elapsed: 01:01:05"
 
         # Verify timer continues even with NO tokens arriving
         current_time += 10.0
+        await pilot.pause()
         await pilot.pause()
         assert str(timer_label.render()) == "Elapsed: 01:01:15"
 
