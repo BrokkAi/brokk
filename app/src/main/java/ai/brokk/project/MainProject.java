@@ -777,7 +777,7 @@ public final class MainProject extends AbstractProject {
             // Auto-detect: consider both tracked repository files and live dependencies.
             Set<Language> detectedLanguages = new HashSet<>();
 
-            // 1) Repo-tracked files (existing behavior)
+            // 1) Repo-tracked files
             for (ProjectFile pf : repo.getTrackedFiles()) {
                 Language lang = Languages.fromExtension(pf.extension());
                 if (lang != Languages.NONE) {
@@ -785,17 +785,14 @@ public final class MainProject extends AbstractProject {
                 }
             }
 
-            // 2) Live dependencies: namesToDependencies / getLiveDependencies already detect a predominant language
-            // for each live dependency (via AbstractProject.detectLanguageForDependency). Merge those languages as
-            // well.
+            // 2) Live dependencies
             for (IProject.Dependency dep : getLiveDependencies()) {
                 try {
                     Language depLang = dep.language();
                     if (depLang != Languages.NONE) {
                         detectedLanguages.add(depLang);
                     } else {
-                        // Fallback: if dependency language is NONE for some reason, attempt to scan files in the dep
-                        // to discover any non-NONE languages (covers edge cases).
+                        // Fallback: scan files in the dep to discover any non-NONE languages
                         for (ProjectFile depFile : dep.files()) {
                             Language lang = Languages.fromExtension(depFile.extension());
                             if (lang != Languages.NONE) {
@@ -813,14 +810,13 @@ public final class MainProject extends AbstractProject {
                         "No files with recognized (non-NONE) languages found for {} (repo files and live dependencies checked). Defaulting to Language.NONE.",
                         root);
                 autoDetectedLanguagesCache = Set.of(Languages.NONE);
-                return autoDetectedLanguagesCache;
+            } else {
+                logger.debug(
+                        "Auto-detected languages for {} (including live dependencies): {}",
+                        root,
+                        detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
+                autoDetectedLanguagesCache = Set.copyOf(detectedLanguages);
             }
-
-            logger.debug(
-                    "Auto-detected languages for {} (including live dependencies): {}",
-                    root,
-                    detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
-            autoDetectedLanguagesCache = Set.copyOf(detectedLanguages);
             return autoDetectedLanguagesCache;
         }
     }
@@ -833,6 +829,7 @@ public final class MainProject extends AbstractProject {
             String langsString = languages.stream().map(Language::name).collect(Collectors.joining(","));
             projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
+        autoDetectedLanguagesCache = null;
         saveProjectProperties();
         invalidateAutoDetectedLanguages();
     }
@@ -840,6 +837,7 @@ public final class MainProject extends AbstractProject {
     @Override
     public void invalidateAutoDetectedLanguages() {
         autoDetectedLanguagesCache = null;
+        logger.debug("Invalidated auto-detected languages cache for {}", root.getFileName());
     }
 
     @Override
