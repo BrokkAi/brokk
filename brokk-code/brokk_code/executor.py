@@ -24,7 +24,7 @@ class ExecutorManager:
         workspace_dir: Optional[Path] = None,
         jar_path: Optional[Path] = None,
         executor_version: Optional[str] = None,
-        executor_snapshot: bool = False,
+        executor_snapshot: bool = True,
     ):
         self.workspace_dir = (workspace_dir or Path.cwd()).resolve()
         self.jar_override = jar_path

@@ -37,7 +37,7 @@ class BrokkApp(App):
         workspace_dir: Optional[Path] = None,
         jar_path: Optional[Path] = None,
         executor_version: Optional[str] = None,
-        executor_snapshot: bool = False,
+        executor_snapshot: bool = True,
         executor: Optional[ExecutorManager] = None,
     ) -> None:
         super().__init__()

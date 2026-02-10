@@ -28,6 +28,12 @@ def test_app_importable():
     assert app.executor is not None
 
 
+def test_app_defaults_to_snapshot():
+    """Verify BrokkApp defaults to executor_snapshot=True."""
+    app = BrokkApp(workspace_dir=Path("."))
+    assert app.executor.use_snapshot is True
+
+
 def test_app_theme_persistence(tmp_path, monkeypatch):
     """Verify BrokkApp loads and saves theme settings."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
