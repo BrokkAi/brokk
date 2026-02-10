@@ -102,6 +102,11 @@ async def test_context_polling_updates_ui():
             panel = app.query_one("#side-context", ContextPanel)
             header = panel.query_one("#context-header")
             assert "1,500 / 100,000 tokens" in str(header.renderable)
+
+            # Verify ChatPanel Token Usage
+            chat_panel = app.query_one(ChatPanel)
+            usage_label = chat_panel.query_one("#chat-token-usage")
+            assert "Tokens: 1,500 / 100,000" in str(usage_label.renderable)
             
             # Verify List Contents
             list_view = panel.query_one("#context-list")
