@@ -576,6 +576,29 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/tasklist")
             raise  # Should not be reached
 
+    async def add_context_text(self, text: str) -> Dict[str, Any]:
+        """
+        Adds a text fragment to the context.
+        Returns the JSON response containing the fragment 'id' and 'chars' count.
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        if not text.strip():
+            raise ExecutorError("Text must not be blank")
+
+        # 1 MiB limit check (matching Java side)
+        if len(text.encode("utf-8")) > 1024 * 1024:
+            raise ExecutorError("Text exceeds maximum size of 1 MiB")
+
+        try:
+            resp = await self._http_client.post("/v1/context/text", json={"text": text})
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/context/text")
+            raise
+
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:

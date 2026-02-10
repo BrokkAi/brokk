@@ -40,6 +40,10 @@ class StubExecutor(ExecutorManager):
     async def get_tasklist(self) -> Dict[str, Any]:
         return {}
 
+    async def add_context_text(self, text: str) -> Dict[str, Any]:
+        self.calls.append({"type": "add_context_text", "text": text})
+        return {"id": "fake-id", "chars": len(text)}
+
     async def submit_job(self, task_input: str, *args, **kwargs) -> str:
         self.submit_count += 1
         job_id = f"job-{self.submit_count}"
@@ -163,3 +167,15 @@ async def test_multiline_paste_and_submit():
         assert len(submits) == 2
         assert submits[0]["input"] == "line1\nline2"
         assert submits[1]["input"] == multiline_paste
+
+
+@pytest.mark.asyncio
+async def test_add_context_text_stub():
+    """Verify the add_context_text helper on the executor stub."""
+    stub = StubExecutor()
+    text = "Some context text"
+    result = await stub.add_context_text(text)
+
+    assert result["id"] == "fake-id"
+    assert result["chars"] == len(text)
+    assert stub.calls[-1] == {"type": "add_context_text", "text": text}

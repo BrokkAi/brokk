@@ -74,8 +74,7 @@ def test_mode_toggle_bindings_exist():
     app = BrokkApp(executor=MagicMock())
     # Verify the bindings are present and mapped to toggle_mode
     bindings = {b.key: b.action for b in app.BINDINGS}
-    assert bindings["ctrl+m"] == "toggle_mode"
-    assert bindings["ctrl+shift+m"] == "toggle_mode"
+    assert bindings["ctrl+g"] == "toggle_mode"
     assert bindings["f3"] == "toggle_mode"
 
 
