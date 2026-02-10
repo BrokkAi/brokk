@@ -107,13 +107,15 @@ class ChatPanel(Vertical):
             return
 
         if event.key == "up":
-            # Only navigate history if at the start of the text
-            if chat_input.cursor_at_start_of_text:
+            # Only navigate history if at the start of the text,
+            # or if history navigation is already active.
+            if self._history_index != -1 or chat_input.cursor_at_start_of_text:
                 self._navigate_history(-1)
                 event.prevent_default()
         elif event.key == "down":
-            # Only navigate history if at the end of the text
-            if chat_input.cursor_at_end_of_text:
+            # Only navigate history if at the end of the text,
+            # or if history navigation is already active.
+            if self._history_index != -1 or chat_input.cursor_at_end_of_text:
                 self._navigate_history(1)
                 event.prevent_default()
 
@@ -155,8 +157,9 @@ class ChatPanel(Vertical):
             # Load from history
             self._history_index = new_index
             chat_input.text = self._history[self._history_index]
-            # Move cursor to end
-            chat_input.cursor_at_end_of_text
+
+        # Keep cursor at end so subsequent Up/Down gating checks behave correctly.
+        chat_input.move_cursor(chat_input.document.end)
 
     def set_history(self, history: list[str]) -> None:
         """Updates the internal history list (e.g. from disk)."""
