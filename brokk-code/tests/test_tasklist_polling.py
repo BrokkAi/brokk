@@ -114,9 +114,13 @@ async def test_context_polling_updates_ui(tmp_path):
         ],
     }
 
-    with patch(
-        "brokk_code.executor.ExecutorManager.get_context", new_callable=AsyncMock
-    ) as mock_get:
+    with (
+        patch(
+            "brokk_code.executor.ExecutorManager.get_context", new_callable=AsyncMock
+        ) as mock_get,
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+    ):
         mock_get.return_value = mock_context
 
         async with app.run_test() as pilot:
@@ -125,6 +129,7 @@ async def test_context_polling_updates_ui(tmp_path):
 
             # Directly call the refresh method that the worker would call
             await app._refresh_context_panel()
+            await pilot.pause()
 
             # Verify Header
             panel = app.query_one("#side-context", ContextPanel)
