@@ -1,12 +1,15 @@
+import asyncio
+import time
 from typing import Optional
 
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import Input, RichLog
+from textual.widgets import Input, LoadingIndicator, RichLog
 
 
 class ChatPanel(Vertical):
@@ -26,9 +29,12 @@ class ChatPanel(Vertical):
         self._is_reasoning: bool = False
         self.response_pending: bool = False
         self.response_active: bool = False
+        self._last_token_time: float = 0
+        self._inactivity_timeout: float = 10.0
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
+        yield LoadingIndicator(id="chat-spinner", classes="hidden")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield Input(placeholder="Type a message or /command...", id="chat-input")
 
@@ -45,16 +51,38 @@ class ChatPanel(Vertical):
         """Called when a job is submitted and we are waiting for the first token."""
         self.response_pending = True
         self.response_active = False
+        self._show_spinner(True)
 
     def set_response_active(self) -> None:
         """Called when the first token of a response (or new message in stream) arrives."""
         self.response_pending = False
         self.response_active = True
+        self._last_token_time = time.time()
+        self._show_spinner(False)
 
     def set_response_finished(self) -> None:
         """Called when the job is complete or failed."""
         self.response_pending = False
         self.response_active = False
+        self._show_spinner(False)
+
+    def _show_spinner(self, show: bool) -> None:
+        spinner = self.query_one("#chat-spinner", LoadingIndicator)
+        if show:
+            spinner.remove_class("hidden")
+        else:
+            spinner.add_class("hidden")
+
+    @work(exclusive=True)
+    async def _monitor_inactivity(self) -> None:
+        """Re-shows spinner if no tokens arrive for a while during an active stream."""
+        while self.response_active:
+            await asyncio.sleep(1.0)
+            if (
+                self.response_active
+                and (time.time() - self._last_token_time) > self._inactivity_timeout
+            ):
+                self._show_spinner(True)
 
     def append_token(
         self,
@@ -65,8 +93,12 @@ class ChatPanel(Vertical):
         is_terminal: bool,
     ) -> None:
         """Appends a token to the current buffer and handles rendering transitions."""
+        self._last_token_time = time.time()
+        self._show_spinner(False)
+
         if is_new_message:
             self.set_response_active()
+            self._monitor_inactivity()
             self._flush_message()
             self._current_message_type = message_type
             self._is_reasoning = is_reasoning
