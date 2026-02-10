@@ -213,6 +213,7 @@ class ExecutorManager:
                 elif tgz_asset:
                     tgz_url = tgz_asset["browser_download_url"]
                     asset_filename = tgz_asset.get("name", "archive.tgz")
+                    jar_name = "brokk.jar"
                     logger.info(
                         "Downloading executor archive (tag=%s, asset=%s) ...",
                         target_release.get("tag_name"),
