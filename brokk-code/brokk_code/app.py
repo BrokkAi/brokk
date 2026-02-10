@@ -308,7 +308,9 @@ class BrokkApp(App):
         self.sub_title = f"Mode: {self.agent_mode}"
         if announce:
             chat = self.query_one(ChatPanel)
-            chat.add_system_message_markup(f"Mode changed to: [bold]{self.agent_mode}[/]")
+            chat.add_system_message_markup(
+                f"Mode changed to: [bold]{self.agent_mode}[/]", level="WARNING"
+            )
 
     def _render_info(self) -> None:
         """Renders current status and configuration info to the chat."""
