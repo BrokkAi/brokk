@@ -1,0 +1,114 @@
+package ai.brokk.gui.mop.webview;
+
+import ai.brokk.ContextManager;
+import ai.brokk.TaskEntry;
+import ai.brokk.gui.Chrome;
+import ai.brokk.gui.mop.ChunkMeta;
+import dev.langchain4j.data.message.ChatMessageType;
+import java.awt.Component;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+import javax.swing.JComponent;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Common interface for WebView host implementations.
+ * Uses JCEF (JCEFWebViewHost) for Chromium-based rendering.
+ */
+public interface IWebViewHost {
+
+    /**
+     * Represents the state of a search operation.
+     */
+    record SearchState(int totalMatches, int currentDisplayIndex) {}
+
+    /**
+     * Get the Swing component to add to the UI.
+     */
+    JComponent getComponent();
+
+    /**
+     * Append text to the current message or start a new message.
+     */
+    void append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta);
+
+    /**
+     * Clear all messages.
+     */
+    void clear();
+
+    /**
+     * Dispose resources.
+     */
+    void dispose();
+
+    // History methods
+    void historyReset();
+
+    void historyTask(TaskEntry entry);
+
+    // UI feedback methods
+    void showSpinner(String message);
+
+    void hideSpinner();
+
+    void showTransientMessage(String message);
+
+    void hideTransientMessage();
+
+    void setTaskInProgress(boolean inProgress);
+
+    // Environment and context
+    void sendEnvironmentInfo(boolean analyzerReady);
+
+    void sendLiveSummary(int taskSequence, boolean compressed, String summary);
+
+    void onAnalyzerReadyResponse(String contextId);
+
+    String getContextCacheId();
+
+    // Theme
+    void setInitialTheme(String themeName, boolean isDevMode, boolean wrapMode);
+
+    void setRuntimeTheme(String themeName, boolean isDevMode, boolean wrapMode);
+
+    // Async operations
+    CompletableFuture<Void> flushAsync();
+
+    CompletableFuture<String> getSelectedText();
+
+    // Zoom
+    void setZoom(double zoom);
+
+    void zoomIn();
+
+    void zoomOut();
+
+    void resetZoom();
+
+    // Search
+    void setSearch(String query, boolean caseSensitive);
+
+    void clearSearch();
+
+    void nextMatch();
+
+    void prevMatch();
+
+    void scrollToCurrent();
+
+    void sendStaticDocument(@Nullable String markdown);
+
+    void setShowEmptyState(boolean show);
+
+    void addSearchStateListener(Consumer<SearchState> listener);
+
+    void removeSearchStateListener(Consumer<SearchState> listener);
+
+    // Context manager integration
+    void setContextManager(@Nullable ContextManager contextManager);
+
+    void setSymbolRightClickHandler(@Nullable Chrome chrome);
+
+    void setHostComponent(@Nullable Component hostComponent);
+}

@@ -236,6 +236,23 @@ To run multiple instances simultaneously, enable debugging only on specific inst
 - **Force JAR in build**: `./gradlew -PenableShadowJar build`
 - **Frontend assets**: Automatically included in JAR under `mop-web/` resources
 
+### Running the Shadow JAR
+
+Use the `brokkw` wrapper script to run the shadow JAR with required JVM flags:
+
+```bash
+./brokkw                    # Run latest shadow JAR (builds if needed)
+./brokkw path/to/brokk.jar  # Run specific JAR
+./brokkw --some-arg         # Pass args through to Brokk
+```
+
+The wrapper automatically includes:
+- `--add-opens` flags required for JCEF/Swing integration
+- `--enable-native-access` for native library access
+- Dev mode flags (`-Dbrokk.devmode=true`, etc.)
+
+On Windows, use `brokkw.bat` instead.
+
 ## Versioning
 
 The project uses automatic versioning based on git tags. Version numbers are derived dynamically from the git repository state:
@@ -271,6 +288,44 @@ To create a new release:
 
 No manual version updates needed - everything is derived from git tags automatically.
 
+## JCEF Development Setup
+
+### Version Configuration
+
+JCEF is used in development via the `jcefmaven` library. The version is defined in the version catalog (`gradle/libs.versions.toml`):
+
+```toml
+[versions]
+jcefmaven = "122.1.10"
+
+[libraries]
+jcefmaven = { module = "me.friwi:jcefmaven", version.ref = "jcefmaven" }
+```
+
+This version is:
+- Used for the Gradle dependency via `implementation(libs.jcefmaven)`
+- Exported via `BuildInfo.jcefmavenVersion` for runtime access
+- Used by `MavenCefProvider` to create a versioned install path (`~/.gradle/caches/jcef-{version}/`)
+
+When upgrading jcefmaven, only update the version in `gradle/libs.versions.toml`.
+
+### Production vs Development
+
+- **Development**: Uses `MavenCefProvider` which auto-downloads JCEF binaries via jcefmaven
+- **Production (jDeploy)**: Uses `JbrCefProvider` with JBR's bundled JCEF; jcefmaven classes are stripped via `.jdpignore`
+
+Since dev uses jcefmaven and jdeploy uses jbr versions of the underlying chrome don't match, at the moment we use
+```
+jcefmaven 122.1.0 -> chromium 122.1.0
+jbr+jcef 21.0.9+ -> chromium 137.0.17
+```
+
+These two version don't sync, thus it is nearly impossible for the chromium versions to match which
+could create cases a bug is only in one version
+
+Versions of jcefmaven newer than 122 present a bug on Linux where the jcef window looks detached
+from the main window
+
 ## Distribution with jDeploy
 
 The project uses jDeploy to create native application installers for all platforms. jDeploy packages the shadow JAR into platform-specific installers and handles distribution via npm.
@@ -282,7 +337,23 @@ Configuration is defined in the root `package.json`:
 - **Java Version**: 21 (required)
 - **JavaFX**: Enabled for GUI support
 - **JVM Args**: `--add-modules jdk.incubator.vector` for Vector API
-- **No Bundled JDK**: Uses system Java installation
+- **JVM**: JBR (JetBrains Runtime) with bundled JCEF for browser rendering
+
+### JBR and JCEF Integration
+
+Production builds use JetBrains Runtime (JBR) which includes a bundled JCEF (Java Chromium Embedded Framework):
+
+1. **Runtime Selection**: `JbrCefProvider` detects JBR by checking for `jdeploy.launcher.path` and verifying JCEF resources exist in the JVM
+2. **Class Stripping**: The `.jdpignore` file excludes jcefmaven classes from the shadow JAR since JBR provides `org.cef.*` at runtime:
+   - `me.friwi` - jcefmaven classes
+   - `org.cef` - JCEF API (provided by JBR)
+   - `com.jogamp` - OpenGL bindings (provided by JBR)
+3. **Resource Detection**: `JbrCefProvider` locates JCEF frameworks in platform-specific paths:
+   - macOS: Looks for `jcef Helper.app` in the app bundle's Frameworks directory
+   - Linux: Checks for `lib/jcef_helper` in `java.home`
+   - Windows: Checks for `bin/jcef_helper.exe` in `java.home`
+
+This architecture allows the same codebase to use jcefmaven in development (auto-downloads binaries) while using JBR's optimized JCEF in production.
 
 ### Local jDeploy Usage
 

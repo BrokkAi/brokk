@@ -179,8 +179,8 @@ public class Chrome
 
         // Create encapsulated build stack
         rightPanel = new RightPanel(this, contextManager);
-        // Wire up the scroll pane now that buildPane exists
-        themeManager.setMainScrollPane(rightPanel.getHistoryOutputPanel().getLlmScrollPane());
+        // Wire up the output component now that rightPanel exists
+        themeManager.setMainOutputComponent(rightPanel.getHistoryOutputPanel().getLlmStreamArea());
 
         // Bottom Area: Context/Git + Status
         this.mainPanel = new JPanel(new BorderLayout());
@@ -349,6 +349,8 @@ public class Chrome
 
         // Now show the window with complete layout
         frame.setVisible(true);
+        frame.toFront();
+        frame.requestFocus();
 
         // Defer .gitignore check until initialization completes
         scheduleGitConfigurationAfterInit();

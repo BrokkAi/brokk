@@ -10,7 +10,6 @@ plugins {
     alias(libs.plugins.shadow)
     alias(libs.plugins.buildconfig)
     alias(libs.plugins.spotless)
-    alias(libs.plugins.javafx)
     alias(libs.plugins.node)
 }
 
@@ -29,17 +28,12 @@ application {
         // enable feature flags; JavaExec baseline supplies other args
         add("-Dbrokk.architectshell=true")
         add("-Dwatch.service.polling=true")
-        // JDK 24+ requires explicit flags for unsafe memory access and native access
-        if (java.toolchain.languageVersion.get().asInt() >= 24) {
-            add("--sun-misc-unsafe-memory-access=allow")
-            add("--enable-native-access=javafx.graphics,javafx.media,javafx.web,ALL-UNNAMED")
-        }
+        // JCEF requires these flags for native Chromium integration on macOS
+        add("--add-opens=java.desktop/sun.awt=ALL-UNNAMED")
+        add("--add-opens=java.desktop/java.awt.peer=ALL-UNNAMED")
+        add("--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED")
+        add("--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED")
     }
-}
-
-javafx {
-    version = libs.versions.javafx.get()
-    modules = listOf("javafx.controls", "javafx.fxml", "javafx.swing", "javafx.web")
 }
 
 node {
@@ -82,6 +76,9 @@ val errorproneCompile by configurations.creating {
     isCanBeResolved = true
     isCanBeConsumed = false
 }
+
+// jcefmaven version from version catalog - used for development builds
+val jcefmavenVersion = libs.versions.jcefmaven.get()
 
 dependencies {
     // NullAway - version must match local jar version
@@ -139,6 +136,10 @@ dependencies {
     // File watching - native recursive directory watching
     implementation("io.methvin:directory-watcher:0.18.0")
 
+    // JCEF is provided by JBR (JetBrains Runtime) with JCEF variant
+    // The jcef module is bundled with JBR and provides org.cef.* classes
+    implementation(libs.jcefmaven)
+
     // Testing
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.bundles.junit)
@@ -168,6 +169,7 @@ val actualVersion = project.rootProject.version.toString().ifEmpty {
 
 buildConfig {
     buildConfigField("String", "version", "\"$actualVersion\"")
+    buildConfigField("String", "jcefmavenVersion", "\"$jcefmavenVersion\"")
     packageName("ai.brokk")
     className("BuildInfo")
 }
@@ -320,6 +322,7 @@ val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
         return listOf("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:$port")
     }
 }
+
 
 // Configure main source compilation without ErrorProne (fast incremental)
 tasks.named<JavaCompile>("compileJava") {

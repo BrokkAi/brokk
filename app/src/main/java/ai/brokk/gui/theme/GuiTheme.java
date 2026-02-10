@@ -45,7 +45,7 @@ public class GuiTheme {
     private final JFrame frame;
 
     @Nullable
-    private JScrollPane mainScrollPane;
+    private JComponent mainOutputComponent;
 
     private final Chrome chrome;
 
@@ -53,23 +53,23 @@ public class GuiTheme {
      * Creates a new theme manager
      *
      * @param frame The main application frame
-     * @param mainScrollPane The main scroll pane for LLM output (can be null)
+     * @param mainOutputComponent The main output component for LLM output (can be null)
      * @param chrome The Chrome instance for UI feedback
      */
-    public GuiTheme(JFrame frame, @Nullable JScrollPane mainScrollPane, Chrome chrome) {
+    public GuiTheme(JFrame frame, @Nullable JComponent mainOutputComponent, Chrome chrome) {
         this.frame = frame;
-        this.mainScrollPane = mainScrollPane;
+        this.mainOutputComponent = mainOutputComponent;
         this.chrome = chrome;
     }
 
     /**
-     * Sets the main scroll pane for LLM output. This is useful for resolving
+     * Sets the main output component for LLM output. This is useful for resolving
      * initialization circular dependencies.
      *
-     * @param scrollPane The scroll pane to track
+     * @param component The component to track
      */
-    public void setMainScrollPane(JScrollPane scrollPane) {
-        this.mainScrollPane = scrollPane;
+    public void setMainOutputComponent(JComponent component) {
+        this.mainOutputComponent = component;
     }
 
     /**
@@ -176,8 +176,8 @@ public class GuiTheme {
         });
 
         // Make sure scroll panes update properly
-        if (mainScrollPane != null) {
-            mainScrollPane.revalidate();
+        if (mainOutputComponent != null) {
+            mainOutputComponent.revalidate();
         }
 
         // Re-apply primary button styling for buttons that were explicitly styled earlier.
@@ -419,6 +419,16 @@ public class GuiTheme {
         return THEME_DARK.equalsIgnoreCase(theme)
                 || THEME_DARK_PLUS.equalsIgnoreCase(theme)
                 || THEME_HIGH_CONTRAST.equalsIgnoreCase(theme);
+    }
+
+    /**
+     * Checks if the given theme name represents a light theme variant.
+     *
+     * @param themeName the theme name to check
+     * @return true if the theme is light or light-plus
+     */
+    public static boolean isLightThemeName(String themeName) {
+        return THEME_LIGHT.equalsIgnoreCase(themeName) || THEME_LIGHT_PLUS.equalsIgnoreCase(themeName);
     }
 
     /**

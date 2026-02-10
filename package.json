@@ -12,12 +12,16 @@
         "winAppDir": "AppData\\Local\\Programs",
         "jdk": false,
         "jdkProvider": "jbr",
+        "jbrVariant": "jcef",
         "minLauncherInitialAppVersion": "0.18.0",
+        "minLauncherVersion": "5.5.14",
         "files": [{
             "dir": "app/build/libs",
             "includes": "jdeploy-prelaunch.jar"
         }],
-        "args": ["-Dwatch.service.polling=true"],
+        "args": [
+            "-Dwatch.service.polling=true"
+        ],
         "fallbackToUniversal": false,
         "configFileMac": "{{ path(user.home, \"Library\", \"Application Support\", \"Brokk\", \"jdeploy.json\") }}",
         "configFileWin": "{{ path(env.APPDATA ?? path(user.home, \"AppData\", \"Roaming\"), \"Brokk\", \"jdeploy.json\") }}",
@@ -44,7 +48,7 @@
             "type": "directory"
         }],
         "jar": "app/build/libs/brokk-*.jar",
-        "javafx": true,
+        "javafx": false,
         "title": "Brokk",
         "downloadPage": {"platforms": [
             "debian-arm64",

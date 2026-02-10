@@ -76,6 +76,10 @@ function setupBrokkInterface(): any[] {
         showTransientMessage: (msg: string) => transientStore.show(msg),
         hideTransientMessage: () => transientStore.hide(),
 
+        setShowEmptyState: (show: boolean) => {
+            envStore.update(s => ({ ...s, showEmptyState: show }));
+        },
+
         // Search API
         setSearch: (query: string, caseSensitive: boolean) => searchCtrl?.setQuery(query, caseSensitive),
         clearSearch: () => searchCtrl?.clear(),
@@ -115,7 +119,7 @@ function setupBrokkInterface(): any[] {
 
     };
 
-    // Signal to Java that the bridge is ready
+    // Signal to Java that the bridge is ready (for JavaFX - JCEF handles this in its injection script)
     if (window.javaBridge && window.javaBridge.onBridgeReady) {
         window.javaBridge.onBridgeReady();
     }
@@ -128,6 +132,8 @@ async function handleEvent(payload: any): Promise<void> {
         onHistoryEvent(payload);
     } else if (payload.type === 'live-summary') {
         onLiveSummary(payload);
+    } else if (payload.type === 'theme') {
+        setAppTheme(payload.themeName, payload.isDevMode, payload.wrapMode);
     } else if (payload.type === 'static-document') {
         onStaticDocument(payload);
     } else {

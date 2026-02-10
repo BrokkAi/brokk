@@ -111,8 +111,8 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         insideFence: updateFenceState(false, chunkText),
                         reasoningState: evt.meta.isReasoning ? {
                             startTime: Date.now(),
-                            complete: false,
-                            isCollapsed: false,
+                            complete: !isStreaming,
+                            isCollapsed: !isStreaming,
                         } : undefined,
                     };
                     list = [...list, bubble];

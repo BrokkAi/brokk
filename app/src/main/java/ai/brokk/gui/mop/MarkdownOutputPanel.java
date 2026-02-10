@@ -8,8 +8,9 @@ import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.mop.webview.MOPBridge;
-import ai.brokk.gui.mop.webview.MOPWebViewHost;
+import ai.brokk.gui.mop.webview.IWebViewHost;
+import ai.brokk.gui.mop.webview.JCEFWebViewHost;
+import ai.brokk.gui.mop.webview.cef.CefAppProviderFactory;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
@@ -30,13 +31,12 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A Swing JPanel that uses a JavaFX WebView to display structured conversations. This is a modern, web-based
- * alternative to the pure-Swing MarkdownOutputPanel.
+ * A Swing JPanel that uses a Chromium-based WebView (JCEF) to display structured conversations.
  */
 public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable, IContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
 
-    private final MOPWebViewHost webHost;
+    private final IWebViewHost webHost;
     private boolean taskInProgress = false;
     private boolean showEmptyState = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
@@ -77,9 +77,25 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public MarkdownOutputPanel(boolean escapeHtml) {
         super(new BorderLayout());
-        logger.info("Initializing WebView-based MarkdownOutputPanel");
-        this.webHost = new MOPWebViewHost();
-        add(webHost, BorderLayout.CENTER);
+        String javaVersion = System.getProperty("java.version");
+        String javaVendor = System.getProperty("java.vendor");
+        boolean isJBR = javaVendor != null && javaVendor.contains("JetBrains");
+
+        String cefProvider = CefAppProviderFactory.getProviderName();
+        logger.info(
+                "Initializing JCEF-based MarkdownOutputPanel ({} {}, CEF provider: {})",
+                isJBR ? "JBR" : "JDK",
+                javaVersion,
+                cefProvider);
+
+        // Set background to match theme to avoid white flash while JCEF loads
+        String themeName = MainProject.getTheme();
+        boolean isDark = !GuiTheme.isLightThemeName(themeName);
+        setOpaque(true);
+        setBackground(ThemeColors.getColor(isDark, ThemeColors.CHAT_BACKGROUND));
+
+        this.webHost = new JCEFWebViewHost();
+        add(webHost.getComponent(), BorderLayout.CENTER);
     }
 
     public MarkdownOutputPanel() {
@@ -415,11 +431,11 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.resetZoom();
     }
 
-    public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+    public void addSearchStateListener(Consumer<IWebViewHost.SearchState> l) {
         webHost.addSearchStateListener(l);
     }
 
-    public void removeSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+    public void removeSearchStateListener(Consumer<IWebViewHost.SearchState> l) {
         webHost.removeSearchStateListener(l);
     }
 

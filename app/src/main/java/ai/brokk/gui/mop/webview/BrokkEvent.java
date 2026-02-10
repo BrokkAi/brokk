@@ -110,6 +110,20 @@ public sealed interface BrokkEvent {
         }
     }
 
+    /** Sets the theme for the frontend. */
+    record Theme(int epoch, String themeName, boolean isDevMode, boolean wrapMode) implements BrokkEvent {
+        @Override
+        public String getType() {
+            return "theme";
+        }
+
+        @Override
+        public Integer getEpoch() {
+            return epoch;
+        }
+    }
+
+    /** Delivers a static document for display. */
     record StaticDocument(int epoch, @Nullable String markdown) implements BrokkEvent {
         @Override
         public String getType() {

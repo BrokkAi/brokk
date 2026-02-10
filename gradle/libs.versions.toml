@@ -21,6 +21,7 @@ pnpm = "9.15.4"
 jediterm = "3.54"
 jediterm-pty = "2.69"
 pty4j = "0.13.11"
+jcefmaven = "122.1.10"
 
 [libraries]
 # Logging
@@ -119,6 +120,9 @@ eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.44.0"
 
 # Decompiler
 java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.59"
+
+# JCEF (development only - stripped in production via .jdpignore)
+jcefmaven = { module = "me.friwi:jcefmaven", version.ref = "jcefmaven" }
 
 # Maven Resolver for dependency import
 maven-embedder = { module = "org.apache.maven:maven-embedder", version.ref = "maven-embedder" }

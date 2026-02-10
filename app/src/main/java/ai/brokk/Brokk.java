@@ -18,6 +18,7 @@ import ai.brokk.gui.dialogs.AboutDialog;
 import ai.brokk.gui.dialogs.BrokkKeyDialog;
 import ai.brokk.gui.dialogs.OpenProjectDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.gui.mop.webview.cef.CefAppProviderFactory;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeBorderManager;
 import ai.brokk.project.AbstractProject;
@@ -45,7 +46,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
-import javafx.application.Platform;
 import javax.swing.*;
 import javax.swing.border.Border;
 import org.apache.logging.log4j.LogManager;
@@ -83,6 +83,7 @@ public class Brokk {
 
         logger.info("OS: {}", Environment.getOsDescription());
         logger.info("JRE: {}", Environment.getJreDescription());
+        logger.info("CEF: {}", CefAppProviderFactory.getProviderName());
         logger.info("Starting Brokk semantic code assistant...");
         logger.info("");
     }
@@ -199,23 +200,27 @@ public class Brokk {
                 }
             }
         }
+    }
 
-        // Initialize JavaFX platform to prevent deadlocks during MOPWebViewHost creation
-        // See: https://docs.oracle.com/javase/8/javafx/interoperability-tutorial/swing-fx-interoperability.htm
+    /**
+     * Initializes CEF/Xlib multithreading on Linux before any AWT/Swing calls.
+     * This MUST be called before any Xlib calls from the process for windowed rendering to work.
+     * On macOS this loads the CEF framework dynamically.
+     * On Windows this is a no-op.
+     */
+    private static void initializeCefStartupIfNeeded() {
         try {
-            Platform.startup(() -> {});
-            // Prevent JavaFX thread from dying when JFXPanels are removed/hidden
-            Platform.setImplicitExit(false);
-            logger.debug("JavaFX platform initialized at startup");
-        } catch (IllegalStateException e) {
-            var message = e.getMessage();
-            if (message != null && message.contains("Toolkit already initialized")) {
-                logger.debug("JavaFX platform already initialized");
-                // Still set implicit exit to false even if already initialized
-                Platform.setImplicitExit(false);
-            } else {
-                logger.warn("Failed to initialize JavaFX platform: {}", message);
-            }
+            // CefApp.startup() initializes Xlib multithreading on Linux and loads
+            // CEF framework on macOS. Must be called before any AWT/Swing initialization.
+            org.cef.CefApp.startup(new String[0]);
+        } catch (Exception e) {
+            // Log but don't fail - CEF will be initialized later via jcefmaven.
+            // This early call is primarily to set up Xlib multithreading on Linux.
+            logger.warn("Unexpected exception during CEF early startup: {}", e.getMessage(), e);
+        } catch (NoClassDefFoundError | UnsatisfiedLinkError e) {
+            // Expected if JBR JCEF not available; jcefmaven will handle initialization later.
+            // Log at INFO with class name to help diagnose packaging issues in production.
+            logger.info("CEF early startup skipped ({}: {})", e.getClass().getSimpleName(), e.getMessage());
         }
     }
 
@@ -236,6 +241,29 @@ public class Brokk {
 
         // set this globally since (so far) we never want a file chooser to make changes
         UIManager.put("FileChooser.readOnly", true);
+    }
+
+    /**
+     * Installs a custom EventQueue to capture exceptions on AWT threads (including AWT-AppKit on macOS).
+     * The default uncaught exception handler doesn't reliably catch exceptions on native AWT threads,
+     * so we wrap event dispatch to log full stack traces.
+     */
+    private static void installAwtExceptionHandler() {
+        Toolkit.getDefaultToolkit().getSystemEventQueue().push(new EventQueue() {
+            @Override
+            protected void dispatchEvent(AWTEvent event) {
+                try {
+                    super.dispatchEvent(event);
+                } catch (Throwable t) {
+                    logger.error(
+                            "Exception during AWT event dispatch on thread {}",
+                            Thread.currentThread().getName(),
+                            t);
+                    GlobalExceptionHandler.handle(Thread.currentThread(), t, s -> {});
+                }
+            }
+        });
+        logger.debug("Installed custom AWT EventQueue for exception handling");
     }
 
     private static void addPopupMenusThemeChangeListener() {
@@ -474,6 +502,10 @@ public class Brokk {
                         },
                         "brokk-shutdown-hook"));
 
+        // Initialize CEF/Xlib before any AWT/Swing calls on Linux
+        // This MUST happen before any Xlib calls for windowed rendering to work
+        initializeCefStartupIfNeeded();
+
         logBanner();
         logger.debug("Brokk starting");
 
@@ -494,6 +526,7 @@ public class Brokk {
 
         String themeName = MainProject.getTheme();
         initializeLookAndFeelAndSplashScreen(themeName);
+        installAwtExceptionHandler();
         addPopupMenusThemeChangeListener();
 
         // Initialize theme border manager with current theme state
@@ -889,25 +922,53 @@ public class Brokk {
                 .exceptionally(ex -> {
                     logger.error(
                             "Exception during project opening pipeline for {}: {}", projectPath, ex.getMessage(), ex);
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    String errorMessage =
-                            """
-                                          A critical error occurred while trying to open the project:
-                                          %s
+                    // Walk the cause chain to find the most informative message
+                    // (e.g., our friendly Linux library error messages)
+                    var userMessage = findUserFriendlyMessage(ex);
+                    boolean isFatalDependencyError = userMessage != null; // DependencyException found
+                    String errorMessage;
+                    if (userMessage != null) {
+                        // Use the friendly message directly without extra wrapper
+                        errorMessage = userMessage;
+                    } else {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        errorMessage =
+                                """
+                                A critical error occurred while trying to open the project:
+                                %s
 
-                                          Please check the logs at ~/.brokk/debug.log and consider filing a bug report.
-                                          """
-                                    .formatted(cause.getMessage());
+                                Please check the logs at ~/.brokk/debug.log and consider filing a bug report.
+                                """
+                                        .formatted(cause.getMessage());
+                    }
                     SwingUtil.runOnEdt(() -> {
                         hideSplashScreen(); // Hide splash before showing error dialog
                         JOptionPane.showMessageDialog(
                                 null, errorMessage, "Project Open Error", JOptionPane.ERROR_MESSAGE);
+                        if (isFatalDependencyError) {
+                            // Fatal dependency errors (missing native libs) are unrecoverable - exit immediately
+                            System.exit(1);
+                        }
                     });
                     openCompletionFuture.complete(false);
                     return null;
                 });
 
         return openCompletionFuture;
+    }
+
+    /**
+     * Walk the exception cause chain looking for DependencyException.
+     */
+    private static @Nullable String findUserFriendlyMessage(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof DependencyException) {
+                return current.getMessage();
+            }
+            current = current.getCause();
+        }
+        return null;
     }
 
     private static void performWindowClose(Path projectPath) {

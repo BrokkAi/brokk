@@ -12,12 +12,15 @@ declare global {
 
 type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
 
+// Check if we're in dev mode - suppress INFO/DEBUG logs in production to avoid JCEF console noise
+const isDevMode = import.meta.env?.DEV ?? false;
+
 /**
  * Routes log messages to Java console via javaBridge.jsLog
- * Falls back to browser console if javaBridge is not available
+ * Falls back to browser console if javaBridge is not available.
+ * In production, INFO and DEBUG logs are suppressed to reduce JCEF console noise.
  */
 function routeToJava(level: LogLevel, message: string): void {
-  // use plain browser console in browser and interception in JavaFX (MOPWebViewHost.initializeFxPanel)
   switch (level) {
     case 'ERROR':
       console.error(message);
@@ -26,11 +29,15 @@ function routeToJava(level: LogLevel, message: string): void {
       console.warn(message);
       break;
     case 'INFO':
-      console.info(message);
+      if (isDevMode) {
+        console.info(message);
+      }
       break;
     case 'DEBUG':
     default:
-      console.debug(message);
+      if (isDevMode) {
+        console.debug(message);
+      }
       break;
   }
 }
