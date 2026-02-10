@@ -2372,18 +2372,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 }
             }
 
-            String codeModelName = "gpt-5.2-codex-oauth";
-            String architectModelName = "gpt-5.2-oauth";
-            var codeModelConfig = new Service.ModelConfig(codeModelName, AbstractService.ReasoningLevel.LOW);
+            var codeModelConfig =
+                    new Service.ModelConfig(ModelProperties.GPT_5_2_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW);
             var architectModelConfig =
-                    new Service.ModelConfig(architectModelName, AbstractService.ReasoningLevel.DISABLE);
+                    new Service.ModelConfig(ModelProperties.GPT_5_2_OAUTH, AbstractService.ReasoningLevel.DISABLE);
 
             // Add favorites for both models if not already present
             var favorites = new ArrayList<>(MainProject.loadFavoriteModels());
             boolean hasCodexFavorite =
-                    favorites.stream().anyMatch(fm -> fm.config().name().equals(codeModelName));
+                    favorites.stream().anyMatch(fm -> fm.config().name().equals(ModelProperties.GPT_5_2_CODEX_OAUTH));
             boolean hasArchitectFavorite =
-                    favorites.stream().anyMatch(fm -> fm.config().name().equals(architectModelName));
+                    favorites.stream().anyMatch(fm -> fm.config().name().equals(ModelProperties.GPT_5_2_OAUTH));
 
             if (!hasCodexFavorite) {
                 favorites.add(new Service.FavoriteModel("Codex", codeModelConfig));
