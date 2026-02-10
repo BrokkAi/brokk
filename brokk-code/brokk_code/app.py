@@ -10,7 +10,7 @@ from textual.containers import Horizontal
 from textual.widgets import Footer, Header
 
 from brokk_code.executor import ExecutorError, ExecutorManager
-from brokk_code.settings import Settings
+from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
@@ -29,6 +29,8 @@ class BrokkApp(App):
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
         Binding("f2", "toggle_theme", "Theme", show=True),
     ]
+    DARK_THEME = "textual-dark"
+    LIGHT_THEME = "textual-light"
 
     def __init__(
         self,
@@ -45,7 +47,7 @@ class BrokkApp(App):
             executor_snapshot=executor_snapshot,
         )
         self.settings = Settings.load()
-        self.theme = self.settings.theme
+        self._set_theme(self.settings.theme)
         self.current_model = "gpt-5.2"
         self.code_model: Optional[str] = "gemini-3-flash-preview"
         self.reasoning_level: Optional[str] = "low"
@@ -204,9 +206,7 @@ class BrokkApp(App):
         elif base == "/theme" and len(parts) > 1:
             theme_val = parts[1].lower()
             if theme_val in ("dark", "light"):
-                self.theme = f"builtin:{theme_val}"
-                self.settings.theme = self.theme
-                self.settings.save()
+                self._set_theme(self.DARK_THEME if theme_val == "dark" else self.LIGHT_THEME)
                 chat.add_system_message_markup(f"Theme changed to: [bold]{theme_val}[/]")
             else:
                 chat.add_system_message("Invalid theme. Use 'dark' or 'light'.", level="ERROR")
@@ -242,11 +242,24 @@ class BrokkApp(App):
         panel.toggle_class("hidden")
 
     def action_toggle_theme(self) -> None:
-        if self.theme == "builtin:dark":
-            self.theme = "builtin:light"
+        if self.theme == self.DARK_THEME:
+            self._set_theme(self.LIGHT_THEME)
         else:
-            self.theme = "builtin:dark"
-        self.settings.theme = self.theme
+            self._set_theme(self.DARK_THEME)
+
+    def _set_theme(self, theme_name: str) -> None:
+        normalized_theme = normalize_theme_name(theme_name)
+        resolved_theme = (
+            normalized_theme if normalized_theme in self.available_themes else DEFAULT_THEME
+        )
+        if resolved_theme != normalized_theme:
+            logger.warning(
+                "Unknown theme '%s'; falling back to '%s'.",
+                theme_name,
+                DEFAULT_THEME,
+            )
+        self.theme = resolved_theme
+        self.settings.theme = resolved_theme
         self.settings.save()
 
     async def action_handle_ctrl_c(self) -> None:

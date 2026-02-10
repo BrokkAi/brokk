@@ -7,11 +7,20 @@ logger = logging.getLogger(__name__)
 
 SETTINGS_DIR = Path.home() / ".brokk"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
+DEFAULT_THEME = "textual-dark"
+_LEGACY_THEME_ALIASES = {
+    "builtin:dark": "textual-dark",
+    "builtin:light": "textual-light",
+}
+
+
+def normalize_theme_name(theme: str) -> str:
+    return _LEGACY_THEME_ALIASES.get(theme, theme)
 
 
 @dataclass
 class Settings:
-    theme: str = "builtin:dark"
+    theme: str = DEFAULT_THEME
 
     @classmethod
     def load(cls) -> "Settings":
@@ -22,7 +31,9 @@ class Settings:
         try:
             with SETTINGS_FILE.open("r", encoding="utf-8") as f:
                 data = json.load(f)
-                return cls(**data)
+                settings = cls(**data)
+                settings.theme = normalize_theme_name(settings.theme)
+                return settings
         except Exception as e:
             logger.warning("Failed to load settings from %s: %s. Using defaults.", SETTINGS_FILE, e)
             return cls()

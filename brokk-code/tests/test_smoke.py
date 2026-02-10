@@ -30,20 +30,20 @@ def test_app_theme_persistence(tmp_path, monkeypatch):
     """Verify BrokkApp loads and saves theme settings."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-    # 1. Create initial settings
+    # 1. Create initial settings with a legacy theme alias
     from brokk_code.settings import Settings
     Settings(theme="builtin:light").save()
 
-    # 2. Instantiate app and verify it loaded the theme
+    # 2. Instantiate app and verify it normalized and loaded the theme
     app = BrokkApp(workspace_dir=tmp_path)
-    assert app.theme == "builtin:light"
+    assert app.theme == "textual-light"
 
     # 3. Change theme via action and verify save
     app.action_toggle_theme()
-    assert app.theme == "builtin:dark"
+    assert app.theme == "textual-dark"
 
     loaded = Settings.load()
-    assert loaded.theme == "builtin:dark"
+    assert loaded.theme == "textual-dark"
 
 
 def test_version():
