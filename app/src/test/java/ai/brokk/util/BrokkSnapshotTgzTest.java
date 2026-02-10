@@ -57,7 +57,8 @@ class BrokkSnapshotTgzTest {
 
         createTestTgz(tgzFile, "wrong/path/brokk-1.2.3.jar", "content");
 
-        assertThrows(IOException.class, () -> BrokkSnapshotTgz.extractJarFromTgz(tgzFile, destDir));
+        IOException ex = assertThrows(IOException.class, () -> BrokkSnapshotTgz.extractJarFromTgz(tgzFile, destDir));
+        assertTrue(ex.getMessage().contains("No matching jar found"), "Error message should mention missing jar");
     }
 
     @Test

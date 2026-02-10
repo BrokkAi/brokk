@@ -751,7 +751,12 @@ public final class BrokkCli implements Callable<Integer> {
                 try {
                     new InstallCommand().call();
                 } catch (Exception e) {
-                    logger.error("Failed to auto-update Brokk skill", e);
+                    logger.error(
+                            "Failed to auto-update Brokk skill to {} from {}: {}",
+                            targets,
+                            ai.brokk.util.BrokkSnapshotTgz.SNAPSHOT_URL,
+                            e.getMessage(),
+                            e);
                 }
             }
         }

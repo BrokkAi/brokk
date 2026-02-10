@@ -63,7 +63,10 @@ public final class BrokkSnapshotTgz {
         try {
             HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() != 200) {
-                throw new IOException("Failed to download snapshot: HTTP " + response.statusCode());
+                String msg = "Failed to download Brokk snapshot from %s: HTTP %d"
+                        .formatted(SNAPSHOT_URL, response.statusCode());
+                logger.error(msg);
+                throw new IOException(msg);
             }
 
             try (InputStream is = response.body()) {
@@ -71,7 +74,11 @@ public final class BrokkSnapshotTgz {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            logger.error("Download of Brokk snapshot interrupted: {}", SNAPSHOT_URL);
             throw new IOException("Download interrupted", e);
+        } catch (IOException e) {
+            logger.error("IO error downloading Brokk snapshot from {}: {}", SNAPSHOT_URL, e.getMessage());
+            throw e;
         }
     }
 
@@ -107,8 +114,14 @@ public final class BrokkSnapshotTgz {
                     }
                 }
             }
+        } catch (IOException e) {
+            logger.error("Failed to parse or extract snapshot TGZ {}: {}", tgzFile, e.getMessage());
+            throw e;
         }
 
-        throw new IOException("No matching jar found in snapshot tgz at " + BUNDLE_PREFIX + "brokk-*.jar");
+        String msg = "No matching jar found in snapshot tgz at %s with pattern %s"
+                .formatted(BUNDLE_PREFIX, JAR_PATTERN.pattern());
+        logger.error(msg);
+        throw new IOException(msg);
     }
 }
