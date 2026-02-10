@@ -497,6 +497,18 @@ class ScrollCoordinateCalculatorTest {
                             "Center [%d,%d] in viewport %d with maxY %d should be %d",
                             targetStart, targetEnd, viewportHeight, maxY, expected));
         }
+
+        @Test
+        @DisplayName("Inverted range produces same result as non-inverted")
+        void invertedRangeProducesSameResult() {
+            // Inverted: (500, 100) should behave the same as (100, 500)
+            int normal = ScrollCoordinateCalculator.calculateCenteredViewportY(100, 500, 200, 800);
+            int inverted = ScrollCoordinateCalculator.calculateCenteredViewportY(500, 100, 200, 800);
+            assertEquals(normal, inverted, "Inverted range should produce identical result to non-inverted");
+
+            // Verify the expected centered value: midpoint 300, centered at 300 - 100 = 200
+            assertEquals(200, normal);
+        }
     }
 
     @Nested

@@ -148,22 +148,29 @@ public final class ScrollCoordinateCalculator {
      * <p>This is useful for scrolling to a hunk or highlighted region such that it appears
      * centered in the visible area. The result is clamped to valid scroll bounds.
      *
-     * @param targetStartY The Y coordinate of the start of the target region
-     * @param targetEndY The Y coordinate of the end of the target region (must be &gt;= targetStartY)
+     * <p>The method normalizes inverted ranges, so the order of targetStartY and targetEndY
+     * does not matter.
+     *
+     * @param targetStartY The Y coordinate of one end of the target region
+     * @param targetEndY The Y coordinate of the other end of the target region
      * @param viewportHeight The height of the viewport
      * @param maxY The maximum valid viewport Y (typically contentHeight - viewportHeight)
      * @return The viewport Y position to pass to {@code JViewport#setViewPosition}
      */
     public static int calculateCenteredViewportY(int targetStartY, int targetEndY, int viewportHeight, int maxY) {
+        // Normalize inputs so inverted ranges behave identically to non-inverted.
+        int start = Math.min(targetStartY, targetEndY);
+        int end = Math.max(targetStartY, targetEndY);
+
         int clampedMaxY = Math.max(0, maxY);
 
-        // Fallback: if viewport height is invalid, just clamp targetStartY.
+        // Fallback: if viewport height is invalid, just clamp the normalized start.
         if (viewportHeight <= 0) {
-            return Math.max(0, Math.min(targetStartY, clampedMaxY));
+            return Math.max(0, Math.min(start, clampedMaxY));
         }
 
-        long startY = targetStartY;
-        long endY = targetEndY;
+        long startY = start;
+        long endY = end;
 
         // Calculate midpoint of target region using an overflow-safe idiom.
         long targetMidY = startY + ((endY - startY) / 2);
