@@ -141,7 +141,7 @@ async def test_context_polling_updates_ui(tmp_path):
             list_view = panel.query_one("#context-list")
             # Query explicitly for ContextFragmentItem to avoid counting internal ListView nodes
             fragment_items = list_view.query(ContextFragmentItem)
-            assert fragment_items.count() == 2
+            assert len(fragment_items) == 2
 
             # Check for specific text in list items
             # We iterate and render each fragment item to ensure content is present
