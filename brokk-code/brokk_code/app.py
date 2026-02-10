@@ -343,7 +343,8 @@ class BrokkApp(App):
                     current_gen = self._pending_generation
                     elapsed_since_update = now - self._pending_updated_at
 
-                    # We must be past the absolute grace timestamp AND stable for the debounce window
+                    # We must be past the absolute grace timestamp AND stable
+                    # for the debounce window
                     if (
                         now >= self._pending_min_wait_until
                         and elapsed_since_update >= debounce_window
@@ -421,13 +422,21 @@ class BrokkApp(App):
         )
         jar_path = self.executor.resolved_jar_path or "Unknown"
 
+        planner_info = (
+            f"Planner Model: [bold]{self.current_model}[/] "
+            f"(reasoning: [bold]{self.reasoning_level}[/])"
+        )
+        code_info = (
+            f"Code Model: [bold]{self.code_model}[/] "
+            f"(reasoning: [bold]{self.reasoning_level_code}[/])"
+        )
         info_markup = (
             f"Status: {status}\n"
             f"Workspace: [bold]{self.executor.workspace_dir}[/]\n"
             f"Executor JAR: [bold]{jar_path}[/]\n"
             f"Mode: [bold]{self.agent_mode}[/]\n"
-            f"Planner Model: [bold]{self.current_model}[/] (reasoning: [bold]{self.reasoning_level}[/])\n"
-            f"Code Model: [bold]{self.code_model}[/] (reasoning: [bold]{self.reasoning_level_code}[/])"
+            f"{planner_info}\n"
+            f"{code_info}"
         )
         chat.add_system_message_markup(info_markup)
 
