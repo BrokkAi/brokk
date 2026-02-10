@@ -345,6 +345,16 @@ class ExecutorManager:
         )
         logger.info(f"Executor started at {self.base_url}")
 
+    async def get_health_live(self) -> Dict[str, Any]:
+        """Fetches unauthenticated liveness info (version, protocol, execId)."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        # Use a fresh client without Auth header for unauthenticated endpoint check
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0) as client:
+            resp = await client.get("/health/live")
+            resp.raise_for_status()
+            return resp.json()
+
     async def wait_ready(self, timeout: float = 30.0) -> bool:
         """Polls /health/ready until the executor is ready."""
         if not self._http_client:

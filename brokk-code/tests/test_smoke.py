@@ -195,6 +195,39 @@ async def test_app_startup_messages(tmp_path, monkeypatch):
     assert any("Starting Brokk executor" in msg for msg in system_messages)
     assert any("Ready" in msg for msg in system_messages)
 
+
+@pytest.mark.asyncio
+async def test_app_startup_fetches_live_info(tmp_path, monkeypatch):
+    """Verify that startup fetches /health/live and displays version info."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    # Mock the executor
+    app.executor.start = AsyncMock()
+    app.executor.create_session = AsyncMock()
+    app.executor.wait_ready = AsyncMock(return_value=True)
+    app.executor.get_health_live = AsyncMock(
+        return_value={"version": "1.2.3-test", "protocolVersion": 99, "execId": "test-uuid"}
+    )
+
+    system_messages = []
+    mock_chat = MagicMock()
+    mock_chat.add_system_message = lambda text, level="INFO": system_messages.append(text)
+
+    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock())
+
+    await app._start_executor()
+
+    # Verify health/live was called
+    app.executor.get_health_live.assert_called_once()
+
+    # Verify the message contains the fetched version info
+    info_msg = next((m for m in system_messages if "Connected to executor" in m), None)
+    assert info_msg is not None
+    assert "1.2.3-test" in info_msg
+    assert "99" in info_msg
+    assert "test-uuid" in info_msg
+
     # Verbose info (workspace, jar path, models) should NOT be there automatically
     all_output = " ".join(system_messages + system_markup)
     assert str(tmp_path.resolve()) not in all_output

@@ -91,6 +91,19 @@ class BrokkApp(App):
         chat = self.query_one(ChatPanel)
         try:
             await self.executor.start()
+
+            # Fetch and display effective build hint immediately
+            try:
+                live_info = await self.executor.get_health_live()
+                version = live_info.get("version", "unknown")
+                proto = live_info.get("protocolVersion", "unknown")
+                eid = live_info.get("execId", "unknown")
+                chat.add_system_message(
+                    f"Connected to executor {eid} (version: {version}, protocol: {proto})"
+                )
+            except Exception as e:
+                logger.debug("Failed to fetch health/live info", exc_info=True)
+
             await self.executor.create_session()
 
             if await self.executor.wait_ready():
