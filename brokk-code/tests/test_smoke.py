@@ -1,8 +1,9 @@
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import pytest
 
 from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorError, ExecutorManager
@@ -156,6 +157,56 @@ def test_app_mode_commands(tmp_path, monkeypatch):
     assert "/ask" in help_text
     assert "/search" in help_text
     assert "/lutz" in help_text
+
+
+@pytest.mark.asyncio
+async def test_app_mode_affects_submission_payload(tmp_path, monkeypatch):
+    """Verify that setting the mode via command affects the tags.mode in submit_job."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    # Mock the executor's submit_job and stream_events to avoid network/subprocess
+    app.executor.submit_job = AsyncMock(return_value="job-123")
+    
+    # Mock stream_events to be an empty async generator
+    async def empty_gen(*args, **kwargs):
+        if False: yield {}
+    app.executor.stream_events = empty_gen
+
+    # Mock ChatPanel to avoid UI initialization issues in headless test
+    mock_chat = MagicMock()
+    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock())
+
+    # 1. Test SEARCH mode
+    app._handle_command("/search")
+    assert app.current_mode == "SEARCH"
+    
+    await app._run_job("find all todos")
+    
+    # Verify the call to submit_job included the correct mode tag
+    app.executor.submit_job.assert_called_with(
+        "find all todos",
+        app.current_model,
+        code_model=app.code_model,
+        reasoning_level=app.reasoning_level,
+        reasoning_level_code=app.reasoning_level_code,
+        mode="SEARCH"
+    )
+
+    # 2. Test ASK mode
+    app._handle_command("/ask")
+    assert app.current_mode == "ASK"
+    
+    await app._run_job("how do i use this?")
+    
+    app.executor.submit_job.assert_called_with(
+        "how do i use this?",
+        app.current_model,
+        code_model=app.code_model,
+        reasoning_level=app.reasoning_level,
+        reasoning_level_code=app.reasoning_level_code,
+        mode="ASK"
+    )
 
 
 def test_version():
