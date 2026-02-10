@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import ai.brokk.testutil.AnalyzerCreator;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -1671,6 +1673,63 @@ public class CppAnalyzerTest {
         assertTrue(
                 classUsageHits.size() >= 2,
                 "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
+    }
+
+    @Test
+    public void testClassTemplateSignatures() throws IOException {
+        String content =
+                """
+                // Forward declaration
+                template <typename T>
+                struct TemplateStruct;
+
+                // Definition of primary template
+                template <typename T>
+                struct TemplateStruct {
+                    T value;
+                };
+
+                // Different template (different parameter list)
+                template <typename T, typename U>
+                struct TemplateStruct {
+                    T t;
+                    U u;
+                };
+
+                // Non-template struct with same name
+                struct TemplateStruct {
+                    int x;
+                };
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "templates.hpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile).stream()
+                    .filter(cu -> cu.shortName().equals("TemplateStruct") && cu.kind() == CodeUnitType.CLASS)
+                    .toList();
+
+            // Assert exactly 3 distinct CodeUnits (deduplicated forward declaration and definition)
+            assertEquals(3, declarations.size(), "Should find 3 distinct versions of TemplateStruct");
+
+            var signatures = declarations.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+            assertTrue(signatures.contains("<typename T>"), "Missing signature: <typename T>");
+            assertTrue(signatures.contains("<typename T, typename U>"), "Missing signature: <typename T, typename U>");
+            assertTrue(signatures.contains(null), "Missing null signature for non-template struct");
+
+            // Verify that for <typename T>, hasBody is true (collapsed the forward decl)
+            var singleT = declarations.stream()
+                    .filter(cu -> "<typename T>".equals(cu.signature()))
+                    .findFirst()
+                    .orElseThrow();
+
+            boolean hasBody = analyzer.withCodeUnitProperties(
+                    props -> props.getOrDefault(singleT, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                            .hasBody());
+            assertTrue(hasBody, "TemplateStruct<T> should have hasBody=true");
+        }
     }
 
     // New regression-oriented test: ensure getDefinitions ordering is stable and prefers definitions with bodies

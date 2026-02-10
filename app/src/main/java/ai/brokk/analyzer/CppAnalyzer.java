@@ -1304,6 +1304,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return true; // Ignore the duplicate
         }
 
+        if (candidate.isClass()) {
+            // For classes/structs, ignore ONLY if the signature is also identical.
+            // This allows template overloads/specializations with different parameters to coexist.
+            return Objects.equals(existing.signature(), candidate.signature());
+        }
+
         // For other types, use default behavior
         return super.shouldIgnoreDuplicate(existing, candidate, file);
     }
