@@ -18,6 +18,11 @@ class TaskListPanel(Vertical):
         super().__init__(*args, **kwargs)
         self._last_details: Optional[Dict[str, Any]] = None
 
+    @property
+    def has_detailed_info(self) -> bool:
+        """Returns True if the panel is currently showing detailed data from /v1/tasklist."""
+        return self._last_details is not None
+
     def compose(self) -> ComposeResult:
         yield Label("Task List", id="tasklist-header")
         with VerticalScroll(id="tasklist-container"):

@@ -243,7 +243,9 @@ class BrokkApp(App):
                 # UI updates are best-effort if screen is not on stack
                 try:
                     self.query_one(ContextPanel).refresh_context(context_data)
-                    self.query_one(TaskListPanel).refresh_tasklist(context_data)
+                    task_list = self.query_one(TaskListPanel)
+                    if not task_list.has_detailed_info:
+                        task_list.refresh_tasklist(context_data)
                 except (ScreenStackError, Exception):
                     pass
 
