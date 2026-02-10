@@ -537,7 +537,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             }
         }
         // If cache is populated, compute from it; otherwise return NONE
-        if (allFilesCache != null) {
+        if (filesByRelPathCache != null) {
             return computeMostCommonLanguage();
         }
         return Languages.NONE;
@@ -791,9 +791,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Nullable
-    private volatile Set<ProjectFile> allFilesCache;
-
-    @Nullable
     private volatile Map<Path, ProjectFile> filesByRelPathCache;
 
     private Set<ProjectFile> getAllFilesRaw() {
@@ -816,20 +813,19 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     @Blocking
     public final synchronized Set<ProjectFile> getAllFiles() {
-        if (allFilesCache == null) {
+        if (filesByRelPathCache == null) {
             var files = filterExcludedFiles(getAllFilesRaw());
-            allFilesCache = files;
             filesByRelPathCache = files.stream()
                     .collect(Collectors.toMap(ProjectFile::getRelPath, f -> f, (existing, replacement) -> existing));
         }
-        return allFilesCache;
+        return Set.copyOf(filesByRelPathCache.values());
     }
 
     @Override
     @Blocking
     public final synchronized Optional<ProjectFile> getFileByRelPath(Path relPath) {
         if (filesByRelPathCache == null) {
-            getAllFiles();
+            getAllFiles(); // Populate the cache
         }
         return Optional.ofNullable(filesByRelPathCache.get(relPath));
     }
@@ -842,7 +838,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public synchronized void invalidateAllFiles() {
-        allFilesCache = null;
         filesByRelPathCache = null;
         try {
             fileFilteringService.invalidateCaches();
