@@ -213,20 +213,16 @@ public class UnifiedDiffNavigator {
                 int targetStartY = (int) headerRect.getY();
                 int targetEndY;
 
-                // Try to find the end of this hunk (line before next hunk header)
+                // Find the end of this hunk (line before next hunk header, or end of document)
+                int endLine;
                 if (currentHunkIndex + 1 < hunkStartLines.size()) {
-                    int nextHunkLine = hunkStartLines.get(currentHunkIndex + 1);
-                    int endLine = Math.max(0, nextHunkLine - 1);
-                    int endOffset = textArea.getLineStartOffset(endLine);
-                    var endRect = textArea.modelToView2D(endOffset);
-                    targetEndY = endRect != null ? (int) endRect.getY() + lineHeight : targetStartY + lineHeight;
+                    endLine = Math.max(0, hunkStartLines.get(currentHunkIndex + 1) - 1);
                 } else {
-                    // Last hunk - use end of document or fallback to header + lineHeight
-                    int lastLine = Math.max(0, textArea.getLineCount() - 1);
-                    int endOffset = textArea.getLineStartOffset(lastLine);
-                    var endRect = textArea.modelToView2D(endOffset);
-                    targetEndY = endRect != null ? (int) endRect.getY() + lineHeight : targetStartY + lineHeight;
+                    endLine = Math.max(0, textArea.getLineCount() - 1);
                 }
+                int endOffset = textArea.getLineStartOffset(endLine);
+                var endRect = textArea.modelToView2D(endOffset);
+                targetEndY = endRect != null ? (int) endRect.getY() + lineHeight : targetStartY + lineHeight;
 
                 // Compute centered viewport position
                 int viewportHeight = viewport.getHeight();

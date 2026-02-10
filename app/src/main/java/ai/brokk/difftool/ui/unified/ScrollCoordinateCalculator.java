@@ -149,7 +149,7 @@ public final class ScrollCoordinateCalculator {
      * centered in the visible area. The result is clamped to valid scroll bounds.
      *
      * @param targetStartY The Y coordinate of the start of the target region
-     * @param targetEndY The Y coordinate of the end of the target region
+     * @param targetEndY The Y coordinate of the end of the target region (must be &gt;= targetStartY)
      * @param viewportHeight The height of the viewport
      * @param maxY The maximum valid viewport Y (typically contentHeight - viewportHeight)
      * @return The viewport Y position to pass to {@code JViewport#setViewPosition}
