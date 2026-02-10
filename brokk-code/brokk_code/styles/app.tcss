@@ -92,14 +92,14 @@ ChatPanel {
 
 #chat-input {
     margin: 1 2;
-    border: tall $primary;
+    border: solid $primary;
 }
 
 #notification-panel {
     height: 4;
     margin: 0 2;
     background: $panel;
-    border: ascii $primary-darken-2;
+    border: solid $primary-darken-2;
 }
 
 #notification-panel.hidden {
@@ -107,7 +107,7 @@ ChatPanel {
 }
 
 #chat-input:focus {
-    border: tall $accent;
+    border: solid $accent;
 }
 
 .ml-1 {
