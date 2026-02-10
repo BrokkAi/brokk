@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Footer, Header
@@ -77,6 +77,13 @@ class BrokkApp(App):
     def current_mode(self, value: str) -> None:
         self.agent_mode = value
 
+    def _maybe_chat(self) -> Optional[ChatPanel]:
+        """Safely attempt to get the ChatPanel, returning None if the UI isn't mounted."""
+        try:
+            return self.query_one(ChatPanel)
+        except (ScreenStackError, Exception):
+            return None
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
@@ -86,13 +93,14 @@ class BrokkApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
-        chat.add_system_message("Starting Brokk executor...")
+        if chat:
+            chat.add_system_message("Starting Brokk executor...")
 
-        # Load initial prompt history for arrow-key navigation
-        history = load_history(self.executor.workspace_dir)
-        chat.set_history(history)
+            # Load initial prompt history for arrow-key navigation
+            history = load_history(self.executor.workspace_dir)
+            chat.set_history(history)
 
         self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
@@ -100,7 +108,7 @@ class BrokkApp(App):
         self.run_worker(self._poll_context())
 
     async def _start_executor(self) -> None:
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
         try:
             from brokk_code.session_persistence import (
                 get_session_zip_path,
@@ -116,9 +124,11 @@ class BrokkApp(App):
                 version = live_info.get("version", "unknown")
                 proto = live_info.get("protocolVersion", "unknown")
                 eid = live_info.get("execId", "unknown")
-                chat.add_system_message(
-                    f"Connected to executor {eid} (version: {version}, protocol: {proto})"
-                )
+                msg = f"Connected to executor {eid} (version: {version}, protocol: {proto})"
+                if chat:
+                    chat.add_system_message(msg)
+                else:
+                    logger.info(msg)
             except Exception as e:
                 logger.debug("Failed to fetch health/live info", exc_info=True)
 
@@ -132,7 +142,11 @@ class BrokkApp(App):
                 zip_path = get_session_zip_path(self.executor.workspace_dir, session_to_resume)
                 if zip_path.exists():
                     try:
-                        chat.add_system_message(f"Resuming session {session_to_resume}...")
+                        msg = f"Resuming session {session_to_resume}..."
+                        if chat:
+                            chat.add_system_message(msg)
+                        else:
+                            logger.info(msg)
                         zip_bytes = zip_path.read_bytes()
                         await self.executor.import_session_zip(
                             zip_bytes, session_id=session_to_resume
@@ -149,23 +163,41 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
-                chat.add_system_message("Ready!")
+                if chat:
+                    chat.add_system_message("Ready!")
+                else:
+                    logger.info("Executor ready")
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
             else:
-                chat.add_system_message("Executor failed to become ready (timeout).", level="ERROR")
+                msg = "Executor failed to become ready (timeout)."
+                if chat:
+                    chat.add_system_message(msg, level="ERROR")
+                else:
+                    logger.error(msg)
         except ExecutorError as e:
-            chat.add_system_message(str(e), level="ERROR")
+            if chat:
+                chat.add_system_message(str(e), level="ERROR")
+            else:
+                logger.error(str(e))
         except Exception as e:
-            chat.add_system_message(f"Unexpected startup error: {e}", level="ERROR")
+            msg = f"Unexpected startup error: {e}"
+            if chat:
+                chat.add_system_message(msg, level="ERROR")
+            else:
+                logger.error(msg)
 
     async def _monitor_executor(self) -> None:
         """Background worker to check if the executor dies unexpectedly."""
         while True:
             await asyncio.sleep(2.0)
             if not self.executor.check_alive():
-                chat = self.query_one(ChatPanel)
-                chat.add_system_message("Executor process crashed unexpectedly.", level="ERROR")
+                msg = "Executor process crashed unexpectedly."
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message(msg, level="ERROR")
+                else:
+                    logger.error(msg)
                 break
 
     async def _poll_tasklist(self) -> None:
@@ -195,13 +227,20 @@ class BrokkApp(App):
             return
         try:
             context_data = await self.executor.get_context()
-            self.query_one(ContextPanel).refresh_context(context_data)
-            self.query_one(TaskListPanel).refresh_tasklist(context_data)
+
+            # UI updates are best-effort if screen is not on stack
+            try:
+                self.query_one(ContextPanel).refresh_context(context_data)
+                self.query_one(TaskListPanel).refresh_tasklist(context_data)
+            except (ScreenStackError, Exception):
+                pass
 
             # Update token usage in ChatPanel
-            used = context_data.get("usedTokens", 0)
-            max_tokens = context_data.get("maxTokens")
-            self.query_one(ChatPanel).set_token_usage(used, max_tokens)
+            chat = self._maybe_chat()
+            if chat:
+                used = context_data.get("usedTokens", 0)
+                max_tokens = context_data.get("maxTokens")
+                chat.set_token_usage(used, max_tokens)
 
             # Clear error tracking on success
             self._reported_refresh_errors.clear()
@@ -209,8 +248,12 @@ class BrokkApp(App):
             # Rate-limit notifications to once per unique exception type per session
             err_key = type(e).__name__
             if err_key not in self._reported_refresh_errors:
-                chat = self.query_one(ChatPanel)
-                chat.add_system_message(f"Context refresh failed: {e}", level="ERROR")
+                msg = f"Context refresh failed: {e}"
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message(msg, level="ERROR")
+                else:
+                    logger.error(msg)
                 self._reported_refresh_errors.add(err_key)
             logger.debug("Failed to refresh context panel", exc_info=True)
 
@@ -309,10 +352,12 @@ class BrokkApp(App):
         self.agent_mode = new_mode
         self.sub_title = f"Mode: {self.agent_mode}"
         if announce:
-            chat = self.query_one(ChatPanel)
-            chat.add_system_message_markup(
-                f"Mode changed to: [bold]{self.agent_mode}[/]", level="WARNING"
-            )
+            msg_markup = f"Mode changed to: [bold]{self.agent_mode}[/]"
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_system_message_markup(msg_markup, level="WARNING")
+            else:
+                logger.info("Mode changed to %s", self.agent_mode)
 
     def _render_info(self) -> None:
         """Renders current status and configuration info to the chat."""
@@ -477,8 +522,12 @@ class BrokkApp(App):
             logger.warning("Failed to export session zip on shutdown: %s", e)
 
     async def action_quit(self) -> None:
-        chat = self.query_one(ChatPanel)
-        chat.add_system_message("Shutting down...")
+        msg = "Shutting down..."
+        chat = self._maybe_chat()
+        if chat:
+            chat.add_system_message(msg)
+        else:
+            logger.info(msg)
         await self._export_session()
         await self.executor.stop()
         self.exit()
