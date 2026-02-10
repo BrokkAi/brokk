@@ -385,6 +385,41 @@ class ExecutorManager:
         except httpx.HTTPError as e:
             raise ExecutorError(f"Failed to create session: {e}")
 
+    async def download_session_zip(self, session_id: str) -> bytes:
+        """Downloads the ZIP archive for a specific session."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get(f"/v1/sessions/{session_id}")
+            resp.raise_for_status()
+            return resp.content
+        except httpx.HTTPError as e:
+            raise ExecutorError(f"Failed to download session {session_id}: {e}")
+
+    async def import_session_zip(self, zip_bytes: bytes, session_id: Optional[str] = None) -> str:
+        """
+        Imports a session ZIP archive.
+        If session_id is provided, it is sent via X-Session-Id header.
+        Returns the sessionId from the response.
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        headers = {"Content-Type": "application/zip"}
+        if session_id:
+            headers["X-Session-Id"] = session_id
+
+        try:
+            resp = await self._http_client.put("/v1/sessions", content=zip_bytes, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            new_id = data["sessionId"]
+            self.session_id = new_id
+            return new_id
+        except httpx.HTTPError as e:
+            raise ExecutorError(f"Failed to import session: {e}")
+
     async def submit_job(
         self,
         task_input: str,
