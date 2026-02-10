@@ -58,20 +58,20 @@ class TaskListPanel(Vertical):
             done = task.get("done", False)
             title = task.get("title", f"Task {i}")
             instruction = task.get("text", "")
-            
+
             # Use a more descriptive marker
             marker = " [bold green]DONE[/] " if done else " [bold blue]TODO[/] "
-            
+
             text.append(marker)
             text.append(title, style="bold strike" if done else "bold")
-            
+
             if instruction:
                 # Add a short snippet of the instructions
                 snippet = instruction.split("\n")[0]
                 if len(snippet) > 60:
                     snippet = snippet[:57] + "..."
                 text.append(f"\n      {snippet}", style="dim italic")
-            
+
             text.append("\n\n")
 
         content.update(text)

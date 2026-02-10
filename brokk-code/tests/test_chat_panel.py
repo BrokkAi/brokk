@@ -4,6 +4,7 @@ from brokk_code.widgets.chat_panel import ChatPanel
 from textual.widgets import Static
 from textual.containers import Horizontal
 
+
 @pytest.mark.asyncio
 async def test_spinner_and_timer_lifecycle():
     """
@@ -24,20 +25,22 @@ async def test_spinner_and_timer_lifecycle():
 
         # Setup deterministic clock
         current_time = 1000.0
+
         def mock_now():
             return current_time
+
         panel._get_now = mock_now
-        
+
         # Initial state: hidden, no timer text, display is 'none'
         assert "hidden" in spinner_area.classes
         assert spinner_area.styles.display == "none"
         assert str(timer_label.renderable) == ""
-        
+
         # Start job
         panel.set_job_running(True)
         assert "hidden" not in spinner_area.classes
         assert spinner_area.styles.display == "block"
-        
+
         # Wait for the update worker to run once
         await asyncio.sleep(0.1)
         assert str(timer_label.renderable) == "Elapsed: 00:00"
@@ -59,16 +62,20 @@ async def test_spinner_and_timer_lifecycle():
         assert str(timer_label.renderable) == "Elapsed: 01:01:15"
 
         # Append tokens - spinner should STAY visible
-        panel.append_token("Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=False)
+        panel.append_token(
+            "Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=False
+        )
         assert "hidden" not in spinner_area.classes
-        
-        panel.append_token(" world", "AI", is_new_message=False, is_reasoning=False, is_terminal=True)
+
+        panel.append_token(
+            " world", "AI", is_new_message=False, is_reasoning=False, is_terminal=True
+        )
         assert "hidden" not in spinner_area.classes
-        
+
         # Verify set_response_finished does NOT hide spinner or stop timer
         panel.set_response_finished()
         assert "hidden" not in spinner_area.classes
-        
+
         current_time += 5.0
         await asyncio.sleep(0.2)
         assert str(timer_label.renderable) == "Elapsed: 01:10"
@@ -80,6 +87,7 @@ async def test_spinner_and_timer_lifecycle():
         # Wait for worker to exit and check final state
         await asyncio.sleep(0.1)
         assert str(timer_label.renderable) == ""
+
 
 @pytest.mark.asyncio
 async def test_token_usage_update():

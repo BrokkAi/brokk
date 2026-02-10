@@ -466,19 +466,19 @@ class ExecutorManager:
 
         after_seq = -1
         terminal_states = {"COMPLETED", "FAILED", "CANCELLED"}
-        
+
         # Polling configuration
         min_sleep = 0.05
         max_sleep = 0.5
         current_sleep = min_sleep
-        
+
         last_status_check = 0.0
         status_interval = 2.0  # Seconds between status checks when events are flowing
         state = "QUEUED"
 
         while True:
             now = asyncio.get_event_loop().time()
-            
+
             # 1. Check job status if enough time has passed
             if now - last_status_check > status_interval:
                 status_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
@@ -517,7 +517,7 @@ class ExecutorManager:
                 # No events, back off and check status on next loop if we haven't recently
                 if state in terminal_states:
                     break
-                
+
                 await asyncio.sleep(current_sleep)
                 current_sleep = min(max_sleep, current_sleep * 2)
                 # Force status check on next loop if we are idling

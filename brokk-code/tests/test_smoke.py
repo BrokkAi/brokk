@@ -81,6 +81,7 @@ def test_theme_normalization(tmp_path, monkeypatch):
     settings_dir().mkdir(parents=True, exist_ok=True)
 
     import json
+
     with settings_file().open("w") as f:
         json.dump({"theme": "brokk-dark"}, f)
 
@@ -184,7 +185,9 @@ async def test_app_startup_messages(tmp_path, monkeypatch):
     mock_chat.add_system_message = lambda text, level="INFO": system_messages.append(text)
     mock_chat.add_system_message_markup = lambda text: system_markup.append(text)
 
-    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock())
+    monkeypatch.setattr(
+        app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock()
+    )
 
     # Trigger on_mount logic
     await app.on_mount()
@@ -214,7 +217,9 @@ async def test_app_startup_fetches_live_info(tmp_path, monkeypatch):
     mock_chat = MagicMock()
     mock_chat.add_system_message = lambda text, level="INFO": system_messages.append(text)
 
-    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock())
+    monkeypatch.setattr(
+        app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock()
+    )
 
     await app._start_executor()
 
@@ -249,7 +254,9 @@ def test_app_info_command(tmp_path, monkeypatch):
             self.system_markup.append(text)
 
     fake_chat = FakeChat()
-    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: fake_chat if "chat" in sel else MagicMock())
+    monkeypatch.setattr(
+        app, "query_one", lambda sel, cls=None: fake_chat if "chat" in sel else MagicMock()
+    )
 
     # Test lowercase
     app._handle_command("/info")
@@ -269,11 +276,14 @@ def test_app_info_command(tmp_path, monkeypatch):
     class FakeHelpChat:
         def __init__(self):
             self.appended_messages = []
+
         def append_message(self, author: str, text: str) -> None:
             self.appended_messages.append(text)
 
     fake_help_chat = FakeHelpChat()
-    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: fake_help_chat if "chat" in sel else MagicMock())
+    monkeypatch.setattr(
+        app, "query_one", lambda sel, cls=None: fake_help_chat if "chat" in sel else MagicMock()
+    )
     app._handle_command("/help")
     help_text = fake_help_chat.appended_messages[0]
     assert "/info" in help_text
@@ -288,22 +298,26 @@ async def test_app_mode_affects_submission_payload(tmp_path, monkeypatch):
 
     # Mock the executor's submit_job and stream_events to avoid network/subprocess
     app.executor.submit_job = AsyncMock(return_value="job-123")
-    
+
     # Mock stream_events to be an empty async generator
     async def empty_gen(*args, **kwargs):
-        if False: yield {}
+        if False:
+            yield {}
+
     app.executor.stream_events = empty_gen
 
     # Mock ChatPanel to avoid UI initialization issues in headless test
     mock_chat = MagicMock()
-    monkeypatch.setattr(app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock())
+    monkeypatch.setattr(
+        app, "query_one", lambda sel, cls=None: mock_chat if "chat" in sel else MagicMock()
+    )
 
     # 1. Test SEARCH mode
     app._handle_command("/search")
     assert app.current_mode == "SEARCH"
-    
+
     await app._run_job("find all todos")
-    
+
     # Verify the call to submit_job included the correct mode tag
     app.executor.submit_job.assert_called_with(
         "find all todos",
@@ -311,22 +325,22 @@ async def test_app_mode_affects_submission_payload(tmp_path, monkeypatch):
         code_model=app.code_model,
         reasoning_level=app.reasoning_level,
         reasoning_level_code=app.reasoning_level_code,
-        mode="SEARCH"
+        mode="SEARCH",
     )
 
     # 2. Test ASK mode
     app._handle_command("/ask")
     assert app.current_mode == "ASK"
-    
+
     await app._run_job("how do i use this?")
-    
+
     app.executor.submit_job.assert_called_with(
         "how do i use this?",
         app.current_model,
         code_model=app.code_model,
         reasoning_level=app.reasoning_level,
         reasoning_level_code=app.reasoning_level_code,
-        mode="ASK"
+        mode="ASK",
     )
 
 
@@ -348,7 +362,7 @@ def test_cli_snapshot_defaults():
             return parser
 
     parser = get_parser()
-    
+
     # Default behavior: No flags provided
     args_default = parser.parse_args([])
     assert args_default.executor_snapshot is True, "Should default to snapshot mode"
@@ -399,7 +413,7 @@ def test_cli_session_flags():
 def test_executor_manager_jar_path_selection(tmp_path, monkeypatch):
     """Verify jar path selection logic for snapshot vs stable modes."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    
+
     # 1. Snapshot mode (Default)
     exec_snap = ExecutorManager(workspace_dir=tmp_path, executor_snapshot=True)
     assert exec_snap._cached_jar_path(None) == tmp_path / ".brokk" / "brokk-snapshot.jar"
@@ -426,7 +440,7 @@ async def test_get_context_404_diagnostics():
     context_404 = MagicMock(spec=httpx.Response)
     context_404.status_code = 404
     context_404.request = MagicMock()
-    
+
     # 2. Mock 200 for executor info
     executor_info = MagicMock(spec=httpx.Response)
     executor_info.status_code = 200
@@ -434,7 +448,9 @@ async def test_get_context_404_diagnostics():
 
     def mock_get(url, **kwargs):
         if "/v1/context" in url:
-            raise httpx.HTTPStatusError("Not Found", request=context_404.request, response=context_404)
+            raise httpx.HTTPStatusError(
+                "Not Found", request=context_404.request, response=context_404
+            )
         if "/v1/executor" in url:
             return executor_info
         return MagicMock(status_code=404)
@@ -931,12 +947,19 @@ def test_download_jar_snapshot_prefers_snapshot_tag(tmp_path, monkeypatch):
             self.content = content
             self.status_code = 200
 
-        def raise_for_status(self): pass
-        def json(self): return self._json_data
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._json_data
 
     class FakeClient:
-        def __enter__(self): return self
-        def __exit__(self, *args): pass
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
         def get(self, url, params=None):
             if "/releases" in url:
                 return FakeResponse(json_data=releases_payload if params.get("page") == 1 else [])

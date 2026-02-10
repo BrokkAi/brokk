@@ -18,13 +18,26 @@ class StubExecutor(ExecutorManager):
         # Event to notify test that stream_events has started
         self.stream_started = asyncio.Event()
 
-    async def start(self): pass
-    async def stop(self): pass
-    async def create_session(self, name: str = "TUI Session") -> str: return "session-1"
-    async def wait_ready(self, timeout: float = 30.0) -> bool: return True
-    def check_alive(self) -> bool: return True
-    async def get_context(self) -> Dict[str, Any]: return {}
-    async def get_tasklist(self) -> Dict[str, Any]: return {}
+    async def start(self):
+        pass
+
+    async def stop(self):
+        pass
+
+    async def create_session(self, name: str = "TUI Session") -> str:
+        return "session-1"
+
+    async def wait_ready(self, timeout: float = 30.0) -> bool:
+        return True
+
+    def check_alive(self) -> bool:
+        return True
+
+    async def get_context(self) -> Dict[str, Any]:
+        return {}
+
+    async def get_tasklist(self) -> Dict[str, Any]:
+        return {}
 
     async def submit_job(self, task_input: str, *args, **kwargs) -> str:
         self.submit_count += 1
@@ -41,7 +54,7 @@ class StubExecutor(ExecutorManager):
         self.stream_started.set()
         await self.release_stream.wait()
         self.release_stream.clear()
-        
+
         yield {"type": "LLM_TOKEN", "data": {"token": "done", "isTerminal": True}}
 
 
@@ -61,11 +74,11 @@ async def test_cancel_and_resubmit_flow():
         await pilot.click("#chat-input")
         await pilot.press_ascii("first")
         await pilot.press("enter")
-        
+
         # Wait for job to start streaming
         await asyncio.wait_for(stub.stream_started.wait(), timeout=2.0)
         stub.stream_started.clear()
-        
+
         assert app.job_in_progress is True
         assert app.current_job_id == "job-1"
 
@@ -83,24 +96,24 @@ async def test_cancel_and_resubmit_flow():
 
         # Wait for the second job (the one for "third") to start
         await asyncio.wait_for(stub.stream_started.wait(), timeout=2.0)
-        
+
         # Allow the second job to finish too so app settles
         stub.release_stream.set()
         await pilot.pause()
 
         # Assertions on ordering and content
         actions = [c["type"] for c in stub.calls]
-        # We expect: 
+        # We expect:
         # submit(job-1)
         # cancel(job-1) <- from 'second'
         # cancel(job-1) <- from 'third'
         # submit(job-2) <- which actually contains the "third" prompt text
-        
+
         assert actions == ["submit", "cancel", "cancel", "submit"]
-        
+
         submits = [c for c in stub.calls if c["type"] == "submit"]
         cancels = [c for c in stub.calls if c["type"] == "cancel"]
-        
+
         assert submits[0]["input"] == "first"
         assert cancels[0]["job_id"] == "job-1"
         assert cancels[1]["job_id"] == "job-1"

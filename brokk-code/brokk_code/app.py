@@ -131,7 +131,9 @@ class BrokkApp(App):
                     try:
                         chat.add_system_message(f"Resuming session {session_to_resume}...")
                         zip_bytes = zip_path.read_bytes()
-                        await self.executor.import_session_zip(zip_bytes, session_id=session_to_resume)
+                        await self.executor.import_session_zip(
+                            zip_bytes, session_id=session_to_resume
+                        )
                         resumed = True
                     except Exception as e:
                         logger.warning("Failed to resume session %s: %s", session_to_resume, e)
@@ -301,7 +303,9 @@ class BrokkApp(App):
     def _render_info(self) -> None:
         """Renders current status and configuration info to the chat."""
         chat = self.query_one(ChatPanel)
-        status = "[bold green]Ready[/]" if self._executor_ready else "[bold yellow]Initializing...[/]"
+        status = (
+            "[bold green]Ready[/]" if self._executor_ready else "[bold yellow]Initializing...[/]"
+        )
         jar_path = self.executor.resolved_jar_path or "Unknown"
 
         info_markup = (
@@ -351,7 +355,7 @@ class BrokkApp(App):
             if not history:
                 chat.add_system_message("Prompt history is empty.")
             else:
-                formatted = "\n".join(f"{i+1}. {p}" for i, p in enumerate(history))
+                formatted = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(history))
                 chat.append_message("System", f"Recent Prompts:\n{formatted}")
         elif base == "/history-clear":
             clear_history(self.executor.workspace_dir)

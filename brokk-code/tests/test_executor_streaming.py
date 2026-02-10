@@ -3,6 +3,7 @@ import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 from brokk_code.executor import ExecutorManager
 
+
 @pytest.mark.asyncio
 async def test_stream_events_polling_logic():
     """
@@ -15,15 +16,15 @@ async def test_stream_events_polling_logic():
     executor.base_url = "http://127.0.0.1:8080"
     mock_client = AsyncMock(spec=httpx.AsyncClient)
     executor._http_client = mock_client
-    
+
     job_id = "test-job"
-    
+
     # Mock responses:
     # 1. Status check -> RUNNING
     # 2. Events check -> returns 2 events, nextAfter 10
     # 3. Status check -> COMPLETED
     # 4. Events check -> returns 0 events, nextAfter 10 (loop terminates)
-    
+
     status_running = MagicMock(spec=httpx.Response)
     status_running.status_code = 200
     status_running.json.return_value = {"state": "RUNNING"}
@@ -54,9 +55,7 @@ async def test_stream_events_polling_logic():
     ]
 
     # Use a small sleep to speed up test
-    with patch("asyncio.sleep", AsyncMock()), patch(
-        "asyncio.get_event_loop"
-    ) as mock_loop_factory:
+    with patch("asyncio.sleep", AsyncMock()), patch("asyncio.get_event_loop") as mock_loop_factory:
         mock_loop = MagicMock()
         mock_loop.time.return_value = 0.0
         mock_loop_factory.return_value = mock_loop
@@ -67,7 +66,7 @@ async def test_stream_events_polling_logic():
     assert len(collected_events) == 2
     assert collected_events[0]["seq"] == 9
     assert collected_events[1]["seq"] == 10
-    
+
     # Verify calls
     # Call 1: Status
     # Call 2: Events with after=-1
@@ -75,6 +74,7 @@ async def test_stream_events_polling_logic():
     # Call 4: Events with after=10
     mock_client.get.assert_any_call(f"/v1/jobs/{job_id}/events?after=-1&limit=100")
     mock_client.get.assert_any_call(f"/v1/jobs/{job_id}/events?after=10&limit=100")
+
 
 @pytest.mark.asyncio
 async def test_stream_events_adaptive_backoff():
@@ -106,9 +106,10 @@ async def test_stream_events_adaptive_backoff():
         empty_events,  # Iter 3: exit
     ]
 
-    with patch("asyncio.sleep", AsyncMock()) as mock_sleep, patch(
-        "asyncio.get_event_loop"
-    ) as mock_loop_factory:
+    with (
+        patch("asyncio.sleep", AsyncMock()) as mock_sleep,
+        patch("asyncio.get_event_loop") as mock_loop_factory,
+    ):
         mock_loop = MagicMock()
         mock_loop.time.return_value = 0.0
         mock_loop_factory.return_value = mock_loop

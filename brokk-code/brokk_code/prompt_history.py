@@ -37,7 +37,9 @@ def load_history(workspace_dir: Path) -> List[str]:
                 return [str(item) for item in data]
             return []
     except Exception as e:
-        logger.warning("Failed to load prompt history from %s: %s. Starting fresh.", history_file, e)
+        logger.warning(
+            "Failed to load prompt history from %s: %s. Starting fresh.", history_file, e
+        )
         return []
 
 

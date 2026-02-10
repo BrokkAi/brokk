@@ -125,6 +125,72 @@ tasks.register("tidy") {
     dependsOn(
         subprojects.map { it.tasks.matching { t -> t.name == "spotlessApply" } }
     )
+    dependsOn("brokkCodeRuffFormat")
+}
+
+fun isUvAvailable(): Boolean {
+    return try {
+        ProcessBuilder("uv", "--version").start().waitFor() == 0
+    } catch (e: Exception) {
+        false
+    }
+}
+
+val skipPythonTasks = project.hasProperty("skipPython")
+
+tasks.register<Exec>("brokkCodeRuffFormat") {
+    description = "Formats brokk-code using ruff"
+    group = "formatting"
+    workingDir = file("brokk-code")
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "ruff", "format") else listOf("uv", "run", "ruff", "format"))
+
+    inputs.dir("brokk-code/brokk_code")
+    inputs.file("brokk-code/pyproject.toml")
+    outputs.upToDateWhen { true } // Ruff format modifies in place
+
+    onlyIf {
+        val available = isUvAvailable()
+        if (!available) logger.warn("Skipping brokkCodeRuffFormat: 'uv' not found in PATH")
+        if (skipPythonTasks) logger.info("Skipping brokkCodeRuffFormat: skipPython property is set")
+        available && !skipPythonTasks
+    }
+}
+
+tasks.register<Exec>("brokkCodeRuffCheck") {
+    description = "Lints brokk-code using ruff"
+    group = "verification"
+    workingDir = file("brokk-code")
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "ruff", "check") else listOf("uv", "run", "ruff", "check"))
+
+    inputs.dir("brokk-code/brokk_code")
+    inputs.file("brokk-code/pyproject.toml")
+    outputs.upToDateWhen { true }
+
+    onlyIf {
+        val available = isUvAvailable()
+        if (!available) logger.warn("Skipping brokkCodeRuffCheck: 'uv' not found in PATH")
+        if (skipPythonTasks) logger.info("Skipping brokkCodeRuffCheck: skipPython property is set")
+        available && !skipPythonTasks
+    }
+}
+
+tasks.register<Exec>("brokkCodePytest") {
+    description = "Runs brokk-code tests using pytest"
+    group = "verification"
+    workingDir = file("brokk-code")
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "pytest") else listOf("uv", "run", "pytest"))
+
+    inputs.dir("brokk-code/brokk_code")
+    inputs.dir("brokk-code/tests")
+    inputs.file("brokk-code/pyproject.toml")
+    outputs.upToDateWhen { false }
+
+    onlyIf {
+        val available = isUvAvailable()
+        if (!available) logger.warn("Skipping brokkCodePytest: 'uv' not found in PATH")
+        if (skipPythonTasks) logger.info("Skipping brokkCodePytest: skipPython property is set")
+        available && !skipPythonTasks
+    }
 }
 
 
