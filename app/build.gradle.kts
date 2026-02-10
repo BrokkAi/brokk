@@ -99,6 +99,7 @@ dependencies {
     implementation(libs.java.diff.utils)
     implementation(libs.jackson.databind)
     implementation(libs.jackson.smile)
+    implementation(libs.lz4)
     implementation(libs.jspecify)
     implementation(libs.picocli)
     implementation(libs.bundles.jediterm)
