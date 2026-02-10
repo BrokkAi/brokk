@@ -1454,75 +1454,46 @@ public class CppAnalyzerTest {
 
     @Test
     public void testHasBodyFlagAcrossHeaderAndSourceFiles() {
-        // Validate hasBody semantics across header prototype and source definition (forward_decl.h)
+        // forward_decl.h contains both a prototype and a definition:
+        // int foo();
+        // int foo() { return 1; }
+        // The analyzer should prefer the definition over the prototype
         var headerFile = testProject.getAllFiles().stream()
                 .filter(f -> f.absPath().toString().endsWith("forward_decl.h"))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("forward_decl.h not found"));
 
-        // Gather header declarations and filter for functions named 'foo'
         var headerDecls = analyzer.getDeclarations(headerFile);
         assertFalse(headerDecls.isEmpty(), "Should find declarations in forward_decl.h");
 
-        var headerCandidates = headerDecls.stream()
+        // Find all function CodeUnits named 'foo'
+        var fooCandidates = headerDecls.stream()
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> getBaseFunctionName(cu).equals("foo"))
                 .collect(Collectors.toList());
 
-        // Reverting the implicit assumption in the previous logic that headerCandidates might be empty
-        assertFalse(
-                headerCandidates.isEmpty(),
-                "Should find at least one function named 'foo' in header. Available: "
-                        + headerDecls.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+        // Should have exactly one CodeUnit for 'foo' after duplicate resolution
+        // (the definition is preferred over the prototype)
+        assertEquals(
+                1,
+                fooCandidates.size(),
+                "Should have exactly one CodeUnit for 'foo' after duplicate resolution prefers definition");
 
-        // Try to select a true header prototype with hasBody == false
-        CodeUnit headerProto = null;
-        for (var cu : headerCandidates) {
-            boolean hasBody = analyzer.withCodeUnitProperties(
-                    map -> map.getOrDefault(cu, TreeSitterAnalyzer.CodeUnitProperties.empty())
-                            .hasBody());
-            if (!hasBody) {
-                headerProto = cu;
-                break;
-            }
-        }
+        CodeUnit fooDef = fooCandidates.get(0);
 
-        assertNotNull(headerProto, "Should find a header prototype for 'foo' with hasBody=false");
-
-        final var headerProtoFinal = headerProto;
-        boolean headerHasBody = analyzer.withCodeUnitProperties(
-                map -> map.getOrDefault(headerProtoFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
+        // The retained CodeUnit should be the definition (hasBody = true)
+        boolean hasBody = analyzer.withCodeUnitProperties(
+                map -> map.getOrDefault(fooDef, TreeSitterAnalyzer.CodeUnitProperties.empty())
                         .hasBody());
-        assertFalse(headerHasBody, "Header prototype should have hasBody == false");
+        assertTrue(
+                hasBody,
+                "The retained 'foo' CodeUnit should have hasBody == true (definition preferred over prototype)");
 
-        // Search across all declarations for a definition (hasBody == true) with the same FQN
-        var allDecls = getAllDeclarations();
-        CodeUnit sourceDef = null;
-        for (var cu : allDecls) {
-            if (!cu.isFunction()) continue;
-            if (!getBaseFunctionName(cu).equals("foo")) continue;
-            if (!cu.fqName().equals(headerProto.fqName())) continue;
-
-            final var candidateFinal = cu;
-            boolean hasBody = analyzer.withCodeUnitProperties(
-                    map -> map.getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
-                            .hasBody());
-            if (hasBody) {
-                sourceDef = cu;
-                break;
-            }
-
-            assertNotNull(
-                    sourceDef,
-                    "Should find a source definition with hasBody == true for 'foo' and FQN " + headerProto.fqName());
-
-            // Verify the skeleton for the source definition contains the display placeholder
-            var sourceFile = sourceDef.source();
-            var sourceSkeletons = analyzer.getSkeletons(sourceFile);
-            String srcSkel = sourceSkeletons.get(sourceDef);
-            assertNotNull(srcSkel, "Source skeleton for definition should exist");
-            assertCodeContains(srcSkel, "{...}");
-        }
+        // Verify the skeleton contains the body placeholder
+        var skeletons = analyzer.getSkeletons(headerFile);
+        String skeleton = skeletons.get(fooDef);
+        assertNotNull(skeleton, "Skeleton for definition should exist");
+        assertCodeContains(skeleton, "{...}");
     }
 
     @Test
