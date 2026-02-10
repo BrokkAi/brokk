@@ -57,11 +57,15 @@ class ChatPanel(Vertical):
     def set_job_running(self, running: bool) -> None:
         """Explicitly controls the visibility of the job progress spinner and timer."""
         if running:
-            self._job_start_time = self._get_now()
-            self._update_elapsed_time()
+            if self._job_start_time is None:
+                self._job_start_time = self._get_now()
+                self._update_elapsed_time()
         else:
             self._job_start_time = None
-            self.query_one("#chat-timer", Static).update("")
+            try:
+                self.query_one("#chat-timer", Static).update("")
+            except Exception:
+                pass
 
         self._show_spinner(running)
 
@@ -94,9 +98,13 @@ class ChatPanel(Vertical):
     @work(exclusive=True)
     async def _update_elapsed_time(self) -> None:
         """Periodic worker to update the elapsed time ticker."""
-        timer_label = self.query_one("#chat-timer", Static)
+        try:
+            timer_label = self.query_one("#chat-timer", Static)
+        except Exception:
+            return
+
         while self._job_start_time is not None:
-            elapsed = int(self._get_now() - self._job_start_time)
+            elapsed = max(0, int(self._get_now() - self._job_start_time))
             hours, remainder = divmod(elapsed, 3600)
             minutes, seconds = divmod(remainder, 60)
 
