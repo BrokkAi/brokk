@@ -79,6 +79,7 @@ class BrokkApp(App):
         chat.add_system_message("Starting Brokk executor...")
         self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
+        self.run_worker(self._poll_tasklist())
 
     async def _start_executor(self) -> None:
         chat = self.query_one(ChatPanel)
@@ -106,6 +107,18 @@ class BrokkApp(App):
                 chat = self.query_one(ChatPanel)
                 chat.add_system_message("Executor process crashed unexpectedly.", level="ERROR")
                 break
+
+    async def _poll_tasklist(self) -> None:
+        """Periodically refreshes the task list details."""
+        while True:
+            await asyncio.sleep(15.0)
+            if self._executor_ready:
+                # We poll even if a job is running, as /v1/tasklist is low impact
+                try:
+                    tasklist_data = await self.executor.get_tasklist()
+                    self.query_one(TaskListPanel).update_tasklist_details(tasklist_data)
+                except Exception:
+                    logger.debug("Periodic tasklist poll failed", exc_info=True)
 
     async def _refresh_context_panel(self) -> None:
         """Fetches latest context and updates context and task list panels."""

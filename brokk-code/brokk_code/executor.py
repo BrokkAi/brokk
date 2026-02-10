@@ -475,6 +475,15 @@ class ExecutorManager:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_tasklist(self) -> Dict[str, Any]:
+        """Returns the current task list data."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        resp = await self._http_client.get("/v1/tasklist")
+        resp.raise_for_status()
+        return resp.json()
+
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:
