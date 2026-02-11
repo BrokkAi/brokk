@@ -726,13 +726,19 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                             .strip();
                 }
             } else {
-                // Fallback heuristic: remove a trailing token that looks like an identifier
-                String[] toks = raw.split("\\s+");
-                if (toks.length > 1) {
-                    String last = toks[toks.length - 1];
-                    if (!last.isEmpty() && Character.isJavaIdentifierStart(last.charAt(0))) {
-                        raw = String.join(" ", Arrays.copyOf(toks, toks.length - 1))
-                                .strip();
+                // For anonymous parameters, try to extract the type directly from the AST
+                TSNode typeNode = paramNode.getChildByFieldName("type");
+                if (typeNode != null && !typeNode.isNull()) {
+                    raw = sourceContent.substringFrom(typeNode).strip();
+                } else {
+                    // Fallback heuristic: remove a trailing token that looks like an identifier
+                    String[] toks = raw.split("\\s+");
+                    if (toks.length > 1) {
+                        String last = toks[toks.length - 1];
+                        if (!last.isEmpty() && Character.isJavaIdentifierStart(last.charAt(0))) {
+                            raw = String.join(" ", Arrays.copyOf(toks, toks.length - 1))
+                                    .strip();
+                        }
                     }
                 }
             }
