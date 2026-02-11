@@ -487,7 +487,8 @@ public final class TreeSitterStateIO {
                     if (cdto != null) vals.add(fromDto(cdto));
                 }
                 out.put(key, vals);
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                log.debug("Failed to parse legacy supertype entry: {}", e.getMessage());
             }
         }
         return out;
@@ -513,7 +514,8 @@ public final class TreeSitterStateIO {
                     if (cdto != null) vals.add(fromDto(cdto));
                 }
                 out.put(key, vals);
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                log.debug("Failed to parse legacy subtype entry: {}", e.getMessage());
             }
         }
         return out;
@@ -540,7 +542,8 @@ public final class TreeSitterStateIO {
                     if (cdto != null) vals.add(fromDto(cdto));
                 }
                 out.put(key, vals);
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                log.debug("Failed to parse legacy import entry: {}", e.getMessage());
             }
         }
         return out;
@@ -566,7 +569,8 @@ public final class TreeSitterStateIO {
                     if (pfd != null) vals.add(fromDto(pfd));
                 }
                 out.put(key, vals);
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                log.debug("Failed to parse legacy reverse import entry: {}", e.getMessage());
             }
         }
         return out;
