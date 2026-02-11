@@ -21,6 +21,12 @@ class ContextFragmentItem(Static):
             self.shift = shift
             super().__init__()
 
+    class Hovered(Message):
+        def __init__(self, fragment_id: str, entered: bool) -> None:
+            self.fragment_id = fragment_id
+            self.entered = entered
+            super().__init__()
+
     def __init__(self, fragment: Dict[str, Any]) -> None:
         super().__init__(classes="context-chip")
         self.fragment = fragment
@@ -45,6 +51,8 @@ class ContextFragmentItem(Static):
         text = Text()
         if self.has_class("is-selected"):
             text.append("[SELECTED] ", style="bold")
+        if self.has_class("is-active"):
+            text.append("[ACTIVE] ", style="bold")
         text.append(f"{chip_kind} ", style="bold")
         text.append(description)
         if tokens > 0:
@@ -63,8 +71,18 @@ class ContextFragmentItem(Static):
             )
         )
 
+    def on_enter(self, event: events.Enter) -> None:
+        self.post_message(self.Hovered(fragment_id=self.fragment_id, entered=True))
+
+    def on_leave(self, event: events.Leave) -> None:
+        self.post_message(self.Hovered(fragment_id=self.fragment_id, entered=False))
+
     def set_selected(self, selected: bool) -> None:
         self.set_class(selected, "is-selected")
+        self._update_chip_text()
+
+    def set_active(self, active: bool) -> None:
+        self.set_class(active, "is-active")
         self._update_chip_text()
 
 
@@ -100,12 +118,15 @@ class ContextPanel(Vertical):
         self._selected_ids: Set[str] = set()
         self._cursor_index = -1
         self._last_wrap_width = -1
+        self._active_id: str | None = None
+        self._hovered_id: str | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="context-header"):
             yield Label("Context", id="context-title")
             yield Label("0 / 200,000 tokens", id="context-token-usage")
         yield Label("Selected: 0", id="context-selection-status")
+        yield Label("Active: none", id="context-active-status")
         yield Label(
             "Arrows: Move  Enter: Select  Space: Toggle  D: Drop  Shift+D: Drop All  "
             "P: Pin  R: Readonly  H: Compress History  X: Clear History",
@@ -142,13 +163,23 @@ class ContextPanel(Vertical):
             for fragment_id in self._selected_ids
             if any(str(f.get("id", "")) == fragment_id for f in self._fragments)
         }
+        if self._hovered_id and self._hovered_id not in self._selected_ids and not any(
+            str(f.get("id", "")) == self._hovered_id for f in self._fragments
+        ):
+            self._hovered_id = None
+        if self._active_id and not any(
+            str(f.get("id", "")) == self._active_id for f in self._fragments
+        ):
+            self._active_id = None
 
         if not self._fragments:
             self._cursor_index = -1
+            self._active_id = None
             chip_wrap.mount(
                 Static("No context fragments", classes="context-chip context-chip-empty")
             )
             self._update_selection_status()
+            self._update_active_status()
             return
 
         if self._cursor_index < 0:
@@ -193,10 +224,15 @@ class ContextPanel(Vertical):
 
         if self._ordered_ids:
             self._cursor_index = min(self._cursor_index, len(self._ordered_ids) - 1)
+            if self._active_id is None:
+                self._active_id = self._cursor_id()
+            self._refresh_active_classes()
             self._focus_cursor_item()
         else:
             self._cursor_index = -1
+            self._active_id = None
         self._update_selection_status()
+        self._update_active_status()
 
     def on_context_fragment_item_pressed(self, message: ContextFragmentItem.Pressed) -> None:
         if not message.fragment_id:
@@ -207,6 +243,18 @@ class ContextPanel(Vertical):
             return
         self._select_only(message.fragment_id)
         self._set_cursor_by_id(message.fragment_id, focus=True)
+
+    def on_context_fragment_item_hovered(self, message: ContextFragmentItem.Hovered) -> None:
+        if not message.fragment_id:
+            return
+        if message.entered:
+            self._hovered_id = message.fragment_id
+            self._active_id = message.fragment_id
+        elif self._hovered_id == message.fragment_id:
+            self._hovered_id = None
+            self._active_id = self._cursor_id()
+        self._refresh_active_classes()
+        self._update_active_status()
 
     def _panel_wrap_width(self) -> int:
         width = self.size.width
@@ -245,6 +293,10 @@ class ContextPanel(Vertical):
             self._cursor_index = 0
         else:
             self._cursor_index = (self._cursor_index - 1) % len(self._ordered_ids)
+        if self._hovered_id is None:
+            self._active_id = self._cursor_id()
+            self._refresh_active_classes()
+            self._update_active_status()
         self._focus_cursor_item()
 
     def action_cursor_next(self) -> None:
@@ -254,6 +306,10 @@ class ContextPanel(Vertical):
             self._cursor_index = 0
         else:
             self._cursor_index = (self._cursor_index + 1) % len(self._ordered_ids)
+        if self._hovered_id is None:
+            self._active_id = self._cursor_id()
+            self._refresh_active_classes()
+            self._update_active_status()
         self._focus_cursor_item()
 
     def action_select_only_cursor(self) -> None:
@@ -308,6 +364,10 @@ class ContextPanel(Vertical):
             self._cursor_index = self._ordered_ids.index(fragment_id)
         except ValueError:
             return
+        if self._hovered_id is None:
+            self._active_id = fragment_id
+            self._refresh_active_classes()
+            self._update_active_status()
         if focus:
             self._focus_cursor_item()
 
@@ -339,6 +399,8 @@ class ContextPanel(Vertical):
         for frag_id, item in self._items_by_id.items():
             item.set_selected(frag_id in self._selected_ids)
         self._update_selection_status()
+        self._refresh_active_classes()
+        self._update_active_status()
 
     def _update_selection_status(self) -> None:
         label = self.query_one("#context-selection-status", Label)
@@ -349,3 +411,29 @@ class ContextPanel(Vertical):
         else:
             label.update("Selected: 0")
             label.remove_class("has-selection")
+
+    def _refresh_active_classes(self) -> None:
+        active_id = self._active_id
+        for frag_id, item in self._items_by_id.items():
+            item.set_active(active_id == frag_id)
+
+    def _update_active_status(self) -> None:
+        label = self.query_one("#context-active-status", Label)
+        active_id = self._active_id
+        if not active_id:
+            label.update("Active: none")
+            label.remove_class("has-active")
+            return
+
+        fragment = next(
+            (f for f in self._fragments if str(f.get("id", "")) == active_id),
+            None,
+        )
+        if fragment is None:
+            label.update("Active: none")
+            label.remove_class("has-active")
+            return
+
+        short_desc = str(fragment.get("shortDescription", "Unknown"))
+        label.update(f"Active: {short_desc}")
+        label.add_class("has-active")

@@ -121,6 +121,16 @@ ChatPanel {
     text-style: bold;
 }
 
+#context-active-status {
+    width: 100%;
+    color: $text-disabled;
+}
+
+#context-active-status.has-active {
+    color: $accent;
+    text-style: bold;
+}
+
 #context-chip-scroll {
     height: 1fr;
     min-height: 3;
@@ -150,6 +160,17 @@ ChatPanel {
 
 .context-chip:focus {
     border: round $accent;
+}
+
+.context-chip:hover {
+    border: round $accent;
+    background: $accent 22%;
+}
+
+.context-chip.is-active {
+    border: round $accent;
+    background: $accent 28%;
+    text-style: bold;
 }
 
 .context-chip.is-selected {

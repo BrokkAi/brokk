@@ -55,7 +55,9 @@ async def test_context_panel_shows_clear_selection_state():
             assert len(panel.query(".context-chip")) >= 2
 
             selection_status = panel.query_one("#context-selection-status")
+            active_status = panel.query_one("#context-active-status")
             assert "Selected: 0" in str(selection_status.render())
+            assert "Active: Editable file" in str(active_status.render())
 
             # Select the cursor chip (first fragment).
             await pilot.press("enter")
@@ -66,3 +68,9 @@ async def test_context_panel_shows_clear_selection_state():
                 item.render().plain for item in panel.query(".context-chip")
             )
             assert "[SELECTED]" in selected_chip_texts
+            assert "[ACTIVE]" in selected_chip_texts
+
+            # Move active cursor to next chip.
+            await pilot.press("right")
+            await pilot.pause()
+            assert "Active: Conversation history" in str(active_status.render())
