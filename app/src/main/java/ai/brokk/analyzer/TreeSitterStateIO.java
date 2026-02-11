@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -25,8 +26,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipException;
+import net.jpountz.lz4.LZ4FrameInputStream;
+import net.jpountz.lz4.LZ4FrameOutputStream;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
@@ -348,7 +350,8 @@ public final class TreeSitterStateIO {
             temp = Files.createTempFile(parent, prefix, suffix);
 
             var dto = toDto(state);
-            try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(temp))) {
+            try (var os = Files.newOutputStream(temp);
+                    var out = new LZ4FrameOutputStream(os)) {
                 SMILE_MAPPER.writeValue(out, dto);
             }
 
@@ -389,11 +392,26 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         }
         long startMs = System.currentTimeMillis();
+
+        // Check if the file name implies a legacy GZIP format
+        String fileName = file.getFileName().toString();
+        boolean isGzipExtension = fileName.endsWith(".gz") || fileName.endsWith(".gzip");
+
         try {
-            try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
-                // Read into a Json tree first so we can detect legacy fields
-                // (supertypes/subtypes/imports/reverseImports)
-                JsonNode root = SMILE_MAPPER.readTree(in);
+            InputStream decompressedIn;
+            if (isGzipExtension) {
+                decompressedIn = new GZIPInputStream(Files.newInputStream(file));
+            } else {
+                try {
+                    decompressedIn = new LZ4FrameInputStream(Files.newInputStream(file));
+                } catch (IOException e) {
+                    log.debug("Failed to open {} as LZ4, retrying with GZIP fallback: {}", file, e.getMessage());
+                    decompressedIn = new GZIPInputStream(Files.newInputStream(file));
+                }
+            }
+
+            try (InputStream finalIn = decompressedIn) {
+                JsonNode root = SMILE_MAPPER.readTree(finalIn);
 
                 // Deserialize the canonical DTO (ignoring unknown fields)
                 var dto = SMILE_MAPPER.treeToValue(root, AnalyzerStateDto.class);
@@ -456,10 +474,10 @@ public final class TreeSitterStateIO {
             JsonNode valueNode = entry.get("value");
             if (keyNode == null || valueNode == null || !valueNode.isArray()) continue;
             try {
-                CodeUnit key = SMILE_MAPPER.treeToValue(keyNode, CodeUnitDto.class) != null
-                        ? fromDto(SMILE_MAPPER.treeToValue(keyNode, CodeUnitDto.class))
-                        : null;
-                if (key == null) continue;
+                var keyDto = SMILE_MAPPER.treeToValue(keyNode, CodeUnitDto.class);
+                if (keyDto == null) continue;
+                CodeUnit key = fromDto(keyDto);
+
                 List<CodeUnit> vals = new ArrayList<>();
                 for (JsonNode v : valueNode) {
                     var cdto = SMILE_MAPPER.treeToValue(v, CodeUnitDto.class);
@@ -604,12 +622,13 @@ public final class TreeSitterStateIO {
             symbolKeys.add(key);
         }
 
-        // Historically some DTOs were written without an explicit schemaVersion (legacy snapshots).
-        // To preserve round-trip equality for callers that created AnalyzerState via fromDto(dto)
-        // where dto.schemaVersion was null, we continue to omit schemaVersion here (serialize as null).
-        // This keeps backwards-compatibility of tests and consumers that expect a null schemaVersion.
         return new AnalyzerStateDto(
-                symbolIndexCopy, cuEntries, fileEntries, symbolKeys, state.snapshotEpochNanos(), null);
+                symbolIndexCopy,
+                cuEntries,
+                fileEntries,
+                symbolKeys,
+                state.snapshotEpochNanos(),
+                CURRENT_SCHEMA.toString());
     }
 
     /**

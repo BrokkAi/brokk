@@ -136,7 +136,7 @@ public class TreeSitterStateIOTest {
         AnalyzerStateDto emptyDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
-        Path out = tempDir.resolve("state.smile.gz");
+        Path out = tempDir.resolve("state.bin.lz4");
         TreeSitterStateIO.save(state, out);
 
         assertTrue(Files.exists(out), "Expected final state file to exist");
@@ -176,7 +176,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("props_roundtrip.smile.gz");
+        Path out = tempDir.resolve("props_roundtrip.bin.lz4");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -197,7 +197,7 @@ public class TreeSitterStateIOTest {
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 99L);
         var original = TreeSitterStateIO.fromDto(dto);
 
-        Path out = tempDir.resolve("roundtrip.smile.gz");
+        Path out = tempDir.resolve("roundtrip.bin.lz4");
         TreeSitterStateIO.save(original, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -213,13 +213,13 @@ public class TreeSitterStateIOTest {
             value = OS.WINDOWS,
             disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
-    void loadReturnsEmptyOnCorruptGzip(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("state.smile.gz");
+    void loadReturnsEmptyOnCorruptLz4(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("state.bin.lz4");
 
-        Files.writeString(out, "not a gzip");
+        Files.writeString(out, "not a compressed file");
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
+        assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt file");
 
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(dto);
@@ -240,9 +240,9 @@ public class TreeSitterStateIOTest {
             disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
     void replacesExistingCorruptFileOnWindows(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("state.smile.gz");
+        Path out = tempDir.resolve("state.bin.lz4");
 
-        Files.writeString(out, "this is corrupt gzip content");
+        Files.writeString(out, "this is corrupt content");
 
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 42L);
         var original = TreeSitterStateIO.fromDto(dto);
@@ -263,7 +263,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadReturnsEmptyOnLegacyStateMissingContainsTests(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("legacy_state.smile.gz");
+        Path out = tempDir.resolve("legacy_state.bin.lz4");
 
         // Manually construct a JSON/Smile graph that looks like AnalyzerStateDto
         // but whose FilePropertiesDto is missing the 'containsTests' field.
@@ -283,7 +283,7 @@ public class TreeSitterStateIOTest {
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+        try (var os = new net.jpountz.lz4.LZ4FrameOutputStream(Files.newOutputStream(out))) {
             mapper.writeValue(os, legacyState);
         }
 
@@ -315,7 +315,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("imports_roundtrip.smile.gz");
+        Path out = tempDir.resolve("imports_roundtrip.bin.lz4");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -342,10 +342,11 @@ public class TreeSitterStateIOTest {
         var propsDto = new FilePropertiesDto(List.of(), List.of(), true);
         var entryDto = new FileStateEntryDto(fileDto, propsDto);
 
-        var originalDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(entryDto), List.of(), 555L);
+        // Expect CURRENT_SCHEMA version after round-trip
+        var originalDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(entryDto), List.of(), 555L, "1.0.0");
         var state = TreeSitterStateIO.fromDto(originalDto);
 
-        Path out = tempDir.resolve("test_props.smile.gz");
+        Path out = tempDir.resolve("test_props.bin.lz4");
         TreeSitterStateIO.save(state, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -378,7 +379,7 @@ public class TreeSitterStateIOTest {
             assertNotNull(analyzer.treeOf(file), "Original analyzer should have parsed tree");
 
             // 3. Save state to temp file
-            Path stateFile = tempDir.resolve("lazy_test.smile.gz");
+            Path stateFile = tempDir.resolve("lazy_test.bin.lz4");
             TreeSitterStateIO.save(analyzer.snapshotState(), stateFile);
             assertTrue(Files.exists(stateFile), "State file should exist after save");
 
@@ -512,7 +513,7 @@ public class TreeSitterStateIOTest {
             // so we do not assert they are pre-populated in the snapshot. Instead, the
             // loaded analyzer should be able to recompute them on demand.
             TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
-            Path storage = tempDir.resolve("ancestor_test.smile.gz");
+            Path storage = tempDir.resolve("ancestor_test.bin.lz4");
             TreeSitterStateIO.save(snapshot, storage);
 
             var loadedStateOpt = TreeSitterStateIO.load(storage);
@@ -555,7 +556,7 @@ public class TreeSitterStateIOTest {
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("imports.smile.gz");
+        Path out = tempDir.resolve("imports.bin.lz4");
         TreeSitterStateIO.save(state, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -669,7 +670,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("snapshotEpochNanos", 12345L);
 
         // Serialize to file using Smile
-        Path file = tempDir.resolve("legacy.smile.gz");
+        Path file = tempDir.resolve("legacy.bin.gz");
         ObjectMapper mapper = new ObjectMapper(new SmileFactory());
         try (var out = new GZIPOutputStream(Files.newOutputStream(file))) {
             mapper.writeValue(out, stateDtoMap);
@@ -695,7 +696,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadLegacyStateWithPerCodeUnitSupertypes(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("legacy_per_cu_supertypes.smile.gz");
+        Path out = tempDir.resolve("legacy_per_cu_supertypes.bin.gz");
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
         var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
@@ -731,8 +732,34 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
+        // Manually serialize a DTO with a higher major version to bypass CURRENT_SCHEMA setting in save()
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "2.0.0");
+        Path out = tempDir.resolve("mismatch.bin.lz4");
+
+        var mapper = new ObjectMapper(new SmileFactory());
+        try (var os = Files.newOutputStream(out);
+                var lz4 = new net.jpountz.lz4.LZ4FrameOutputStream(os)) {
+            mapper.writeValue(lz4, dto);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isEmpty(), "Expected empty result for major version mismatch");
+    }
+
+    @Test
+    void schemaMinorVersionMismatchIsAccepted(@TempDir Path tempDir) throws Exception {
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.1.0");
+        Path out = tempDir.resolve("minor_mismatch.bin.lz4");
+        TreeSitterStateIO.save(TreeSitterStateIO.fromDto(dto), out);
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isPresent(), "Expected minor version mismatch to be accepted");
+    }
+
+    @Test
     void loadIgnoresLegacyRawSupertypesField(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("legacy_raw_supertypes.smile.gz");
+        Path out = tempDir.resolve("legacy_raw_supertypes.bin.gz");
 
         // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
