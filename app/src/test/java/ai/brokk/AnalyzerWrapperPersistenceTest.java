@@ -6,12 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.watchservice.AbstractWatchService;
+import ai.brokk.watchservice.NoopWatchService;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -19,27 +17,6 @@ class AnalyzerWrapperPersistenceTest {
 
     @TempDir
     Path tempDir;
-
-    private AbstractWatchService createStubWatchService(Path root) {
-        return new AbstractWatchService(root, null, null, new ArrayList<>()) {
-            @Override
-            public void start(CompletableFuture<?> delay) {}
-
-            @Override
-            public void pause() {}
-
-            @Override
-            public void resume() {}
-
-            @Override
-            public boolean isPaused() {
-                return false;
-            }
-
-            @Override
-            public void close() {}
-        };
-    }
 
     @Test
     void testDeletePersistedAnalyzerStateFiles() throws Exception {
@@ -72,7 +49,7 @@ class AnalyzerWrapperPersistenceTest {
         assertTrue(Files.exists(legacyGzip), "gzip file should exist");
 
         // Use try-with-resources to ensure the wrapper (and its background thread) is closed
-        try (AbstractWatchService stubWatchService = createStubWatchService(tempDir);
+        try (NoopWatchService stubWatchService = new NoopWatchService();
                 AnalyzerWrapper wrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), stubWatchService)) {
             // Call the package-private method
             wrapper.deletePersistedAnalyzerStateFiles();
@@ -89,8 +66,8 @@ class AnalyzerWrapperPersistenceTest {
         TestProject project = new TestProject(tempDir);
         project.setAnalyzerLanguages(Set.of(Languages.JAVA));
 
-        AbstractWatchService stubWatchService = createStubWatchService(tempDir);
-        try (AnalyzerWrapper wrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), stubWatchService)) {
+        try (NoopWatchService stubWatchService = new NoopWatchService();
+                AnalyzerWrapper wrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), stubWatchService)) {
             // This should not throw any exceptions even if files don't exist
             wrapper.deletePersistedAnalyzerStateFiles();
         }
