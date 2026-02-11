@@ -5,17 +5,25 @@ import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.Messages;
+import com.github.jknack.handlebars.EscapingStrategy;
+import com.github.jknack.handlebars.Handlebars;
+import com.github.jknack.handlebars.Template;
+import com.github.jknack.handlebars.helper.ConditionalHelpers;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -25,93 +33,109 @@ import java.util.stream.Collectors;
 public class SearchPrompts {
     public static final SearchPrompts instance = new SearchPrompts();
 
-    private static final String WORKSPACE_CONTEXT_GUIDANCE =
-            """
-            Workspace context guidance:
-              - Use search tools FIRST to identify specific files/classes/methods.
-              - Prefer skimDirectory for directory exploration (what exists where); do not use add*ToWorkspace tools with globs/wildcards to explore directories.
-              - Then add only those specific items to Workspace (no globs, no wildcards, no bulk directory adds).
-              - Summaries: when you only need API signatures/types/constants.
-              - Method sources: when you need implementation details for specific methods.
-              - Full sources: only when you need complete implementation details.
-            """
-                    .stripIndent();
-
-    private static final String FINALIZATION_INVARIANT =
-            """
-            Invariant: Before any final action:
-              1. Prune fragments that are no longer needed (superseded by summaries or irrelevant to the goal).
-                 Do not finalize while the Workspace still contains obvious noise or superseded large fragments.
-              2. Add the minimum sufficient, decision-relevant context to remove guesswork.
-            An unchanged or empty Workspace is a failure unless the question is explicitly independent of this codebase.
-            """
-                    .stripIndent();
-
     public enum Objective {
-        ANSWER_ONLY {
+        ANSWER_ONLY(
+                "query",
+                "You are the Search Agent, a code researcher focused on answering questions about this codebase.",
+                "Your goal is to gather enough context to answer the user's question accurately and cite evidence from the repo.",
+                "a comprehensive Markdown answer (via answer(String))",
+                false) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ANSWER);
             }
         },
-        TASKS_ONLY {
+        TASKS_ONLY(
+                "instructions",
+                "You are the Search Agent, a code researcher focused on turning goals into implementation tasks.",
+                "Your goal is to gather enough context to produce a clear, minimal, incremental task list for the Code Agent.",
+                "a task list for the Code Agent (via createOrReplaceTaskList(...))",
+                true) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.TASK_LIST);
             }
         },
-        LUTZ {
+        LUTZ(
+                "query_or_instructions",
+                "You are the Search Agent, a code researcher that can answer, plan, or hand off implementation.",
+                "Your goal is to gather enough context to either answer the question, produce a task list, or invoke the Code Agent for a small change.",
+                "one of: answer, task list, or Code Agent invocation",
+                true) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.ANSWER, Terminal.CODE, Terminal.TASK_LIST);
             }
         },
-        WORKSPACE_ONLY {
+        WORKSPACE_ONLY(
+                "task",
+                "You are the Search Agent, a code researcher and librarian.",
+                "Your goal is to prepare the Workspace for the Code Agent by finding and curating the minimum sufficient context.",
+                "a curated Workspace ready for the Code Agent",
+                true) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.WORKSPACE);
             }
         },
-        ISSUE_DIAGNOSIS {
+        ISSUE_DIAGNOSIS(
+                "issue_diagnosis",
+                "You are the Search Agent, a code researcher focused on diagnosing issues.",
+                "Your goal is to gather enough context to diagnose the issue and produce a formal issue report with evidence from the repo.",
+                "a high-quality GitHub issue (via createIssue(String, String))",
+                false) {
             @Override
             public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.ISSUE_JSON);
+                return EnumSet.of(Terminal.ISSUE);
             }
         },
-        PROMPT_ENRICHMENT {
-            @Override
-            public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.ANSWER);
-            }
-        },
-        CODE_ONLY {
+        CODE_ONLY(
+                "task",
+                "You are the Search Agent, a code researcher.",
+                "Your goal is to gather enough context for the Code Agent to implement the requested change.",
+                "a curated Workspace ready for the Code Agent",
+                true) {
             @Override
             public Set<Terminal> terminals() {
                 return EnumSet.of(Terminal.CODE);
             }
         };
 
+        private final String tag;
+        private final String identity;
+        private final String mission;
+        private final String deliverable;
+        private final boolean includeHandoff;
+
+        Objective(String tag, String identity, String mission, String deliverable, boolean includeHandoff) {
+            this.tag = tag;
+            this.identity = identity;
+            this.mission = mission;
+            this.deliverable = deliverable;
+            this.includeHandoff = includeHandoff;
+        }
+
+        public String tag() {
+            return tag;
+        }
+
+        public String identity() {
+            return identity;
+        }
+
+        public String mission() {
+            return mission;
+        }
+
+        public String deliverable() {
+            return deliverable;
+        }
+
+        public boolean includeHandoff() {
+            return includeHandoff;
+        }
+
         public abstract Set<Terminal> terminals();
-    }
-
-    /**
-     * Result of building a prompt.
-     */
-    public record PromptResult(List<ChatMessage> messages) {}
-
-    public String searchAgentIdentity() {
-        return """
-                You are the Search Agent.
-                Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
-                  Your responsibilities are:
-                    1.  **Find & Discover:** Use search and inspection tools to locate all relevant files, classes, and methods.
-                    2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context (files, summaries, notes) that the Code Agent will need.
-                    3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
-
-                  Remember: **You must never write, create, or modify code.**
-                  Your purpose is to *find* existing code, not *create* new code.
-                  The Code Agent is solely responsible for all code generation and modification.
-                """;
     }
 
     public final List<ChatMessage> buildAskPrompt(Context ctx, String input, TaskResult.TaskMeta meta) {
@@ -154,83 +178,37 @@ public class SearchPrompts {
         return new UserMessage(text);
     }
 
-    public SystemMessage searchSystemPrompt(Context context) {
+    public SystemMessage searchSystemPrompt(Context context, Objective objective) {
         var supportedTypes = context.getContextManager().getProject().getAnalyzerLanguages().stream()
                 .map(Language::name)
                 .collect(Collectors.joining(", "));
 
-        return new SystemMessage(
-                """
-                <instructions>
-                %s
+        record SearchSystemData(
+                String identity,
+                String objective,
+                String deliverable,
+                String mission,
+                boolean includeHandoff,
+                String dropExplanationGuidance,
+                String supportedTypes) {}
 
-                Memory model (reliability):
-                  - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).
-                  - Chat history (including tool outputs) may be summarized or truncated; do NOT rely on it to retain details.
-                  - If you might need something later, persist it into the Workspace:
-                      - For structure/types/navigation: add class/file summaries.
-                      - For behavior: add method sources; escalate to class source or full files only when needed.
-                      - When dropping, record breadcrumbs in Discarded Context via dropWorkspaceFragments (keyFacts + dropReason).
-                  - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
+        var data = new SearchSystemData(
+                objective.identity(),
+                objective.name(),
+                objective.deliverable(),
+                objective.mission(),
+                objective.includeHandoff(),
+                DROP_EXPLANATION_GUIDANCE.indent(12).stripTrailing(),
+                supportedTypes);
 
-                Critical rules:
-                  1) PRUNE the Workspace continuously.
-                     - You may drop a fragment only when it is:
-                         (a) unrelated to the goal, OR
-                         (b) adequately replaced by smaller Workspace artifacts (method sources and/or class/file summaries).
-                     - When using dropWorkspaceFragments, provide:
-                         %s
-                     - Workspace granularity (Prefer the smallest sufficient unit of context):
-                         - Structure/types/navigation: class or file summary is usually sufficient.
-                         - Behavior/implementation: method source > class source > full file.
-
-                  2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
-                     - Search tool selection:
-                          Definitions / declarations only?
-                          → searchSymbols
-                          How is something used, accessed, obtained, injected, or called?
-                          → addSymbolUsagesToWorkspace
-                          Strings, configs, markdown, comments, reflection, or unknown names?
-                          → searchSubstrings
-                     - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
-                       They do NOT surface local variables or hardcoded strings like environment variable names,
-                       system properties, or comments. If searchSubstrings finds a hit in a file but the summary
-                       doesn't reveal the match, you MUST load the full file or method source to see the actual content.
-                  3) The symbol-based tools only have visibility into the following file types: %s
-                     Use text-based tools if you need to search other file types.
-                  4) Group related lookups into a single tool call when possible.
-                  5) Your responsibility ends at providing context.
-                     Do not attempt to write the solution or pseudocode for the solution.
-                     Your job is to *gather* the materials; the Code Agent's job is to *use* them.
-                     Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
-                     and let the Code Agent write the code. (But when refactoring, it is usually sufficient to call `addSymbolUsagesToWorkspace`
-                     and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
-                     Note: Code Agent will also take care of creating new files, you only need to add existing files
-                     to the Workspace.
-
-                Working efficiently:
-                  - Think before calling tools.
-                  - Make multiple tool calls at once when searching for different types of code. Dropping
-                    fragments should always be done in conjunction with other tools, since you will gain
-                    no new information from the drop result.
-                  - If you already know what to add, use Workspace tools directly; do not search redundantly.
-
-                External library discovery:
-                  - When the goal requires using an external library, search for its key classes/modules first
-                  - If NOT found in Code Intelligence, use `importDependency` to import it:
-                    * Java: `importDependency("com.fasterxml.jackson.core:jackson-databind")`
-                    * Python: `importDependency("requests")` or `importDependency("numpy 2.0.0")`
-                    * Rust: `importDependency("serde")` or `importDependency("tokio 1.0")`
-                    * Node.js: `importDependency("lodash")` or `importDependency("@types/node")`
-                  - Once imported, the library becomes searchable and can be added to the Workspace.
-                  - This helps Code Agent see actual API signatures and write more accurate code.
-                </instructions>
-                """
-                        .formatted(
-                                searchAgentIdentity(),
-                                DROP_EXPLANATION_GUIDANCE.indent(12).stripTrailing(),
-                                supportedTypes));
+        try {
+            return new SystemMessage(SEARCH_SYSTEM_TEMPLATE.apply(data));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
+
+    private static final Template PRUNING_TEMPLATE;
 
     /**
      * Builds the pruning prompt for the Janitor (Workspace Reviewer) logic.
@@ -238,7 +216,61 @@ public class SearchPrompts {
     public List<ChatMessage> buildPruningPrompt(Context context, String goal) {
         var messages = new ArrayList<ChatMessage>();
 
-        var sysText =
+        record PruningData(String dropExplanationGuidance, String goal) {}
+        var data = new PruningData(DROP_EXPLANATION_GUIDANCE.indent(4).stripTrailing(), goal);
+        String prompt;
+        try {
+            prompt = PRUNING_TEMPLATE.apply(data);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        messages.add(new SystemMessage(prompt));
+
+        // Current Workspace contents (use default viewing policy)
+        var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
+        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(context, suppressed));
+
+        // Goal and project context
+        var userText =
+                """
+                <goal>
+                %s
+                </goal>
+
+                Review the Workspace above. Use the dropWorkspaceFragments tool to remove ALL fragments that are not directly useful for accomplishing the goal.
+                If the workspace is already well-curated, you're done!
+                """
+                        .formatted(goal);
+        messages.add(new UserMessage(userText));
+
+        return messages;
+    }
+
+    private record DirectiveData(
+            String goal,
+            String objectiveTag,
+            boolean isEmptyProject,
+            boolean needsBuildSetup,
+            String warning,
+            String workspaceToc,
+            boolean isWorkspaceObjective,
+            boolean isIssueDiagnosis,
+            boolean terminalAnswer,
+            boolean terminalTasks,
+            boolean terminalWorkspace,
+            boolean terminalCode,
+            boolean terminalIssue) {}
+
+    private static final Template SEARCH_SYSTEM_TEMPLATE;
+    private static final Template DIRECTIVE_TEMPLATE;
+
+    static {
+        Handlebars handlebars = new Handlebars().with(EscapingStrategy.NOOP);
+        handlebars.registerHelpers(ConditionalHelpers.class);
+        handlebars.registerHelpers(com.github.jknack.handlebars.helper.StringHelpers.class);
+
+        String pruningTemplateText =
                 """
                 <instructions>
                 You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
@@ -258,35 +290,242 @@ public class SearchPrompts {
                   Include ONLY the irrelevant fragments to drop in this call.
 
                 drop explanation format:
-                """
-                        + DROP_EXPLANATION_GUIDANCE.indent(4).stripTrailing()
-                        + """
+                {{dropExplanationGuidance}}
 
                 Response rules:
                 - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
-                - Don't give up: if the number of irrelevant fragments is overwhelming, do your best. It’s okay to not get everything, but it’s not okay to call performedInitialReview without trying to clean up.
+                - Don't give up: if the number of irrelevant fragments is overwhelming, do your best. It's okay to not get everything, but it's not okay to call performedInitialReview without trying to clean up.
                 </instructions>
                 """;
-        messages.add(new SystemMessage(sysText));
+        try {
+            PRUNING_TEMPLATE = handlebars.compileInline(pruningTemplateText);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
 
-        // Current Workspace contents (use default viewing policy)
-        var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
-        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(context, suppressed));
-
-        // Goal and project context
-        var userText = """
-                <goal>
+        String searchSystemTemplateText =
                 """
-                + goal
-                + """
-                </goal>
+                <instructions>
+                {{identity}}
 
-                Review the Workspace above. Use the dropWorkspaceFragments tool to remove ALL fragments that are not directly useful for accomplishing the goal.
-                If the workspace is already well-curated, you're done!
+                Objective: {{objective}}
+                Deliverable: {{deliverable}}
+
+                {{mission}}
+
+                Your responsibilities are:
+                  1.  **Find & Discover:** Use search and inspection tools to locate relevant code (files, classes, methods).
+                  2.  **Curate & Prune:** Aggressively prune the Workspace to leave *only* essential context.
+                {{#if includeHandoff~}}
+                  3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent.
+                {{~/if}}
+
+                Remember: **You must never write, create, or modify code.** Your purpose is to *find* existing code, not *create* new code.
+
+                Memory model (reliability):
+                  - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).
+                  - Chat history (including tool outputs) may be summarized or truncated; do NOT rely on it to retain details.
+                  - If you might need something later, persist it into the Workspace:
+                      - For structure/types/navigation: add class/file summaries.
+                      - For behavior: add method sources; escalate to class source or full files only when needed.
+                      - When dropping, record breadcrumbs in Discarded Context via dropWorkspaceFragments (keyFacts + dropReason).
+                  - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
+
+                Critical rules:
+                  1) PRUNE the Workspace continuously.
+                     - You may drop a fragment only when it is:
+                         (a) unrelated to the goal, OR
+                         (b) adequately replaced by smaller Workspace artifacts (method sources and/or class/file summaries).
+                     - When using dropWorkspaceFragments, provide:
+                {{dropExplanationGuidance}}
+                     - Workspace granularity (Prefer the smallest sufficient unit of context):
+                         - Structure/types/navigation: class or file summary is usually sufficient.
+                         - Behavior/implementation: method source > class source > full file.
+                  2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                     - Search tool selection:
+                          Definitions / declarations only?
+                          -> searchSymbols
+                          How is something used, accessed, obtained, injected, or called?
+                          -> scanUsages
+                          Strings, configs, markdown, comments, reflection, or unknown names?
+                          -> searchSubstrings
+                     - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
+                       They do NOT surface local variables or hardcoded strings like environment variable names,
+                       system properties, or comments. If searchSubstrings finds a hit in a file but the summary
+                       doesn't reveal the match, you MUST load the full file or method source to see the actual content.
+                  3) The symbol-based tools only have visibility into the following file types: {{supportedTypes}}
+                     Use text-based tools if you need to search other file types.
+                  4) Group related lookups into a single tool call when possible.
+                  5) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
+                     Do not write code, and do not attempt to write the solution or pseudocode for the solution.
+                     Your job is to *gather* the materials; the Code Agent's job is to *use* them.
+                     Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
+                     and let the Code Agent write the code. (For more localized changes, you can use `addMethodsToWorkspace`
+                     or `addClassesToWorkspace`, instead of adding entire files.)
+                     Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
+                  6) When you have enough information to take a final action, do so.
+                     There are no bonus points for grooming the perfect Workspace.
+
+                Working efficiently:
+                  - Think before calling tools.
+                  - Make multiple tool calls at once when searching for different types of code. Dropping
+                    fragments should always be done in conjunction with other tools, since you will gain
+                    no new information from the drop result.
+                  - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                External library discovery:
+                  - When the goal requires using an external library, search for its key classes/modules first
+                  - If NOT found in Code Intelligence, use `importDependency` to import it:
+                    * Java: `importDependency("com.fasterxml.jackson.core:jackson-databind")`
+                    * Python: `importDependency("requests")` or `importDependency("numpy 2.0.0")`
+                    * Rust: `importDependency("serde")` or `importDependency("tokio 1.0")`
+                    * Node.js: `importDependency("lodash")` or `importDependency("@types/node")`
+                  - Once imported, the library becomes searchable and can be added to the Workspace.
+                  - This helps Code Agent see actual API signatures and write more accurate code.
+                </instructions>
                 """;
-        messages.add(new UserMessage(userText));
+        try {
+            SEARCH_SYSTEM_TEMPLATE = handlebars.compileInline(searchSystemTemplateText);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
 
-        return messages;
+        String templateText =
+                """
+                <{{objectiveTag}}>
+                {{goal}}
+                </{{objectiveTag}}>
+
+                <search-objective>
+                {{#if (eq (lower objectiveTag) "issue_diagnosis")~}}
+                Deliver a high-quality GitHub issue using the createIssue(String title, String body) tool.
+
+                Requirements:
+                  - "title": concise, specific issue title.
+                  - "body": GitHub-flavored Markdown describing the problem and impact.
+                    It MUST include evidence/references to code, such as:
+                      - file paths
+                      - identifiers/symbol names
+                      - fragment ids when available
+                    It MAY include a section like "## Agent Instructions" inside the body as well.
+                {{~/if}}
+
+                {{#if terminalTasks~}}
+                Invariant: Before any final action:
+                  1. Prune fragments that are no longer needed (superseded by summaries or irrelevant to the goal).
+                     Do not finalize while the Workspace still contains obvious noise or superseded large fragments.
+                  2. Add the minimum sufficient, decision-relevant context to remove guesswork.
+                An unchanged or empty Workspace is a failure unless the question is explicitly independent of this codebase.
+
+                Workspace context guidance:
+                  - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
+                  - If you don't know where to find a piece of information, use search tools or skimDirectory to identify specific files/classes/methods instead of guessing.
+                  - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
+                    skimDirectory can help you narrow down your search, after which you should add only those specific items to the Workspace.
+                When to prefer the different content types:
+                  - Summaries: when you only need API signatures/types/constants.
+                  - Method sources: when you need implementation details for specific methods.
+                  - Full sources: when you need complete implementation details.
+                {{~/if}}
+
+                {{#if (eq (lower objectiveTag) "query_or_instructions")~}}
+                Then:
+                  - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
+                  - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
+                  - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks); do not attempt to write code yet.
+                {{~/if}}
+                </search-objective>
+
+                {{#if isEmptyProject~}}
+                <empty-project-notice>
+                The project appears to be empty or uninitialized (few or no source files).
+                Adapt your approach:
+                  - Prefer searching the repository structure first (e.g., `skimDirectory`, `searchFilenames`) to confirm what exists.
+                  - If the user's request requires new code, your role is still to prepare context and produce tasks, not to write code.
+                  - For code-change requests, prefer producing a task list that starts with creating the minimal project skeleton and build/test setup.
+                </empty-project-notice>
+                {{~/if}}
+
+                {{#if needsBuildSetup~}}
+                <build-setup-task-guidance>
+                If you produce a task list, the FIRST task MUST configure the build and test stack (and any required environment variables)
+                so that subsequent tasks can run `build/lint` and tests.
+                </build-setup-task-guidance>
+                {{~/if}}
+
+                <tool-instructions>
+                Decide the next tool action(s) to make progress toward the objective in service of the goal.
+
+                Pruning mandate (do this now):
+                  - Prune in parallel with exploration.
+                  - Drop irrelevant/noise fragments now with dropWorkspaceFragments.
+                  - Replace large fragments with smaller artifacts (addFileSummariesToWorkspace, addClassSummariesToWorkspace, addMethodsToWorkspace) when possible; drop superseded originals.
+                  - Check Discarded Context before re-adding content; you may not drop pinned fragments.
+
+                {{#if isWorkspaceObjective~}}
+                Tests:
+                  - Code Agent will run the tests in the Workspace to validate its changes.
+                    These can be full files (if it also needs to edit or understand test implementation details),
+                    or simple summaries if they just need to be run for validation. Thus, you should
+                    convert tests whose full source you don't need to summaries by dropping the file and
+                    adding the summary. In general, you should avoid dropping test summaries.
+                {{~/if}}
+
+                Finalization options:
+                {{#if isIssueDiagnosis}}
+                - Use createIssue(String title, String body) to finalize. abortSearch(explanation) is the only other allowed final tool.
+                {{else}}
+                {{#if terminalAnswer}}
+                - Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <markdown-reminder>).
+                - Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.
+                {{/if}}
+                {{#if terminalTasks}}
+                - Use createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
+                  Guidance:
+                    - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
+                    - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
+                      temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
+                {{/if}}
+                {{#if terminalWorkspace}}
+                - Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.
+                {{/if}}
+                {{#if terminalCode}}
+                - Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.
+                {{/if}}
+                - If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.
+                {{/if}}
+
+                You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
+                usefully do so.
+
+                Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, callCodeAgent, createIssue, abortSearch)
+                must be the ONLY tool in a turn. If final cleanup is needed (for example, dropWorkspaceFragments), do it first,
+                then finalize on the next turn. If you include a terminal together with other tools, the terminal will be ignored for this turn.
+
+                Remember: it is NOT your objective to write code.
+
+                {{#if warning~}}
+                {{warning}}
+                {{~/if}}
+                </tool-instructions>
+
+                {{#unless isIssueDiagnosis~}}
+                <markdown-reminder>
+                IMPORTANT: When providing explanations, thoughts, or answers, ALWAYS use Markdown for readability.
+                - Use `inline code` for identifiers, file paths, and short snippets.
+                - Use code blocks for longer snippets.
+                - Use headers, lists, and bold text to structure your response.
+                </markdown-reminder>
+                {{~/unless}}
+
+                {{workspaceToc}}
+                """
+                        .stripIndent();
+        try {
+            DIRECTIVE_TEMPLATE = handlebars.compileInline(templateText);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**
@@ -308,8 +547,8 @@ public class SearchPrompts {
             String goal,
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
-            List<ChatMessage> sessionMessages)
-            throws InterruptedException {
+            List<ChatMessage> sessionMessages,
+            Map<ProjectFile, String> relatedSymbols) {
 
         var cm = context.getContextManager();
         var inputLimit = cm.getService().getMaxInputTokens(model);
@@ -320,11 +559,12 @@ public class SearchPrompts {
 
         // Build workspace messages in insertion order with viewing policy applied
         var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
-        var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
+        // Fudge factor for langchain4j's tokenizer undercounts most modern models. Use ceil to avoid undercounting.
+        long workspaceTokens = (long) Math.ceil(1.2 * Messages.getApproximateMessageTokens(workspaceMessages));
 
         var messages = new ArrayList<ChatMessage>();
 
-        messages.add(searchSystemPrompt(context));
+        messages.add(searchSystemPrompt(context, objective));
 
         // Describe available MCP tools
         var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
@@ -340,9 +580,8 @@ public class SearchPrompts {
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)
-        var related = context.buildRelatedSymbols(10);
-        if (!related.isEmpty()) {
-            var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
+        if (!relatedSymbols.isEmpty()) {
+            var relatedBlock = ArchitectPrompts.formatRelatedFiles(relatedSymbols);
             messages.add(new UserMessage(
                     """
                     <related_files>
@@ -356,179 +595,57 @@ public class SearchPrompts {
             messages.add(new AiMessage("Acknowledged. I will explicitly add only what is relevant."));
         }
 
-        // Workspace size warning and final instruction
+        // Workspace size warning
         String warning = "";
         if (inputLimit > 0) {
             double pct = (double) workspaceTokens / inputLimit * 100.0;
             if (pct > 90.0) {
                 warning =
                         """
-                                <workspace-size-warning>
-                                CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
-                                You MUST reduce Workspace size immediately before any further exploration.
-                                Replace full text with summaries and drop non-essential fragments first.
-                                </workspace-size-warning>
-                                """
+                        <workspace-size-warning>
+                        CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
+                        You MUST reduce Workspace size immediately before any further exploration.
+                        Replace full text with summaries and drop non-essential fragments first.
+                        </workspace-size-warning>
+                        """
                                 .formatted(pct, workspaceTokens, inputLimit);
             } else if (pct > 60.0) {
                 warning =
                         """
-                                <workspace-size-warning>
-                                NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
-                                Prefer summaries and prune aggressively before expanding further.
-                                </workspace-size-warning>
-                                """
+                        <workspace-size-warning>
+                        NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
+                        Prefer summaries and prune aggressively before expanding further.
+                        </workspace-size-warning>
+                        """
                                 .formatted(pct, workspaceTokens, inputLimit);
             }
         }
 
-        var finals = new ArrayList<String>();
-        boolean issueJsonOnly = objective.terminals().contains(Terminal.ISSUE_JSON);
+        boolean needsBuildSetup = (objective == Objective.LUTZ || objective == Objective.TASKS_ONLY)
+                && cm.getProject().awaitBuildDetails().equals(BuildAgent.BuildDetails.EMPTY);
 
-        if (issueJsonOnly) {
-            finals.add(
-                    """
-                    - Use issueWriterOutput(String json) to finalize.
-                      Output MUST be ONLY a single JSON object (no fences, no preamble, no trailing text).
-                      abortSearch(explanation) is the only other allowed final tool.
-                    """);
-        } else {
-            if (objective.terminals().contains(Terminal.ANSWER)) {
-                finals.add(
-                        "- Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <persistence>).");
-                finals.add(
-                        "- Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.");
-            }
-            if (objective.terminals().contains(Terminal.TASK_LIST)) {
-                finals.add(
-                        """
-                        - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
-                          Guidance:
-                            - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
-                            - Each task is a single Markdown-formatted string that MUST contain these labeled sections:
-                              **Task**: Describe what to do. Be specific and self-contained.
-                              **Acceptance**: State how to verify success. You MAY omit Acceptance only for purely mechanical refactors with no behavior change.
-                              **Touch points**: List concrete file paths (required when known, in `inline code`) and symbols (optional but helpful, in `inline code`).
-                            - Wherever possible, include automated tests in Acceptance; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
-                            - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
-                              temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
-                        """);
-            }
-            if (objective.terminals().contains(Terminal.WORKSPACE)) {
-                finals.add(
-                        "- Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.");
-            }
-            if (objective.terminals().contains(Terminal.CODE)) {
-                finals.add(
-                        "- Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
-            }
-            finals.add(
-                    "- If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.");
+        var terminals = objective.terminals();
+        var data = new DirectiveData(
+                goal,
+                objective.tag(),
+                cm.getProject().isEmptyProject(),
+                needsBuildSetup,
+                warning,
+                WorkspacePrompts.formatToc(context, suppressed),
+                objective == Objective.WORKSPACE_ONLY,
+                objective == Objective.ISSUE_DIAGNOSIS,
+                terminals.contains(Terminal.ANSWER),
+                terminals.contains(Terminal.TASK_LIST),
+                terminals.contains(Terminal.WORKSPACE),
+                terminals.contains(Terminal.CODE),
+                terminals.contains(Terminal.ISSUE));
+
+        String directive;
+        try {
+            directive = DIRECTIVE_TEMPLATE.apply(data);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
-
-        String finalsStr = String.join("\n", finals);
-
-        String testsGuidance = "";
-        if (objective.terminals().contains(Terminal.WORKSPACE)) {
-            testsGuidance =
-                    """
-                    Tests:
-                      - Code Agent will run the tests in the Workspace to validate its changes.
-                        These can be full files (if it also needs to edit or understand test implementation details),
-                        or simple summaries if they just need to be run for validation. Thus, you should
-                        convert tests whose full source you don't need to summaries by dropping the file and
-                        adding the summary. In general, you should avoid dropping test summaries.
-                    """;
-        }
-
-        var terminalObjective = buildTerminalObjective(objective);
-
-        String emptyProjectGuidance = "";
-        if (cm.getProject().isEmptyProject()) {
-            emptyProjectGuidance =
-                    """
-                    <empty-project-notice>
-                    The project appears to be empty or uninitialized (few or no source files).
-                    Adapt your approach:
-                      - Prefer searching the repository structure first (e.g., `skimDirectory`, `searchFilenames`) to confirm what exists.
-                      - If the user's request requires new code, your role is still to prepare context and produce tasks, not to write code.
-                      - For code-change requests, prefer producing a task list that starts with creating the minimal project skeleton and build/test setup.
-                    </empty-project-notice>
-                    """;
-        }
-
-        String buildSetupTaskGuidance = "";
-        boolean tasksObjective = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
-        if (tasksObjective && cm.getProject().awaitBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
-            buildSetupTaskGuidance =
-                    """
-                    <build-setup-task-guidance>
-                    If you produce a task list, the FIRST task MUST configure the build and test stack (and any required environment variables)
-                    so that subsequent tasks can run `build/lint` and tests.
-                    </build-setup-task-guidance>
-                    """;
-        }
-
-        String markdownReminder = issueJsonOnly ? "" : SystemPrompts.MARKDOWN_REMINDER;
-
-        String directive =
-                """
-                        <%s>
-                        %s
-                        </%s>
-
-                        <search-objective>
-                        %s
-                        </search-objective>
-
-                        %s
-                        %s
-
-                        <tool-instructions>
-                        Decide the next tool action(s) to make progress toward the objective in service of the goal.
-                        When you have enough information to finalize (solve the problem or answer the question), do so; there
-                        are no bonus points for grooming the perfect Workspace.
-
-                        Pruning mandate (do this now):
-                          - In parallel with exploration, prune the Workspace
-                          - **MANDATORY** Drop irrelevant/noise fragments now with dropWorkspaceFragments
-                          - **MANDATORY** Reduce Workspace size: replace large fragments with smaller artifacts (addFileSummariesToWorkspace, addClassSummariesToWorkspace, addMethodsToWorkspace) if reasonable
-                          - When replacing fragments, drop the originals (dropWorkspaceFragments) - no superseded fragments!
-                          - Before re-adding content, check Discarded Context to avoid redoing work
-                          - You may not drop pinned fragments.
-                        %s
-
-                        Finalization options:
-                        %s
-
-                        You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
-                        usefully do so.
-
-                        Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn,
-                        EXCEPT that you should also call dropWorkspaceFragments if any final cleanup is needed.
-                        If you include a terminal together with other tools, the terminal will be ignored for this turn.
-
-                        Remember: it is NOT your objective to write code.
-
-                        %s
-                        </tool-instructions>
-
-                        %s
-
-                        %s
-                        """
-                        .formatted(
-                                terminalObjective.type(),
-                                goal,
-                                terminalObjective.type(),
-                                terminalObjective.text(),
-                                emptyProjectGuidance,
-                                buildSetupTaskGuidance,
-                                testsGuidance,
-                                finalsStr,
-                                warning,
-                                markdownReminder,
-                                WorkspacePrompts.formatToc(context, suppressed));
 
         messages.add(new UserMessage(directive));
         return messages;
@@ -540,111 +657,6 @@ public class SearchPrompts {
         WORKSPACE,
         CODE,
         REVIEW,
-        ISSUE_JSON
-    }
-
-    private record TerminalObjective(String type, String text) {}
-
-    private TerminalObjective buildTerminalObjective(SearchPrompts.Objective objective) {
-        return switch (objective) {
-            case ANSWER_ONLY ->
-                new TerminalObjective(
-                        "query",
-                        """
-                    Deliver a written answer using the answer(String) tool.
-                    """);
-            case TASKS_ONLY ->
-                new TerminalObjective(
-                        "instructions",
-                        """
-                    Deliver a task list using the createOrReplaceTaskList(String explanation, List<String> tasks) tool.
-
-                    %s
-
-                    %s
-                    """
-                                .formatted(FINALIZATION_INVARIANT, WORKSPACE_CONTEXT_GUIDANCE));
-            case WORKSPACE_ONLY ->
-                new TerminalObjective(
-                        "task",
-                        """
-                    Deliver a curated Workspace containing everything required for the follow-on Code Agent
-                    to solve the given task.
-                    """);
-            case LUTZ ->
-                new TerminalObjective(
-                        "query_or_instructions",
-                        """
-                    Either deliver a written answer, solve the problem by invoking Code Agent, or decompose the problem into a task list.
-
-                    %s
-
-                    %s
-
-                    Then:
-                      - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
-                      - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
-                      - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
-                    """
-                                .formatted(FINALIZATION_INVARIANT, WORKSPACE_CONTEXT_GUIDANCE));
-            case ISSUE_DIAGNOSIS ->
-                new TerminalObjective(
-                        "issue_diagnosis",
-                        """
-                    Deliver ONLY a single JSON object using the issueWriterOutput(String json) tool.
-
-                    Required output schema (STRICT):
-                      { "title": "...", "bodyMarkdown": "..." }
-
-                    Requirements:
-                      - Output MUST be a single JSON object (no fences, no preamble, no trailing text).
-                      - "title": concise, specific issue title.
-                      - "bodyMarkdown": GitHub-flavored Markdown describing the problem and impact.
-                        It MUST include evidence/references to code, such as:
-                          - file paths
-                          - identifiers/symbol names
-                          - fragment ids when available
-                        It MAY include a section like "## Agent Instructions" but it must be inside bodyMarkdown.
-                    """);
-            case PROMPT_ENRICHMENT ->
-                new TerminalObjective(
-                        "prompt_enrichment",
-                        """
-                    Write an execution-ready enrichment of the user's request. Output ONLY the enriched prompt text via answer(String).
-
-                    Rules:
-                      - Restate the request and preserve ALL explicit facts/constraints from the input.
-                      - Do NOT invent. Do NOT guess. Do NOT add new tech, requirements, or details not stated.
-                      - Ambiguities/missing info must become questions under **Open Questions** (no assumptions).
-                      - Identify the primary code changes needed in this repo to implement the request (what to edit/add/remove at a high level).
-                      - If input names files/functions/symbols, cite them; otherwise do NOT invent paths/symbols.
-                      - Put test/verification expectations in **Acceptance Criteria** and/or **Verification**.
-
-                    Output (REQUIRED; exact labels, in order):
-                    **Summary**
-                    **Context**
-                    **Requirements**
-                    **Constraints**
-                    **Edge Cases**
-                    **Acceptance Criteria**
-                    **Open Questions**
-                    **Verification**
-                    **Plan** (explicit step-by-step; in **Plan**, name the key files/modules/classes/methods to change only if supported by the input or discovered from the repo; otherwise ask in **Open Questions**)
-                    """);
-            case CODE_ONLY ->
-                new TerminalObjective(
-                        "task",
-                        """
-                    Gather the minimum context required to implement the task, then invoke Code Agent.
-
-                    %s
-
-                    %s
-
-                    Finalize with callCodeAgent(String instructions) once the Workspace contains
-                    sufficient context for the Code Agent to implement the change.
-                    """
-                                .formatted(FINALIZATION_INVARIANT, WORKSPACE_CONTEXT_GUIDANCE));
-        };
+        ISSUE
     }
 }

@@ -895,7 +895,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Push an updated context with the modified history
-        pushContext(currentLiveCtx -> currentLiveCtx.withHistory(newHistory).withParsedOutput(null));
+        pushContext(currentLiveCtx -> currentLiveCtx.withHistory(newHistory));
 
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + seqToDrop);
     }
@@ -1156,9 +1156,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** usage for identifier with control over including test files */
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
-        var fragment = new ContextFragments.UsageFragment(this, identifier, includeTestFiles);
+        usageForIdentifier(identifier, includeTestFiles, ContextFragments.UsageMode.FULL);
+    }
+
+    /** usage for identifier with control over including test files and mode */
+    public void usageForIdentifier(String identifier, boolean includeTestFiles, ContextFragments.UsageMode mode) {
+        var fragment = new ContextFragments.UsageFragment(this, identifier, includeTestFiles, mode);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
-        String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "");
+        String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "")
+                + (mode == ContextFragments.UsageMode.SAMPLE ? " (sampled)" : "");
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
@@ -1380,8 +1386,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private CompletableFuture<Void> submitSessionSyncIfActive() {
         if (sessionsSyncActive) {
             return syncExecutor.submit(() -> {
-                new SessionSynchronizer(this).synchronize();
-                project.getMainProject().sessionsListChanged();
+                try {
+                    // Perform sync; let SessionSynchronizer surface IO/Interrupted exceptions which we handle here.
+                    new SessionSynchronizer(this).synchronize();
+                    // Only notify UI of sessions list changes when sync completed normally.
+                    project.getMainProject().sessionsListChanged();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                } catch (IOException ioe) {
+                    logger.debug("Remote session sync failed due to I/O error", ioe);
+                }
                 return null;
             });
         } else {
@@ -1705,8 +1719,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return LoggingFuture.supplyCallableVirtual(() -> {
             var msgs = SummarizerPrompts.instance.collectMessages(input, words);
             // Use quickModel for summarization
-            Llm.StreamingResult result = getLlm(
-                            getService().quickestModel(), "Summarize: " + input, TaskResult.Type.SUMMARIZE)
+            Llm.StreamingResult result = getLlm(getService().quickestModel(), input, TaskResult.Type.SUMMARIZE)
                     .sendRequest(msgs);
 
             if (result.error() != null) {
@@ -2238,23 +2251,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             }
 
-            var updatedContext = publishWithHistory(result);
-
-            // prepare MOP to display new history with the next streamed message
-            // needed because after the last append (before close) the MOP should not update
-            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
-
-            return updatedContext;
-        }
-
-        private Context publishWithHistory(TaskResult result) {
             assert !closed.get() : "TaskScope already closed";
             // push context
             logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
             var updated = result.context();
             TaskEntry entry = updated.createTaskEntry(result);
             var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(entry, result.output());
+                return updated.addHistoryEntry(entry);
             });
 
             if (group) {
@@ -2262,6 +2265,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // UI-level session locking should keep contextHistory stable between push and add-to-group
                 contextHistory.addContextToGroup(contextId, groupId, groupLabel);
             }
+
+            // prepare MOP to display new history with the next streamed message
+            // needed because after the last append (before close) the MOP should not update
+            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
 
             return updatedContext;
         }
@@ -2453,7 +2460,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceContext).copyAndRefresh();
+        var ctx = sourceContext.copyAndRefresh();
 
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
@@ -2484,8 +2491,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 2. Create the initial context for the new session.
                     // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
-                    var initialContextForNewSession =
-                            newContextFrom(sourceContext).copyAndRefresh();
+                    var initialContextForNewSession = sourceContext.copyAndRefresh();
 
                     // 3. Initialize the ContextManager's history for the new session with this single context.
                     // Context should already be live from migration logic
@@ -2503,14 +2509,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     logger.error("Failed to create new session from workspace", e);
                     throw new RuntimeException("Failed to create new session from workspace", e);
                 });
-    }
-
-    /** returns a new Context based on the source one */
-    private Context newContextFrom(Context sourceContext) {
-        var newActionDescription = "New Session";
-        var newParsedOutputFragment = new ContextFragments.TaskFragment(
-                this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
-        return sourceContext.withParsedOutput(newParsedOutputFragment);
     }
 
     /**
@@ -2713,11 +2711,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public void createHeadless(BuildDetails buildDetails, boolean createNewSession) {
-        this.io = new HeadlessConsole();
+        createHeadless(buildDetails, createNewSession, new HeadlessConsole());
+    }
+
+    public void createHeadless(BuildDetails buildDetails, boolean createNewSession, IConsoleIO io) {
+        this.io = io;
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
-
-        initializeCurrentSessionAndHistory(createNewSession);
 
         cleanupOldHistoryAsync();
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
@@ -2735,6 +2735,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
+
+        // potentially requires analyzer to load existing session
+        initializeCurrentSessionAndHistory(createNewSession);
 
         checkBalanceAndNotify();
     }

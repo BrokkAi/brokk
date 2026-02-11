@@ -96,7 +96,7 @@ class ContextDeltaTest {
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
         var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
         var entry = new TaskEntry(1, taskFrag, null);
-        var ctx2 = ctx1.addHistoryEntry(entry, taskFrag);
+        var ctx2 = ctx1.addHistoryEntry(entry);
 
         var delta = ContextDelta.between(ctx1, ctx2).join();
 
@@ -117,7 +117,7 @@ class ContextDeltaTest {
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
         var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
         var entry = new TaskEntry(1, taskFrag, null);
-        var ctxWithHistory = ctx1.addHistoryEntry(entry, taskFrag);
+        var ctxWithHistory = ctx1.addHistoryEntry(entry);
         var ctxCleared = ctxWithHistory.clearHistory();
 
         var delta = ContextDelta.between(ctxWithHistory, ctxCleared).join();

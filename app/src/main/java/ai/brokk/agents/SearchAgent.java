@@ -80,22 +80,23 @@ public class SearchAgent {
     public record ScanConfig(
             boolean autoScan, // Whether to auto-scan when workspace is empty or on first search tool
             @Nullable StreamingChatModel scanModel, // Model to use for ContextAgent (null = use project default)
-            boolean appendToScope // Whether to append scan results to scope history
+            boolean appendToScope, // Whether to append scan results to scope history
+            boolean autoPrune // Whether to run a janitor turn before starting search proper
             ) {
         public static ScanConfig defaults() {
-            return new ScanConfig(true, null, true);
+            return new ScanConfig(true, null, true, true);
         }
 
         public static ScanConfig disabled() {
-            return new ScanConfig(false, null, true);
+            return new ScanConfig(false, null, true, false);
         }
 
         public static ScanConfig withModel(StreamingChatModel model) {
-            return new ScanConfig(true, model, true);
+            return new ScanConfig(true, model, true, true);
         }
 
         public static ScanConfig noAppend() {
-            return new ScanConfig(true, null, false);
+            return new ScanConfig(true, null, false, true);
         }
     }
 
@@ -115,10 +116,12 @@ public class SearchAgent {
     private boolean scanPerformed;
     private boolean contextPruned;
 
+    private boolean terminalCompletionReported = false;
+
     private final SearchPrompts.Objective objective;
 
     SearchState currentState;
-    private @Nullable SearchState checkpointState;
+    private SearchState checkpointState;
 
     private final Set<ContextFragment> originalPinnedFragments;
     private final List<ContextFragment> droppedFragments = new ArrayList<>();
@@ -176,12 +179,12 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
-        var llmOptions = new Llm.Options(model, "Search: " + goal, TaskResult.Type.SEARCH).withEcho();
+        var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
 
         var summarizeModel = cm.getService().getModel(ModelType.SCAN);
-        this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal, TaskResult.Type.SUMMARIZE);
+        this.summarizer = cm.getLlm(summarizeModel, goal, TaskResult.Type.SUMMARIZE);
 
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
@@ -189,6 +192,7 @@ public class SearchAgent {
 
         this.mcpTools = initMcpTools(cm.getProject());
         this.currentState = SearchState.initial(initialContext);
+        this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.scanConfig = scanConfig;
         this.staticTools = initStaticTools(staticTools, cm.getProject(), mcpTools);
@@ -218,11 +222,11 @@ public class SearchAgent {
 
         // Search-specific analyzer tools
         tools.add("searchSymbols");
+        tools.add("scanUsages");
         tools.add("getSymbolLocations");
         tools.add("skimDirectory");
 
         // Workspace analyzer tools
-        tools.add("addSymbolUsagesToWorkspace");
         tools.add("addClassesToWorkspace");
         tools.add("addClassSummariesToWorkspace");
         tools.add("addMethodsToWorkspace");
@@ -255,17 +259,31 @@ public class SearchAgent {
     }
 
     public TaskResult execute() {
+        TaskResult tr;
         try {
-            var tr = executeInternal();
+            tr = executeInternal();
             if (metrics instanceof SearchMetrics.Tracking) {
                 var json = metrics.toJson(goal, tr.stopDetails().reason() == TaskResult.StopReason.SUCCESS);
                 System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
             }
-            return tr;
         } catch (InterruptedException e) {
             logger.debug("Search interrupted", e);
-            return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+            tr = errorResult(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
+
+        var details = tr.stopDetails();
+        if (details.reason() != TaskResult.StopReason.SUCCESS || !terminalCompletionReported) {
+            var message =
+                    switch (details.reason()) {
+                        case SUCCESS -> "Search finished.";
+                        case INTERRUPTED -> "Cancelled by user.";
+                        default ->
+                            details.explanation().isBlank() ? details.reason().name() : details.explanation();
+                    };
+            reportComplete(details.reason(), message);
+        }
+
+        return tr;
     }
 
     private boolean shouldAutomaticallyScan() {
@@ -273,7 +291,9 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
-        pruneContext();
+        if (scanConfig.autoPrune()) {
+            pruneContext();
+        }
         if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
             performAutoScan();
         }
@@ -282,14 +302,14 @@ public class SearchAgent {
         @Nullable PendingTerminal pendingTerminal = null;
 
         while (true) {
-            Context contextAtTurnStart = currentState.context();
+            SearchState stateAtTurnStart = currentState;
 
             if (pendingTerminal != null) {
                 assert dropOnlyMode;
-                assert hasDroppableFragments(contextAtTurnStart);
+                assert hasDroppableFragments(currentState.context());
             }
 
-            var sta = new SingleTurnAgent(this, currentState, dropOnlyMode, pendingTerminal);
+            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropOnlyMode, pendingTerminal);
             var outcome = sta.executeTurn();
 
             switch (outcome) {
@@ -298,14 +318,22 @@ public class SearchAgent {
                 }
                 case TurnOutcome.Overflow overflow -> {
                     assert pendingTerminal == null;
-                    assert checkpointState != null;
+                    if (currentState.equals(checkpointState)) {
+                        // our checkpoint is bad, this can happen if the initial context given to SearchAgent is too
+                        // large
+                        return errorResult(
+                                new TaskResult.StopDetails(
+                                        TaskResult.StopReason.LLM_CONTEXT_SIZE,
+                                        "Context limit exceeded before search started"),
+                                taskMeta(),
+                                currentState.context());
+                    }
 
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Context limit exceeded. Restoring last successful checkpoint and entering recovery mode.");
 
-                    currentState = Objects.requireNonNull(checkpointState);
-
+                    currentState = checkpointState;
                     if (!hasDroppableFragments(currentState.context())) {
                         return errorResult(
                                 new TaskResult.StopDetails(
@@ -322,14 +350,20 @@ public class SearchAgent {
                     performAutoScan();
                 }
                 case TurnOutcome.Continue c -> {
-                    currentState =
-                            new SearchState(c.contextAfterTurn(), c.sessionMessagesAfterTurn(), contextAtTurnStart);
-                    checkpointState = currentState;
+                    currentState = new SearchState(
+                            c.contextAfterTurn(),
+                            c.sessionMessagesAfterTurn(),
+                            stateAtTurnStart.context(),
+                            stateAtTurnStart.presentedRelatedFiles());
+                    checkpointState = stateAtTurnStart;
                     dropOnlyMode = false;
                 }
                 case TurnOutcome.PendingTerminal pt -> {
                     currentState = new SearchState(
-                            pt.contextAfterTurn(), pt.sessionMessagesAfterTurn(), currentState.lastTurnContext());
+                            pt.contextAfterTurn(),
+                            pt.sessionMessagesAfterTurn(),
+                            stateAtTurnStart.lastTurnContext(),
+                            stateAtTurnStart.presentedRelatedFiles());
                     pendingTerminal = pt.pendingTerminal();
                     dropOnlyMode = true;
                 }
@@ -355,7 +389,7 @@ public class SearchAgent {
         var terminals = new ArrayList<String>();
         var allowed = objective.terminals();
 
-        if (allowed.contains(Terminal.ISSUE_JSON)) {
+        if (allowed.contains(Terminal.ISSUE)) {
             terminals.add("issueWriterOutput");
             terminals.add("abortSearch");
             return terminals;
@@ -428,6 +462,7 @@ public class SearchAgent {
     ToolCategory categorizeTool(String toolName) {
         return switch (toolName) {
             case "answer",
+                    "createIssue",
                     "askForClarification",
                     "callCodeAgent",
                     "createOrReplaceTaskList",
@@ -454,10 +489,9 @@ public class SearchAgent {
             case "addFilesToWorkspace" -> 4;
             case "addClassesToWorkspace", "addFileSummariesToWorkspace" -> 5;
             case "addMethodsToWorkspace", "addClassSummariesToWorkspace" -> 6;
-            case "addSymbolUsagesToWorkspace" -> 15;
             case "searchSymbols",
                     "getSymbolLocations",
-                    "getUsages",
+                    "scanUsages",
                     "searchSubstrings",
                     "searchFilenames",
                     "searchGitCommitMessages" -> 20;
@@ -682,7 +716,7 @@ public class SearchAgent {
 
                 if (result.error() != null) {
                     var details = TaskResult.StopDetails.fromResponse(result);
-                    if (details.reason() == TaskResult.StopReason.LLM_CONTEXT_SIZE && agent.checkpointState != null) {
+                    if (details.reason() == TaskResult.StopReason.LLM_CONTEXT_SIZE) {
                         assert pendingTerminal == null;
                         return TurnOutcome.Overflow.INSTANCE;
                     }
@@ -828,6 +862,13 @@ public class SearchAgent {
         private TurnPrompt preparePrompt() throws InterruptedException {
             wst.setContext(context);
 
+            var related = context.buildRelatedSymbols(10, 20, agent.currentState.presentedRelatedFiles());
+            if (!related.isEmpty()) {
+                Set<ProjectFile> updatedRelated = new HashSet<>(agent.currentState.presentedRelatedFiles());
+                updatedRelated.addAll(related.keySet());
+                agent.currentState = agent.currentState.withPresentedRelatedFiles(updatedRelated);
+            }
+
             var messages = SearchPrompts.instance.buildPrompt(
                     context,
                     agent.model,
@@ -835,7 +876,8 @@ public class SearchAgent {
                     agent.goal,
                     agent.getObjective(),
                     agent.mcpTools,
-                    sessionMessages);
+                    sessionMessages,
+                    related);
 
             if (dropOnlyMode) {
                 context = agent.resetPinsToOriginal(context);
@@ -904,6 +946,7 @@ public class SearchAgent {
         @SuppressWarnings("UnusedMethod")
         public String abortSearch(
                 @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
+            agent.terminalCompletionReported = true;
             agent.io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
             return explanation;
         }
@@ -941,6 +984,7 @@ public class SearchAgent {
                 @P(
                                 "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
                         String explanation) {
+            agent.terminalCompletionReported = true;
             agent.io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
             return explanation;
         }
@@ -950,14 +994,22 @@ public class SearchAgent {
         @SuppressWarnings("UnusedMethod")
         public String askForClarification(
                 @P("A concise question or clarification request for the human user.") String queryForUser) {
+            agent.terminalCompletionReported = true;
             agent.io.llmOutput(queryForUser, ChatMessageType.AI, LlmOutputMeta.newMessage());
             return queryForUser;
         }
 
-        @Tool(
-                "Issue Writer final output. Provide EXACTLY the JSON string. No markdown fences, no preamble, no additional text.")
+        @Tool("Issue Writer final output. Create a high-quality GitHub issue.")
         @SuppressWarnings("UnusedMethod")
-        public String issueWriterOutput(@P("A single JSON object string.") String json) {
+        public String createIssue(
+                @P("Concise, specific issue title.") String title,
+                @P("GitHub-flavored Markdown describing the problem and impact.") String body) {
+            agent.terminalCompletionReported = true;
+            var json = ai.brokk.util.Json.getMapper()
+                    .createObjectNode()
+                    .put("title", title)
+                    .put("body", body)
+                    .toString();
             agent.io.llmOutput(json, ChatMessageType.AI, LlmOutputMeta.newMessage());
             return json;
         }
@@ -1014,12 +1066,17 @@ public class SearchAgent {
     }
 
     private TaskResult createResult(String action, String goal, Context context) {
-        return createResult(action, goal, taskMeta(), context);
+        return createResult(
+                action, goal, taskMeta(), context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }
 
     private TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta, Context context) {
+        return createResult(action, goal, meta, context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+    }
+
+    private TaskResult createResult(
+            String action, String goal, TaskResult.TaskMeta meta, Context context, TaskResult.StopDetails stopDetails) {
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
-        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
         recordFinalWorkspaceState(context);
@@ -1270,6 +1327,14 @@ public class SearchAgent {
                     taskMeta(),
                     context);
         }
+        if ("createIssue".equals(pendingTerminal.toolName())) {
+            return createResult(
+                    pendingTerminal.toolName(),
+                    goal,
+                    taskMeta(),
+                    context,
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, pendingTerminal.resultText()));
+        }
         return createResult(pendingTerminal.toolName(), goal, context);
     }
 
@@ -1277,7 +1342,7 @@ public class SearchAgent {
         return Set.of(
                         "getSymbolLocations",
                         "searchSymbols",
-                        "getUsages",
+                        "scanUsages",
                         "searchSubstrings",
                         "searchFilenames",
                         "searchGitCommitMessages")
@@ -1325,5 +1390,14 @@ public class SearchAgent {
 
     private TaskResult.TaskMeta taskMeta() {
         return new TaskResult.TaskMeta(TaskResult.Type.SEARCH, Service.ModelConfig.from(model, cm.getService()));
+    }
+
+    void reportComplete(TaskResult.StopReason reason, String message) {
+        logger.debug("SearchAgent completed: {}: {}", reason, message);
+        var badge = StatusBadge.badgeFor(reason);
+        io.llmOutput(
+                "\n## Search Agent Finished\n" + badge + "\n\n**Reason:** " + message,
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.DEFAULT);
     }
 }

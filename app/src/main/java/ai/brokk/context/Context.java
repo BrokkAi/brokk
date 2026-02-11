@@ -18,7 +18,6 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
-import dev.langchain4j.data.message.ChatMessageType;
 import java.time.Duration;
 import java.util.*;
 import java.util.ArrayList;
@@ -59,12 +58,6 @@ public class Context {
      */
     final List<TaskEntry> taskHistory;
 
-    /**
-     * LLM output or other parsed content, with optional fragment. May be null
-     */
-    @Nullable
-    final transient ContextFragments.TaskFragment parsedOutput;
-
     private final Set<ContextFragment> markedReadonlyFragments;
     private final Set<ContextFragment> pinnedFragments;
 
@@ -72,7 +65,7 @@ public class Context {
      * Constructor for initial empty context
      */
     public Context(IContextManager contextManager) {
-        this(newContextId(), contextManager, List.of(), List.of(), null, Set.of(), Set.of());
+        this(newContextId(), contextManager, List.of(), List.of(), Set.of(), Set.of());
     }
 
     private Context(
@@ -80,7 +73,6 @@ public class Context {
             IContextManager contextManager,
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
-            @Nullable ContextFragments.TaskFragment parsedOutput,
             Set<ContextFragment> markedReadonlyFragments,
             Set<ContextFragment> pinnedFragments) {
         for (var cf : markedReadonlyFragments) {
@@ -94,17 +86,12 @@ public class Context {
         this.contextManager = contextManager;
         this.fragments = List.copyOf(fragments);
         this.taskHistory = List.copyOf(taskHistory);
-        this.parsedOutput = parsedOutput;
         this.markedReadonlyFragments = Set.copyOf(markedReadonlyFragments);
         this.pinnedFragments = Set.copyOf(pinnedFragments);
     }
 
-    public Context(
-            IContextManager contextManager,
-            List<ContextFragment> fragments,
-            List<TaskEntry> taskHistory,
-            @Nullable ContextFragments.TaskFragment parsedOutput) {
-        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, Set.of(), Set.of());
+    public Context(IContextManager contextManager, List<ContextFragment> fragments, List<TaskEntry> taskHistory) {
+        this(newContextId(), contextManager, fragments, taskHistory, Set.of(), Set.of());
     }
 
     /**
@@ -148,11 +135,14 @@ public class Context {
                 .collect(Collectors.joining("\n\n"));
     }
 
-    public Map<ProjectFile, String> buildRelatedSymbols(int k) throws InterruptedException {
-        var candidates = getMostRelevantFiles(k).stream().sorted().toList();
+    public Map<ProjectFile, String> buildRelatedSymbols(int k, int n, Set<ProjectFile> toIgnore)
+            throws InterruptedException {
+        var candidates = getMostRelevantFiles(n).stream()
+                .filter(pf -> !toIgnore.contains(pf))
+                .limit(k)
+                .toList();
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
-        // TODO: Get this off common FJP
         return candidates.parallelStream()
                 .map(pf -> Map.entry(pf, analyzer.summarizeSymbols(pf)))
                 .filter(e -> !e.getValue().isBlank())
@@ -239,8 +229,7 @@ public class Context {
                 .filter(f -> !supersededFragments.contains(f))
                 .collect(Collectors.toSet());
 
-        return new Context(
-                newContextId(), contextManager, keptExistingFragments, taskHistory, null, newReadOnly, newPinned);
+        return new Context(newContextId(), contextManager, keptExistingFragments, taskHistory, newReadOnly, newPinned);
     }
 
     @Blocking
@@ -430,11 +419,11 @@ public class Context {
                 .filter(f -> !toRemoveSet.contains(f))
                 .collect(Collectors.toSet());
 
-        return new Context(newContextId(), contextManager, newFragments, taskHistory, null, newReadOnly, newPinned);
+        return new Context(newContextId(), contextManager, newFragments, taskHistory, newReadOnly, newPinned);
     }
 
     public Context removeAll() {
-        return new Context(newContextId(), contextManager, List.of(), List.of(), null, Set.of(), Set.of());
+        return new Context(newContextId(), contextManager, List.of(), List.of(), Set.of(), Set.of());
     }
 
     public Context withPinned(ContextFragment fragment, boolean pinned) {
@@ -448,13 +437,7 @@ public class Context {
         }
 
         return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                this.markedReadonlyFragments,
-                newPinned);
+                newContextId(), contextManager, fragments, taskHistory, this.markedReadonlyFragments, newPinned);
     }
 
     public Context setReadonly(ContextFragment fragment, boolean readonly) {
@@ -469,8 +452,7 @@ public class Context {
             newReadOnly.remove(fragment);
         }
 
-        return new Context(
-                newContextId(), contextManager, fragments, taskHistory, null, newReadOnly, this.pinnedFragments);
+        return new Context(newContextId(), contextManager, fragments, taskHistory, newReadOnly, this.pinnedFragments);
     }
 
     public boolean isEmpty() {
@@ -490,7 +472,7 @@ public class Context {
         return TaskEntry.fromSession(nextSequence, result);
     }
 
-    public Context addHistoryEntry(TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed) {
+    public Context addHistoryEntry(TaskEntry taskEntry) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         return new Context(
@@ -498,7 +480,6 @@ public class Context {
                 contextManager,
                 fragments,
                 newTaskHistory,
-                parsed,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
@@ -509,7 +490,6 @@ public class Context {
                 contextManager,
                 fragments,
                 List.of(),
-                null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
@@ -568,17 +548,6 @@ public class Context {
         return result;
     }
 
-    public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput) {
-        return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                this.markedReadonlyFragments,
-                this.pinnedFragments);
-    }
-
     /**
      * Creates a Context with explicit control over all fields including description override.
      * Used by DtoMapper during deserialization.
@@ -588,10 +557,9 @@ public class Context {
             IContextManager cm,
             List<ContextFragment> fragments,
             List<TaskEntry> history,
-            @Nullable ContextFragments.TaskFragment parsed,
             Set<ContextFragment> readOnlyFragments,
             Set<ContextFragment> pinnedFragments) {
-        return new Context(id, cm, fragments, history, parsed, readOnlyFragments, pinnedFragments);
+        return new Context(id, cm, fragments, history, readOnlyFragments, pinnedFragments);
     }
 
     /**
@@ -603,25 +571,8 @@ public class Context {
                 contextManager,
                 fragments,
                 newHistory,
-                null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
-    }
-
-    @Nullable
-    public ContextFragments.TaskFragment getParsedOutput() {
-        return parsedOutput;
-    }
-
-    /**
-     * Returns true if the parsedOutput contains AI messages (useful for UI decisions).
-     */
-    public boolean isAiResult() {
-        var parsed = getParsedOutput();
-        if (parsed == null) {
-            return false;
-        }
-        return parsed.messages().stream().anyMatch(m -> m.type() == ChatMessageType.AI);
     }
 
     /**
@@ -636,7 +587,6 @@ public class Context {
                 currentContext.contextManager,
                 fragments,
                 newHistory,
-                null,
                 sourceContext.markedReadonlyFragments,
                 sourceContext.pinnedFragments);
     }
@@ -708,7 +658,6 @@ public class Context {
                 getContextManager(),
                 newFragments,
                 afterClear.taskHistory,
-                afterClear.parsedOutput,
                 afterClear.markedReadonlyFragments,
                 newPinned);
     }
@@ -932,8 +881,7 @@ public class Context {
             }
         }
 
-        return new Context(
-                newContextId(), contextManager, newFragments, taskHistory, parsedOutput, newReadOnly, newPinned);
+        return new Context(newContextId(), contextManager, newFragments, taskHistory, newReadOnly, newPinned);
     }
 
     /**

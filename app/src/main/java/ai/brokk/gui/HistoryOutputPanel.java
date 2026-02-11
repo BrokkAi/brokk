@@ -298,7 +298,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         historyTableComponent.addDoubleClickListener(context -> {
             if (isReviewContext(context)) {
                 loadReviewFromContext(context);
-            } else if (context.isAiResult()) {
+            } else if (contextManager.getContextHistory().isAiResult(context)) {
                 openDiffPreview(context);
             } else {
                 openOutputWindowFromContext(context);
@@ -1524,13 +1524,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private void openOutputWindowFromContext(Context context) {
         var taskHistory = context.getTaskHistory();
-        if (taskHistory.isEmpty()) {
-            var output = context.getParsedOutput();
-            if (output != null) {
-                taskHistory = List.of(new TaskEntry(-1, output, null));
-            }
-        }
-
         if (!taskHistory.isEmpty()) {
             var fragment = new ContextFragments.HistoryFragment(contextManager, taskHistory);
             chrome.openFragmentPreview(fragment);

@@ -57,7 +57,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jdt.core.JavaCore;
@@ -100,8 +99,18 @@ public class CodeAgent {
         this.contextManager = contextManager;
         this.model = model;
         this.io = io;
-        // free tier models are dumber; cut them off sooner
-        MAX_BUILD_FAILURES = contextManager.getService().isFreeTier(model) ? 3 : 5;
+
+        @Nullable String rawAttempts = System.getenv("BRK_CODE_BUILD_ATTEMPTS");
+        int attempts = 3;
+        if (rawAttempts != null && !rawAttempts.isBlank()) {
+            try {
+                attempts = Integer.parseInt(rawAttempts.trim());
+            } catch (NumberFormatException e) {
+                // ignore
+            }
+        }
+        this.MAX_BUILD_FAILURES = Math.max(1, attempts);
+
         // placeholder to make Null Away happy; initialized in runTaskInternal
         this.context = new Context(contextManager);
     }
@@ -455,10 +464,7 @@ public class CodeAgent {
         String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
                 ? userInput
                 : userInput + " [" + stopDetails.reason().name() + "]";
-        // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
-        // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
-        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
-        var tr = new TaskResult(contextManager, finalActionDescription, finalMessages, context, stopDetails, meta);
+        var tr = new TaskResult(contextManager, finalActionDescription, cs.taskMessages, context, stopDetails, meta);
         logger.debug("Task result: {}", tr);
         return tr;
     }
@@ -534,30 +540,6 @@ public class CodeAgent {
         int updatedConsecutiveParseFailures = 0;
         var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
         return new Step.Continue(cs, nextEs, newlyParsedBlocks);
-    }
-
-    /**
-     * Prepares messages for storage in a TaskEntry. This involves filtering raw LLM I/O to keep USER, CUSTOM, and AI
-     * messages. AI messages containing SEARCH/REPLACE blocks will have their raw text preserved, rather than converting
-     * blocks to HTML placeholders or summarizing block-only messages.
-     */
-    private static List<ChatMessage> prepareMessagesForTaskEntryLog(List<ChatMessage> rawMessages) {
-        return rawMessages.stream()
-                .flatMap(message -> {
-                    return switch (message.type()) {
-                        case USER, CUSTOM -> Stream.of(message);
-                        case AI -> {
-                            var aiMessage = (AiMessage) message;
-                            // Pass through AI messages with their original text.
-                            // Raw S/R blocks are preserved.
-                            // If the text is blank, effectively filter out the message.
-                            yield aiMessage.text().isBlank() ? Stream.empty() : Stream.of(aiMessage);
-                        }
-                        // Ignore SYSTEM/TOOL messages for TaskEntry log purposes
-                        default -> Stream.empty();
-                    };
-                })
-                .toList();
     }
 
     /**
@@ -778,9 +760,16 @@ public class CodeAgent {
                         new JavaPreLintFalsePositiveException(message), Map.of("sourcefile", pf.getFileName()));
             }
             logger.debug("Build verification succeeded");
+            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
+            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
+        } else {
+            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
+            if (metrics != null) {
+                metrics.buildFailures++;
+            }
 
-            var lastAiText = cs.taskMessages().isEmpty()
-                    ? ""
+            var lastAiText = cs.taskMessages.isEmpty()
+                    ? "" // taskMessages is never empty in prod, but our test code is lazy
                     : Messages.getText(cs.taskMessages().getLast());
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
             var filesInContext = context.allFragments()
@@ -806,20 +795,11 @@ public class CodeAgent {
                 if (isAskingForFiles) {
                     var fileNames =
                             notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
-                    reportComplete(
-                            TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + fileNames);
+                    reportComplete(TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files");
                     return new Step.Fatal(new TaskResult.StopDetails(
                             TaskResult.StopReason.LLM_ABORTED,
                             "Agent requested additional files not in context: " + fileNames));
                 }
-            }
-
-            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
-            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
-        } else {
-            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
-            if (metrics != null) {
-                metrics.buildFailures++;
             }
 
             int newBuildFailures = es.consecutiveBuildFailures() + 1;
@@ -962,7 +942,21 @@ public class CodeAgent {
                         cs.taskMessages().add(retryMessages.taggedAiMessage());
                     }
 
-                    csForStep = cs.withNextRequest(retryMessages.retryRequest());
+                    UserMessage retryRequest = retryMessages.retryRequest();
+                    if (!es.lastBuildError().isBlank()) {
+                        String harnessNote =
+                                """
+                                [HARNESS NOTE: Apply did not fully succeed. I applied %d of %d of your SEARCH/REPLACE blocks, but I have NOT rerun the build yet.
+                                I will rerun the build once all of your proposed edits apply cleanly.
+                                If you believe no further edits are required and I should run the build now, simply explain why and do NOT provide any further SEARCH/REPLACE blocks.]
+                                """
+                                        .formatted(succeededCount, attemptedBlockCount)
+                                        .stripIndent()
+                                        .trim();
+                        retryRequest = new UserMessage(Messages.getText(retryRequest) + "\n\n" + harnessNote);
+                    }
+
+                    csForStep = cs.withNextRequest(retryRequest);
                     esForStep = es.afterApply(
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,

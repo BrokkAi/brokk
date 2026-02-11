@@ -129,6 +129,7 @@ public final class MainProject extends AbstractProject {
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
     private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
     private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
+    private static final String OPENAI_CODEX_OAUTH_CONNECTED_KEY = "openAiCodexOauthConnected";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -146,6 +147,9 @@ public final class MainProject extends AbstractProject {
 
     @Nullable
     private static volatile LlmProxySetting headlessProxySettingOverride = null;
+
+    @Nullable
+    private static volatile List<Service.FavoriteModel> headlessFavoriteModelsOverride = null;
 
     @Nullable
     private static volatile Path cachedGlobalConfigDir = null;
@@ -205,6 +209,9 @@ public final class MainProject extends AbstractProject {
     public static final String STAGING_PROXY_URL = "https://staging.brokk.ai";
     public static final String BROKK_SERVICE_URL = "https://app.brokk.ai";
     public static final String STAGING_SERVICE_URL = "https://brokk-backend-staging.up.railway.app";
+    public static final String BROKK_FRONTEND_URL = "https://brokk.ai";
+    public static final String LOCALHOST_FRONTEND_URL = "http://localhost:5173";
+    public static final String STAGING_FRONTEND_URL = "https://brokk-frontend-staging.up.railway.app";
 
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
 
@@ -717,24 +724,11 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
-    /**
-     * Returns the size of the given {@link ProjectFile} in bytes. Any {@link IOException} is logged and a size of
-     * {@code 0} is returned so that a single problematic file does not break language detection.
-     */
-    private static long getFileSize(ProjectFile pf) {
-        try {
-            return Files.size(pf.absPath());
-        } catch (IOException e) {
-            logger.warn("Unable to determine size of file {}: {}", pf, e.getMessage());
-            return 0L;
-        }
-    }
-
     @Override
     public Set<Language> getAnalyzerLanguages() {
         String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
         if (langsProp != null && !langsProp.isBlank()) {
-            return Arrays.stream(langsProp.split(","))
+            Set<Language> parsed = Arrays.stream(langsProp.split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
                     .map(langName -> {
@@ -747,43 +741,27 @@ public final class MainProject extends AbstractProject {
                     })
                     .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
+
+            if (parsed.isEmpty()) {
+                return Set.of(Languages.NONE);
+            }
+            return parsed;
         }
 
-        Map<Language, Long> languageSizes = repo.getTrackedFiles().stream() // repo from AbstractProject
-                .filter(pf -> Languages.fromExtension(pf.extension()) != Languages.NONE)
-                .collect(Collectors.groupingBy(
-                        pf -> Languages.fromExtension(pf.extension()),
-                        Collectors.summingLong(MainProject::getFileSize)));
+        Set<Language> detectedLanguages = new HashSet<>();
+        for (ProjectFile pf : repo.getTrackedFiles()) {
+            Language lang = Languages.fromExtension(pf.extension());
+            if (lang != Languages.NONE) {
+                detectedLanguages.add(lang);
+            }
+        }
 
-        if (languageSizes.isEmpty()) {
+        if (detectedLanguages.isEmpty()) {
             logger.debug(
                     "No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
             return Set.of(Languages.NONE);
         }
 
-        long totalRecognizedBytes =
-                languageSizes.values().stream().mapToLong(Long::longValue).sum();
-        Set<Language> detectedLanguages = new HashSet<>();
-
-        languageSizes.entrySet().stream()
-                .filter(entry -> (double) entry.getValue() / totalRecognizedBytes >= 0.10)
-                .forEach(entry -> detectedLanguages.add(entry.getKey()));
-
-        if (detectedLanguages.isEmpty()) {
-            var mostCommonEntry = languageSizes.entrySet().stream()
-                    .max(Map.Entry.comparingByValue())
-                    .orElseThrow();
-            detectedLanguages.add(mostCommonEntry.getKey());
-            logger.debug(
-                    "No language met 10% threshold for {}. Adding most common: {}",
-                    root, mostCommonEntry.getKey().name());
-        }
-
-        if (languageSizes.containsKey(Languages.SQL)) {
-            if (detectedLanguages.add(Languages.SQL)) {
-                logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
-            }
-        }
         logger.debug(
                 "Auto-detected languages for {}: {}",
                 root,
@@ -1048,8 +1026,16 @@ public final class MainProject extends AbstractProject {
     public static String getServiceUrl() {
         return switch (getProxySetting()) {
             case BROKK -> BROKK_SERVICE_URL;
-            case LOCALHOST -> BROKK_SERVICE_URL;
+            case LOCALHOST -> "http://localhost:8000";
             case STAGING -> STAGING_SERVICE_URL;
+        };
+    }
+
+    public static String getFrontendUrl() {
+        return switch (getProxySetting()) {
+            case BROKK -> BROKK_FRONTEND_URL;
+            case LOCALHOST -> LOCALHOST_FRONTEND_URL;
+            case STAGING -> STAGING_FRONTEND_URL;
         };
     }
 
@@ -1117,6 +1103,35 @@ public final class MainProject extends AbstractProject {
             } catch (Exception e) {
                 logger.error("Error notifying listener of auto-update git dependencies change", e);
             }
+        }
+    }
+
+    private static void notifyOpenAiOauthConnectionChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.openAiOauthConnectionChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of OpenAI OAuth connection change", e);
+            }
+        }
+    }
+
+    public static boolean isOpenAiCodexOauthConnected() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "false"));
+    }
+
+    public static void setOpenAiCodexOauthConnected(boolean connected) {
+        var props = loadGlobalProperties();
+        boolean currentValue = Boolean.parseBoolean(props.getProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "false"));
+        if (currentValue != connected) {
+            if (connected) {
+                props.setProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "true");
+            } else {
+                props.remove(OPENAI_CODEX_OAUTH_CONNECTED_KEY);
+            }
+            saveGlobalProperties(props);
+            notifyOpenAiOauthConnectionChanged();
         }
     }
 
@@ -1223,7 +1238,7 @@ public final class MainProject extends AbstractProject {
             return Set.of();
         }
 
-        return namesToDependencies(liveDepsNames);
+        return resolveDependencies(liveDepsNames);
     }
 
     @Override
@@ -1455,7 +1470,6 @@ public final class MainProject extends AbstractProject {
     private static final String MOP_ZOOM_KEY = "mopZoom";
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
-    private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
     private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
 
     public static String getUiScalePref() {
@@ -1519,25 +1533,6 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
-    // ------------------------------------------------------------
-    // Git branch poller (global) settings
-    // ------------------------------------------------------------
-
-    public static boolean getForceToolEmulation() {
-        var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(FORCE_TOOL_EMULATION_KEY, "false"));
-    }
-
-    public static void setForceToolEmulation(boolean force) {
-        var props = loadGlobalProperties();
-        if (force) {
-            props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
-        } else {
-            props.remove(FORCE_TOOL_EMULATION_KEY);
-        }
-        saveGlobalProperties(props);
-    }
-
     public static String getOtherModelsVendorPreference() {
         var props = loadGlobalProperties();
         return props.getProperty(OTHER_MODELS_VENDOR_KEY, "");
@@ -1592,7 +1587,7 @@ public final class MainProject extends AbstractProject {
     }
 
     // Grouped settings records for atomic batch saving
-    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting, boolean forceToolEmulation) {
+    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting) {
         public void applyTo(Properties props) {
             var existingKey = props.getProperty("brokkApiKey", "");
             if (brokkApiKey.isBlank()) {
@@ -1604,11 +1599,6 @@ public final class MainProject extends AbstractProject {
                 props.setProperty("brokkApiKey", brokkApiKey.trim());
             }
             props.setProperty(LLM_PROXY_SETTING_KEY, proxySetting.name());
-            if (forceToolEmulation) {
-                props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
-            } else {
-                props.remove(FORCE_TOOL_EMULATION_KEY);
-            }
         }
     }
 
@@ -1797,10 +1787,28 @@ public final class MainProject extends AbstractProject {
     public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = ModelProperties.DEFAULT_FAVORITE_MODELS;
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
+        // Check headless override first
+        var override = headlessFavoriteModelsOverride;
+        if (override != null) {
+            logger.debug("Using headless favorite models override ({} models).", override.size());
+            return override;
+        }
         var props = loadGlobalProperties();
         var list = ModelProperties.loadFavoriteModels(props);
         logger.debug("Loaded {} favorite models from global properties.", list.size());
         return list;
+    }
+
+    /**
+     * Sets the headless favorite models override. If set, loadFavoriteModels() and
+     * getFavoriteModel() will use this list instead of reading from global properties.
+     *
+     * @param models the favorite models override, or null to clear the override
+     */
+    public static void setHeadlessFavoriteModelsOverride(@Nullable List<Service.FavoriteModel> models) {
+        headlessFavoriteModelsOverride = models;
+        logger.debug(
+                "Set headless favorite models override: {}", models != null ? models.size() + " models" : "(cleared)");
     }
 
     /**
@@ -1811,8 +1819,10 @@ public final class MainProject extends AbstractProject {
      * @throws IllegalArgumentException if no favourite model with the given alias exists
      */
     public static Service.FavoriteModel getFavoriteModel(String alias) {
-        var props = loadGlobalProperties();
-        return ModelProperties.getFavoriteModel(props, alias);
+        return loadFavoriteModels().stream()
+                .filter(fm -> fm.alias().equalsIgnoreCase(alias))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
     }
 
     public static void saveFavoriteModels(List<Service.FavoriteModel> favorites) {
