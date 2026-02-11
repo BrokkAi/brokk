@@ -1748,6 +1748,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (existingDuplicate == null) {
             // No duplicate, add normally
             localTopLevelCUs.add(cu);
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
+                    .add(cu);
+            if (!cu.shortName().equals(cu.identifier())) {
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
+                        .add(cu);
+            }
             return;
         }
 
@@ -1772,6 +1780,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         localSourceRanges,
                         localCodeUnitsBySymbol,
                         localCuByFqName);
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
+                        .add(cu);
+                if (!cu.shortName().equals(cu.identifier())) {
+                    localCodeUnitsBySymbol
+                            .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
+                            .add(cu);
+                }
                 return;
             }
         }
@@ -1780,6 +1796,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
             localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
             localTopLevelCUs.add(cu);
+
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
+                    .add(cu);
+            if (!cu.shortName().equals(cu.identifier())) {
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
+                        .add(cu);
+            }
 
             // Recursively remove the old definition and all its descendants from all maps
             // This prevents orphaned children from appearing in the final result
@@ -1880,6 +1905,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         if (existingDuplicate == null) {
             kids.add(cu);
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
+                    .add(cu);
+            if (!cu.shortName().equals(cu.identifier())) {
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
+                        .add(cu);
+            }
             return;
         }
 
@@ -1924,6 +1957,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 kids.removeAll(toRemove);
             }
             kids.add(cu);
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
+                    .add(cu);
+            if (!cu.shortName().equals(cu.identifier())) {
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
+                        .add(cu);
+            }
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, cu.source())) {
             log.trace("Skipping duplicate child '{}' per language policy", cu.fqName());
         } else if (!existingDuplicate.equals(cu)) {
@@ -2104,6 +2145,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         sortedModifierStrings,
                                         decoratorNodesForMatch,
                                         definitionNode.getParent())); // Cache parent to avoid repeated lookups
+
+                        // Register in symbol index for resolution.
+                        // Note: deduplication/replacement logic in addTopLevelCodeUnit and addChildCodeUnit
+                        // will manage the contents of localCodeUnitsBySymbol to ensure correct lookups.
+                        localCodeUnitsBySymbol.computeIfAbsent(simpleName, k -> new HashSet<>());
                     } else {
                         if (simpleName == null) {
                             if (!isNullNameAllowed(
@@ -2227,6 +2273,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         simpleName,
                         primaryCaptureName,
                         file.getFileName());
+                // Remove from symbol index if we registered it but then failed to create the CU
+                localCodeUnitsBySymbol.remove(simpleName);
                 continue;
             }
 
@@ -2285,15 +2333,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
             }
             localHasBody.put(cu, hasBody);
-
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
-                    .add(cu);
-            if (!cu.shortName().equals(cu.identifier())) {
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
-                        .add(cu);
-            }
 
             String signature =
                     buildSignatureString(node, simpleName, sourceContent, primaryCaptureName, modifierKeywords, file);

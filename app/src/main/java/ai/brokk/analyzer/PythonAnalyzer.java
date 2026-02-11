@@ -893,16 +893,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                     .add(moduleCu);
         }
 
-        // Register module in symbol index for getDefinitions() lookup
-        localCodeUnitsBySymbol
-                .computeIfAbsent(moduleCu.identifier(), k -> new HashSet<>())
-                .add(moduleCu);
-        if (!moduleCu.shortName().equals(moduleCu.identifier())) {
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(moduleCu.shortName(), k -> new HashSet<>())
-                    .add(moduleCu);
-        }
-
         List<CodeUnit> children = localTopLevelCUs.stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
                 .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
