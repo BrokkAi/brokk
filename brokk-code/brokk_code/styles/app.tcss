@@ -2,35 +2,6 @@ Screen {
     background: $surface;
 }
 
-#side-context {
-    width: 40;
-    dock: left;
-    background: $panel;
-    border-right: solid $primary;
-    display: none;
-}
-
-#context-header {
-    padding: 1 2;
-    background: $primary-darken-1;
-    color: $text;
-    text-style: bold;
-    width: 100%;
-    opacity: 0.6;
-}
-
-#context-list {
-    background: transparent;
-}
-
-ContextFragmentItem {
-    padding: 0 1;
-}
-
-ContextFragmentItem Label {
-    width: 100%;
-}
-
 #side-tasklist {
     width: 30;
     dock: right;
@@ -70,7 +41,6 @@ ChatPanel {
     height: 1;
     margin: 0 2;
     layout: horizontal;
-    /* Ensure the area doesn't collapse if children are hidden */
     min-height: 1;
 }
 
@@ -93,6 +63,92 @@ ChatPanel {
     height: 1;
     content-align: right middle;
     color: $text-disabled;
+}
+
+#context-panel {
+    margin: 0 2;
+    height: auto;
+    max-height: 6;
+    background: $panel;
+    border: solid $primary-darken-2;
+    padding: 0 1;
+}
+
+#context-header {
+    height: 1;
+    width: 100%;
+    layout: horizontal;
+    margin: 0 0 1 0;
+}
+
+#context-title {
+    text-style: bold;
+    color: $text;
+    width: auto;
+}
+
+#context-token-usage {
+    width: 1fr;
+    content-align: right middle;
+    color: $text-disabled;
+}
+
+#context-chip-scroll {
+    height: 3;
+    width: 100%;
+}
+
+#context-chip-row {
+    layout: horizontal;
+    height: auto;
+    min-width: 100%;
+}
+
+.context-chip {
+    height: 1;
+    width: auto;
+    margin-right: 1;
+    padding: 0 1;
+    border: round $primary-darken-2;
+    background: $surface-lighten-1;
+    color: $text;
+}
+
+.context-chip-empty {
+    border: none;
+    padding: 0;
+    color: $text-disabled;
+    background: transparent;
+}
+
+.context-chip.kind-edit {
+    background: $success 15%;
+    border: round $success;
+    color: $success-lighten-3;
+}
+
+.context-chip.kind-summary {
+    background: $accent 12%;
+    border: round $accent;
+}
+
+.context-chip.kind-history {
+    background: $warning 15%;
+    border: round $warning;
+}
+
+.context-chip.kind-invalid {
+    background: $error 15%;
+    border: round $error;
+}
+
+.context-chip.kind-task-list {
+    background: $primary 18%;
+    border: round $primary;
+}
+
+.context-chip.is-pinned {
+    text-style: bold;
 }
 
 #chat-input {

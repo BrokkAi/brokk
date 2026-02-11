@@ -97,7 +97,6 @@ class BrokkApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
-            yield ContextPanel(id="side-context")
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
         yield Footer()
@@ -508,9 +507,9 @@ class BrokkApp(App):
             chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
 
     def action_toggle_context(self) -> None:
-        panel = self.query_one(ContextPanel)
-        panel.display = not panel.display
-        if panel.display and self._executor_ready:
+        panel = self.query_one("#context-panel", ContextPanel)
+        panel.toggle_class("hidden")
+        if not panel.has_class("hidden") and self._executor_ready:
             self.run_worker(self._refresh_context_panel())
 
     def action_toggle_tasklist(self) -> None:

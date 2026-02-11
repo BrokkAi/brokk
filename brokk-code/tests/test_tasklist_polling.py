@@ -221,9 +221,9 @@ async def test_context_polling_updates_ui(tmp_path):
             await pilot.pause()
 
             # Verify Header
-            panel = app.query_one("#side-context", ContextPanel)
-            header = panel.query_one("#context-header")
-            assert "1,500 / 100,000 tokens" in str(header.render())
+            panel = app.query_one("#context-panel", ContextPanel)
+            usage = panel.query_one("#context-token-usage")
+            assert "1,500 / 100,000 tokens" in str(usage.render())
 
             # Verify ChatPanel Token Usage
             chat_panel = app.query_one(ChatPanel)
@@ -232,20 +232,11 @@ async def test_context_polling_updates_ui(tmp_path):
             assert "1,500 / 100,000" in str(usage_label.render())
 
             # Verify List Contents
-            list_view = panel.query_one("#context-list")
-            # Query explicitly for ContextFragmentItem to avoid counting internal ListView nodes
-            fragment_items = list_view.query(ContextFragmentItem)
+            chip_row = panel.query_one("#context-chip-row")
+            fragment_items = chip_row.query(ContextFragmentItem)
             assert len(fragment_items) == 2
 
-            # Check for specific text in list items
-            # We iterate each ContextFragmentItem and render its Label children
-            # because rendering the ListItem itself may return a Blank object.
-            all_labels_text = []
-            for item in fragment_items:
-                for label in item.query("Label"):
-                    all_labels_text.append(label.render().plain)
-
-            items_text = " ".join(all_labels_text)
+            items_text = " ".join(item.render().plain for item in fragment_items)
             assert "Modified UserAuth.java" in items_text
             assert "Previous chat history" in items_text
             assert "EDIT" in items_text
@@ -292,4 +283,4 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
 
             mock_ctx.assert_called()
             panel = app.query_one(ContextPanel)
-            assert "100 /" in str(panel.query_one("#context-header").render())
+            assert "100 /" in str(panel.query_one("#context-token-usage").render())

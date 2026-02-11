@@ -2,62 +2,65 @@ from typing import Any, Dict, List
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import Vertical
-from textual.widgets import Label, ListItem, ListView
+from textual.containers import Horizontal, HorizontalScroll, Vertical
+from textual.widgets import Label, Static
 
 
-class ContextFragmentItem(ListItem):
-    """A single fragment entry in the list."""
+class ContextFragmentItem(Static):
+    """A compact chip-like widget representing a single context fragment."""
 
     def __init__(self, fragment: Dict[str, Any]) -> None:
-        super().__init__()
+        super().__init__(classes="context-chip")
         self.fragment = fragment
 
-    def compose(self) -> ComposeResult:
+    def on_mount(self) -> None:
         chip_kind = self.fragment.get("chip_kind", self.fragment.get("chipKind", "OTHER"))
         description = self.fragment.get("shortDescription", "Unknown")
-        pinned = " 📌" if self.fragment.get("pinned") else ""
         tokens = self.fragment.get("tokens", 0)
 
-        # Color mapping based on chipKind
-        color = {
-            "EDIT": "green",
-            "SUMMARY": "blue",
-            "HISTORY": "yellow",
-            "INVALID": "red",
-            "TASK_LIST": "cyan",
-        }.get(chip_kind, "default")
+        kind_class = f"kind-{str(chip_kind).lower().replace('_', '-') }"
+        self.add_class(kind_class)
+        if self.fragment.get("pinned"):
+            self.add_class("is-pinned")
 
         text = Text()
-        text.append(f"[{chip_kind}] ", style=f"bold {color}")
+        text.append(f"{chip_kind} ", style="bold")
         text.append(description)
-        if pinned:
-            text.append(pinned, style="bold yellow")
-
-        yield Label(text)
         if tokens > 0:
-            yield Label(Text(f"  {tokens:,} tokens", style="dim"))
+            text.append(f"  {tokens:,}t", style="dim")
+        if self.fragment.get("pinned"):
+            text.append("  PIN", style="bold")
+
+        self.update(text)
 
 
 class ContextPanel(Vertical):
-    """Displays current context fragments and token usage."""
+    """Horizontal chip panel mirroring the Java workspace chip strip."""
 
     def compose(self) -> ComposeResult:
-        yield Label("Context (0 tokens)", id="context-header")
-        yield ListView(id="context-list")
+        with Horizontal(id="context-header"):
+            yield Label("Context", id="context-title")
+            yield Label("0 / 200,000 tokens", id="context-token-usage")
+        with HorizontalScroll(id="context-chip-scroll"):
+            yield Horizontal(id="context-chip-row")
 
     def refresh_context(self, context_data: Dict[str, Any]) -> None:
-        """Updates the panel with new context data."""
+        """Updates token usage and fragment chips from /v1/context."""
         fragments: List[Dict[str, Any]] = context_data.get("fragments", [])
         used = context_data.get("usedTokens", 0)
         max_tokens = context_data.get("maxTokens", 200_000)
 
-        # Update Header
-        header = self.query_one("#context-header", Label)
-        header.update(f"Context ({used:,} / {max_tokens:,} tokens)")
+        token_label = self.query_one("#context-token-usage", Label)
+        token_label.update(f"{used:,} / {max_tokens:,} tokens")
 
-        # Update List
-        list_view = self.query_one("#context-list", ListView)
-        list_view.clear()
-        for frag in fragments:
-            list_view.append(ContextFragmentItem(frag))
+        chip_row = self.query_one("#context-chip-row", Horizontal)
+        chip_row.remove_children()
+
+        if not fragments:
+            chip_row.mount(
+                Static("No context fragments", classes="context-chip context-chip-empty")
+            )
+            return
+
+        for fragment in fragments:
+            chip_row.mount(ContextFragmentItem(fragment))

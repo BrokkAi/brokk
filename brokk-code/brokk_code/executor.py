@@ -199,9 +199,11 @@ class ExecutorManager:
                     if not tgz_asset:
                         tgz_asset = archive_assets[0]
 
+                downloaded_asset_name = "brokk.jar"
                 if jar_asset:
                     jar_url = jar_asset["browser_download_url"]
                     jar_name = jar_asset.get("name", "brokk.jar")
+                    downloaded_asset_name = jar_name
                     logger.info(
                         "Downloading executor jar (tag=%s, asset=%s) ...",
                         target_release.get("tag_name"),
@@ -213,6 +215,7 @@ class ExecutorManager:
                 elif tgz_asset:
                     tgz_url = tgz_asset["browser_download_url"]
                     asset_filename = tgz_asset.get("name", "archive.tgz")
+                    downloaded_asset_name = asset_filename
                     logger.info(
                         "Downloading executor archive (tag=%s, asset=%s) ...",
                         target_release.get("tag_name"),
@@ -237,7 +240,7 @@ class ExecutorManager:
         except (KeyError, IndexError, TypeError, ValueError) as e:
             raise ExecutorError(f"Failed to parse GitHub release info: {e}")
 
-        logger.info("Downloaded %s to %s", jar_name, dest_jar)
+        logger.info("Downloaded %s to %s", downloaded_asset_name, dest_jar)
         return dest_jar
 
     def _extract_jar_from_tgz(
