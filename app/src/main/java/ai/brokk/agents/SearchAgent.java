@@ -133,7 +133,7 @@ public class SearchAgent {
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
-        this(initialContext, goal, model, scope, io, scanConfig, null);
+        this(initialContext, goal, model, SearchPrompts.Objective.WORKSPACE_ONLY, scope, io, scanConfig);
     }
 
     public SearchAgent(
@@ -149,19 +149,7 @@ public class SearchAgent {
                 objective,
                 scope,
                 initialContext.getContextManager().getIo(),
-                ScanConfig.defaults(),
-                null);
-    }
-
-    public SearchAgent(
-            Context initialContext,
-            String goal,
-            StreamingChatModel model,
-            ContextManager.TaskScope scope,
-            IConsoleIO io,
-            ScanConfig scanConfig,
-            @Nullable List<String> staticTools) {
-        this(initialContext, goal, model, SearchPrompts.Objective.WORKSPACE_ONLY, scope, io, scanConfig, staticTools);
+                ScanConfig.defaults());
     }
 
     public SearchAgent(
@@ -171,8 +159,7 @@ public class SearchAgent {
             SearchPrompts.Objective objective,
             ContextManager.TaskScope scope,
             IConsoleIO io,
-            ScanConfig scanConfig,
-            @Nullable List<String> staticTools) {
+            ScanConfig scanConfig) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
@@ -195,7 +182,7 @@ public class SearchAgent {
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.scanConfig = scanConfig;
-        this.staticTools = initStaticTools(staticTools, cm.getProject(), mcpTools);
+        this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.objective = objective;
     }
 
@@ -212,12 +199,7 @@ public class SearchAgent {
         return tools;
     }
 
-    private static List<String> initStaticTools(
-            @Nullable List<String> explicitTools, IProject project, List<McpPrompts.McpTool> mcpTools) {
-        if (explicitTools != null) {
-            return WorkspaceTools.filterByAnalyzerAvailability(explicitTools, project);
-        }
-
+    private static List<String> initStaticTools(IProject project, List<McpPrompts.McpTool> mcpTools) {
         var tools = new ArrayList<String>();
 
         // Search-specific analyzer tools
@@ -435,12 +417,14 @@ public class SearchAgent {
             return List.of("dropWorkspaceFragments");
         }
 
+        // start with the global search tools
         var names = new ArrayList<>(staticTools);
+
         if (hasDroppableFragments(context)) {
             names.add("dropWorkspaceFragments");
         }
 
-        if (io instanceof Chrome && objective != SearchPrompts.Objective.TASKS_ONLY) {
+        if (io instanceof Chrome) {
             if (!names.contains("askHuman")) {
                 names.add("askHuman");
             }

@@ -793,8 +793,7 @@ public final class BprCli implements Callable<Integer> {
                             SearchPrompts.Objective.TASKS_ONLY,
                             scope,
                             cm.getIo(),
-                            config,
-                            null);
+                            config);
                     result = agent.execute();
                     context = scope.append(result);
 
