@@ -1079,7 +1079,7 @@ public final class MainProject extends AbstractProject {
     public static String getServiceUrl() {
         return switch (getProxySetting()) {
             case BROKK -> BROKK_SERVICE_URL;
-            case LOCALHOST -> "http://localhost:8000";
+            case LOCALHOST -> BROKK_SERVICE_URL;
             case STAGING -> STAGING_SERVICE_URL;
         };
     }
