@@ -217,10 +217,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                         : '.';
 
         String correctedClassChain = classChain;
-        if (!packageName.isEmpty() && classChain.startsWith(packageName + ".")) {
+        // Normalize packageName separator from C++ '::' to '.' for comparison with classChain
+        String normalizedPackageName = packageName.replace("::", ".");
+        if (!packageName.isEmpty() && classChain.startsWith(normalizedPackageName + ".")) {
             // Class is nested within the package namespace, strip the package prefix
-            correctedClassChain = classChain.substring(packageName.length() + 1);
-        } else if (!packageName.isEmpty() && classChain.equals(packageName)) {
+            correctedClassChain = classChain.substring(normalizedPackageName.length() + 1);
+        } else if (!packageName.isEmpty() && classChain.equals(normalizedPackageName)) {
             // Free function/class directly in namespace with no nesting, clear classChain
             correctedClassChain = "";
         }
