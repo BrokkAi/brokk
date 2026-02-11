@@ -12,7 +12,6 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
-import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
@@ -527,22 +526,6 @@ public final class BprCli implements Callable<Integer> {
         }
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();
-
-        // enhance prompt
-        if (lutzPrompt != null && IssueRewriterAgent.shouldEnrichIssuePrompt(lutzPrompt)) {
-            var writer = new IssueRewriterAgent(context, requireNonNull(planModel), lutzPrompt);
-            var response = writer.execute();
-            lutzPrompt = response.bodyMarkdown();
-            context = cm.pushContext(ctx -> response.context());
-            logger.info("Enriched lutz prompt: {}", lutzPrompt);
-        }
-        if (lutzLitePrompt != null && IssueRewriterAgent.shouldEnrichIssuePrompt(lutzLitePrompt)) {
-            var writer = new IssueRewriterAgent(context, requireNonNull(planModel), lutzLitePrompt);
-            var response = writer.execute();
-            lutzLitePrompt = response.bodyMarkdown();
-            context = cm.pushContext(ctx -> response.context());
-            logger.info("Enriched lutz-lite prompt: {}", lutzLitePrompt);
-        }
 
         // --- Deep Scan ------------------------------------------------------
         boolean isStandaloneDeepScan = deepScan
