@@ -68,7 +68,7 @@ ChatPanel {
 #context-panel {
     margin: 0 2;
     height: auto;
-    max-height: 6;
+    max-height: 25;
     background: $panel;
     border: solid $primary-darken-2;
     padding: 0 1;
@@ -94,7 +94,8 @@ ChatPanel {
 }
 
 #context-chip-scroll {
-    height: 3;
+    height: 1fr;
+    min-height: 3;
     width: 100%;
 }
 

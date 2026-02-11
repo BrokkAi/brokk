@@ -59,3 +59,27 @@ def test_context_chip_no_clipping():
     assert "height: 3" in chip_body, (
         f".context-chip should have height: 3. Found: {chip_body.strip()}"
     )
+
+
+def test_context_panel_height_regression():
+    """
+    Ensure #context-panel is large enough and not constrained to the old tiny size.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    panel_match = re.search(r"#context-panel\s*\{([^}]*)\}", css_content)
+    assert panel_match, "Could not find #context-panel rule in app.tcss"
+
+    panel_body = panel_match.group(1)
+
+    assert "max-height: 6" not in panel_body, (
+        "#context-panel should not be constrained to max-height: 6"
+    )
+    assert "max-height: 25" in panel_body, (
+        "#context-panel should have a much larger max-height (expected 25)"
+    )
+
+    scroll_match = re.search(r"#context-chip-scroll\s*\{([^}]*)\}", css_content)
+    assert scroll_match, "Could not find #context-chip-scroll rule in app.tcss"
+    scroll_body = scroll_match.group(1)
+    assert "height: 1fr" in scroll_body, "#context-chip-scroll should use 1fr to fill panel space"
