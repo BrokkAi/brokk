@@ -14,7 +14,7 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
     private final AtomicInteger pauseCount = new AtomicInteger(0);
     private final AtomicInteger resumeCount = new AtomicInteger(0);
     private final AtomicInteger rebuildCount = new AtomicInteger(0);
-    private final AtomicInteger deleteStateFilesCount = new AtomicInteger(0);
+    private final AtomicInteger deletePersistedCount = new AtomicInteger(0);
 
     public TestAnalyzerWrapper(@Nullable IAnalyzer analyzer) {
         this.analyzer = analyzer;
@@ -64,7 +64,7 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
 
     @Override
     public void deletePersistedAnalyzerStateFiles() {
-        deleteStateFilesCount.incrementAndGet();
+        deletePersistedCount.incrementAndGet();
     }
 
     @Override
@@ -84,7 +84,7 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
         return rebuildCount.get();
     }
 
-    public int getDeleteStateFilesCount() {
-        return deleteStateFilesCount.get();
+    public int getDeletePersistedCount() {
+        return deletePersistedCount.get();
     }
 }
