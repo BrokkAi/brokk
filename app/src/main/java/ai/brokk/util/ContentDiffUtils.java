@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -168,6 +169,13 @@ public class ContentDiffUtils {
 
     private static final Pattern UNIFIED_HUNK_HEADER =
             Pattern.compile("^@@\\s+-(\\d+)(?:,(\\d+))?\\s+\\+(\\d+)(?:,(\\d+))?\\s+@@(.*)$");
+
+    /**
+     * Matches the custom three-@@ hunk header format produced by rewriteHunkHeaderWithMethodName:
+     * {@code @@ -old,len @@ +new,len @@ methodName}
+     */
+    private static final Pattern CUSTOM_HUNK_HEADER =
+            Pattern.compile("^@@\\s+-(\\d+)(?:,(\\d+))?\\s+@@\\s+\\+(\\d+)(?:,(\\d+))?\\s+@@.*$");
 
     private static List<String> renderGroupAsSingleHunk(
             List<String> oldLines,
@@ -459,7 +467,8 @@ public class ContentDiffUtils {
         }
 
         // Pre-process diff to remove empty file sections that would cause parser failures
-        String processedDiff = filterEmptyFileCreations(diffTxt);
+        // and strip custom hunk headers back to standard format
+        String processedDiff = stripCustomHunkHeaders(filterEmptyFileCreations(diffTxt));
 
         if (processedDiff.trim().isEmpty()) {
             logger.debug("Diff contains only empty file creations, skipping parse");
@@ -473,6 +482,31 @@ public class ContentDiffUtils {
             logger.warn("Failed to parse unified diff\n{}", diffTxt, e);
             return Optional.empty();
         }
+    }
+
+    /**
+     * Strips the custom three-@@ hunk header format (produced by {@link #rewriteHunkHeaderWithMethodName}) back to
+     * standard unified diff format so that {@link UnifiedDiffReader} can parse it.
+     * <p>
+     * Custom format: {@code @@ -old,len @@ +new,len @@ methodName}
+     * Standard format: {@code @@ -old,len +new,len @@}
+     */
+    private static String stripCustomHunkHeaders(String diffTxt) {
+        return diffTxt.lines()
+                .map(line -> {
+                    Matcher m = CUSTOM_HUNK_HEADER.matcher(line);
+                    if (!m.matches()) {
+                        return line;
+                    }
+                    String oldStart = m.group(1);
+                    String oldLen = m.group(2);
+                    String newStart = m.group(3);
+                    String newLen = m.group(4);
+                    String oldSpec = oldLen != null ? oldStart + "," + oldLen : oldStart;
+                    String newSpec = newLen != null ? newStart + "," + newLen : newStart;
+                    return "@@ -" + oldSpec + " +" + newSpec + " @@";
+                })
+                .collect(Collectors.joining("\n"));
     }
 
     /**

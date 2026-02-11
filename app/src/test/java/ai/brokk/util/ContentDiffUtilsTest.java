@@ -384,6 +384,37 @@ public class ContentDiffUtilsTest {
     }
 
     @Test
+    void testParseUnifiedDiffStripsCustomHunkHeaders() {
+        // Simulates the three-@@ format produced by rewriteHunkHeaderWithMethodName
+        String diffTxt =
+                """
+                diff --git a/Foo.java b/Foo.java
+                index 1234567..89abcde 100644
+                --- a/Foo.java
+                +++ b/Foo.java
+                @@ -9,2 @@ +9,3 @@ Foo.someMethod
+                 import bar;
+                +import baz;
+                 import qux;
+                @@ -20,3 @@ +21,4 @@ Foo.anotherMethod
+                 line1
+                -line2
+                +line2a
+                +line2b
+                 line3
+                """;
+
+        var result = ContentDiffUtils.parseUnifiedDiff(diffTxt);
+        assertTrue(result.isPresent(), "Should parse diff with custom three-@@ hunk headers");
+
+        var files = result.get().getFiles();
+        assertFalse(files.isEmpty(), "Should have at least one file");
+
+        var file = files.getFirst();
+        assertEquals(2, file.getPatch().getDeltas().size(), "Should have two deltas from two hunks");
+    }
+
+    @Test
     void testComputeReviewDiffResultIgnoresWhitespaceNoiseButKeepsRealChanges() {
         String oldContent = "a\nb\nc\n";
         String newContent = " a \nB\nc \n";
