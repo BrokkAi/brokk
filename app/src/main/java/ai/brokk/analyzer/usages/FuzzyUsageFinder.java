@@ -145,6 +145,12 @@ public final class FuzzyUsageFinder {
                 analyzer.searchDefinitions("\\b%s\\b".formatted(Pattern.quote(identifier)), false).stream()
                         .filter(cu -> cu.identifier().equals(identifier))
                         .collect(Collectors.toSet());
+
+        // If the target is signature-qualified, we check uniqueness against the exact fqName.
+        // This prevents overloads from triggering ambiguity flows when the user requested a specific signature.
+        boolean targetIsSignatureQualified = target.fqName().contains("(");
+        var fqNameMatches = targetIsSignatureQualified ? analyzer.getDefinitions(target.fqName()) : List.<CodeUnit>of();
+
         // Note: isUnique is computed later AFTER parameter-count filtering so that the heuristic can reduce candidates
         // before we decide uniqueness vs ambiguous/LLM flows.
 
@@ -230,7 +236,9 @@ public final class FuzzyUsageFinder {
         }
 
         // Now compute uniqueness after filtering so that downstream flows (LLM / Success) operate on the pruned set.
-        var isUnique = matchingCodeUnits.size() == 1;
+        // A target is unique if there is only one definition for its identifier,
+        // OR if the target is signature-qualified and has exactly one matching definition.
+        var isUnique = matchingCodeUnits.size() == 1 || (targetIsSignatureQualified && fqNameMatches.size() == 1);
 
         if (isUnique) {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
