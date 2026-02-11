@@ -522,6 +522,11 @@ public class BuildAgent {
             @P(
                             "List of file patterns to exclude. Use '*.ext' for extensions (e.g., '*.svg'), literal names for specific files (e.g., 'package-lock.json'). Do NOT use **/ prefix or duplicate directories.")
                     List<String> excludedFilePatterns) {
+        // Validate Mustache templates in command strings before proceeding
+        validateCommandTemplateForTool("buildLintCommand", buildLintCommand);
+        validateCommandTemplateForTool("testAllCommand", testAllCommand);
+        validateCommandTemplateForTool("testSomeCommand", testSomeCommand);
+
         logger.debug("Raw excludedDirectories from LLM: {}", excludedDirectories);
         logger.debug("Raw excludedFilePatterns from LLM: {}", excludedFilePatterns);
         logger.debug("Baseline excludedDirectories (from gitignore, not stored): {}", currentExcludedDirectories);
@@ -1046,6 +1051,134 @@ public class BuildAgent {
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 
+    // Regex to detect delimiter-change tags: {{= ... =}}
+    // These are unsupported and should be flagged
+    private static final Pattern DELIMITER_CHANGE_PATTERN = Pattern.compile("\\{\\{=.*?=\\}\\}");
+
+    // Allowed top-level Mustache keys (section variables)
+    private static final Set<String> ALLOWED_TOP_LEVEL_KEYS =
+            Set.of("files", "classes", "fqclasses", "modules", "pyver");
+
+    // Allowed per-item keys inside sections
+    private static final Set<String> ALLOWED_ITEM_KEYS = Set.of(".", "value", "first", "last", "index");
+
+    // Regex to extract Mustache tags: {{name}}, {{{name}}}, {{#name}}, {{/name}}, {{^name}}, {{>name}}, {{!comment}},
+    // {{=...=}}
+    // Captures the optional prefix character (#, /, ^, >, !) and the tag name
+    private static final Pattern MUSTACHE_TAG_PATTERN =
+            Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}");
+
+    /**
+     * Extracts all Mustache tag names from a template string.
+     * Returns the raw tag names (without prefixes like #, /, ^).
+     * Tags with prefixes like > (partials) or ! (comments) are returned with their prefix
+     * to indicate they are unsupported advanced features.
+     * Delimiter-change tags ({{= ... =}}) are detected separately and returned as "=...".
+     */
+    @VisibleForTesting
+    static Set<String> extractMustacheTags(String template) {
+        if (template.isEmpty()) {
+            return Set.of();
+        }
+        var tags = new LinkedHashSet<String>();
+
+        // First, detect delimiter-change tags which have special syntax {{= ... =}}
+        var delimiterMatcher = DELIMITER_CHANGE_PATTERN.matcher(template);
+        while (delimiterMatcher.find()) {
+            // Extract the content between {{= and =}} to include in the error message
+            String fullMatch = delimiterMatcher.group();
+            // Remove {{= prefix and =}} suffix to get the delimiter specification
+            String delimiterSpec =
+                    fullMatch.substring(3, fullMatch.length() - 3).trim();
+            tags.add("=" + (delimiterSpec.isEmpty() ? "..." : delimiterSpec));
+        }
+
+        var matcher = MUSTACHE_TAG_PATTERN.matcher(template);
+        while (matcher.find()) {
+            String prefix = matcher.group(1);
+            String name = matcher.group(2);
+            // For partials (>) and comments (!), include the prefix to mark them as unsupported
+            if (">".equals(prefix) || "!".equals(prefix)) {
+                tags.add(prefix + name);
+            } else {
+                // For #, /, ^, or no prefix, just use the tag name
+                tags.add(name);
+            }
+        }
+        return tags;
+    }
+
+    /**
+     * Validates that all Mustache tags in a template are in the allowed set.
+     *
+     * @param template the Mustache template string
+     * @param extraAllowedKeys additional keys to allow (e.g., the specific listKey for this call)
+     * @return a set of unsupported tags found, empty if all are valid
+     */
+    @VisibleForTesting
+    static Set<String> findUnsupportedMustacheTags(String template, Set<String> extraAllowedKeys) {
+        var tags = extractMustacheTags(template);
+        if (tags.isEmpty()) {
+            return Set.of();
+        }
+
+        var allAllowed = new HashSet<>(ALLOWED_TOP_LEVEL_KEYS);
+        allAllowed.addAll(ALLOWED_ITEM_KEYS);
+        allAllowed.addAll(extraAllowedKeys);
+
+        var unsupported = new LinkedHashSet<String>();
+        for (String tag : tags) {
+            if (!allAllowed.contains(tag)) {
+                unsupported.add(tag);
+            }
+        }
+        return unsupported;
+    }
+
+    /**
+     * Validates a Mustache template, throwing IllegalArgumentException if unsupported tags are found.
+     *
+     * @param template the template to validate
+     * @param listKey the list key used for this interpolation (added to allowed keys)
+     * @throws IllegalArgumentException if unsupported tags are found
+     */
+    private static void validateMustacheTemplate(String template, String listKey) {
+        if (template.isEmpty()) {
+            return;
+        }
+        var unsupported = findUnsupportedMustacheTags(template, Set.of(listKey));
+        if (!unsupported.isEmpty()) {
+            var allAllowed = new TreeSet<>(ALLOWED_TOP_LEVEL_KEYS);
+            allAllowed.addAll(ALLOWED_ITEM_KEYS);
+            throw new IllegalArgumentException(
+                    "Unsupported Mustache tags: %s. Allowed: %s".formatted(unsupported, allAllowed));
+        }
+    }
+
+    /**
+     * Validates a command template for use in reportBuildDetails tool.
+     * Throws ToolCallException with REQUEST_ERROR status if unsupported tags are found.
+     *
+     * @param fieldName the name of the field being validated (for error messages)
+     * @param template the template to validate
+     * @throws ToolRegistry.ToolCallException if unsupported tags are found
+     */
+    private static void validateCommandTemplateForTool(String fieldName, String template) {
+        if (template.isEmpty()) {
+            return;
+        }
+        // For tool validation, allow all canonical list keys since we don't know which one will be used
+        var unsupported = findUnsupportedMustacheTags(template, Set.of());
+        if (!unsupported.isEmpty()) {
+            var allAllowed = new TreeSet<>(ALLOWED_TOP_LEVEL_KEYS);
+            allAllowed.addAll(ALLOWED_ITEM_KEYS);
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.REQUEST_ERROR,
+                    "%s contains unsupported Mustache tags: %s. Allowed: %s"
+                            .formatted(fieldName, unsupported, allAllowed));
+        }
+    }
+
     /**
      * Interpolates a Mustache template with the given list of items and optional Python version.
      * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#modules}}},
@@ -1087,6 +1220,9 @@ public class BuildAgent {
         if (template.isEmpty()) {
             return "";
         }
+
+        // Validate template before compiling
+        validateMustacheTemplate(template, listKey);
 
         MustacheFactory mf = new DefaultMustacheFactory();
         // The "templateName" argument to compile is for caching and error reporting, can be arbitrary.
