@@ -90,7 +90,7 @@ ChatPanel {
     height: 1;
     width: 100%;
     layout: horizontal;
-    margin: 0 0 1 0;
+    margin: 0;
 }
 
 #context-title {
@@ -103,6 +103,22 @@ ChatPanel {
     width: 1fr;
     content-align: right middle;
     color: $text-disabled;
+}
+
+#context-help {
+    width: 100%;
+    color: $text-muted;
+    margin: 0 0 1 0;
+}
+
+#context-selection-status {
+    width: 100%;
+    color: $text-disabled;
+}
+
+#context-selection-status.has-selection {
+    color: $warning;
+    text-style: bold;
 }
 
 #context-chip-scroll {
@@ -130,6 +146,17 @@ ChatPanel {
     border: round $primary-darken-2;
     background: $surface-lighten-1;
     color: $text;
+}
+
+.context-chip:focus {
+    border: round $accent;
+}
+
+.context-chip.is-selected {
+    border: round $warning;
+    background: $warning 35%;
+    color: $warning-lighten-3;
+    text-style: bold;
 }
 
 .context-chip-empty {

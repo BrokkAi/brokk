@@ -3,7 +3,7 @@ import logging
 import random
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
@@ -36,6 +36,9 @@ class ContextModalScreen(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="context-modal-container"):
             yield ContextPanel(id="context-panel")
+
+    def on_mount(self) -> None:
+        self.query_one(ContextPanel).focus()
 
     def action_close_context(self) -> None:
         self._on_close()
@@ -298,6 +301,90 @@ class BrokkApp(App):
                         logger.error(msg)
                     self._reported_refresh_errors.add(err_key)
                 logger.debug("Failed to refresh context panel", exc_info=True)
+
+    def on_context_panel_action_requested(self, message: ContextPanel.ActionRequested) -> None:
+        self.run_worker(self._execute_context_action(message))
+
+    async def _execute_context_action(self, message: ContextPanel.ActionRequested) -> None:
+        if not self._executor_ready:
+            return
+
+        chat = self._maybe_chat()
+        if isinstance(self.screen, ContextModalScreen):
+            panel = self.screen.query_one(ContextPanel)
+        else:
+            panel = self.query_one(ContextPanel)
+        selected_fragments = panel.selected_fragments
+        try:
+            match message.action:
+                case "drop_selected":
+                    await self.executor.drop_context_fragments(message.fragment_ids)
+                    if chat:
+                        chat.add_system_message(f"Dropped {len(message.fragment_ids)} fragment(s).")
+                case "drop_all":
+                    await self.executor.drop_all_context()
+                    if chat:
+                        chat.add_system_message("Dropped all context fragments.")
+                case "toggle_pin_selected":
+                    updates = self._collect_pin_updates(selected_fragments)
+                    for fragment_id, pinned in updates:
+                        await self.executor.set_context_fragment_pinned(fragment_id, pinned)
+                    if chat and updates:
+                        chat.add_system_message(
+                            f"Updated pin state for {len(updates)} fragment(s)."
+                        )
+                case "toggle_readonly_selected":
+                    updates = self._collect_readonly_updates(selected_fragments)
+                    for fragment_id, readonly in updates:
+                        await self.executor.set_context_fragment_readonly(fragment_id, readonly)
+                    if chat and updates:
+                        chat.add_system_message(
+                            f"Updated read-only state for {len(updates)} editable fragment(s)."
+                        )
+                case "compress_history":
+                    await self.executor.compress_context_history()
+                    if chat:
+                        chat.add_system_message("Compressing history...")
+                case "clear_history":
+                    await self.executor.clear_context_history()
+                    if chat:
+                        chat.add_system_message("Cleared history.")
+                case _:
+                    logger.warning("Unknown context action requested: %s", message.action)
+                    return
+
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Context action failed: {e}", level="ERROR")
+            else:
+                logger.error("Context action failed: %s", e)
+
+    @staticmethod
+    def _collect_pin_updates(selected_fragments: List[Dict[str, Any]]) -> List[tuple[str, bool]]:
+        updates: List[tuple[str, bool]] = []
+        for fragment in selected_fragments:
+            fragment_id = str(fragment.get("id", "")).strip()
+            if not fragment_id:
+                continue
+            current = bool(fragment.get("pinned", False))
+            updates.append((fragment_id, not current))
+        return updates
+
+    @staticmethod
+    def _collect_readonly_updates(
+        selected_fragments: List[Dict[str, Any]],
+    ) -> List[tuple[str, bool]]:
+        updates: List[tuple[str, bool]] = []
+        for fragment in selected_fragments:
+            if not bool(fragment.get("editable", False)):
+                continue
+            fragment_id = str(fragment.get("id", "")).strip()
+            if not fragment_id:
+                continue
+            current = bool(fragment.get("readonly", False))
+            updates.append((fragment_id, not current))
+        return updates
 
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
