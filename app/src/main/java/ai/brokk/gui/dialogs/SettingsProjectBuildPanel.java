@@ -59,7 +59,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         @Override
         public String toString() {
-            if (this == NO_TIMEOUT || seconds == -1) return "No timeout";
+            if (this.equals(NO_TIMEOUT) || seconds == -1) return "No timeout";
             return String.valueOf(seconds);
         }
     }
