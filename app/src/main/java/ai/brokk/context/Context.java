@@ -143,10 +143,10 @@ public class Context {
                 .toList();
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
-        return candidates.parallelStream()
+        return candidates.stream()
                 .map(pf -> Map.entry(pf, analyzer.summarizeSymbols(pf)))
                 .filter(e -> !e.getValue().isBlank())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a));
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a, LinkedHashMap::new));
     }
 
     public static UUID newContextId() {
