@@ -18,7 +18,9 @@ import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -36,6 +38,7 @@ class HeadlessExecutorMainIssueJobTest {
     private HttpClient httpClient;
     private String baseUrl;
     private Path workspaceDir;
+    private final List<String> createdJobIds = new ArrayList<>();
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws IOException {
@@ -51,6 +54,7 @@ class HeadlessExecutorMainIssueJobTest {
     @AfterEach
     void tearDown() {
         if (executor != null) {
+            waitForCreatedJobsToSettle();
             executor.stop(0);
         }
     }
@@ -186,7 +190,9 @@ class HeadlessExecutorMainIssueJobTest {
         var responseJson = MAPPER.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
         Object jobIdObj = responseJson.get("jobId");
         assertTrue(jobIdObj instanceof String, "Expected jobId in response: " + response.body());
-        return (String) jobIdObj;
+        var jobId = (String) jobIdObj;
+        createdJobIds.add(jobId);
+        return jobId;
     }
 
     @Test
@@ -219,7 +225,9 @@ class HeadlessExecutorMainIssueJobTest {
         var responseJson = MAPPER.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
         Object jobIdObj = responseJson.get("jobId");
         assertTrue(jobIdObj instanceof String, "Expected jobId in response: " + response.body());
-        return (String) jobIdObj;
+        var jobId = (String) jobIdObj;
+        createdJobIds.add(jobId);
+        return jobId;
     }
 
     private Map<String, Object> baseGenericIssueJobPayload() {
@@ -277,5 +285,58 @@ class HeadlessExecutorMainIssueJobTest {
 
         Assertions.fail("Expected persisted JobSpec for jobId=" + jobId + " in JobStore at " + storeDir);
         throw new IllegalStateException("unreachable");
+    }
+
+    private void waitForCreatedJobsToSettle() {
+        var deadline = Instant.now().plus(Duration.ofSeconds(15));
+        for (var jobId : createdJobIds) {
+            cancelJobBestEffort(jobId);
+            awaitTerminalStateBestEffort(jobId, deadline);
+        }
+    }
+
+    private void cancelJobBestEffort(String jobId) {
+        try {
+            var request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/v1/jobs/" + jobId + "/cancel"))
+                    .header("Authorization", "Bearer " + AUTH_TOKEN)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception ignored) {
+            // Best effort; continue teardown.
+        }
+    }
+
+    private void awaitTerminalStateBestEffort(String jobId, Instant overallDeadline) {
+        while (Instant.now().isBefore(overallDeadline)) {
+            try {
+                var request = HttpRequest.newBuilder()
+                        .uri(URI.create(baseUrl + "/v1/jobs/" + jobId))
+                        .header("Authorization", "Bearer " + AUTH_TOKEN)
+                        .GET()
+                        .build();
+                var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) {
+                    var statusJson = MAPPER.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
+                    Object state = statusJson.get("state");
+                    if (state instanceof String stateStr
+                            && ("COMPLETED".equals(stateStr)
+                                    || "FAILED".equals(stateStr)
+                                    || "CANCELLED".equals(stateStr))) {
+                        return;
+                    }
+                }
+            } catch (Exception ignored) {
+                // Retry until timeout.
+            }
+
+            try {
+                Thread.sleep(25);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 }
