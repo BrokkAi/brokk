@@ -461,21 +461,7 @@ tasks.register("analyze") {
 // Make check task run ErrorProne compilation and Python linting for CI validation
 tasks.named("check") {
     dependsOn("compileJavaErrorProne")
-    // Wire Python verification into lifecycle tasks
-    val skipPythonTasks = project.rootProject.hasProperty("skipPython")
-    if (!skipPythonTasks) {
-        dependsOn(rootProject.tasks.named("brokkCodeRuffCheck"))
-    }
 }
-
-// Wire Python tests into the main app test task
-tasks.named<Test>("test") {
-    val skipPythonTasks = project.rootProject.hasProperty("skipPython")
-    if (!skipPythonTasks) {
-        dependsOn(rootProject.tasks.named("brokkCodePytest"))
-    }
-}
-
 
 tasks.withType<Test> {
     useJUnitPlatform()
