@@ -181,7 +181,7 @@ public class ToolRegistry {
         var present = toolNames.stream().filter(toolMap::containsKey).toList();
         var missing = toolNames.stream().filter(t -> !toolMap.containsKey(t)).toList();
         if (!missing.isEmpty()) {
-            logger.warn("Some requested global tools are not registered and will be skipped: {}", missing);
+            throw new IllegalArgumentException("Requested global tools %s are not registered".formatted(missing));
         }
         return present.stream()
                 .map(toolMap::get)
