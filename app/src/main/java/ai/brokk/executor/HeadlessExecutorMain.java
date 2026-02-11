@@ -349,6 +349,18 @@ public final class HeadlessExecutorMain {
     // ============================================================================
     // Helpers
     // ============================================================================
+    /**
+     * Test hook: allows tests in the same package to force the sessionLoaded flag.
+     *
+     * This is intentionally package-private and annotated @TestOnly to avoid use in
+     * production code. It enables tests to simulate the transient condition where the
+     * executor has observed a session lifecycle event (sessionLoaded==true) but the
+     * ContextManager currently reports no active session id.
+     */
+    @org.jetbrains.annotations.TestOnly
+    void setSessionLoadedForTests(boolean value) {
+        this.sessionLoaded = value;
+    }
 
     public static void main(String[] args) {
         try {
