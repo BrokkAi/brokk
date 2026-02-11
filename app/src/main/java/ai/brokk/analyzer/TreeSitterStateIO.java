@@ -793,6 +793,7 @@ public final class TreeSitterStateIO {
      */
     private static AnalyzerStateDto migrate(AnalyzerStateDto dto, SemVer from, SemVer to) {
         // No migration required yet. Future migrations can inspect `from` and `to` and transform the DTO.
+        log.trace("Migrating DTO from {} to {}", from, to);
         return dto;
     }
 }
