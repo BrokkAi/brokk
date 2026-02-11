@@ -990,14 +990,74 @@ public class Llm {
         public static @Nullable ResponseMetadata sum(@Nullable ResponseMetadata a, @Nullable ResponseMetadata b) {
             if (a == null) return b;
             if (b == null) return a;
-            // Sum numeric fields; prefer categorical fields from b when present, otherwise fall back to a.
-            // Use simple null-coalescing (bField != null ? bField : aField) to avoid throwing if both are null.
+
+            int inputTokens;
+            try {
+                inputTokens = Math.addExact(a.inputTokens(), b.inputTokens());
+            } catch (ArithmeticException e) {
+                inputTokens = Integer.MAX_VALUE;
+                logger.warn(
+                        "Overflow summing ResponseMetadata.inputTokens: {} + {} -> clamped to {}",
+                        a.inputTokens(),
+                        b.inputTokens(),
+                        inputTokens);
+            }
+
+            int cachedInputTokens;
+            try {
+                cachedInputTokens = Math.addExact(a.cachedInputTokens(), b.cachedInputTokens());
+            } catch (ArithmeticException e) {
+                cachedInputTokens = Integer.MAX_VALUE;
+                logger.warn(
+                        "Overflow summing ResponseMetadata.cachedInputTokens: {} + {} -> clamped to {}",
+                        a.cachedInputTokens(),
+                        b.cachedInputTokens(),
+                        cachedInputTokens);
+            }
+
+            int thinkingTokens;
+            try {
+                thinkingTokens = Math.addExact(a.thinkingTokens(), b.thinkingTokens());
+            } catch (ArithmeticException e) {
+                thinkingTokens = Integer.MAX_VALUE;
+                logger.warn(
+                        "Overflow summing ResponseMetadata.thinkingTokens: {} + {} -> clamped to {}",
+                        a.thinkingTokens(),
+                        b.thinkingTokens(),
+                        thinkingTokens);
+            }
+
+            int outputTokens;
+            try {
+                outputTokens = Math.addExact(a.outputTokens(), b.outputTokens());
+            } catch (ArithmeticException e) {
+                outputTokens = Integer.MAX_VALUE;
+                logger.warn(
+                        "Overflow summing ResponseMetadata.outputTokens: {} + {} -> clamped to {}",
+                        a.outputTokens(),
+                        b.outputTokens(),
+                        outputTokens);
+            }
+
+            long elapsedMs;
+            try {
+                elapsedMs = Math.addExact(a.elapsedMs(), b.elapsedMs());
+            } catch (ArithmeticException e) {
+                elapsedMs = Long.MAX_VALUE;
+                logger.warn(
+                        "Overflow summing ResponseMetadata.elapsedMs: {} + {} -> clamped to {}",
+                        a.elapsedMs(),
+                        b.elapsedMs(),
+                        elapsedMs);
+            }
+
+            // Keep categorical-field behavior unchanged: prefer non-null values from b, falling back to a.
             return new ResponseMetadata(
-                    a.inputTokens() + b.inputTokens(),
-                    a.cachedInputTokens() + b.cachedInputTokens(),
-                    a.thinkingTokens() + b.thinkingTokens(),
-                    a.outputTokens() + b.outputTokens(),
-                    a.elapsedMs() + b.elapsedMs(),
+                    inputTokens,
+                    cachedInputTokens,
+                    thinkingTokens,
+                    outputTokens,
+                    elapsedMs,
                     b.modelName() != null ? b.modelName() : a.modelName(),
                     b.finishReason() != null ? b.finishReason() : a.finishReason(),
                     b.created() != null ? b.created() : a.created(),
