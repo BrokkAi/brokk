@@ -478,37 +478,6 @@ public class ToolRegistry {
                 .collect(Collectors.toList());
     }
 
-    /** Rebuild a ToolExecutionRequest from a slice of signature units belonging to the same list parameter. */
-    public ToolExecutionRequest buildRequestFromUnits(ToolExecutionRequest original, List<SignatureUnit> units) {
-        if (units.isEmpty()) return original;
-
-        String toolName = original.name();
-        String paramName = units.getFirst().paramName();
-
-        boolean consistent = units.stream()
-                .allMatch(u -> u.toolName().equals(toolName) && u.paramName().equals(paramName));
-        if (!consistent) {
-            logger.error("Inconsistent SignatureUnits when rebuilding request for {}: {}", toolName, units);
-            return original;
-        }
-
-        try {
-            Map<String, Object> args = OBJECT_MAPPER.readValue(
-                    original.arguments(), new TypeReference<LinkedHashMap<String, Object>>() {});
-            var items = units.stream().map(SignatureUnit::item).collect(Collectors.toList());
-            if (!args.containsKey(paramName)) {
-                logger.error("Parameter '{}' not found in original arguments for tool {}", paramName, toolName);
-                return original;
-            }
-            args.put(paramName, items);
-            String json = OBJECT_MAPPER.writeValueAsString(args);
-            return ToolExecutionRequest.builder().name(toolName).arguments(json).build();
-        } catch (JsonProcessingException e) {
-            logger.error("Error rebuilding request from units for {}: {}", toolName, e.getMessage(), e);
-            return original;
-        }
-    }
-
     private static boolean isSimpleScalar(@Nullable Object v) {
         if (v == null) return true;
         return v instanceof String || v instanceof Number || v instanceof Boolean || v instanceof Character;
