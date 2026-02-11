@@ -145,7 +145,7 @@ public class ContextSerializationTest {
 
         List<ChatMessage> taskMessages = List.of(UserMessage.from("User query"), AiMessage.from("AI response"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, taskMessages, "Test Task");
-        context2 = context2.addHistoryEntry(new TaskEntry(1, taskFragment, null));
+        context2 = context2.addHistoryEntryInternal(new TaskEntry(1, taskFragment, null));
 
         originalHistory.pushContext(context2);
 
@@ -286,8 +286,10 @@ public class ContextSerializationTest {
         assertEquals(expected.isCompressed(), actual.isCompressed());
         if (expected.isCompressed()) {
             assertEquals(expected.summary(), actual.summary());
-        } else {
-            assertNotNull(expected.mopLog());
+        }
+
+        // Compare MOP Log
+        if (expected.mopLog() != null) {
             assertNotNull(actual.mopLog());
             assertEquals(
                     expected.mopLog().description().join(),
@@ -295,12 +297,21 @@ public class ContextSerializationTest {
             assertEquals(
                     expected.mopLog().messages().size(),
                     actual.mopLog().messages().size());
-            for (int i = 0; i < expected.mopLog().messages().size(); i++) {
-                ChatMessage expectedMsg = expected.mopLog().messages().get(i);
-                ChatMessage actualMsg = actual.mopLog().messages().get(i);
-                assertEquals(expectedMsg.type(), actualMsg.type());
-                assertEquals(Messages.getRepr(expectedMsg), Messages.getRepr(actualMsg));
-            }
+        } else {
+            assertNull(actual.mopLog());
+        }
+
+        // Compare LLM Log
+        if (expected.llmLog() != null) {
+            assertNotNull(actual.llmLog());
+            assertEquals(
+                    expected.llmLog().description().join(),
+                    actual.llmLog().description().join());
+            assertEquals(
+                    expected.llmLog().messages().size(),
+                    actual.llmLog().messages().size());
+        } else {
+            assertNull(actual.llmLog());
         }
 
         // Tolerate optional TaskMeta
@@ -480,7 +491,7 @@ public class ContextSerializationTest {
         var messages = List.<ChatMessage>of(UserMessage.from("Hello"), AiMessage.from("World"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, messages, "Task 1");
         var taskEntry = new TaskEntry(1, taskFragment, "Summary 1");
-        var context3 = context2.addHistoryEntry(taskEntry);
+        var context3 = context2.addHistoryEntryInternal(taskEntry);
         history.pushContext(context3);
 
         // Serialize to ZIP
@@ -611,10 +622,10 @@ public class ContextSerializationTest {
         var ctxWithTask1 = new Context(mockContextManager);
         var taskEntry = new TaskEntry(1, sharedTaskFragment, null);
 
-        var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntry(taskEntry);
+        var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntryInternal(taskEntry);
         var origHistoryWithTask = new ContextHistory(updatedCtxWithTask1);
 
-        var ctxWithTask2 = new Context(mockContextManager).addHistoryEntry(taskEntry);
+        var ctxWithTask2 = new Context(mockContextManager).addHistoryEntryInternal(taskEntry);
         origHistoryWithTask.pushContext(ctxWithTask2);
 
         Path taskZipFile = tempDir.resolve("interning_task_history.zip");
@@ -1093,9 +1104,9 @@ public class ContextSerializationTest {
         TaskResult.TaskMeta meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE,
                 new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
-        var taskEntry = new TaskEntry(42, taskFragment, null, meta);
+        var taskEntry = new TaskEntry(42, taskFragment, null, null, meta);
 
-        var ctx = new Context(mockContextManager).addHistoryEntry(taskEntry);
+        var ctx = new Context(mockContextManager).addHistoryEntryInternal(taskEntry);
         ContextHistory ch = new ContextHistory(ctx);
 
         Path zipFile = tempDir.resolve("meta_roundtrip.zip");
@@ -1537,17 +1548,17 @@ public class ContextSerializationTest {
         var msg1 = List.<ChatMessage>of(UserMessage.from("Query 1"), AiMessage.from("Response 1"));
         var tf1 = new ContextFragments.TaskFragment(mockContextManager, msg1, "Task 1");
         var entry1 = new TaskEntry(1, tf1, null);
-        ctx = ctx.addHistoryEntry(entry1);
+        ctx = ctx.addHistoryEntryInternal(entry1);
 
         // Entry 2: Both log and summary
         var msg2 = List.<ChatMessage>of(UserMessage.from("Query 2"), AiMessage.from("Response 2"));
         var tf2 = new ContextFragments.TaskFragment(mockContextManager, msg2, "Task 2");
         var entry2 = new TaskEntry(2, tf2, "Summary of task 2");
-        ctx = ctx.addHistoryEntry(entry2);
+        ctx = ctx.addHistoryEntryInternal(entry2);
 
         // Entry 3: Summary only (legacy compressed)
         var entry3 = new TaskEntry(3, null, "Summary of task 3 only");
-        ctx = ctx.addHistoryEntry(entry3);
+        ctx = ctx.addHistoryEntryInternal(entry3);
 
         ContextHistory original = new ContextHistory(ctx);
 
@@ -2067,7 +2078,7 @@ public class ContextSerializationTest {
         var taskEntry = new TaskEntry(1, taskFragment, null);
 
         var ctx1 = new Context(mockContextManager);
-        var ctx2 = ctx1.addHistoryEntry(taskEntry);
+        var ctx2 = ctx1.addHistoryEntryInternal(taskEntry);
 
         var history = new ContextHistory(List.of(ctx1, ctx2));
 
@@ -2125,7 +2136,7 @@ public class ContextSerializationTest {
         var messages = List.<ChatMessage>of(UserMessage.from("Query"), AiMessage.from("Response"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, messages, "Task");
         var taskEntry = new TaskEntry(1, taskFragment, null);
-        var ctx3 = new Context(mockContextManager).addHistoryEntry(taskEntry);
+        var ctx3 = new Context(mockContextManager).addHistoryEntryInternal(taskEntry);
 
         // Context 4: No group
         var ctx4 = new Context(mockContextManager);

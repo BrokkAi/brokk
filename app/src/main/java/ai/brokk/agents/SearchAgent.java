@@ -106,7 +106,7 @@ public class SearchAgent {
 
     private final IContextManager cm;
     private final StreamingChatModel model;
-    private final ContextManager.@Nullable TaskScope scope;
+    private final ContextManager.TaskScope scope;
     private final Llm llm;
     private final Llm summarizer;
     private final IConsoleIO io;
@@ -577,12 +577,11 @@ public class SearchAgent {
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
-
-        var contextAgentResult = createResult(context);
-        context = contextAgentResult.context();
+        context = context.addHistoryEntry(
+                io.getLlmRawMessages(), TaskResult.Type.SCAN, scanModel, "Locate relevant context");
 
         currentState = currentState.withContext(context);
-        return currentState.context();
+        return context;
     }
 
     private StreamingChatModel getScanModel() {
@@ -599,11 +598,6 @@ public class SearchAgent {
      */
     @Blocking
     public TaskResult callCodeAgent(String instructions) throws InterruptedException {
-        if (scope == null) {
-            return errorResult(new TaskResult.StopDetails(
-                    TaskResult.StopReason.TOOL_ERROR, "Cannot call Code Agent without a Task Scope."));
-        }
-
         ArchitectAgent architect = new ArchitectAgent(
                 cm,
                 cm.getService().getModel(ModelType.ARCHITECT),
@@ -822,7 +816,7 @@ public class SearchAgent {
 
                 Set<ProjectFile> added = new HashSet<>(filesAfterSet);
                 added.removeAll(filesBeforeSet);
-                if (!added.isEmpty() && agent.scope != null) {
+                if (!added.isEmpty()) {
                     agent.scope.publish(context);
                 }
 
@@ -992,12 +986,7 @@ public class SearchAgent {
                 @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
                         String instructions)
                 throws InterruptedException, ToolRegistry.FatalLlmException {
-            if (agent.scope == null) {
-                throw new ToolRegistry.FatalLlmException("Cannot call Code Agent without a valid Task Scope.");
-            }
-
-            var searchResult = agent.createResult(context);
-            agent.scope.append(searchResult);
+            agent.scope.append(context);
 
             logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
 
@@ -1041,7 +1030,7 @@ public class SearchAgent {
     }
 
     private TaskResult createResult(Context context, TaskResult.StopDetails details) {
-        context = appendRawMessagesToHistory(context);
+        context = appendUiMessagesToHistory(context);
         recordFinalWorkspaceState(context);
         metrics.recordOutcome(details.reason(), workspaceFiles(context).size());
 
@@ -1053,7 +1042,7 @@ public class SearchAgent {
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details, Context context) {
-        context = appendRawMessagesToHistory(context);
+        context = appendUiMessagesToHistory(context);
 
         recordFinalWorkspaceState(context);
         metrics.recordOutcome(details.reason(), workspaceFiles(context).size());
@@ -1061,7 +1050,7 @@ public class SearchAgent {
         return new TaskResult(context, details);
     }
 
-    private Context appendRawMessagesToHistory(Context context) {
+    private Context appendUiMessagesToHistory(Context context) {
         return context.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.SEARCH, model, goal);
     }
 

@@ -16,7 +16,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModifiedFile;
 import ai.brokk.tools.GitTools;
-import dev.langchain4j.data.message.AiMessage;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -715,7 +715,7 @@ public class MergeAgent {
     @Blocking
     private TaskResult interruptedResult() {
         ContextHistory.applySnapshotToWorkspace(snapshot, cm.getIo());
-        var uiMessages = List.of(new UserMessage(mergeInstructions), new AiMessage("Merge cancelled by user"));
+        var uiMessages = List.of(new UserMessage(mergeInstructions), Messages.customSystem("Merge cancelled by user"));
         var resultingCtx = cm.liveContext().addHistoryEntry(uiMessages, TaskResult.Type.MERGE, planningModel, "Merge");
         return new TaskResult(resultingCtx, new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
     }

@@ -108,7 +108,7 @@ public class ContextCompressionTest {
 
         // Create a compressed entry (simulating what compressHistory does)
         String compressedSummary = "The user asked about France's capital, and AI responded with Paris.";
-        var compressedEntry = new TaskEntry(1, originalEntry.mopLog(), compressedSummary, null);
+        var compressedEntry = new TaskEntry(1, originalEntry.mopLog(), null, compressedSummary, null);
 
         // Verify compressed state: still has log, now also has summary
         assertTrue(compressedEntry.hasLog(), "Compressed entry should preserve original log");
@@ -129,10 +129,10 @@ public class ContextCompressionTest {
         var meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE,
                 new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
-        var originalEntry = new TaskEntry(42, taskFragment, null, meta);
+        var originalEntry = new TaskEntry(42, taskFragment, taskFragment, null, meta);
 
         String summary = "Test summary";
-        var compressedEntry = new TaskEntry(42, originalEntry.mopLog(), summary, originalEntry.meta());
+        var compressedEntry = new TaskEntry(42, originalEntry.mopLog(), null, summary, originalEntry.meta());
 
         assertEquals(42, compressedEntry.sequence(), "Sequence should be preserved");
         assertNotNull(compressedEntry.meta(), "Metadata should be preserved");
@@ -194,11 +194,11 @@ public class ContextCompressionTest {
                 TaskResult.Type.CODE,
                 new Service.ModelConfig("gpt-4", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
 
-        var originalEntry = new TaskEntry(5, taskFragment, null, meta);
+        var originalEntry = new TaskEntry(5, taskFragment, taskFragment, null, meta);
 
         // Simulate compression
         String summary = "User requested code refactoring; AI provided refactored version.";
-        var compressedEntry = new TaskEntry(5, originalEntry.mopLog(), summary, originalEntry.meta());
+        var compressedEntry = new TaskEntry(5, originalEntry.mopLog(), null, summary, originalEntry.meta());
 
         // Verify all metadata is preserved
         assertEquals(5, compressedEntry.sequence());

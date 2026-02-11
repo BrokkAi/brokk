@@ -1251,6 +1251,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                                 .copyAndRefresh(Set.of(file))
                                 .addHistoryEntry(
                                         messagesForHistory,
+                                        quickEditMessages,
                                         TaskResult.Type.CODE,
                                         // TODO distinguish human edits from AI Quick Edits
                                         cm.getService().quickEditModel(),

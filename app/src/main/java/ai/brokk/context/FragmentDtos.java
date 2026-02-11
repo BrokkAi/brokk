@@ -319,10 +319,11 @@ public class FragmentDtos {
         }
     }
 
-    /** Compact DTO for TaskEntry, referring to its log fragment by ID. Used within CompactContextDto. */
+    /** Compact DTO for TaskEntry, referring to its log fragments by ID. Used within CompactContextDto. */
     public record TaskEntryRefDto(
             int sequence,
             @Nullable String logId,
+            @Nullable String llmLogId,
             @Nullable String summaryContentId,
             @Nullable String taskType,
             @Nullable String primaryModelName,

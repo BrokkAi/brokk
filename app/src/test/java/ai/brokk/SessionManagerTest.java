@@ -437,13 +437,13 @@ public class SessionManagerTest {
 
         // Create history with exactly 3 AI responses
         var history = new ContextHistory(new Context(mockContextManager));
+        Context context = new Context(mockContextManager);
         for (int i = 0; i < 3; i++) {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
             var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
-            Context context = new Context(mockContextManager);
             var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, new AbstractService.ModelConfig("test-model"));
-            var ctx = context.addHistoryEntry(new TaskEntry(i + 1, tf, null, meta));
-            history.pushContext(ctx);
+            context = context.addHistoryEntry(tf, meta);
+            history.pushContext(context);
         }
 
         sessionManager.saveHistory(history, sessionId);

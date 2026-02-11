@@ -474,12 +474,7 @@ public class Context {
         return fragments.stream().allMatch(f -> f.files().join().isEmpty());
     }
 
-    public TaskEntry createTaskEntry(TaskResult result) {
-        int nextSequence = taskHistory.isEmpty() ? 1 : taskHistory.getLast().sequence() + 1;
-        return TaskEntry.fromSession(nextSequence, result);
-    }
-
-    public Context addHistoryEntry(TaskEntry taskEntry) {
+    Context addHistoryEntryInternal(TaskEntry taskEntry) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         return new Context(
@@ -923,17 +918,32 @@ public class Context {
         }
     }
 
+    public Context addHistoryEntry(TaskEntry te) {
+        var renumbered = new TaskEntry(getTaskHistory().size(), te.mopLog(), te.llmLog(), te.summary(), te.meta());
+        return addHistoryEntryInternal(renumbered);
+    }
+
     public Context addHistoryEntry(
-            List<ChatMessage> rawMessages, TaskResult.Type type, StreamingChatModel model, String instructions) {
+            List<ChatMessage> mopMessages,
+            List<ChatMessage> llmMessages,
+            TaskResult.Type type,
+            StreamingChatModel model,
+            String instructions) {
         var mc = AbstractService.ModelConfig.from(model, contextManager.getService());
-        return addHistoryEntry(new TaskEntry(
+        return addHistoryEntryInternal(new TaskEntry(
                 getTaskHistory().size(),
-                new ContextFragments.TaskFragment(contextManager, rawMessages, instructions),
+                new ContextFragments.TaskFragment(contextManager, mopMessages, instructions),
+                new ContextFragments.TaskFragment(contextManager, llmMessages, instructions),
                 null,
                 new TaskResult.TaskMeta(type, mc)));
     }
 
-    public Context addHistoryEntry(ContextFragments.TaskFragment tf, @Nullable TaskResult.TaskMeta meta) {
-        return addHistoryEntry(new TaskEntry(getTaskHistory().size(), tf, null, meta));
+    public Context addHistoryEntry(
+            List<ChatMessage> messages, TaskResult.Type type, StreamingChatModel model, String instructions) {
+        return addHistoryEntry(messages, messages, type, model, instructions);
+    }
+
+    public Context addHistoryEntry(ContextFragments.TaskFragment log, @Nullable TaskResult.TaskMeta meta) {
+        return addHistoryEntryInternal(new TaskEntry(getTaskHistory().size(), log, log, null, meta));
     }
 }

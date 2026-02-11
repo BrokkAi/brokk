@@ -682,6 +682,7 @@ public final class BprCli implements Callable<Integer> {
                     }
                     var agent = new ArchitectAgent(cm, planModel, codeModel, architectPrompt, scope);
                     result = agent.execute();
+                    context = result.context();
                     scope.append(result);
                 } else if (codePrompt != null) {
                     // CodeAgent must use codemodel only
@@ -698,6 +699,7 @@ public final class BprCli implements Callable<Integer> {
                         return 1;
                     }
                     result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
+                    context = result.context();
                     scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
@@ -741,6 +743,7 @@ public final class BprCli implements Callable<Integer> {
                             SearchPrompts.Objective.ANSWER_ONLY,
                             scope);
                     result = agent.execute();
+                    context = result.context();
                     scope.append(result);
                 } else if (build) {
                     String buildError = BuildAgent.runVerification(cm);
@@ -772,9 +775,9 @@ public final class BprCli implements Callable<Integer> {
                     var task = new TaskList.TaskItem("", taskText, false);
 
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
-                    var taskResult = cm.executeTask(task, planModel, codeModel);
-                    scope.append(taskResult);
-                    result = taskResult;
+                    result = cm.executeTask(task, planModel, codeModel);
+                    scope.append(result);
+                    context = result.context();
                 } else { // lutzPrompt != null
                     if (planModel == null) {
                         System.err.println("Error: --lutz requires --planmodel to be specified.");
@@ -795,6 +798,7 @@ public final class BprCli implements Callable<Integer> {
                             cm.getIo(),
                             config);
                     result = agent.execute();
+                    context = result.context();
                     scope.append(result);
 
                     // Execute pending tasks sequentially

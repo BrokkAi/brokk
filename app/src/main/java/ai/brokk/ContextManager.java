@@ -2216,21 +2216,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
             requireNonNull(analyzerWrapper).pause();
         }
 
-        /**
-         * Appends a TaskResult to the context history and returns updated local context, optionally attaching metadata.
-         * If meta is provided and the TaskResult does not already carry metadata, the metadata is attached before
-         * creating the TaskEntry to ensure persistence in history.
-         *
-         * @param result   The TaskResult to append.
-         */
         @Blocking
-        // TODO this should just take a Context now
         public void append(TaskResult result) throws InterruptedException {
             publish(result.context());
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
             io.prepareOutputForNextStream(result.context().getTaskHistory());
+        }
+
+        @Blocking
+        public void append(Context context) throws InterruptedException {
+            publish(context);
+
+            // prepare MOP to display new history with the next streamed message
+            // needed because after the last append (before close) the MOP should not update
+            io.prepareOutputForNextStream(context.getTaskHistory());
         }
 
         /**

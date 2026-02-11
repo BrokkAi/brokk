@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
-import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
@@ -43,15 +42,15 @@ public class HistoryIoTest {
         var initialContext = new Context(contextManager);
         var history = new ContextHistory(initialContext);
 
-        // Add 3 contexts with AI responses (have parsedOutput)
+        // Add 3 AI responses to a single context to ensure distinct sequence numbers (0, 1, 2)
+        Context context = new Context(contextManager);
         for (int i = 0; i < 3; i++) {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
             var taskFragment = new ContextFragments.TaskFragment(contextManager, msgs, "Task " + i);
-            Context context = new Context(contextManager);
             var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, new AbstractService.ModelConfig("test-model"));
-            var ctx = context.addHistoryEntry(new TaskEntry(i + 1, taskFragment, null, meta));
-            history.pushContext(ctx);
+            context = context.addHistoryEntry(taskFragment, meta);
         }
+        history.pushContext(context);
 
         // Add 2 contexts without AI responses (no parsedOutput - just fragments)
         var sf1 = new ContextFragments.StringFragment(contextManager, "content1", "desc1", null);

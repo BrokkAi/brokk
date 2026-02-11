@@ -1195,6 +1195,8 @@ public final class JobRunner {
                                                                                 reviewFixScope);
 
                                                                         try {
+                                                                            // FIXME this discards the CodeAgent's
+                                                                            // TaskResult which is probably not desired
                                                                             reviewFixAgent.callCodeAgent(prompt);
                                                                         } catch (InterruptedException ie) {
                                                                             Thread.currentThread()
@@ -1861,7 +1863,7 @@ public final class JobRunner {
 
         requireNonNull(stop);
 
-        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.ASK, model, question);
+        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), messages, TaskResult.Type.ASK, model, question);
         return new TaskResult(ctx, stop);
     }
 
@@ -2028,7 +2030,8 @@ public final class JobRunner {
 
         requireNonNull(stop);
 
-        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.REVIEW, model, "Diff Review");
+        ctx = ctx.addHistoryEntry(
+                cm.getIo().getLlmRawMessages(), messages, TaskResult.Type.REVIEW, model, "Diff Review");
         return new TaskResult(ctx, stop);
     }
 

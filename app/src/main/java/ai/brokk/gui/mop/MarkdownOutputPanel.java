@@ -18,6 +18,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -134,14 +135,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         return sb.toString();
     }
 
-    private void setMainIfChanged(List<? extends ChatMessage> newMessages) {
-        if (getRawMessages().equals(newMessages)) {
-            logger.debug("Skipping MOP main update, content is unchanged.");
-            return;
-        }
-        setMessages(newMessages);
-    }
-
     private void setHistoryIfChanged(List<TaskEntry> entries) {
         String newSignature = getHistorySignature(entries);
         if (Objects.equals(lastHistorySignature, newSignature)) {
@@ -158,8 +151,13 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
      * message first
      */
     public CompletableFuture<Void> setMainThenHistoryAsync(
-            List<? extends ChatMessage> mainMessages, List<TaskEntry> history) {
-        setMainIfChanged(mainMessages);
+            Collection<? extends ChatMessage> mainMessages, List<TaskEntry> history) {
+        if (getRawMessages().equals(List.copyOf(mainMessages))) {
+            logger.debug("Skipping MOP main update, content is unchanged.");
+        } else {
+            setMessages(mainMessages);
+        }
+
         return flushAsync().thenRun(() -> {
             logger.debug("MOP: applying history after main flush ({} entries)", history.size());
             setHistoryIfChanged(history);
@@ -169,9 +167,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     /** Convenience overload to accept a TaskEntry as the main content. */
     public CompletableFuture<Void> setMainThenHistoryAsync(TaskEntry main, List<TaskEntry> history) {
         // Prefer full messages when available (even if compressed); fall back to summary only if log is unavailable
-        List<? extends ChatMessage> mainMessages = main.hasLog()
-                ? castNonNull(main.mopLog()).messages()
-                : List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")));
+        var mainMessages = main.mopMessages();
 
         // Send main messages first (which triggers clear on frontend). After the flush, apply history in-order,
         // then send live summary so it cannot be cleared by a subsequent history-reset on the frontend.
@@ -307,7 +303,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         return allMessages;
     }
 
-    public void setMessages(List<? extends ChatMessage> newMessages) {
+    public void setMessages(Collection<? extends ChatMessage> newMessages) {
         // No need to finalize before clear—we're replacing all content anyway
         clearMain();
         messages.addAll(newMessages);

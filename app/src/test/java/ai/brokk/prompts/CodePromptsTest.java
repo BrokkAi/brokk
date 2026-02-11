@@ -7,6 +7,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
@@ -405,14 +406,18 @@ class CodePromptsTest {
 
         var entryMessages = List.<ChatMessage>of(user, aiWithTools, toolResult, finalAi);
 
-        var entry = TaskEntry.from(cm, entryMessages, "test task");
         var entryMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-A"));
-        entry = new TaskEntry(entry.sequence(), entry.log(), entry.summary(), entryMeta);
+        var entry = new TaskEntry(
+                0,
+                new ContextFragments.TaskFragment(cm, entryMessages, "test task"),
+                new ContextFragments.TaskFragment(cm, entryMessages, "test task"),
+                null,
+                entryMeta);
 
         ctx = ctx.withHistory(List.of(entry));
 
         var currentMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-A"));
-        var history = CodePrompts.instance.getHistoryMessages(ctx, currentMeta);
+        var history = WorkspacePrompts.getHistoryMessages(ctx, currentMeta);
 
         var toolAiMessages = history.stream()
                 .filter(m -> m instanceof AiMessage ai && ai.hasToolExecutionRequests())
@@ -449,14 +454,18 @@ class CodePromptsTest {
 
         var entryMessages = List.<ChatMessage>of(user, aiWithTools, toolResult, finalAi);
 
-        var entry = TaskEntry.from(cm, entryMessages, "test task");
         var entryMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-A"));
-        entry = new TaskEntry(entry.sequence(), entry.log(), entry.summary(), entryMeta);
+        var entry = new TaskEntry(
+                0,
+                new ContextFragments.TaskFragment(cm, entryMessages, "test task"),
+                new ContextFragments.TaskFragment(cm, entryMessages, "test task"),
+                null,
+                entryMeta);
 
         ctx = ctx.withHistory(List.of(entry));
 
         var currentMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-B"));
-        var history = CodePrompts.instance.getHistoryMessages(ctx, currentMeta);
+        var history = WorkspacePrompts.getHistoryMessages(ctx, currentMeta);
 
         assertFalse(history.stream().anyMatch(m -> m instanceof ToolExecutionResultMessage));
 

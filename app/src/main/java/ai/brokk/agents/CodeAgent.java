@@ -461,7 +461,8 @@ public class CodeAgent {
         }
 
         // create the Result for history
-        context = context.addHistoryEntry(cs.taskMessages, TaskResult.Type.CODE, model, userInput);
+        context = context.addHistoryEntry(
+                io.getLlmRawMessages(), cs.taskMessages, TaskResult.Type.CODE, model, userInput);
         var tr = new TaskResult(context, stopDetails);
         logger.debug("Task result: {}", tr);
         return tr;
@@ -625,6 +626,7 @@ public class CodeAgent {
                                         stopDetails.reason() == TaskResult.StopReason.SUCCESS
                                                 ? "Quick Edit applied"
                                                 : stopDetails.explanation())),
+                        messages,
                         TaskResult.Type.CODE,
                         model,
                         instructions);

@@ -1,13 +1,15 @@
 package ai.brokk;
 
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.context.ContextFragments;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
+import java.util.Collection;
 import java.util.List;
-import java.util.Locale;
-import java.util.stream.Collectors;
+import java.util.Objects;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -16,31 +18,39 @@ import org.jetbrains.annotations.Nullable;
  * Both `log` (original messages) and `summary` can coexist: when present, the AI sees the summary,
  * but the UI prefers to render the full log messages with a visual indicator.
  *
- * @param sequence A unique sequence number for ordering tasks.
- * @param mopLog The uncompressed list of chat messages for this task, as shown in the MOP.
- *               Null if not available in historical sessions that threw it away on compression.
- * @param summary The compressed representation of the chat messages. Null if not available.
- * @param meta Optional metadata (task type, model config) associated with this task entry.
  */
-public record TaskEntry(
-        int sequence,
-        @Nullable ContextFragments.TaskFragment mopLog,
-        @Nullable String summary,
-        @Nullable TaskResult.TaskMeta meta) {
+public final class TaskEntry {
+    private final int sequence;
+    private final ContextFragments.@Nullable TaskFragment mopLog;
+    private final ContextFragments.@Nullable TaskFragment llmLog;
+    private final @Nullable String summary;
+    private final TaskResult.@Nullable TaskMeta meta;
 
     /** Enforce that at least one of log or summary is non-null */
-    public TaskEntry {
-        assert (mopLog != null) || (summary != null) : "At least one of log or summary must be non-null";
+    public TaskEntry(
+            int sequence,
+            @Nullable ContextFragments.TaskFragment mopLog,
+            @Nullable ContextFragments.TaskFragment llmLog,
+            @Nullable String summary,
+            @Nullable TaskResult.TaskMeta meta) {
+        assert (mopLog != null) || (summary != null) : "At least one of mopLog or summary must be non-null";
         assert summary == null || !summary.isEmpty() : "summary must not be empty when present";
+        this.sequence = sequence;
+        this.mopLog = mopLog;
+        this.llmLog = llmLog;
+        this.summary = summary;
+        this.meta = meta;
     }
 
     // Some call sites "forge" a TaskEntry where no task existed. This is a smell but for now we allow it.
     public TaskEntry(int sequence, @Nullable ContextFragments.TaskFragment log, @Nullable String summary) {
-        this(sequence, log, summary, null);
+        this(sequence, log, null, summary, null);
     }
 
     /**
-     * Returns a copy with the given non-empty summary attached. Preserves sequence, log and meta.
+     * Returns a copy with the given non-empty summary attached. Preserves sequence, mopLog and meta,
+     * but discards llmLog.
+     *
      * If the summary is unchanged, returns this.
      *
      * @param newSummary non-empty summary text
@@ -51,7 +61,7 @@ public record TaskEntry(
         if (summary != null && summary.equals(newSummary)) {
             return this;
         }
-        return new TaskEntry(sequence, mopLog, newSummary, meta);
+        return new TaskEntry(sequence, mopLog, null, newSummary, meta);
     }
 
     /**
@@ -68,19 +78,18 @@ public record TaskEntry(
         return summary != null;
     }
 
-    /**
-     * Creates a TaskHistory instance from a list of ChatMessages representing a session. Creates a TaskEntry instance
-     * from a list of ChatMessages representing a full session interaction. The first message *must* be a UserMessage,
-     * its content is stored as the `description`. The remaining messages (AI responses, tool calls/results) are stored
-     * in the `log`. The TaskEntry starts uncompressed.
-     */
-    public static TaskEntry fromSession(int sequence, TaskResult result) {
-        return new TaskEntry(sequence, result.output(), null, result.meta());
-    }
-
     public static TaskEntry fromCompressed(
             int sequence, String compressedLog) { // IContextManager not needed for compressed
-        return new TaskEntry(sequence, null, compressedLog, null);
+        return new TaskEntry(sequence, null, null, compressedLog, null);
+    }
+
+    @Blocking
+    public String description() {
+        return summary == null ? requireNonNull(mopLog).shortDescription().join() : summary;
+    }
+
+    public @Nullable ContextFragments.TaskFragment llmLog() {
+        return llmLog == null ? mopLog : llmLog;
     }
 
     /** Provides a string representation suitable for logging or context display. => what the AI sees */
@@ -88,36 +97,56 @@ public record TaskEntry(
     public String toString() {
         if (isCompressed()) {
             return """
-              <task sequence=%s summarized=true>
-              %s
-              </task>
-              """
+                    <task sequence=%s summarized=true>
+                    %s
+                    </task>
+                    """
                     .formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
         }
 
-        var logText = formatMessages(castNonNull(mopLog).messages());
+        var logText = Messages.format(castNonNull(mopLog).messages());
         return """
-          <task sequence=%s>
-          %s
-          </task>
-          """
+                <task sequence=%s>
+                %s
+                </task>
+                """
                 .formatted(sequence, logText.indent(2).stripTrailing());
     }
 
-    public static String formatMessages(List<ChatMessage> messages) {
-        return messages.stream()
-                .map(message -> {
-                    var text = Messages.getRepr(message);
-                    return (CharSequence)
-                            """
-                      <message type=%s>
-                      %s
-                      </message>
-                      """
-                                    .formatted(
-                                            message.type().name().toLowerCase(Locale.ROOT),
-                                            text.indent(2).stripTrailing());
-                })
-                .collect(Collectors.joining("\n"));
+    public int sequence() {
+        return sequence;
+    }
+
+    public ContextFragments.@Nullable TaskFragment mopLog() {
+        return mopLog;
+    }
+
+    public @Nullable String summary() {
+        return summary;
+    }
+
+    public TaskResult.@Nullable TaskMeta meta() {
+        return meta;
+    }
+
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (obj == this) return true;
+        if (obj == null || obj.getClass() != this.getClass()) return false;
+        var that = (TaskEntry) obj;
+        return this.sequence == that.sequence
+                && Objects.equals(this.mopLog, that.mopLog)
+                && Objects.equals(this.llmLog, that.llmLog)
+                && Objects.equals(this.summary, that.summary)
+                && Objects.equals(this.meta, that.meta);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(sequence, mopLog, llmLog, summary, meta);
+    }
+
+    public Collection<ChatMessage> mopMessages() {
+        return mopLog == null ? List.of(Messages.customSystem(castNonNull(summary))) : mopLog.messages();
     }
 }

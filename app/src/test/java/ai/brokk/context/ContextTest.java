@@ -307,7 +307,7 @@ class ContextTest {
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
         var log = new ContextFragments.TaskFragment(contextManager, msgs, "Log");
         var entry = new TaskEntry(1, log, null);
-        ctx = ctx.addHistoryEntry(entry);
+        ctx = ctx.addHistoryEntryInternal(entry);
 
         var all = ctx.getAllFragmentsInDisplayOrder();
         assertFalse(all.isEmpty());

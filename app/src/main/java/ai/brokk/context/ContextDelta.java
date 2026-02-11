@@ -1,7 +1,6 @@
 package ai.brokk.context;
 
 import static java.lang.Math.min;
-import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
@@ -219,10 +218,7 @@ public record ContextDelta(
     private String buildTaskDescription(TaskEntry entry, IContextManager icm) throws InterruptedException {
         String prefix = (entry.meta() == null) ? "" : entry.meta().type().displayName() + ": ";
 
-        String taskText = entry.isCompressed()
-                ? requireNonNull(entry.summary())
-                : requireNonNull(entry.mopLog()).shortDescription;
-
+        String taskText = entry.description();
         String cacheKey = "action_" + StringDiskCache.sha1Hex(taskText);
         var actionText = taskText.split("\\s+").length <= 7
                 ? taskText

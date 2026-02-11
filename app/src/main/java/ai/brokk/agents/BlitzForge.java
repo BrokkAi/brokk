@@ -310,7 +310,7 @@ public final class BlitzForge {
         logger.debug("BlitzForge interrupted: total files {}", files.size());
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
         var ctx = snapshot.addHistoryEntry(
-                List.of(new UserMessage(config.instructions), new AiMessage("BlitzForge cancelled by user")),
+                List.of(new UserMessage(config.instructions), Messages.customSystem("BlitzForge cancelled by user")),
                 TaskResult.Type.BLITZFORGE,
                 config.model(),
                 config.instructions());

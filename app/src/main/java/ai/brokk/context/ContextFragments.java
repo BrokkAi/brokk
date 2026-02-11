@@ -1928,10 +1928,8 @@ public class ContextFragments {
                     FragmentUtils.calculateContentHash(
                             FragmentType.HISTORY,
                             "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
-                            TaskEntry.formatMessages(history.stream()
-                                    .flatMap(e -> e.isCompressed()
-                                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                            : castNonNull(e.mopLog()).messages().stream())
+                            Messages.format(history.stream()
+                                    .flatMap(e -> e.mopMessages().stream())
                                     .toList()),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             HistoryFragment.class.getName()),
@@ -1945,7 +1943,7 @@ public class ContextFragments {
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(history.stream()
+                    ContentSnapshot.textSnapshot(Messages.format(history.stream()
                             .flatMap(e -> e.isCompressed()
                                     ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
                                     : castNonNull(e.mopLog()).messages().stream())
@@ -1986,7 +1984,7 @@ public class ContextFragments {
                     FragmentUtils.calculateContentHash(
                             FragmentType.TASK,
                             description,
-                            TaskEntry.formatMessages(messages),
+                            Messages.format(messages),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             TaskFragment.class.getName()),
                     contextManager,
@@ -2014,7 +2012,7 @@ public class ContextFragments {
                     description,
                     description,
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(messages)));
+                    ContentSnapshot.textSnapshot(Messages.format(messages)));
             this.messages = List.copyOf(messages);
             this.escapeHtml = escapeHtml;
         }

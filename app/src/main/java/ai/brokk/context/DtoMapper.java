@@ -104,10 +104,15 @@ public class DtoMapper {
                                 taskRefDto.primaryModelReasoning());
                     }
 
-                    // Load log and summary independently (both can coexist)
+                    // Load logs and summary independently (all can coexist)
                     ContextFragments.TaskFragment logFragment = null;
                     if (taskRefDto.logId() != null) {
                         logFragment = (ContextFragments.TaskFragment) fragmentCache.get(taskRefDto.logId());
+                    }
+
+                    ContextFragments.TaskFragment llmLogFragment = null;
+                    if (taskRefDto.llmLogId() != null) {
+                        llmLogFragment = (ContextFragments.TaskFragment) fragmentCache.get(taskRefDto.llmLogId());
                     }
 
                     String summary = null;
@@ -115,11 +120,7 @@ public class DtoMapper {
                         summary = contentReader.readContent(taskRefDto.summaryContentId());
                     }
 
-                    // At least one must be present
-                    if (logFragment != null || summary != null) {
-                        return new TaskEntry(taskRefDto.sequence(), logFragment, summary, meta);
-                    }
-                    return null;
+                    return new TaskEntry(taskRefDto.sequence(), logFragment, llmLogFragment, summary, meta);
                 })
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -147,7 +148,8 @@ public class DtoMapper {
                             : null;
                     return new TaskEntryRefDto(
                             te.sequence(),
-                            te.hasLog() ? castNonNull(te.mopLog()).id() : null,
+                            te.mopLog() != null ? te.mopLog().id() : null,
+                            te.llmLog() != null ? te.llmLog().id() : null,
                             te.isCompressed() ? writer.writeContent(castNonNull(te.summary()), null) : null,
                             type,
                             pmName,

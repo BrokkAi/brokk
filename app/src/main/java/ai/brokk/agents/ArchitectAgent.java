@@ -3,7 +3,6 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.AbstractService;
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -19,7 +18,6 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.ArchitectPrompts;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
@@ -222,11 +220,11 @@ public class ArchitectAgent {
         var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        // Update architect context with the CodeAgent's resulting context
-        var mc = AbstractService.ModelConfig.from(codeModel, cm.getService());
-        context = context.addHistoryEntry(result.output(), new TaskResult.TaskMeta(TaskResult.Type.CODE, mc));
-        var trWithHistory = result.withContext(context);
-        scope.append(trWithHistory);
+        // Update architect context with the CodeAgent's resulting context, preserving the Architect history
+        context = result.context()
+                .withHistory(context.getTaskHistory())
+                .addHistoryEntry(result.context().getTaskHistory().getLast());
+        scope.append(context);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
 
@@ -237,6 +235,9 @@ public class ArchitectAgent {
                     .sorted()
                     .collect(Collectors.joining(", "));
             resultString += " Changed fragments: " + (fileList.isEmpty() ? "None" : fileList);
+            if (!fileList.isEmpty()) {
+                resultString += "\n\nThe changes made are reflected in the Workspace.";
+            }
 
             logger.debug("callCodeAgent finished successfully");
             codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
@@ -357,7 +358,7 @@ public class ArchitectAgent {
             return;
         }
         context = context.addHistoryEntry(messages, TaskResult.Type.ARCHITECT, planningModel, goal);
-        scope.append(resultWithMessages(StopReason.SUCCESS, goal));
+        scope.append(context);
     }
 
     @Tool(
@@ -542,9 +543,9 @@ public class ArchitectAgent {
         context = searchAgent.scanContext();
 
         // Run Architect proper
-        var archResult = this.execute();
+        TaskResult archResult = this.execute();
         scope.append(archResult);
-        return archResult.withContext(context);
+        return archResult;
     }
 
     /**
@@ -782,16 +783,10 @@ public class ArchitectAgent {
                 combinedContext = combinedContext.union(context);
 
                 // Post-batch message with workspace merge summary
-                printSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
-
-                // Build the final history entry using the full transcript
-                // Fallback in case no SA result was produced (should be rare)
-                if (baseSaResult != null) {
-                    // Create a single history entry using the base SA's metadata/description,
-                    // but with the combined context and the full transcript.
-                    var combinedResult = new TaskResult(combinedContext, baseSaResult.stopDetails());
-                    scope.append(combinedResult);
-                }
+                outputSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
+                context = context.addHistoryEntry(
+                        io.getLlmRawMessages(), TaskResult.Type.SEARCH, planningModel, "Multiple concurrent searches");
+                scope.append(context);
 
                 // Reset batch size after all SAs are finished
                 currentBatchSize = 0;
@@ -1025,7 +1020,7 @@ public class ArchitectAgent {
      * Prints a concise summary after a batch of SearchAgents complete, including whether Workspace changed.
      * Only prints when batchSize > 1 to avoid noisy UX for single searches.
      */
-    private void printSearchBatchSummary(Context baseContext, Context mergedContext, int batchSize, int failedCount) {
+    private void outputSearchBatchSummary(Context baseContext, Context mergedContext, int batchSize, int failedCount) {
         if (batchSize <= 1) {
             return;
         }
@@ -1091,7 +1086,7 @@ public class ArchitectAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // History from previous tasks/sessions
-        messages.addAll(CodePrompts.instance.getHistoryMessages(context, taskMeta()));
+        messages.addAll(WorkspacePrompts.getHistoryMessages(context, taskMeta()));
 
         // This agent's own conversational history for the current goal, with the instructionsMarker
         // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)

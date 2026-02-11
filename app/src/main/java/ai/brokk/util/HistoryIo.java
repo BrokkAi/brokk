@@ -536,14 +536,16 @@ public final class HistoryIo {
                     }
                 }
             });
-            ctx.getTaskHistory().stream()
-                    .map(TaskEntry::mopLog)
-                    .filter(Objects::nonNull)
-                    .forEach(log -> {
-                        if (!collectedTaskDtos.containsKey(log.id())) {
-                            collectedTaskDtos.put(log.id(), DtoMapper.toTaskFragmentDto(log, writer));
-                        }
-                    });
+            ctx.getTaskHistory().forEach(te -> {
+                ContextFragments.TaskFragment mop = te.mopLog();
+                if (mop != null && !collectedTaskDtos.containsKey(mop.id())) {
+                    collectedTaskDtos.put(mop.id(), DtoMapper.toTaskFragmentDto(mop, writer));
+                }
+                ContextFragments.TaskFragment llm = te.llmLog();
+                if (llm != null && !collectedTaskDtos.containsKey(llm.id())) {
+                    collectedTaskDtos.put(llm.id(), DtoMapper.toTaskFragmentDto(llm, writer));
+                }
+            });
         }
 
         // Serialize all JSON content to byte arrays before writing to the zip stream
