@@ -371,8 +371,8 @@ public class SearchAgent {
         var terminals = new ArrayList<String>();
         var allowed = objective.terminals();
 
-        if (allowed.contains(Terminal.ISSUE)) {
-            terminals.add("issueWriterOutput");
+        if (allowed.contains(Terminal.DESCRIBE_ISSUE)) {
+            terminals.add("describeIssue");
             terminals.add("abortSearch");
             return terminals;
         }
@@ -424,7 +424,7 @@ public class SearchAgent {
             names.add("dropWorkspaceFragments");
         }
 
-        if (io instanceof Chrome) {
+        if (io instanceof Chrome && objective != SearchPrompts.Objective.TASKS_ONLY) {
             if (!names.contains("askHuman")) {
                 names.add("askHuman");
             }
@@ -446,7 +446,7 @@ public class SearchAgent {
     ToolCategory categorizeTool(String toolName) {
         return switch (toolName) {
             case "answer",
-                    "createIssue",
+                    "describeIssue",
                     "askForClarification",
                     "callCodeAgent",
                     "createOrReplaceTaskList",
@@ -983,9 +983,9 @@ public class SearchAgent {
             return queryForUser;
         }
 
-        @Tool("Issue Writer final output. Create a high-quality GitHub issue.")
+        @Tool("Issue description final output. Create a high-quality issue description.")
         @SuppressWarnings("UnusedMethod")
-        public String createIssue(
+        public String describeIssue(
                 @P("Concise, specific issue title.") String title,
                 @P("GitHub-flavored Markdown describing the problem and impact.") String body) {
             agent.terminalCompletionReported = true;
@@ -1311,7 +1311,7 @@ public class SearchAgent {
                     taskMeta(),
                     context);
         }
-        if ("createIssue".equals(pendingTerminal.toolName())) {
+        if ("describeIssue".equals(pendingTerminal.toolName())) {
             return createResult(
                     pendingTerminal.toolName(),
                     goal,
