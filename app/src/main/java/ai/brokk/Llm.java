@@ -996,11 +996,11 @@ public class Llm {
                     a.thinkingTokens() + b.thinkingTokens(),
                     a.outputTokens() + b.outputTokens(),
                     a.elapsedMs() + b.elapsedMs(),
-                    requireNonNullElse(b.modelName(), a.modelName()),
-                    requireNonNullElse(b.finishReason(), a.finishReason()),
-                    requireNonNullElse(b.created(), a.created()),
-                    requireNonNullElse(b.serviceTier(), a.serviceTier()),
-                    requireNonNullElse(b.error(), a.error()));
+                    b.modelName() != null ? b.modelName() : a.modelName(),
+                    b.finishReason() != null ? b.finishReason() : a.finishReason(),
+                    b.created() != null ? b.created() : a.created(),
+                    b.serviceTier() != null ? b.serviceTier() : a.serviceTier(),
+                    b.error() != null ? b.error() : a.error());
         }
     }
 
