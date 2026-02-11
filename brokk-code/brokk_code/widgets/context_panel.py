@@ -163,8 +163,10 @@ class ContextPanel(Vertical):
             for fragment_id in self._selected_ids
             if any(str(f.get("id", "")) == fragment_id for f in self._fragments)
         }
-        if self._hovered_id and self._hovered_id not in self._selected_ids and not any(
-            str(f.get("id", "")) == self._hovered_id for f in self._fragments
+        if (
+            self._hovered_id
+            and self._hovered_id not in self._selected_ids
+            and not any(str(f.get("id", "")) == self._hovered_id for f in self._fragments)
         ):
             self._hovered_id = None
         if self._active_id and not any(
