@@ -16,6 +16,7 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.IStringDiskCache;
 import java.awt.Rectangle;
 import java.io.IOException;
+import java.nio.file.FileSystemLoopException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -586,7 +587,7 @@ public interface IProject extends AutoCloseable {
                             .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
                             .collect(Collectors.toSet());
                 }
-            } catch (java.nio.file.FileSystemLoopException e) {
+            } catch (FileSystemLoopException e) {
                 logger.warn(
                         "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
                         root.absPath(),

@@ -258,8 +258,7 @@ public final class LocalCacheScanner {
     static List<Path> listAllJars(List<Path> roots) {
         long startTime = System.currentTimeMillis();
 
-        var uniqueRoots = roots;
-        var jarFiles = uniqueRoots.parallelStream()
+        var jarFiles = roots.parallelStream()
                 .filter(Files::isDirectory)
                 .peek(root -> logger.debug("Scanning for JARs under: {}", root))
                 .flatMap(root -> {
