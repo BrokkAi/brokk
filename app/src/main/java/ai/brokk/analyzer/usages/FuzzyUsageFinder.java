@@ -435,10 +435,6 @@ public final class FuzzyUsageFinder {
 
         // Build overloads list from all definitions (preserving signatures for the LLM prompt)
         var overloads = List.copyOf(definitions);
-        // Historically FUF was signature-blind; we now apply a conservative parameter-count heuristic for function-like
-        // symbols to exclude obvious call-site mismatches. Overloads are still aggregated and ambiguity flows remain.
-        var def = definitions.iterator().next();
-        CodeUnit cu = new CodeUnit(def.source(), def.kind(), def.packageName(), def.shortName(), null);
 
         var result = findUsages(overloads, maxFiles, maxUsages);
         Map<CodeUnit, Set<UsageHit>> allHitsByOverload =
