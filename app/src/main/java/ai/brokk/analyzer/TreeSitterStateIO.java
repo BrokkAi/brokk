@@ -398,57 +398,19 @@ public final class TreeSitterStateIO {
         boolean isGzipExtension = fileName.endsWith(".gz") || fileName.endsWith(".gzip");
 
         try {
-            InputStream decompressedIn;
             if (isGzipExtension) {
-                decompressedIn = new GZIPInputStream(Files.newInputStream(file));
+                try (var in = new GZIPInputStream(Files.newInputStream(file))) {
+                    return loadFromStream(in, file, startMs);
+                }
             } else {
-                try {
-                    decompressedIn = new LZ4FrameInputStream(Files.newInputStream(file));
+                try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
+                    return loadFromStream(in, file, startMs);
                 } catch (IOException e) {
                     log.debug("Failed to open {} as LZ4, retrying with GZIP fallback: {}", file, e.getMessage());
-                    decompressedIn = new GZIPInputStream(Files.newInputStream(file));
+                    try (var in = new GZIPInputStream(Files.newInputStream(file))) {
+                        return loadFromStream(in, file, startMs);
+                    }
                 }
-            }
-
-            try (InputStream finalIn = decompressedIn) {
-                JsonNode root = SMILE_MAPPER.readTree(finalIn);
-
-                // Deserialize the canonical DTO (ignoring unknown fields)
-                var dto = SMILE_MAPPER.treeToValue(root, AnalyzerStateDto.class);
-
-                // Interpret schema version field (backwards-compatible)
-                SemVer fromVer;
-                if (dto.schemaVersion() == null) {
-                    log.debug("Loaded AnalyzerState snapshot without schemaVersion; treating as legacy and accepting.");
-                    fromVer = CURRENT_SCHEMA;
-                } else {
-                    fromVer = SemVer.parse(dto.schemaVersion());
-                }
-
-                // If major versions differ, snapshot is incompatible
-                if (fromVer.major() != CURRENT_SCHEMA.major()) {
-                    log.info(
-                            "Analyzer snapshot at {} has incompatible schema version {} (current {}). Ignoring snapshot and will rebuild.",
-                            file,
-                            fromVer,
-                            CURRENT_SCHEMA);
-                    return Optional.empty();
-                }
-
-                // Allow minor/patch differences for now; provide a migrate hook
-                var migratedDto = migrate(dto, fromVer, CURRENT_SCHEMA);
-
-                // Parse optional legacy graphs if present in the raw JSON
-                Map<CodeUnit, List<CodeUnit>> legacySupertypes = parseLegacySupertypes(root.get("supertypes"));
-                Map<CodeUnit, Set<CodeUnit>> legacySubtypes = parseLegacySubtypes(root.get("subtypes"));
-                Map<ProjectFile, Set<CodeUnit>> legacyImports = parseLegacyImports(root.get("imports"));
-                Map<ProjectFile, Set<ProjectFile>> legacyReverseImports =
-                        parseLegacyReverseImports(root.get("reverseImports"));
-
-                var state = fromDto(migratedDto, legacySupertypes, legacySubtypes, legacyImports, legacyReverseImports);
-                long durMs = System.currentTimeMillis() - startMs;
-                log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, fromVer);
-                return Optional.of(state);
             }
         } catch (ZipException | EOFException e) {
             log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
@@ -460,6 +422,47 @@ public final class TreeSitterStateIO {
             log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    private static Optional<TreeSitterAnalyzer.AnalyzerState> loadFromStream(InputStream in, Path file, long startMs)
+            throws IOException {
+        JsonNode root = SMILE_MAPPER.readTree(in);
+
+        // Deserialize the canonical DTO (ignoring unknown fields)
+        var dto = SMILE_MAPPER.treeToValue(root, AnalyzerStateDto.class);
+
+        // Interpret schema version field (backwards-compatible)
+        SemVer fromVer;
+        if (dto.schemaVersion() == null) {
+            log.debug("Loaded AnalyzerState snapshot without schemaVersion; treating as legacy and accepting.");
+            fromVer = CURRENT_SCHEMA;
+        } else {
+            fromVer = SemVer.parse(dto.schemaVersion());
+        }
+
+        // If major versions differ, snapshot is incompatible
+        if (fromVer.major() != CURRENT_SCHEMA.major()) {
+            log.info(
+                    "Analyzer snapshot at {} has incompatible schema version {} (current {}). Ignoring snapshot and will rebuild.",
+                    file,
+                    fromVer,
+                    CURRENT_SCHEMA);
+            return Optional.empty();
+        }
+
+        // Allow minor/patch differences for now; provide a migrate hook
+        var migratedDto = migrate(dto, fromVer, CURRENT_SCHEMA);
+
+        // Parse optional legacy graphs if present in the raw JSON
+        Map<CodeUnit, List<CodeUnit>> legacySupertypes = parseLegacySupertypes(root.get("supertypes"));
+        Map<CodeUnit, Set<CodeUnit>> legacySubtypes = parseLegacySubtypes(root.get("subtypes"));
+        Map<ProjectFile, Set<CodeUnit>> legacyImports = parseLegacyImports(root.get("imports"));
+        Map<ProjectFile, Set<ProjectFile>> legacyReverseImports = parseLegacyReverseImports(root.get("reverseImports"));
+
+        var state = fromDto(migratedDto, legacySupertypes, legacySubtypes, legacyImports, legacyReverseImports);
+        long durMs = System.currentTimeMillis() - startMs;
+        log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, fromVer);
+        return Optional.of(state);
     }
 
     /**
