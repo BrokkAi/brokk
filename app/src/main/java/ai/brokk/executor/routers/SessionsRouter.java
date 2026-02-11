@@ -91,11 +91,13 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
         }
 
         try {
+            TimeoutException timeoutEx = null;
             try {
                 // Attempt to create and wait briefly for the ContextManager to set the active session.
                 contextManager.createSessionAsync(sessionName).get(3, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
                 logger.warn("Timed out creating session {}; continuing asynchronously", sessionName);
+                timeoutEx = e;
             }
 
             // Give the ContextManager a small window to publish the new active session id if it didn't complete
@@ -114,23 +116,17 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
             }
 
             if (sessionId == null) {
-                // As a robust fallback, generate and set an active session id so readiness will reflect a usable
-                // session.
-                // This ensures callers that immediately poll /health/ready after a successful POST will see readiness.
-                sessionId = UUID.randomUUID();
-                try {
-                    // updateActiveSession will propagate the id into project/session registry as appropriate.
-                    contextManager.updateActiveSession(sessionId);
-                    logger.warn(
-                            "ContextManager did not report a session after creation; setting fallback session id {}",
-                            sessionId);
-                } catch (Exception ex) {
-                    logger.error("Failed to set fallback session id {}", sessionId, ex);
-                }
-            } else {
-                logger.info("Created new session: {} ({})", sessionName, sessionId);
+                // Session creation did not complete in time - return an error rather than synthesizing a fake ID
+                logger.error(
+                        "ContextManager did not report a session after creation for '{}'; returning 500", sessionName);
+                var error = ErrorPayload.internalError(
+                        "Session creation did not complete in time",
+                        timeoutEx != null ? timeoutEx : new TimeoutException("Session capture timed out"));
+                SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                return;
             }
 
+            logger.info("Created new session: {} ({})", sessionName, sessionId);
             sessionLoadedSetter.accept(true);
 
             var response = Map.of("sessionId", sessionId.toString(), "name", sessionName);
