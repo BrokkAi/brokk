@@ -493,14 +493,14 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     /**
      * Delete persisted analyzer state files for the project's languages.
      *
-     * This removes both current-format LZ4 snapshots and legacy gzip-based snapshots so that
-     * an explicit "refresh code intelligence" operation starts from a clean slate.
+     * <p>This removes both current-format LZ4 snapshots and legacy gzip-based snapshots so that an
+     * explicit "refresh code intelligence" operation starts from a clean slate.
      *
-     * NOTE: This operation is intentionally conservative and best-effort: IO failures are logged
+     * <p>NOTE: This operation is intentionally conservative and best-effort: IO failures are logged
      * but do not abort the rebuild. Deletions are performed synchronously on the analyzer executor
      * as part of the explicit rebuild path to avoid races with concurrent readers.
      */
-    private void deletePersistedAnalyzerStateFiles() {
+    void deletePersistedAnalyzerStateFiles() {
         try {
             for (var lang : project.getAnalyzerLanguages()) {
                 try {
@@ -515,15 +515,14 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     }
 
                     // Also remove legacy gzip-based filenames that may linger from older versions.
-                    // Derive a stable base name from the storage file name (strip extension) and look for
-                    // .bin.gz and .bin.gzip siblings.
+                    // Derive a stable base name from the storage file name (strip .lz4 extension if present)
+                    // and look for .gz and .gzip siblings.
                     String name = storage.getFileName().toString();
-                    int dot = name.lastIndexOf('.');
-                    String base = (dot > 0) ? name.substring(0, dot) : name;
+                    String base = name.endsWith(".lz4") ? name.substring(0, name.length() - 4) : name;
 
                     Path parent = storage.getParent() != null ? storage.getParent() : project.getRoot();
 
-                    Path legacyGz = parent.resolve(base + ".bin.gz");
+                    Path legacyGz = parent.resolve(base + ".gz");
                     try {
                         if (Files.deleteIfExists(legacyGz)) {
                             logger.info("Deleted legacy analyzer state file: {}", legacyGz);
@@ -532,7 +531,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                         logger.debug("Failed to delete legacy analyzer state file {}: {}", legacyGz, e.getMessage());
                     }
 
-                    Path legacyGzip = parent.resolve(base + ".bin.gzip");
+                    Path legacyGzip = parent.resolve(base + ".gzip");
                     try {
                         if (Files.deleteIfExists(legacyGzip)) {
                             logger.info("Deleted legacy analyzer state file: {}", legacyGzip);
