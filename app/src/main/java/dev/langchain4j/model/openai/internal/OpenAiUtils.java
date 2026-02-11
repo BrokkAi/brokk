@@ -38,6 +38,7 @@ import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.openai.OpenAiTokenUsage.InputTokensDetails;
 import dev.langchain4j.model.openai.OpenAiTokenUsage.OutputTokensDetails;
 import dev.langchain4j.model.openai.internal.chat.AssistantMessage;
+import dev.langchain4j.model.openai.internal.chat.CacheControl;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
 import dev.langchain4j.model.openai.internal.chat.ContentType;
@@ -73,16 +74,24 @@ public class OpenAiUtils {
     }
 
     public static Message toOpenAiMessage(ChatMessage message) {
-        if (message instanceof SystemMessage) {
-            return dev.langchain4j.model.openai.internal.chat.SystemMessage.from(((SystemMessage) message).text());
+        if (message instanceof SystemMessage systemMessage) {
+            CacheControl cacheControl =
+                    systemMessage.cacheControl() != null ? CacheControl.from(systemMessage.cacheControl()) : null;
+            return dev.langchain4j.model.openai.internal.chat.SystemMessage.builder()
+                    .content(systemMessage.text())
+                    .cacheControl(cacheControl)
+                    .build();
         }
 
         if (message instanceof UserMessage userMessage) {
+            CacheControl cacheControl =
+                    userMessage.cacheControl() != null ? CacheControl.from(userMessage.cacheControl()) : null;
 
             if (userMessage.hasSingleText()) {
                 return dev.langchain4j.model.openai.internal.chat.UserMessage.builder()
                         .content(userMessage.singleText())
                         .name(userMessage.name())
+                        .cacheControl(cacheControl)
                         .build();
             } else {
                 return dev.langchain4j.model.openai.internal.chat.UserMessage.builder()
@@ -90,17 +99,21 @@ public class OpenAiUtils {
                                 .map(OpenAiUtils::toOpenAiContent)
                                 .collect(toList()))
                         .name(userMessage.name())
+                        .cacheControl(cacheControl)
                         .build();
             }
         }
 
         if (message instanceof AiMessage aiMessage) {
+            CacheControl cacheControl =
+                    aiMessage.cacheControl() != null ? CacheControl.from(aiMessage.cacheControl()) : null;
 
             if (!aiMessage.hasToolExecutionRequests()) {
                 return AssistantMessage.builder()
                         .content(aiMessage.text())
                         .reasoningContent(aiMessage.reasoningContent())
                         .thoughtSignature(aiMessage.thoughtSignature())
+                        .cacheControl(cacheControl)
                         .build();
             }
 
@@ -116,6 +129,7 @@ public class OpenAiUtils {
                         .functionCall(functionCall)
                         .reasoningContent(aiMessage.reasoningContent())
                         .thoughtSignature(aiMessage.thoughtSignature())
+                        .cacheControl(cacheControl)
                         .build();
             }
 
@@ -134,6 +148,7 @@ public class OpenAiUtils {
                     .content(aiMessage.text())
                     .reasoningContent(aiMessage.reasoningContent())
                     .thoughtSignature(aiMessage.thoughtSignature())
+                    .cacheControl(cacheControl)
                     .toolCalls(toolCalls)
                     .build();
         }
@@ -199,9 +214,24 @@ public class OpenAiUtils {
     }
 
     public static List<Tool> toTools(Collection<ToolSpecification> toolSpecifications, boolean strict) {
-        return toolSpecifications.stream()
+        List<Tool> tools = toolSpecifications.stream()
                 .map((ToolSpecification toolSpecification) -> toTool(toolSpecification, strict))
                 .collect(toList());
+
+        if (!tools.isEmpty()) {
+            Tool lastTool = tools.getLast();
+            Function lastFunction = lastTool.function();
+            Function updatedFunction = Function.builder()
+                    .name(lastFunction.name())
+                    .description(lastFunction.description())
+                    .strict(lastFunction.strict())
+                    .parameters(lastFunction.parameters())
+                    .cacheControl(CacheControl.from("ephemeral"))
+                    .build();
+            tools.set(tools.size() - 1, Tool.from(updatedFunction));
+        }
+
+        return tools;
     }
 
     private static Tool toTool(ToolSpecification toolSpecification, boolean strict) {

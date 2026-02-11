@@ -23,6 +23,7 @@ public class UserMessage implements ChatMessage {
 
     private final String name;
     private final List<Content> contents;
+    private final String cacheControl;
 
     /**
      * Creates a {@link UserMessage} from a text.
@@ -72,6 +73,7 @@ public class UserMessage implements ChatMessage {
     public UserMessage(List<Content> contents) {
         this.name = null;
         this.contents = copy(ensureNotEmpty(contents, "contents"));
+        this.cacheControl = null;
     }
 
     /**
@@ -81,8 +83,13 @@ public class UserMessage implements ChatMessage {
      * @param contents the contents.
      */
     public UserMessage(String name, List<Content> contents) {
+        this(name, contents, null);
+    }
+
+    private UserMessage(String name, List<Content> contents, String cacheControl) {
         this.name = name;
         this.contents = copy(ensureNotEmpty(contents, "contents"));
+        this.cacheControl = cacheControl;
     }
 
     /**
@@ -101,6 +108,15 @@ public class UserMessage implements ChatMessage {
      */
     public List<Content> contents() {
         return contents;
+    }
+
+    /**
+     * Returns the cache control.
+     *
+     * @return the cache control, or {@code null} if not set.
+     */
+    public String cacheControl() {
+        return cacheControl;
     }
 
     /**
@@ -138,17 +154,20 @@ public class UserMessage implements ChatMessage {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         UserMessage that = (UserMessage) o;
-        return Objects.equals(this.name, that.name) && Objects.equals(this.contents, that.contents);
+        return Objects.equals(this.name, that.name)
+                && Objects.equals(this.contents, that.contents)
+                && Objects.equals(this.cacheControl, that.cacheControl);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, contents);
+        return Objects.hash(name, contents, cacheControl);
     }
 
     @Override
     public String toString() {
-        return "UserMessage {" + " name = " + quoted(name) + " contents = " + contents + " }";
+        return "UserMessage {" + " name = " + quoted(name) + " contents = " + contents + " cacheControl = "
+                + quoted(cacheControl) + " }";
     }
 
     public static Builder builder() {
@@ -159,6 +178,7 @@ public class UserMessage implements ChatMessage {
 
         private String name;
         private List<Content> contents;
+        private String cacheControl;
 
         public Builder name(String name) {
             this.name = name;
@@ -167,6 +187,11 @@ public class UserMessage implements ChatMessage {
 
         public Builder contents(List<Content> contents) {
             this.contents = contents;
+            return this;
+        }
+
+        public Builder cacheControl(String cacheControl) {
+            this.cacheControl = cacheControl;
             return this;
         }
 
@@ -179,7 +204,7 @@ public class UserMessage implements ChatMessage {
         }
 
         public UserMessage build() {
-            return new UserMessage(name, contents);
+            return new UserMessage(name, contents, cacheControl);
         }
     }
 
@@ -307,5 +332,13 @@ public class UserMessage implements ChatMessage {
      */
     public static UserMessage userMessage(String name, List<Content> contents) {
         return from(name, contents);
+    }
+
+    public static UserMessage withCacheControl(String text, String cacheControl) {
+        return new UserMessage(null, List.of(TextContent.from(text)), cacheControl);
+    }
+
+    public static UserMessage withCacheControl(UserMessage original, String cacheControl) {
+        return new UserMessage(original.name(), original.contents(), cacheControl);
     }
 }

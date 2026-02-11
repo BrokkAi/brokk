@@ -13,6 +13,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Messages;
+import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -62,6 +63,133 @@ class WorkspacePromptsTest {
 
         assertNotNull(records);
         assertFalse(records.workspace().isEmpty(), "workspace() should return combined messages");
+    }
+
+    @Test
+    void testGetMessagesInAddedOrderReturnsOnlyDynamicWhenNoSystemPinned() throws IOException {
+        var file = createTestFile("dynamic.txt", "dynamic content");
+        cm.addEditableFile(file);
+
+        var ctx = new Context(cm);
+        var frag = new ContextFragments.ProjectPathFragment(file, cm);
+        ctx = ctx.addFragments(List.of(frag));
+
+        var messages = WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.noneOf(SpecialTextType.class));
+
+        assertFalse(messages.isEmpty(), "Should return messages for dynamic content");
+
+        String allText = messages.stream().map(Messages::getText).collect(Collectors.joining("\n"));
+        assertFalse(allText.contains("<workspace>"), "Should no longer contain grouped workspace block");
+        assertTrue(allText.contains("<fragment"), "Should contain individual fragment tags");
+        assertTrue(allText.contains("dynamic.txt"), "Should contain the dynamic fragment");
+    }
+
+    @Test
+    void testGetMessagesInAddedOrderSplitsUserPinnedFragments() {
+        var ctx = new Context(cm);
+
+        // Add a regular (non-special) fragment and pin it
+        var regularFrag = new ContextFragments.StringFragment(cm, "Pinned content", "Pinned Fragment", "text/plain");
+        // Add a special fragment (should go to non-pinned section even if pinned)
+        var specialFrag = SpecialTextType.BUILD_RESULTS.create(cm, "Build output here");
+
+        ctx = ctx.addFragments(List.of(regularFrag, specialFrag));
+        ctx = ctx.withPinned(regularFrag, true);
+
+        var messages = WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.noneOf(SpecialTextType.class));
+
+        String allText = messages.stream().map(Messages::getText).collect(Collectors.joining("\n"));
+
+        // No more grouped wrapper blocks
+        assertFalse(allText.contains("<workspace_static>"), "Should not contain static workspace block");
+        assertFalse(allText.contains("<workspace>"), "Should not contain dynamic workspace block");
+
+        // Verify ordering: pinned fragment first (now with cache control), then non-pinned
+        int pinnedIndex = -1;
+        int specialIndex = -1;
+
+        for (int i = 0; i < messages.size(); i++) {
+            var msg = messages.get(i);
+            String text = Messages.getText(msg);
+            if (text.contains("Pinned Fragment")) pinnedIndex = i;
+            if (text.contains("Build")) specialIndex = i;
+        }
+
+        assertTrue(pinnedIndex != -1 && specialIndex != -1);
+        assertTrue(pinnedIndex < specialIndex, "Pinned fragment should come before non-pinned special fragment");
+
+        var pinnedMsg = messages.get(pinnedIndex);
+        assertInstanceOf(UserMessage.class, pinnedMsg);
+        assertEquals("ephemeral", ((UserMessage) pinnedMsg).cacheControl());
+    }
+
+    @Test
+    void testSpecialFragmentsGoToDynamicEvenWhenPinned() {
+        var ctx = new Context(cm);
+
+        // Add a special fragment (TASK_LIST) and pin it
+        var specialFrag = SpecialTextType.TASK_LIST.create(cm, "{\"tasks\": []}");
+        ctx = ctx.addFragments(List.of(specialFrag));
+        ctx = ctx.withPinned(specialFrag, true);
+
+        var messages = WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.noneOf(SpecialTextType.class));
+
+        String allText = messages.stream().map(Messages::getText).collect(Collectors.joining("\n"));
+
+        // Special fragments should always go to non-pinned section
+        assertFalse(
+                allText.contains("static Workspace contents"),
+                "Should not have static ack for pinned special fragments");
+        assertTrue(allText.contains("<fragment"), "Should contain fragment tag");
+        assertTrue(allText.contains("Task List"), "Should contain the special fragment");
+    }
+
+    @Test
+    void testStaticAckMessageHasCacheControl() {
+        var ctx = new Context(cm);
+        // Add a regular fragment and pin it to create static content
+        var regularFrag = new ContextFragments.StringFragment(cm, "Pinned content", "Pinned Fragment", "text/plain");
+        ctx = ctx.addFragments(List.of(regularFrag));
+        ctx = ctx.withPinned(regularFrag, true);
+
+        var messages = WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.noneOf(SpecialTextType.class));
+
+        // Last pinned UserMessage should have cache control
+        var cacheControlledMsg = messages.stream()
+                .filter(m -> m instanceof UserMessage um && "ephemeral".equals(um.cacheControl()))
+                .findFirst()
+                .orElseThrow();
+
+        assertInstanceOf(UserMessage.class, cacheControlledMsg);
+        assertEquals("ephemeral", ((UserMessage) cacheControlledMsg).cacheControl());
+    }
+
+    @Test
+    void testGetMessagesInAddedOrderReturnsExpectedMessageCount() {
+        var ctx = new Context(cm);
+
+        // Add a user-pinned non-special fragment and a dynamic fragment
+        var pinnedFrag = new ContextFragments.StringFragment(cm, "Pinned content", "Pinned Fragment", "text/plain");
+        var dynamicFrag = new ContextFragments.StringFragment(cm, "Some content", "Test Fragment", "text/plain");
+
+        ctx = ctx.addFragments(List.of(pinnedFrag, dynamicFrag));
+        ctx = ctx.withPinned(pinnedFrag, true);
+
+        var messages = WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.noneOf(SpecialTextType.class));
+
+        // Expected sequence:
+        // 1. UserMessage (Pinned Fragment, now with cache control set to ephemeral)
+        // 2. UserMessage (Test Fragment)
+        // 3. AiMessage (final ack)
+        // Note: if style guide is present, it adds another message at index 0.
+        // We assume style guide is empty in this test environment.
+        assertTrue(
+                messages.size() >= 3, "Should return at least 3 messages for one pinned and one non-pinned fragment");
+
+        String lastText = Messages.getText(messages.getLast());
+        assertTrue(
+                lastText.contains("providing these Workspace contents"),
+                "Last message should be the final acknowledgment");
     }
 
     @Test

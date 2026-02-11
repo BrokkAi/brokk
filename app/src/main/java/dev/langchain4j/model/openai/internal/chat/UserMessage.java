@@ -30,9 +30,13 @@ public final class UserMessage implements Message {
     @JsonProperty
     private final String name;
 
+    @JsonProperty
+    private final CacheControl cacheControl;
+
     public UserMessage(Builder builder) {
         this.content = builder.stringContent != null ? builder.stringContent : builder.content;
         this.name = builder.name;
+        this.cacheControl = builder.cacheControl;
     }
 
     public Role role() {
@@ -47,6 +51,10 @@ public final class UserMessage implements Message {
         return name;
     }
 
+    public CacheControl cacheControl() {
+        return cacheControl;
+    }
+
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
@@ -56,7 +64,8 @@ public final class UserMessage implements Message {
     private boolean equalTo(UserMessage another) {
         return Objects.equals(role, another.role)
                 && Objects.equals(content, another.content)
-                && Objects.equals(name, another.name);
+                && Objects.equals(name, another.name)
+                && Objects.equals(cacheControl, another.cacheControl);
     }
 
     @Override
@@ -65,12 +74,14 @@ public final class UserMessage implements Message {
         h += (h << 5) + Objects.hashCode(role);
         h += (h << 5) + Objects.hashCode(content);
         h += (h << 5) + Objects.hashCode(name);
+        h += (h << 5) + Objects.hashCode(cacheControl);
         return h;
     }
 
     @Override
     public String toString() {
-        return "UserMessage{" + "role=" + role + ", content=" + content + ", name=" + name + "}";
+        return "UserMessage{" + "role=" + role + ", content=" + content + ", name=" + name + ", cacheControl="
+                + cacheControl + "}";
     }
 
     public static UserMessage from(String text) {
@@ -93,6 +104,7 @@ public final class UserMessage implements Message {
         private String stringContent; // keeping it for compatibility with other OpenAI-like APIs
         private List<Content> content;
         private String name;
+        private CacheControl cacheControl;
 
         public Builder addText(String text) {
             initializeContent();
@@ -137,6 +149,11 @@ public final class UserMessage implements Message {
 
         public Builder name(String name) {
             this.name = name;
+            return this;
+        }
+
+        public Builder cacheControl(CacheControl cacheControl) {
+            this.cacheControl = cacheControl;
             return this;
         }
 

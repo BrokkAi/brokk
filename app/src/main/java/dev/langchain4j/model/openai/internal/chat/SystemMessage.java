@@ -25,9 +25,13 @@ public final class SystemMessage implements Message {
     @JsonProperty
     private final String name;
 
+    @JsonProperty
+    private final CacheControl cacheControl;
+
     public SystemMessage(Builder builder) {
         this.content = builder.content;
         this.name = builder.name;
+        this.cacheControl = builder.cacheControl;
     }
 
     public Role role() {
@@ -42,6 +46,10 @@ public final class SystemMessage implements Message {
         return name;
     }
 
+    public CacheControl cacheControl() {
+        return cacheControl;
+    }
+
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
@@ -51,7 +59,8 @@ public final class SystemMessage implements Message {
     private boolean equalTo(SystemMessage another) {
         return Objects.equals(role, another.role)
                 && Objects.equals(content, another.content)
-                && Objects.equals(name, another.name);
+                && Objects.equals(name, another.name)
+                && Objects.equals(cacheControl, another.cacheControl);
     }
 
     @Override
@@ -60,12 +69,14 @@ public final class SystemMessage implements Message {
         h += (h << 5) + Objects.hashCode(role);
         h += (h << 5) + Objects.hashCode(content);
         h += (h << 5) + Objects.hashCode(name);
+        h += (h << 5) + Objects.hashCode(cacheControl);
         return h;
     }
 
     @Override
     public String toString() {
-        return "SystemMessage{" + "role=" + role + ", content=" + content + ", name=" + name + "}";
+        return "SystemMessage{" + "role=" + role + ", content=" + content + ", name=" + name + ", cacheControl="
+                + cacheControl + "}";
     }
 
     public static SystemMessage from(String content) {
@@ -83,6 +94,7 @@ public final class SystemMessage implements Message {
 
         private String content;
         private String name;
+        private CacheControl cacheControl;
 
         public Builder content(String content) {
             this.content = content;
@@ -91,6 +103,11 @@ public final class SystemMessage implements Message {
 
         public Builder name(String name) {
             this.name = name;
+            return this;
+        }
+
+        public Builder cacheControl(CacheControl cacheControl) {
+            this.cacheControl = cacheControl;
             return this;
         }
 
