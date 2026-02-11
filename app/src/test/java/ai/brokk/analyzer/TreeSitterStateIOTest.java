@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import net.jpountz.lz4.LZ4FrameOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -739,7 +740,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadStateWithNullListFieldsDoesNotThrowNPE(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("null_lists.smile.gz");
+        Path out = tempDir.resolve("null_lists.bin.lz");
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
         var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
@@ -764,7 +765,7 @@ public class TreeSitterStateIOTest {
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+        try (var os = new LZ4FrameOutputStream(Files.newOutputStream(out))) {
             mapper.writeValue(os, stateDtoMap);
         }
 

@@ -39,7 +39,7 @@ public class MultiLanguageStateIOTest {
             Language.MultiLanguage multiLang = new Language.MultiLanguage(langs);
             IAnalyzer analyzer = multiLang.loadAnalyzer(project);
             assertNotNull(analyzer, "Expected non-null analyzer");
-            assertTrue(analyzer instanceof MultiAnalyzer, "Expected a MultiAnalyzer for multiple languages");
+            assertInstanceOf(MultiAnalyzer.class, analyzer, "Expected a MultiAnalyzer for multiple languages");
 
             MultiAnalyzer multi = (MultiAnalyzer) analyzer;
             Map<Language, IAnalyzer> delegates = multi.getDelegates();
@@ -73,8 +73,8 @@ public class MultiLanguageStateIOTest {
             assertTrue(Files.exists(javaBin), "Expected Java analyzer state file to exist: " + javaBin);
             assertTrue(Files.exists(pyBin), "Expected Python analyzer state file to exist: " + pyBin);
 
-            // Verify there is no wrapper-level single .bin.gzip for MultiLanguage/MultiAnalyzer:
-            // list *.bin.gzip files in .brokk and ensure only java.bin.gzip and python.bin.gzip are present
+            // Verify there is no wrapper-level single .bin.lz4 for MultiLanguage/MultiAnalyzer:
+            // list *.bin.lz4 files in .brokk and ensure only java.bin.lz4 and python.bin.lz4 are present
             Path brokkDir = javaBin.getParent();
             assertNotNull(brokkDir, "Expected .brokk directory parent to be non-null");
             List<Path> binFiles;
@@ -82,24 +82,24 @@ public class MultiLanguageStateIOTest {
                 binFiles = list.filter(p -> p.getFileName()
                                 .toString()
                                 .toLowerCase(Locale.ROOT)
-                                .endsWith(".bin.gzip"))
+                                .endsWith(".bin.lz4"))
                         .toList();
             }
             Set<String> binNames = new HashSet<>();
             for (Path p : binFiles) {
                 binNames.add(p.getFileName().toString().toLowerCase(Locale.ROOT));
             }
-            assertTrue(binNames.contains("java.bin.gzip"), "Missing java.bin.gzip in .brokk");
-            assertTrue(binNames.contains("python.bin.gzip"), "Missing python.bin.gzip in .brokk");
+            assertTrue(binNames.contains("java.bin.lz4"), "Missing java.bin.lz4 in .brokk");
+            assertTrue(binNames.contains("python.bin.lz4"), "Missing python.bin.lz4 in .brokk");
             assertEquals(
                     2,
                     binNames.size(),
-                    "Unexpected .bin.gzip files present (wrapper should not create a single .bin.gzip)");
+                    "Unexpected .bin.lz4 files present (wrapper should not create a single .bin.lz4)");
 
             // Reload analyzer from disk and validate delegates/equivalence
             IAnalyzer reloaded = multiLang.loadAnalyzer(project);
             assertNotNull(reloaded, "Reloaded analyzer should not be null");
-            assertTrue(reloaded instanceof MultiAnalyzer, "Reloaded analyzer should be a MultiAnalyzer");
+            assertInstanceOf(MultiAnalyzer.class, reloaded, "Reloaded analyzer should be a MultiAnalyzer");
 
             MultiAnalyzer reMulti = (MultiAnalyzer) reloaded;
             Map<Language, IAnalyzer> reDelegates = reMulti.getDelegates();
