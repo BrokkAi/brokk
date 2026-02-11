@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.FileSystemLoopException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -163,6 +164,15 @@ public final class LocalCacheScanner {
                 });
             } catch (FileSystemLoopException e) {
                 logger.warn("Symlink loop while scanning cache root {}: {}; skipping this root", root, e.getMessage());
+            } catch (UncheckedIOException uioe) {
+                if (uioe.getCause() instanceof FileSystemLoopException) {
+                    logger.warn(
+                            "Symlink loop while scanning cache root {}: {}; skipping this root",
+                            root,
+                            uioe.getCause().getMessage());
+                } else {
+                    throw uioe;
+                }
             } catch (IOException e) {
                 logger.warn("Error scanning {}: {}", root, e.getMessage());
             } catch (SecurityException e) {
@@ -229,6 +239,15 @@ public final class LocalCacheScanner {
                 }
             } catch (FileSystemLoopException e) {
                 logger.warn("Symlink loop while scanning cache root {}: {}; skipping this root", root, e.getMessage());
+            } catch (UncheckedIOException uioe) {
+                if (uioe.getCause() instanceof FileSystemLoopException) {
+                    logger.warn(
+                            "Symlink loop while scanning cache root {}: {}; skipping this root",
+                            root,
+                            uioe.getCause().getMessage());
+                } else {
+                    throw uioe;
+                }
             } catch (IOException e) {
                 logger.warn("Error scanning {}: {}", root, e.getMessage());
             } catch (SecurityException e) {
@@ -281,6 +300,15 @@ public final class LocalCacheScanner {
                                 root,
                                 e.getMessage());
                         return Stream.empty();
+                    } catch (UncheckedIOException uioe) {
+                        if (uioe.getCause() instanceof FileSystemLoopException) {
+                            logger.warn(
+                                    "Symlink loop while scanning cache root {}: {}; skipping this root",
+                                    root,
+                                    uioe.getCause().getMessage());
+                            return Stream.empty();
+                        }
+                        throw uioe;
                     } catch (IOException e) {
                         logger.warn("Error walking directory {}: {}", root, e.getMessage());
                         return Stream.empty();
