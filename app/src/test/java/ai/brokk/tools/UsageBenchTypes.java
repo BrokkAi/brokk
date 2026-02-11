@@ -22,7 +22,9 @@ public class UsageBenchTypes {
     public record UsageLocation(
             @JsonProperty("fullyQualifiedName") String fullyQualifiedName,
             @JsonProperty("lineNumber") int lineNumber,
-            @JsonProperty("snippet") String snippet) {}
+            @JsonProperty("snippet") String snippet,
+            @JsonProperty("filePath") String filePath,
+            @JsonProperty("syntaxStyle") String syntaxStyle) {}
 
     // --- Result Records ---
 

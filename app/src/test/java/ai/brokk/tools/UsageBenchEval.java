@@ -388,7 +388,9 @@ public class UsageBenchEval implements Callable<Integer> {
                         .map(fqn -> {
                             UsageLocation loc = expectedLocations.get(fqn);
                             String snippet = (loc != null && loc.snippet() != null) ? loc.snippet() : "";
-                            return new UsageDetail(fqn, snippet, "", "");
+                            String filePath = (loc != null && loc.filePath() != null) ? loc.filePath() : "";
+                            String syntaxStyle = (loc != null && loc.syntaxStyle() != null) ? loc.syntaxStyle() : "";
+                            return new UsageDetail(fqn, snippet, filePath, syntaxStyle);
                         })
                         .toList();
                 projectFNs.add(new CodeUnitDetail(
