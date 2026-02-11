@@ -886,7 +886,8 @@ public class SearchAgent {
                 agentTerminalTools = List.of();
             }
 
-            var allAllowed = Streams.concat(allowedToolNames.stream(), agentTerminalTools.stream()).toList();
+            var allAllowed = Streams.concat(allowedToolNames.stream(), agentTerminalTools.stream())
+                    .toList();
             var toolSpecs = tr.getTools(allAllowed);
             return new TurnPrompt(messages, toolSpecs, extraUserMessage);
         }

@@ -397,7 +397,7 @@ public class SearchPrompts {
                 </{{objectiveTag}}>
 
                 <search-objective>
-                {{#if (eq (lower objectiveTag) "issue_diagnosis")~}}
+                {{#if (eq (lower objectiveTag) "issue_description")~}}
                 Deliver a high-quality GitHub issue using the describeIssue(String title, String body) tool.
 
                 Requirements:

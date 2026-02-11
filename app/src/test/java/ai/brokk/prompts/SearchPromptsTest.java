@@ -43,7 +43,7 @@ class SearchPromptsTest {
             var issueDiagnosis = SearchPrompts.instance
                     .searchSystemPrompt(ctx, SearchPrompts.Objective.ISSUE_DESCRIPTION)
                     .text();
-            assertTrue(issueDiagnosis.contains("Objective: ISSUE_DIAGNOSIS"));
+            assertTrue(issueDiagnosis.contains("Objective: ISSUE_DESCRIPTION"));
             assertTrue(issueDiagnosis.contains("Deliverable: a high-quality GitHub issue"));
         } finally {
             ai.brokk.util.FileUtil.deleteRecursively(tempDir);
