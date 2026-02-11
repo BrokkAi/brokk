@@ -241,8 +241,18 @@ public final class LocalCacheScanner {
                 .peek(root -> logger.debug("Scanning for JARs under: {}", root))
                 .flatMap(root -> {
                     // Do NOT follow links by default to avoid cycles. If we detect a loop, skip this root.
+                    // Collect only JAR paths inside the try to avoid materializing all files.
                     try (Stream<Path> s = Files.walk(root)) {
-                        return s.filter(Files::isRegularFile).toList().stream();
+                        return s
+                                .filter(Files::isRegularFile)
+                                .filter(path -> {
+                                    String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                                    return name.endsWith(".jar")
+                                            && !name.endsWith("-sources.jar")
+                                            && !name.endsWith("-javadoc.jar");
+                                })
+                                .toList()
+                                .stream();
                     } catch (FileSystemLoopException e) {
                         logger.warn(
                                 "Symlink loop while scanning cache root {}: {}; skipping this root",
@@ -256,11 +266,6 @@ public final class LocalCacheScanner {
                         logger.warn("Permission denied accessing directory {}: {}", root, e.getMessage());
                         return Stream.empty();
                     }
-                })
-                .filter(Files::isRegularFile)
-                .filter(path -> {
-                    String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-                    return name.endsWith(".jar") && !name.endsWith("-sources.jar") && !name.endsWith("-javadoc.jar");
                 })
                 .toList();
 
