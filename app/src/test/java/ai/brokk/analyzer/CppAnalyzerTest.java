@@ -1737,6 +1737,73 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testAnonymousParameterOverloadsWithTemplateTypes() throws IOException {
+        String content =
+                """
+                template <class T>
+                struct TestContainer {
+                    static int foo(std::vector<double*> /*a*/) { return 1; }
+                    static int foo(std::vector<int*> /*a*/) { return 2; }
+                    static int foo(std::vector<double**> /*a*/) { return 3; }
+
+                    static int bar(std::map<int, double> /*x*/) { return 1; }
+                    static int bar(std::map<int, int> /*x*/) { return 2; }
+                };
+                """;
+
+        try (var project = InlineTestProjectCreator.code(content, "anonymous_overloads.hpp")
+                .build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile);
+
+            // 1. Verify 'foo' overloads
+            var fooOverloads = declarations.stream()
+                    .filter(cu -> getBaseFunctionName(cu).equals("foo"))
+                    .toList();
+
+            assertEquals(3, fooOverloads.size(), "Should find exactly 3 overloads of 'foo'");
+
+            var fooSignatures = fooOverloads.stream()
+                    .map(CodeUnit::signature)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            assertEquals(3, fooSignatures.size(), "Each 'foo' overload should have a unique signature");
+            assertTrue(
+                    fooSignatures.stream().anyMatch(s -> s.contains("vector<double*>")),
+                    "Missing signature with vector<double*>");
+            assertTrue(
+                    fooSignatures.stream().anyMatch(s -> s.contains("vector<int*>")),
+                    "Missing signature with vector<int*>");
+            assertTrue(
+                    fooSignatures.stream().anyMatch(s -> s.contains("vector<double**>")),
+                    "Missing signature with vector<double**>");
+
+            // 2. Verify 'bar' overloads
+            var barOverloads = declarations.stream()
+                    .filter(cu -> getBaseFunctionName(cu).equals("bar"))
+                    .toList();
+
+            assertEquals(2, barOverloads.size(), "Should find exactly 2 overloads of 'bar'");
+
+            var barSignatures = barOverloads.stream()
+                    .map(CodeUnit::signature)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            assertEquals(2, barSignatures.size(), "Each 'bar' overload should have a unique signature");
+            assertTrue(
+                    barSignatures.stream().anyMatch(s -> s.contains("std::map<int,double>")),
+                    "Missing signature with std::map<int,double>");
+            assertTrue(
+                    barSignatures.stream().anyMatch(s -> s.contains("std::map<int,int>")),
+                    "Missing signature with std::map<int,int>");
+        }
+    }
+
+    @Test
     public void testGetDefinitionsStableOrderingPrefersDefinitions() {
         // Lookup overloads by base name via the analyzer lookup (uses normalizeFullName)
         var defs = analyzer.getDefinitions("overloadedFunction").stream().toList();

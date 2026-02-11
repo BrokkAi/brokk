@@ -749,7 +749,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     .replaceAll("\\s*&\\s*", "&")
                     .strip();
 
-            if (!raw.isEmpty()) paramTypes.add(raw);
+            if (!raw.isEmpty()) {
+                // Normalize template argument list spacing: remove spaces after commas
+                // so "std::map<int, double>" becomes "std::map<int,double>"
+                raw = raw.replaceAll(",\\s+", ",");
+                paramTypes.add(raw);
+            }
         }
 
         return String.join(",", paramTypes);
