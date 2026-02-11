@@ -740,7 +740,8 @@ public class TreeSitterStateIOTest {
 
     @Test
     void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
-        // Manually serialize a DTO with a higher major version to bypass CURRENT_SCHEMA setting in save()
+        // Manually serialize a DTO with a higher major version (2.0.0 vs current 1.0.0)
+        // to bypass the automatic CURRENT_SCHEMA setting in save()
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "2.0.0");
         Path out = tempDir.resolve("mismatch.bin.lz4");
 
@@ -751,18 +752,25 @@ public class TreeSitterStateIOTest {
         }
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isEmpty(), "Expected empty result for major version mismatch");
+        assertTrue(loaded.isEmpty(), "Expected empty result for major version mismatch (2.0.0)");
     }
 
     @Test
     void schemaMinorVersionMismatchIsAccepted(@TempDir Path tempDir) throws Exception {
-        // Use a version with same major but different minor to test compatibility
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.99.0");
+        // Use a version with same major but different minor (1.1.0) to test forward compatibility
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.1.0");
         Path out = tempDir.resolve("minor_mismatch.bin.lz4");
-        TreeSitterStateIO.save(TreeSitterStateIO.fromDto(dto), out);
+
+        // We must manually serialize because TreeSitterStateIO.save() always overwrites with CURRENT_SCHEMA
+        var mapper = new ObjectMapper(new SmileFactory());
+        try (var os = Files.newOutputStream(out);
+                var lz4 = new net.jpountz.lz4.LZ4FrameOutputStream(os)) {
+            mapper.writeValue(lz4, dto);
+        }
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isPresent(), "Expected minor version mismatch to be accepted");
+        assertTrue(loaded.isPresent(), "Expected minor version mismatch (1.1.0) to be accepted");
+        assertEquals(1L, loaded.get().snapshotEpochNanos());
     }
 
     @Test
