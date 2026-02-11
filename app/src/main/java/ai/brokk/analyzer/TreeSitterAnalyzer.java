@@ -1732,6 +1732,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<CodeUnit, Boolean> localHasBody,
             ProjectFile file) {
 
+        // Early exit if exact CodeUnit already present (same fqName, kind, source, AND signature)
+        if (localTopLevelCUs.contains(cu)) {
+            return;
+        }
+
         // Find existing CodeUnit with same fqName
         CodeUnit existingDuplicate = localTopLevelCUs.stream()
                 .filter(existing -> existing.fqName().equals(cu.fqName()))
@@ -1821,6 +1826,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
             Map<CodeUnit, Boolean> localHasBody) {
+
+        // Early exit if exact CodeUnit already present
+        if (kids.contains(cu)) {
+            return;
+        }
 
         // Look for an existing child with the same FQN (overloads may exist with different signatures)
         CodeUnit existingDuplicate = kids.stream()
