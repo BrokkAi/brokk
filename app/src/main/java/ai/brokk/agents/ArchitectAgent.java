@@ -104,6 +104,8 @@ public class ArchitectAgent {
     // Tracks if we have ever entered emergency mode (restricted tools due to context size)
     private boolean hasEnteredEmergencyMode = false;
 
+    private final Set<ProjectFile> presentedRelatedFiles = new HashSet<>();
+
     private TokenUsage totalUsage = new TokenUsage(0, 0);
     private boolean offerUndoToolNext = false;
 
@@ -1122,7 +1124,10 @@ public class ArchitectAgent {
                 .toList());
 
         // Add related identifiers as a separate message/ack pair, unless we are/were in emergency mode
-        var related = hasEnteredEmergencyMode ? Map.<ProjectFile, String>of() : context.buildRelatedSymbols(10);
+        var related = hasEnteredEmergencyMode
+                ? Map.<ProjectFile, String>of()
+                : context.buildRelatedSymbols(10, 20, presentedRelatedFiles);
+        presentedRelatedFiles.addAll(related.keySet());
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             var topFilesText =

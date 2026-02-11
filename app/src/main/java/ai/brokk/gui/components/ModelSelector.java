@@ -43,6 +43,13 @@ public class ModelSelector {
             var favorites = MainProject.loadFavoriteModels();
             cachedFavorites = favorites;
 
+            if (!MainProject.isOpenAiCodexOauthConnected()) {
+                var service = chrome.getContextManager().getService();
+                favorites = favorites.stream()
+                        .filter(fm -> !service.isCodexModel(fm.config().name()))
+                        .toList();
+            }
+
             if (favorites.isEmpty()) {
                 JMenuItem noFavorites = new JMenuItem("(No favorite models)");
                 noFavorites.setEnabled(false);

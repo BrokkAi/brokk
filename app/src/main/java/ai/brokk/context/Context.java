@@ -135,11 +135,14 @@ public class Context {
                 .collect(Collectors.joining("\n\n"));
     }
 
-    public Map<ProjectFile, String> buildRelatedSymbols(int k) throws InterruptedException {
-        var candidates = getMostRelevantFiles(k).stream().sorted().toList();
+    public Map<ProjectFile, String> buildRelatedSymbols(int k, int n, Set<ProjectFile> toIgnore)
+            throws InterruptedException {
+        var candidates = getMostRelevantFiles(n).stream()
+                .filter(pf -> !toIgnore.contains(pf))
+                .limit(k)
+                .toList();
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
-        // TODO: Get this off common FJP
         return candidates.parallelStream()
                 .map(pf -> Map.entry(pf, analyzer.summarizeSymbols(pf)))
                 .filter(e -> !e.getValue().isBlank())

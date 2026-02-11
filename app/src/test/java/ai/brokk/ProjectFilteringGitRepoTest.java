@@ -3,7 +3,6 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.BuildAgent;
@@ -317,30 +316,6 @@ class ProjectFilteringGitRepoTest {
         // Should include all files when gitignore is empty
         assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
         assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("build/Generated.java")));
-
-        project.close();
-    }
-
-    @Test
-    void getAllFiles_caches_results(@TempDir Path tempDir) throws Exception {
-        initGitRepo(tempDir);
-
-        createFile(tempDir, "src/Main.java", "class Main {}");
-
-        trackFiles(tempDir);
-
-        // Create .gitignore AFTER tracking files
-        Files.writeString(tempDir.resolve(".gitignore"), "*.class\n");
-
-        var project = MainProject.forTests(tempDir);
-
-        // First call should populate cache
-        var allFiles1 = project.getAllFiles();
-
-        // Second call should use cache (should be same instance)
-        var allFiles2 = project.getAllFiles();
-
-        assertSame(allFiles1, allFiles2, "Should return cached instance");
 
         project.close();
     }

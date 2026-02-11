@@ -47,6 +47,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     public static final String MODELS_TAB_TITLE = "Models";
+    public static final String MODEL_ROLES_TAB_TITLE = "Model Roles";
 
     private final Chrome chrome;
 
@@ -422,6 +423,10 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         var vendors = new ArrayList<String>();
         vendors.add(ModelProperties.DEFAULT_VENDOR);
         vendors.addAll(ModelProperties.getAvailableVendors());
+
+        if (!MainProject.isOpenAiCodexOauthConnected()) {
+            vendors.remove("OpenAI - Codex");
+        }
 
         otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
@@ -935,7 +940,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         var modelsTabbed = new JTabbedPane(JTabbedPane.TOP);
         modelsTabbed.addTab("Favorites", null, favoritesPanel, "Manage favorite model aliases");
         modelsTabbed.addTab(
-                "Model Roles",
+                MODEL_ROLES_TAB_TITLE,
                 null,
                 new JPanel(new BorderLayout(5, 5)) {
                     {
