@@ -245,6 +245,35 @@ public final class HeadlessExecutorMain {
         SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
+    /**
+     * GET /health/ready
+     *
+     * Readiness semantics:
+     * - This endpoint reports whether the headless executor has a loaded session and is ready to accept work.
+     * - When ready, the endpoint returns the current active session id as reported by ContextManager.getCurrentSessionId().
+     *
+     * Rationale and authoritative source of truth:
+     * - The ContextManager maintains the active session id and performs background session maintenance
+     *   (for example, quarantining unreadable sessions, migrating sessions, or creating replacement sessions).
+     *   Because background maintenance can change the active session after a client-created session is accepted,
+     *   the readiness endpoint must report the currently active session id rather than the id merely returned by the
+     *   most-recent successful POST /v1/sessions call.
+     * - In short: the readiness endpoint is authoritative about "what the executor is currently running", and that
+     *   authoritative value is the ContextManager's current session id.
+     *
+     * Edge cases:
+     * - If a POST /v1/sessions call returns a session id but subsequent background maintenance immediately replaces it
+     *   (for example due to quarantine/recovery), clients should expect GET /health/ready to reflect the replacement id.
+     * - The server still ensures that until sessionLoaded is set true, /health/ready returns 503. sessionLoaded indicates
+     *   that a session has been loaded (or a session create request has signaled readiness via the SessionsRouter).
+     * - Clients who require a stable mapping from their POST response to a session that will remain active must use the
+     *   appropriate session management APIs (for example polling /v1/sessions or relying on server-side guarantees),
+     *   and be tolerant of eventual background changes.
+     *
+     * Implementation note:
+     * - This method intentionally uses ContextManager.getCurrentSessionId() as the single source of truth for the
+     *   session id reported to clients.
+     */
     private void handleHealthReady(HttpExchange exchange) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "GET")) {
             return;

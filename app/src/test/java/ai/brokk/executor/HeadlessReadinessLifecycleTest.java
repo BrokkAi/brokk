@@ -16,6 +16,22 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+/**
+ * Tests for the headless executor readiness lifecycle.
+ *
+ * Intended readiness semantics (documented to reduce flakiness and make expectations explicit):
+ * - POST /v1/sessions returns the session id for the session that was created (or started) as part of the request.
+ * - GET /health/ready reports the currently active session id as reported by ContextManager.getCurrentSessionId().
+ *   This means that if background session maintenance (quarantine/migration/recovery) runs after the POST and
+ *   replaces or switches the active session, GET /health/ready may return an id different from the id returned
+ *   by the earlier POST. The readiness endpoint deliberately reports the executor's current active session, not
+ *   the historical "most recently returned by POST".
+ *
+ * Rationale:
+ * - The executor's readiness should reflect what it will actually execute against (the active session). Tests and
+ *   clients that rely on POST /v1/sessions returning a session id which will remain active forever must tolerate
+ *   background maintenance or explicitly reconcile by querying session state.
+ */
 class HeadlessReadinessLifecycleTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String AUTH_TOKEN = "test-token";
