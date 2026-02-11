@@ -387,7 +387,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         watchService.start(CompletableFuture.completedFuture(null));
 
         this.io = new Chrome(this);
-        this.toolRegistry.register(new UiTools((Chrome) this.io));
         this.userActions.setIo(this.io);
 
         // Check if project root is outside git repository and show warning

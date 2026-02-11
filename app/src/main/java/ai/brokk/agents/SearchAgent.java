@@ -22,6 +22,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.McpPrompts;
 import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
@@ -118,7 +119,7 @@ public class SearchAgent {
 
     private boolean terminalCompletionReported = false;
 
-    private final SearchPrompts.Objective objective;
+    private final Objective objective;
 
     SearchState currentState;
     private SearchState checkpointState;
@@ -133,14 +134,14 @@ public class SearchAgent {
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
-        this(initialContext, goal, model, SearchPrompts.Objective.WORKSPACE_ONLY, scope, io, scanConfig);
+        this(initialContext, goal, model, Objective.WORKSPACE_ONLY, scope, io, scanConfig);
     }
 
     public SearchAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
-            SearchPrompts.Objective objective,
+            Objective objective,
             ContextManager.TaskScope scope) {
         this(
                 initialContext,
@@ -156,7 +157,7 @@ public class SearchAgent {
             Context initialContext,
             String goal,
             StreamingChatModel model,
-            SearchPrompts.Objective objective,
+            Objective objective,
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
@@ -373,13 +374,9 @@ public class SearchAgent {
 
         if (allowed.contains(Terminal.DESCRIBE_ISSUE)) {
             terminals.add("describeIssue");
-            terminals.add("abortSearch");
-            return terminals;
         }
-
         if (allowed.contains(Terminal.ANSWER)) {
             terminals.add("answer");
-            terminals.add("askForClarification");
         }
         if (allowed.contains(Terminal.WORKSPACE)) {
             terminals.add("workspaceComplete");
@@ -389,6 +386,13 @@ public class SearchAgent {
         }
         if (allowed.contains(Terminal.CODE)) {
             terminals.add("callCodeAgent");
+        }
+
+        // allow user-invoked SearchAgent to ask for clarification in an interactive Chrome
+        if (io instanceof Chrome
+                && Set.of(Objective.ANSWER_ONLY, Objective.TASKS_ONLY, Objective.LUTZ)
+                        .contains(objective)) {
+            terminals.add("askForClarification");
         }
 
         terminals.add("abortSearch");
@@ -422,12 +426,6 @@ public class SearchAgent {
 
         if (hasDroppableFragments(context)) {
             names.add("dropWorkspaceFragments");
-        }
-
-        if (io instanceof Chrome && objective != SearchPrompts.Objective.TASKS_ONLY) {
-            if (!names.contains("askHuman")) {
-                names.add("askHuman");
-            }
         }
 
         if (DependencyTools.isSupported(cm.getProject())) {
@@ -469,7 +467,6 @@ public class SearchAgent {
     private int priority(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "askHuman" -> 2;
             case "addFilesToWorkspace" -> 4;
             case "addClassesToWorkspace", "addFileSummariesToWorkspace" -> 5;
             case "addMethodsToWorkspace", "addClassSummariesToWorkspace" -> 6;
@@ -539,7 +536,7 @@ public class SearchAgent {
         scanPerformed = true;
     }
 
-    private SearchPrompts.Objective getObjective() {
+    private Objective getObjective() {
         return objective;
     }
 
