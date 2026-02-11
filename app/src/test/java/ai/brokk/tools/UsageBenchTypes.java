@@ -21,7 +21,8 @@ public class UsageBenchTypes {
 
     public record UsageLocation(
             @JsonProperty("fullyQualifiedName") String fullyQualifiedName,
-            @JsonProperty("lineNumber") int lineNumber) {}
+            @JsonProperty("lineNumber") int lineNumber,
+            @JsonProperty("snippet") String snippet) {}
 
     // --- Result Records ---
 

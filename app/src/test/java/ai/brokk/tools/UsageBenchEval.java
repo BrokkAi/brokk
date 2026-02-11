@@ -314,9 +314,10 @@ public class UsageBenchEval implements Callable<Integer> {
             var result = finder.findUsages(unit.fullyQualifiedName());
             var either = result.toEither();
 
-            Set<String> expectedFqns = unit.usages().stream()
-                    .map(UsageLocation::fullyQualifiedName)
-                    .collect(Collectors.toSet());
+            Map<String, UsageLocation> expectedLocations = unit.usages().stream()
+                    .collect(Collectors.toMap(UsageLocation::fullyQualifiedName, loc -> loc, (a, b) -> a));
+
+            Set<String> expectedFqns = expectedLocations.keySet();
 
             Set<UsageHit> detectedHits = new HashSet<>();
             Set<String> detectedFqns = new HashSet<>();
@@ -383,8 +384,13 @@ public class UsageBenchEval implements Callable<Integer> {
                         fpDetails));
             }
             if (!fn.isEmpty()) {
-                List<UsageDetail> fnDetails =
-                        fn.stream().map(fqn -> new UsageDetail(fqn, "", "", "")).toList();
+                List<UsageDetail> fnDetails = fn.stream()
+                        .map(fqn -> {
+                            UsageLocation loc = expectedLocations.get(fqn);
+                            String snippet = (loc != null && loc.snippet() != null) ? loc.snippet() : "";
+                            return new UsageDetail(fqn, snippet, "", "");
+                        })
+                        .toList();
                 projectFNs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
                         searchedFilePath,
