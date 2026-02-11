@@ -1,4 +1,5 @@
 from typing import Any
+import asyncio
 
 import pytest
 from pathlib import Path
@@ -61,17 +62,17 @@ async def test_tui_prompt_persistence(app: BrokkApp, workspace: Path):
         await type_text(pilot, "hello world")
         await pilot.press("enter")
         # allow Textual to process the submit
-        await pilot.pause(0.01)
+        await asyncio.sleep(0)
 
         # 2. Submit a command (should NOT be persisted)
         await type_text(pilot, "/info")
         await pilot.press("enter")
-        await pilot.pause(0.01)
+        await asyncio.sleep(0)
 
         # 3. Submit another normal prompt
         await type_text(pilot, "second prompt")
         await pilot.press("enter")
-        await pilot.pause(0.01)
+        await asyncio.sleep(0)
 
     # Verify history on disk
     history = load_history(workspace)
@@ -92,7 +93,7 @@ async def test_tui_prompt_trimming(app: BrokkApp, workspace: Path):
         for i in range(3):
             await type_text(pilot, f"prompt {i}")
             await pilot.press("enter")
-            await pilot.pause(0.005)
+            await asyncio.sleep(0)
 
     history = load_history(workspace)
     assert len(history) == 2
@@ -109,17 +110,17 @@ async def test_tui_history_commands(app: BrokkApp, workspace: Path):
         await pilot.click("#chat-input")
         await type_text(pilot, "prompt A")
         await pilot.press("enter")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
 
         # 2. Check /history (just ensures no crash)
         await type_text(pilot, "/history")
         await pilot.press("enter")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
 
         # 3. Clear history
         await type_text(pilot, "/history-clear")
         await pilot.press("enter")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
 
     # Verify empty on disk
     assert load_history(workspace) == []
@@ -136,10 +137,10 @@ async def test_tui_history_navigation(app: BrokkApp, workspace: Path):
         # 1. Populate some history
         await type_text(pilot, "first prompt")
         await pilot.press("enter")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
         await type_text(pilot, "second prompt")
         await pilot.press("enter")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
 
         # 2. Test navigation
         await pilot.click("#chat-input")
@@ -151,13 +152,13 @@ async def test_tui_history_navigation(app: BrokkApp, workspace: Path):
 
         # Up once -> second prompt
         await pilot.press("up")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
         assert chat_input_widget.text == "second prompt"
 
         # Up again -> first prompt
         chat_input_widget.cursor_location = (0, 0)
         await pilot.press("up")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
         assert chat_input_widget.text == "first prompt"
 
         # Up again -> stays at first prompt (boundary)
@@ -185,10 +186,10 @@ async def test_tui_history_navigation_places_cursor_at_end(app: BrokkApp, worksp
         await pilot.click("#chat-input")
         await type_text(pilot, "first")
         await pilot.press("enter")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
         await type_text(pilot, "second")
         await pilot.press("enter")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
 
         chat_input = app.query_one("#chat-input")
         await pilot.click("#chat-input")
@@ -196,12 +197,12 @@ async def test_tui_history_navigation_places_cursor_at_end(app: BrokkApp, worksp
 
         chat_input.cursor_location = (0, 0)
         await pilot.press("up")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
         assert chat_input.text == "second"
 
         # Cursor should already be at end after loading history.
         await pilot.press("down")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
         assert chat_input.text == "draft"
 
 
@@ -220,7 +221,7 @@ async def test_tui_history_navigation_complex(app: BrokkApp, workspace: Path):
             await pilot.click("#chat-input")
             await type_text(pilot, p)
             await pilot.press("enter")
-            await pilot.pause(0.005)
+            await asyncio.sleep(0)
 
         chat_input = app.query_one("#chat-input")
 
@@ -234,19 +235,19 @@ async def test_tui_history_navigation_complex(app: BrokkApp, workspace: Path):
 
         # Up x1 -> "three"
         await pilot.press("up")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
         assert chat_input.text == "three"
 
         # Up x1 -> "two"
         chat_input.cursor_location = (0, 0)
         await pilot.press("up")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
         assert chat_input.text == "two"
 
         # Up x1 -> "one"
         chat_input.cursor_location = (0, 0)
         await pilot.press("up")
-        await pilot.pause(0.005)
+        await asyncio.sleep(0)
         assert chat_input.text == "one"
 
         # Up x1 -> stays at "one"
@@ -257,16 +258,19 @@ async def test_tui_history_navigation_complex(app: BrokkApp, workspace: Path):
         # Down x1 -> "two"
         chat_input.move_cursor(chat_input.document.end)
         await pilot.press("down")
+        await asyncio.sleep(0)
         assert chat_input.text == "two"
 
         # Down x1 -> "three"
         chat_input.move_cursor(chat_input.document.end)
         await pilot.press("down")
+        await asyncio.sleep(0)
         assert chat_input.text == "three"
 
         # Down x1 -> "draft"
         chat_input.move_cursor(chat_input.document.end)
         await pilot.press("down")
+        await asyncio.sleep(0)
         assert chat_input.text == "draft"
 
         # Down x1 -> stays at "draft"
@@ -288,7 +292,7 @@ async def test_tui_history_duplicates(app: BrokkApp, workspace: Path):
             await pilot.click("#chat-input")
             await type_text(pilot, p)
             await pilot.press("enter")
-            await pilot.pause(0.005)
+            await asyncio.sleep(0)
 
         await pilot.click("#chat-input")
 
