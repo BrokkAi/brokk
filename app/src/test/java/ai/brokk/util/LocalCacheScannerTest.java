@@ -2,9 +2,13 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -108,11 +112,64 @@ public class LocalCacheScannerTest {
         }
     }
 
+    @Test
+    @DisplayName("listAllJars, findArtifact, findLatestVersion handle symlink cycles gracefully")
+    void symlinkCycleHandling() throws Exception {
+        assumeTrue(supportsSymlinks(), "Filesystem does not support symbolic links");
+
+        // Create a root directory with a jar and a symlink cycle
+        Path root = tempDir.resolve("cacheRoot");
+        Files.createDirectories(root);
+
+        Path jarPath = root.resolve("foo-1.0.jar");
+        Files.writeString(jarPath, "dummy jar");
+
+        // Attempt to create a symlink cycle; skip test if it fails
+        Path cycleLink = root.resolve("cycle");
+        try {
+            Files.createSymbolicLink(cycleLink, root);
+        } catch (Exception e) {
+            assumeTrue(false, "Could not create symlink cycle: " + e.getMessage());
+        }
+
+        List<Path> roots = List.of(root);
+
+        // 1) listAllJars does not throw and returns exactly the jar
+        List<Path> jars = LocalCacheScanner.listAllJars(roots);
+        assertEquals(List.of(jarPath), jars, "listAllJars should return exactly the jar file");
+
+        // 2) findArtifact returns Optional.of(jarPath)
+        Optional<Path> foundArtifact =
+                LocalCacheScanner.findArtifact("g", "foo", "1.0", tempDir.resolve("missing.jar"), roots);
+        assertTrue(foundArtifact.isPresent(), "findArtifact should find the jar");
+        assertEquals(jarPath, foundArtifact.get());
+
+        // 3) findLatestVersion returns Optional.of("1.0")
+        Optional<String> latestVersion =
+                LocalCacheScanner.findLatestVersion("g", "foo", tempDir.resolve("missingArtifactDir"), roots);
+        assertTrue(latestVersion.isPresent(), "findLatestVersion should find a version");
+        assertEquals("1.0", latestVersion.get());
+    }
+
     private Path createVersionWithJar(Path artifactDir, String artifactId, String version) throws Exception {
         var versionDir = artifactDir.resolve(version);
         Files.createDirectories(versionDir);
         var jarPath = versionDir.resolve(artifactId + "-" + version + ".jar");
         Files.writeString(jarPath, "dummy jar content");
         return jarPath;
+    }
+
+    private boolean supportsSymlinks() {
+        try {
+            Path testTarget = tempDir.resolve("symlink_target");
+            Path testLink = tempDir.resolve("symlink_test");
+            Files.createFile(testTarget);
+            Files.createSymbolicLink(testLink, testTarget);
+            Files.delete(testLink);
+            Files.delete(testTarget);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
