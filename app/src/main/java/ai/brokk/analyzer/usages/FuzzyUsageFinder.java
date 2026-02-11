@@ -526,78 +526,6 @@ public final class FuzzyUsageFinder {
     }
 
     /**
-     * Heuristically count the number of arguments at a call-site using a UsageHit.snippet().
-     *
-     * This is intentionally simple:
-     *  - It tries to locate the occurrence of an identifier followed by '(' on the matched line.
-     *  - It then counts top-level commas within that parentheses pair on that line.
-     *  - If multiple candidate parentheses exist on the snippet line, picks the one nearest the match offset.
-     *
-     * Returns -1 when unable to determine.
-     */
-    private static int parseArgumentCountFromSnippet(UsageHit hit) {
-        String snippet = hit.snippet();
-        if (snippet == null || snippet.isBlank()) {
-            return -1;
-        }
-
-        // For simplicity use only the central matched line (the snippet produced by extractUsageHits includes +/- 3
-        // lines).
-        // We'll extract the line corresponding to hit.line (1-based within the file) relative to snippet.
-        var lines = snippet.split("\\R", -1);
-
-        // Try to locate a line that contains both '(' and ')' and use it.
-        int candidateLine = -1;
-        for (int i = 0; i < lines.length; i++) {
-            if (lines[i].contains("(") && lines[i].contains(")")) {
-                candidateLine = i;
-                break;
-            }
-        }
-        if (candidateLine == -1) {
-            // fallback: search for any parentheses pair anywhere in the snippet
-            int lp = snippet.indexOf('(');
-            int rp = snippet.indexOf(')', lp + 1);
-            if (lp >= 0 && rp > lp) {
-                String inside = snippet.substring(lp + 1, rp);
-                return simpleCommaCount(inside);
-            }
-            return -1;
-        }
-
-        String line = lines[candidateLine];
-        // Find the first '(' and its matching ')' on that line
-        int lp = line.indexOf('(');
-        int rp = line.indexOf(')', lp + 1);
-        if (lp < 0 || rp < 0) {
-            return -1;
-        }
-        String inside = line.substring(lp + 1, rp);
-        return simpleCommaCount(inside);
-    }
-
-    /**
-     * Count commas at top level in a short expression (no nested parentheses/angles considered).
-     * Returns 0 for empty/blank; otherwise returns number-of-commas+1.
-     */
-    private static int simpleCommaCount(String inside) {
-        if (inside == null) return -1;
-        String s = inside.trim();
-        if (s.isEmpty()) return 0;
-        // very small heuristic: count commas that are not inside quotes (ignore complexity)
-        int count = 1;
-        boolean inSingle = false;
-        boolean inDouble = false;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == '\'' && !inDouble) inSingle = !inSingle;
-            else if (c == '"' && !inSingle) inDouble = !inDouble;
-            else if (c == ',' && !inSingle && !inDouble) count++;
-        }
-        return count;
-    }
-
-    /**
      * Experimental heuristic: derive the set of declaration-side parameter counts for the given fully-qualified
      * name by inspecting CodeUnit.signature() values returned by analyzer.getDefinitions(fqName).
      *
@@ -610,7 +538,7 @@ public final class FuzzyUsageFinder {
      */
     private Set<Integer> extractParameterCountsForDefinitions(String fqName) {
         var defs = analyzer.getDefinitions(fqName);
-        if (defs == null || defs.isEmpty()) {
+        if (defs.isEmpty()) {
             return Set.of();
         }
         var counts = new HashSet<Integer>();
@@ -650,8 +578,6 @@ public final class FuzzyUsageFinder {
      *    return empty.
      */
     private OptionalInt estimateArgumentCount(UsageHit hit, CodeUnit target) {
-        if (hit == null || target == null) return OptionalInt.empty();
-
         // Only attempt for function-like code unit kinds.
         if (!target.isFunction()) {
             return OptionalInt.empty();
@@ -664,18 +590,17 @@ public final class FuzzyUsageFinder {
         }
 
         String snippet = hit.snippet();
-        if (snippet == null || snippet.isBlank()) {
+        if (snippet.isBlank()) {
             return OptionalInt.empty();
         }
 
         String identifier = target.identifier();
-        if (identifier == null || identifier.isBlank()) {
+        if (identifier.isBlank()) {
             return OptionalInt.empty();
         }
 
         // Find occurrences of the identifier in the snippet. Choose the occurrence that has a '(' following it
         // reasonably soon. Be conservative about method references ("::") and field access (".").
-        int bestPos = -1;
         int bestParenPos = -1;
         int bestDistance = Integer.MAX_VALUE;
         String[] lines = snippet.split("\\R", -1);
@@ -725,7 +650,6 @@ public final class FuzzyUsageFinder {
                     int distance = Math.abs(globalPos - center);
                     if (distance < bestDistance) {
                         bestDistance = distance;
-                        bestPos = globalPos;
                         bestParenPos = computeGlobalPos(lines, li, parenPos);
                     }
                 }
@@ -787,7 +711,6 @@ public final class FuzzyUsageFinder {
     }
 
     private static int countTopLevelArgs(String inside) {
-        if (inside == null) return -1;
         int len = inside.length();
         int depthParen = 0;
         int depthAngle = 0;
