@@ -288,10 +288,14 @@ class HeadlessExecutorMainIssueJobTest {
     }
 
     private void waitForCreatedJobsToSettle() {
-        var deadline = Instant.now().plus(Duration.ofSeconds(15));
+        // Bound teardown time per job so a large number of created jobs doesn't lead to a very long
+        // cumulative teardown. Use a small, fixed per-job timeout (2.5s) which keeps the behavior
+        // best-effort while giving CI-visible time to cancel and observe terminal states.
+        final long perJobMillis = 2500L;
         for (var jobId : createdJobIds) {
             cancelJobBestEffort(jobId);
-            awaitTerminalStateBestEffort(jobId, deadline);
+            Instant perJobDeadline = Instant.now().plusMillis(perJobMillis);
+            awaitTerminalStateBestEffort(jobId, perJobDeadline);
         }
     }
 
@@ -303,8 +307,11 @@ class HeadlessExecutorMainIssueJobTest {
                     .POST(HttpRequest.BodyPublishers.noBody())
                     .build();
             httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-        } catch (Exception ignored) {
-            // Best effort; continue teardown.
+        } catch (Exception e) {
+            // Best-effort: log the exception so failures during teardown are visible in CI,
+            // but do not fail the test.
+            System.err.println("Warning: failed to send cancel for jobId=" + jobId + ": " + e);
+            e.printStackTrace(System.err);
         }
     }
 
@@ -327,14 +334,23 @@ class HeadlessExecutorMainIssueJobTest {
                         return;
                     }
                 }
-            } catch (Exception ignored) {
-                // Retry until timeout.
+            } catch (InterruptedException e) {
+                // Preserve interrupt status and stop waiting for this job.
+                Thread.currentThread().interrupt();
+                System.err.println("Interrupted while waiting for job " + jobId + " to reach terminal state");
+                return;
+            } catch (Exception e) {
+                // Best-effort: surface unexpected exceptions to logs so CI can diagnose issues,
+                // but do not fail the test.
+                System.err.println("Warning: exception while polling status for jobId=" + jobId + ": " + e);
+                e.printStackTrace(System.err);
             }
 
             try {
                 Thread.sleep(25);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                System.err.println("Interrupted while sleeping between polls for job " + jobId);
                 return;
             }
         }
