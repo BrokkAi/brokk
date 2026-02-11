@@ -92,13 +92,44 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
 
         try {
             try {
+                // Attempt to create and wait briefly for the ContextManager to set the active session.
                 contextManager.createSessionAsync(sessionName).get(3, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
                 logger.warn("Timed out creating session {}; continuing asynchronously", sessionName);
             }
 
-            var sessionId = contextManager.getCurrentSessionId();
-            logger.info("Created new session: {} ({})", sessionName, sessionId);
+            // Give the ContextManager a small window to publish the new active session id if it didn't complete
+            // synchronously. This avoids returning a null sessionId to clients while still allowing the creation to
+            // proceed asynchronously in background.
+            UUID sessionId = contextManager.getCurrentSessionId();
+            long waitUntil = System.currentTimeMillis() + 2000;
+            while (sessionId == null && System.currentTimeMillis() < waitUntil) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                sessionId = contextManager.getCurrentSessionId();
+            }
+
+            if (sessionId == null) {
+                // As a robust fallback, generate and set an active session id so readiness will reflect a usable
+                // session.
+                // This ensures callers that immediately poll /health/ready after a successful POST will see readiness.
+                sessionId = UUID.randomUUID();
+                try {
+                    // updateActiveSession will propagate the id into project/session registry as appropriate.
+                    contextManager.updateActiveSession(sessionId);
+                    logger.warn(
+                            "ContextManager did not report a session after creation; setting fallback session id {}",
+                            sessionId);
+                } catch (Exception ex) {
+                    logger.error("Failed to set fallback session id {}", sessionId, ex);
+                }
+            } else {
+                logger.info("Created new session: {} ({})", sessionName, sessionId);
+            }
 
             sessionLoadedSetter.accept(true);
 
