@@ -413,4 +413,78 @@ public class LlmTest {
         assertNull(combined.serviceTier());
         assertNull(combined.error());
     }
+
+    @Test
+    void sumClampsIntTokenOverflowToMaxValue() {
+        // Choose values that would overflow when added normally
+        int largeNearMax = Integer.MAX_VALUE - 10;
+        int smallPositive = 20;
+
+        // Make A have non-null categoricals, B have some overriding and some nulls to test precedence
+        var metaA = new ResponseMetadata(
+                largeNearMax, // inputTokens will overflow when added with smallPositive
+                largeNearMax, // cachedInputTokens
+                largeNearMax, // thinkingTokens
+                largeNearMax, // outputTokens
+                100L,
+                "modelA",
+                "A_REASON",
+                "createdA",
+                "tierA",
+                "errorA");
+
+        var metaB = new ResponseMetadata(
+                smallPositive,
+                smallPositive,
+                smallPositive,
+                smallPositive,
+                200L,
+                "modelB", // should override modelA
+                null, // finishReason null -> should fall back to A
+                "createdB", // should override createdA
+                null, // serviceTier null -> should fall back to A
+                null // error null -> should fall back to A
+                );
+
+        var combined = ResponseMetadata.sum(metaA, metaB);
+        assertNotNull(combined);
+        // inputTokens overflow should be clamped to Integer.MAX_VALUE
+        assertEquals(Integer.MAX_VALUE, combined.inputTokens(), "inputTokens should be clamped to Integer.MAX_VALUE");
+        assertTrue(combined.inputTokens() >= 0, "Clamped inputTokens must be non-negative");
+
+        // Other int fields we also set to overflow; they should be clamped too
+        assertEquals(Integer.MAX_VALUE, combined.cachedInputTokens(), "cachedInputTokens should be clamped");
+        assertEquals(Integer.MAX_VALUE, combined.thinkingTokens(), "thinkingTokens should be clamped");
+        assertEquals(Integer.MAX_VALUE, combined.outputTokens(), "outputTokens should be clamped");
+
+        // elapsedMs did not overflow here
+        assertEquals(300L, combined.elapsedMs());
+
+        // Categorical precedence: values present in B win, otherwise A wins
+        assertEquals("modelB", combined.modelName(), "modelName should come from B");
+        assertEquals("A_REASON", combined.finishReason(), "finishReason should fall back to A when B is null");
+        assertEquals("createdB", combined.created(), "created should come from B");
+        assertEquals("tierA", combined.serviceTier(), "serviceTier should fall back to A when B is null");
+        assertEquals("errorA", combined.error(), "error should fall back to A when B is null");
+    }
+
+    @Test
+    void sumClampsElapsedMsOverflowToLongMaxValue() {
+        long almostMax = Long.MAX_VALUE - 5;
+        long small = 10L;
+
+        var metaA = new ResponseMetadata(1, 0, 0, 0, almostMax, "mA", null, null, null, null);
+        var metaB = new ResponseMetadata(2, 0, 0, 0, small, "mB", "DONE", null, null, null);
+
+        var combined = ResponseMetadata.sum(metaA, metaB);
+        assertNotNull(combined);
+        // elapsedMs overflow should be clamped to Long.MAX_VALUE
+        assertEquals(Long.MAX_VALUE, combined.elapsedMs(), "elapsedMs should be clamped to Long.MAX_VALUE");
+
+        // Numeric fields that didn't overflow should be summed normally
+        assertEquals(3, combined.inputTokens());
+        // Categorical precedence: modelName from B overrides A
+        assertEquals("mB", combined.modelName());
+        assertEquals("DONE", combined.finishReason());
+    }
 }
