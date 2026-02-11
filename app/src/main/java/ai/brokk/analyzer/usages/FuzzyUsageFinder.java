@@ -152,7 +152,7 @@ public final class FuzzyUsageFinder {
                     target.fqName(),
                     candidateFiles.size());
 
-            return new FuzzyResult.Success(hits);
+            return new FuzzyResult.Success(Map.of(target, hits));
         }
 
         // Extract raw usage hits from candidate files using the provided patterns
