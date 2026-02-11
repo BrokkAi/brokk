@@ -198,7 +198,7 @@ public final class FuzzyUsageFinder {
                 if (!declParamCounts.isEmpty() && !hits.isEmpty()) {
                     Set<UsageHit> filtered = new HashSet<>();
                     for (var hit : hits) {
-                        OptionalInt optArgCount = estimateArgumentCount(hit);
+                        OptionalInt optArgCount = estimateArgumentCount(hit, target);
                         if (optArgCount.isPresent()) {
                             int argCount = optArgCount.getAsInt();
                             if (declParamCounts.contains(argCount)) {
@@ -639,23 +639,21 @@ public final class FuzzyUsageFinder {
      * Estimate the number of arguments passed at the call corresponding to a UsageHit.
      *
      * - Returns OptionalInt.empty() when unknown/unreliable.
-     * - Applies only for function-like enclosing units and for languages we support (initially Java).
+     * - Applies only for function-like target units and for languages we support (initially Java).
      * - Uses only the snippet text previously captured; does not read the file or call analyzer APIs that trigger I/O.
      *
      * Heuristic (Java):
-     *  - Look for the enclosing identifier in the snippet and try to find a '(' following that occurrence.
+     *  - Look for the target's identifier in the snippet and try to find a '(' following that occurrence.
      *  - Extract the parenthesized text on the same line (or nearby) and count top-level commas respecting simple
      *    nesting for angle brackets and parentheses and string quoting.
      *  - Be conservative: if parentheses appear unbalanced or we cannot confidently locate the argument list,
      *    return empty.
      */
-    private OptionalInt estimateArgumentCount(UsageHit hit) {
-        if (hit == null) return OptionalInt.empty();
-        CodeUnit enclosing = hit.enclosing();
-        if (enclosing == null) return OptionalInt.empty();
+    private OptionalInt estimateArgumentCount(UsageHit hit, CodeUnit target) {
+        if (hit == null || target == null) return OptionalInt.empty();
 
         // Only attempt for function-like code unit kinds.
-        if (!enclosing.isFunction()) {
+        if (!target.isFunction()) {
             return OptionalInt.empty();
         }
 
@@ -670,7 +668,7 @@ public final class FuzzyUsageFinder {
             return OptionalInt.empty();
         }
 
-        String identifier = enclosing.identifier();
+        String identifier = target.identifier();
         if (identifier == null || identifier.isBlank()) {
             return OptionalInt.empty();
         }
