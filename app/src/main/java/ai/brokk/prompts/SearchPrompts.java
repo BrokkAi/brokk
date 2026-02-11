@@ -498,7 +498,7 @@ public class SearchPrompts {
                 You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
                 usefully do so.
 
-                Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, callCodeAgent, createIssue, abortSearch)
+                Terminal actions ({{#if terminalAnswer}}answer, {{/if}}{{#if terminalTasks}}createOrReplaceTaskList, {{/if}}{{#if terminalWorkspace}}workspaceComplete, {{/if}}{{#if terminalCode}}callCodeAgent, {{/if}}{{#if terminalIssue}}createIssue, {{/if}}abortSearch)
                 must be the ONLY tool in a turn. If final cleanup is needed (for example, dropWorkspaceFragments), do it first,
                 then finalize on the next turn. If you include a terminal together with other tools, the terminal will be ignored for this turn.
 
