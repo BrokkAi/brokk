@@ -1584,34 +1584,54 @@ public class CppAnalyzerTest {
 
     // New regression-oriented test: ensure getDefinitions ordering is stable and prefers definitions with bodies
     @Test
-    public void testFunctionTemplateOverloadsDistinguished() {
-        var file = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("function_templates.h"))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("function_templates.h not found"));
+    public void testFunctionTemplateOverloadsDistinguished() throws IOException {
+        String content =
+                """
+                #ifndef FUNCTION_TEMPLATES_H
+                #define FUNCTION_TEMPLATES_H
 
-        var decls = analyzer.getDeclarations(file);
-        var overloads = decls.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> getBaseFunctionName(cu).equals("process"))
-                .collect(Collectors.toList());
+                // Template function with variadic template params
+                template <class... Args>
+                void process(const Args&... args) {}
 
-        // Verify exactly 3 overloads are found
-        assertEquals(3, overloads.size(), "Should find exactly 3 overloads of process()");
+                // Non-template overload
+                void process(int x) {}
 
-        var signatures = overloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+                // Template function with single type param
+                template <typename T>
+                void process(const T& value, int count) {}
 
-        // Verify each has a unique signature
-        assertEquals(3, signatures.size(), "Each process overload should have a unique signature");
+                #endif
+                """;
 
-        // Verify specific template parameter patterns exist in signatures
-        boolean hasVariadic = signatures.stream().anyMatch(sig -> sig != null && sig.contains("<class... Args>"));
-        boolean hasSingle = signatures.stream().anyMatch(sig -> sig != null && sig.contains("<typename T>"));
-        boolean hasNonTemplate = signatures.stream().anyMatch(sig -> sig != null && sig.startsWith("("));
+        try (var project =
+                InlineTestProjectCreator.code(content, "function_templates.h").build()) {
+            TreeSitterAnalyzer inlineAnalyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile file = project.getAllFiles().iterator().next();
 
-        assertTrue(hasVariadic, "Should have variadic template signature: <class... Args>");
-        assertTrue(hasSingle, "Should have single type template signature: <typename T>");
-        assertTrue(hasNonTemplate, "Should have non-template signature (starts with '(')");
+            var decls = inlineAnalyzer.getDeclarations(file);
+            var overloads = decls.stream()
+                    .filter(CodeUnit::isFunction)
+                    .filter(cu -> getBaseFunctionName(cu).equals("process"))
+                    .collect(Collectors.toList());
+
+            // Verify exactly 3 overloads are found
+            assertEquals(3, overloads.size(), "Should find exactly 3 overloads of process()");
+
+            var signatures = overloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+
+            // Verify each has a unique signature
+            assertEquals(3, signatures.size(), "Each process overload should have a unique signature");
+
+            // Verify specific template parameter patterns exist in signatures
+            boolean hasVariadic = signatures.stream().anyMatch(sig -> sig != null && sig.contains("<class... Args>"));
+            boolean hasSingle = signatures.stream().anyMatch(sig -> sig != null && sig.contains("<typename T>"));
+            boolean hasNonTemplate = signatures.stream().anyMatch(sig -> sig != null && sig.startsWith("("));
+
+            assertTrue(hasVariadic, "Should have variadic template signature: <class... Args>");
+            assertTrue(hasSingle, "Should have single type template signature: <typename T>");
+            assertTrue(hasNonTemplate, "Should have non-template signature (starts with '(')");
+        }
     }
 
     @Test
