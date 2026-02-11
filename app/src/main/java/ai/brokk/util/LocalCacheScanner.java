@@ -118,10 +118,17 @@ public final class LocalCacheScanner {
      * @return The latest version string if any version is found locally
      */
     public static Optional<String> findLatestVersion(String groupId, String artifactId) {
+        return findLatestVersion(groupId, artifactId, getMavenArtifactDir(groupId, artifactId), getCacheRoots());
+    }
+
+    /**
+     * Package-private overload for testing with controlled roots.
+     */
+    static Optional<String> findLatestVersion(
+            String groupId, String artifactId, Path artifactDir, List<Path> cacheRoots) {
         var versions = new ArrayList<String>();
 
         // Check Maven local repo structure (fast, predictable paths)
-        var artifactDir = getMavenArtifactDir(groupId, artifactId);
         if (Files.isDirectory(artifactDir)) {
             try (Stream<Path> subdirs = Files.list(artifactDir)) {
                 subdirs.filter(Files::isDirectory).forEach(versionDir -> {
@@ -138,7 +145,7 @@ public final class LocalCacheScanner {
 
         // Scan other caches by filename pattern
         var jarPattern = Pattern.compile(Pattern.quote(artifactId) + "-(.+)\\.jar$");
-        for (var root : getCacheRoots()) {
+        for (var root : cacheRoots) {
             if (!Files.isDirectory(root) || root.toString().contains(".m2")) {
                 continue;
             }
@@ -186,8 +193,16 @@ public final class LocalCacheScanner {
      * @return Path to the JAR if found in local cache
      */
     public static Optional<Path> findArtifact(String groupId, String artifactId, String version) {
+        return findArtifact(
+                groupId, artifactId, version, getMavenLocalPath(groupId, artifactId, version), getCacheRoots());
+    }
+
+    /**
+     * Package-private overload for testing with controlled roots.
+     */
+    static Optional<Path> findArtifact(
+            String groupId, String artifactId, String version, Path m2Path, List<Path> cacheRoots) {
         // Check Maven local repo structure first (O(1) lookup)
-        var m2Path = getMavenLocalPath(groupId, artifactId, version);
         if (Files.exists(m2Path) && Files.isRegularFile(m2Path)) {
             logger.info("Found {} in local Maven repository", m2Path);
             return Optional.of(m2Path);
@@ -195,7 +210,7 @@ public final class LocalCacheScanner {
 
         // Scan other caches by filename match
         var expectedName = artifactId + "-" + version + ".jar";
-        for (var root : getCacheRoots()) {
+        for (var root : cacheRoots) {
             if (!Files.isDirectory(root)) {
                 continue;
             }
@@ -233,9 +248,17 @@ public final class LocalCacheScanner {
      * @return List of paths to JAR files found in local caches
      */
     public static List<Path> listAllJars() {
+        return listAllJars(getCacheRoots());
+    }
+
+    /**
+     * Lists all JAR files under the given roots.
+     * Package-private for testing with controlled roots.
+     */
+    static List<Path> listAllJars(List<Path> roots) {
         long startTime = System.currentTimeMillis();
 
-        var uniqueRoots = getCacheRoots();
+        var uniqueRoots = roots;
         var jarFiles = uniqueRoots.parallelStream()
                 .filter(Files::isDirectory)
                 .peek(root -> logger.debug("Scanning for JARs under: {}", root))
