@@ -34,6 +34,12 @@ public interface IAnalyzerWrapper extends AutoCloseable {
     }
 
     /**
+     * Delete persisted analyzer state files for the project's languages.
+     * Default implementation does nothing.
+     */
+    default void deletePersistedAnalyzerStateFiles() {}
+
+    /**
      * Returns the underlying watch service for direct access.
      * Callers can use this to pause/resume file watching or add additional listeners.
      */

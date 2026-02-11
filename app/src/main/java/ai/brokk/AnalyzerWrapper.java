@@ -500,7 +500,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      * but do not abort the rebuild. Deletions are performed synchronously on the analyzer executor
      * as part of the explicit rebuild path to avoid races with concurrent readers.
      */
-    void deletePersistedAnalyzerStateFiles() {
+    @Override
+    public void deletePersistedAnalyzerStateFiles() {
         try {
             for (var lang : project.getAnalyzerLanguages()) {
                 try {
