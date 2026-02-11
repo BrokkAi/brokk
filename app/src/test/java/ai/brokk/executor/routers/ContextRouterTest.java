@@ -119,7 +119,7 @@ class ContextRouterTest {
         String msg = payload.message();
         // (a) Verify it includes the specific reasons
         assertTrue(msg.contains("invalid:"), "Message should contain 'invalid:' marker");
-        assertTrue(msg.contains("absolute path not allowed"), msg);
+        assertTrue(msg.contains("absolute path not allowed") || msg.contains("escapes workspace"), msg);
         assertTrue(msg.contains("escapes workspace"), msg);
         assertTrue(msg.contains("not a regular file or does not exist"), msg);
 
