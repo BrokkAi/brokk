@@ -2476,7 +2476,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localTopLevelCUs,
                 localSignatures,
                 localSourceRanges,
-                localChildren);
+                localChildren,
+                localCodeUnitsBySymbol);
+
+        // Also call the deprecated version for subclasses that haven't migrated yet
+        createModulesFromImports(
+                file,
+                localImportStatements,
+                rootNode,
+                determinePackageName(file, rootNode, rootNode, sourceContent),
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges);
 
         // Synthetic constructor injection: for each class-like CU, check if it needs an implicit constructor.
         // Implicit constructors are fully integrated into the local state:
@@ -2666,24 +2678,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Useful for languages that have a module system, e.g., dynamic languages, to declare MODULE code units with.
-     */
-    // Legacy signature retained for backward compatibility so subclasses (e.g., JS/TS analyzers)
-    // that override this continue to compile. Prefer overriding the variant with localChildren.
-    protected void createModulesFromImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
-        // default no-op
-    }
-
-    /**
-     * Preferred variant that also provides access to localChildren so modules can attach their children.
-     * Delegates to the legacy method by default to keep existing overrides functioning.
+     * Provides access to local state maps to register the module and its children.
      */
     protected void createModulesFromImports(
             ProjectFile file,
@@ -2694,8 +2689,32 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+        // Base implementation: delegate to legacy signature for backward compatibility
+        createModulesFromImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges,
+                localChildren);
+    }
+
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
             Map<CodeUnit, List<CodeUnit>> localChildren) {
-        // Delegate to legacy signature for backward compatibility
+        // Delegate to legacy signature
         createModulesFromImports(
                 file,
                 localImportStatements,
@@ -2705,6 +2724,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localTopLevelCUs,
                 localSignatures,
                 localSourceRanges);
+    }
+
+    @Deprecated
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        // default no-op
     }
 
     /**

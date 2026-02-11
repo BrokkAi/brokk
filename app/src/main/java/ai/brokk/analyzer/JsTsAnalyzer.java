@@ -119,7 +119,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
         createModulesFromJavaScriptLikeImports(
                 file,
                 localImportStatements,

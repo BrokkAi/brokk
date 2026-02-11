@@ -870,7 +870,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
 
         if (modulePackageName.isBlank()) {
             return;
@@ -881,6 +882,26 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
 
         CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
+
+        // Register module in symbol index for getDefinitions() lookup
+        localCodeUnitsBySymbol
+                .computeIfAbsent(moduleCu.identifier(), k -> new HashSet<>())
+                .add(moduleCu);
+        if (!moduleCu.shortName().equals(moduleCu.identifier())) {
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(moduleCu.shortName(), k -> new HashSet<>())
+                    .add(moduleCu);
+        }
+
+        // Register module in symbol index for getDefinitions() lookup
+        localCodeUnitsBySymbol
+                .computeIfAbsent(moduleCu.identifier(), k -> new HashSet<>())
+                .add(moduleCu);
+        if (!moduleCu.shortName().equals(moduleCu.identifier())) {
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(moduleCu.shortName(), k -> new HashSet<>())
+                    .add(moduleCu);
+        }
 
         List<CodeUnit> children = localTopLevelCUs.stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
