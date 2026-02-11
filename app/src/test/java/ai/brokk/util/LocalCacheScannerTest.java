@@ -117,14 +117,14 @@ public class LocalCacheScannerTest {
     void symlinkCycleHandling() throws Exception {
         assumeTrue(supportsSymlinks(), "Filesystem does not support symbolic links");
 
-        // Create a root directory with a jar and a symlink cycle
-        Path root = tempDir.resolve("cacheRoot");
+        // Create a root directory with a-1.0.jar and a symlink cycle
+        Path root = tempDir.resolve("root");
         Files.createDirectories(root);
 
-        Path jarPath = root.resolve("foo-1.0.jar");
+        Path jarPath = root.resolve("a-1.0.jar");
         Files.writeString(jarPath, "dummy jar");
 
-        // Attempt to create a symlink cycle; skip test if it fails
+        // Attempt to create a symlink cycle pointing to root; skip test if it fails
         Path cycleLink = root.resolve("cycle");
         try {
             Files.createSymbolicLink(cycleLink, root);
@@ -138,15 +138,15 @@ public class LocalCacheScannerTest {
         List<Path> jars = LocalCacheScanner.listAllJars(roots);
         assertEquals(List.of(jarPath), jars, "listAllJars should return exactly the jar file");
 
-        // 2) findArtifact returns Optional.of(jarPath)
+        // 2) findArtifact returns the jar path
         Optional<Path> foundArtifact =
-                LocalCacheScanner.findArtifact("g", "foo", "1.0", tempDir.resolve("missing.jar"), roots);
+                LocalCacheScanner.findArtifact("g", "a", "1.0", tempDir.resolve("missing.jar"), roots);
         assertTrue(foundArtifact.isPresent(), "findArtifact should find the jar");
         assertEquals(jarPath, foundArtifact.get());
 
         // 3) findLatestVersion returns Optional.of("1.0")
         Optional<String> latestVersion =
-                LocalCacheScanner.findLatestVersion("g", "foo", tempDir.resolve("missingArtifactDir"), roots);
+                LocalCacheScanner.findLatestVersion("g", "a", tempDir.resolve("missingArtifactDir"), roots);
         assertTrue(latestVersion.isPresent(), "findLatestVersion should find a version");
         assertEquals("1.0", latestVersion.get());
     }
