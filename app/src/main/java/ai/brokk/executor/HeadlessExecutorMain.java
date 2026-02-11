@@ -280,17 +280,6 @@ public final class HeadlessExecutorMain {
         // the active session after those operations complete.
         var sessionId = contextManager.getCurrentSessionId();
 
-        // Guard against a transient state where we have observed a session load event (sessionLoaded=true)
-        // but ContextManager currently reports no active session id. Treat this as NOT_READY to avoid
-        // reporting a misleading ready state.
-        if (sessionId == null) {
-            logger.warn(
-                    "/health/ready anomaly: sessionLoaded=true but ContextManager.getCurrentSessionId() returned null; returning 503");
-            var error = ErrorPayload.of("NO_CURRENT_SESSION", "No current session despite sessionLoaded=true");
-            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
-            return;
-        }
-
         // Log readiness along with the concrete current session id to make it clear in the logs which session
         // satisfied the readiness check. Tests and callers should not rely on this id matching any
         // previously-created/imported id unless they explicitly verify it themselves.
