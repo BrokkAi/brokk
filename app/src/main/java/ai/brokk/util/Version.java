@@ -141,7 +141,7 @@ public record Version(String versionString) implements Comparable<Version> {
             idx = s.indexOf('+');
             if (idx >= 0) s = s.substring(0, idx);
             List<String> parts = Splitter.on('.').splitToList(s);
-            int maj = parts.size() > 0 ? parseOrZero(parts.get(0)) : 0;
+            int maj = parseOrZero(parts.get(0));
             int min = parts.size() > 1 ? parseOrZero(parts.get(1)) : 0;
             int pat = parts.size() > 2 ? parseOrZero(parts.get(2)) : 0;
             return new SemVer(maj, min, pat, text);
