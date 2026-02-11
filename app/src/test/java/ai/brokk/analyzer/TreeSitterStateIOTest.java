@@ -28,7 +28,7 @@ import org.pcollections.HashTreePMap;
 
 public class TreeSitterStateIOTest {
 
-    private static final String CURRENT_SCHEMA_STR = "1.0.0";
+    private static final String CURRENT_SCHEMA_STR = TreeSitterStateIO.CURRENT_SCHEMA.toString();
 
     @Test
     void roundTripJavaAnalyzerState() throws Exception {
