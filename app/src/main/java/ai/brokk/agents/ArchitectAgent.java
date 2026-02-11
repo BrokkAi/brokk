@@ -105,6 +105,8 @@ public class ArchitectAgent {
     // Tracks if we have ever entered emergency mode (restricted tools due to context size)
     private boolean hasEnteredEmergencyMode = false;
 
+    private final Set<ProjectFile> presentedRelatedFiles = new HashSet<>();
+
     private TokenUsage totalUsage = new TokenUsage(0, 0);
     private boolean offerUndoToolNext = false;
 
@@ -574,7 +576,7 @@ public class ArchitectAgent {
             return codeAgentSuccessResult();
         }
 
-        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal, TaskResult.Type.ARCHITECT).withEcho());
+        var llm = cm.getLlm(new Llm.Options(planningModel, goal, TaskResult.Type.ARCHITECT).withEcho());
         var modelsService = cm.getService();
 
         while (true) {
@@ -873,7 +875,6 @@ public class ArchitectAgent {
                 allowed.add("addClassesToWorkspace");
                 allowed.add("addClassSummariesToWorkspace");
                 allowed.add("addMethodsToWorkspace");
-                allowed.add("addSymbolUsagesToWorkspace");
                 allowed.add("addUrlContentsToWorkspace");
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("explainCommit");
@@ -1108,7 +1109,10 @@ public class ArchitectAgent {
                 .toList());
 
         // Add related identifiers as a separate message/ack pair, unless we are/were in emergency mode
-        var related = hasEnteredEmergencyMode ? Map.<ProjectFile, String>of() : context.buildRelatedSymbols(10);
+        var related = hasEnteredEmergencyMode
+                ? Map.<ProjectFile, String>of()
+                : context.buildRelatedSymbols(10, 20, presentedRelatedFiles);
+        presentedRelatedFiles.addAll(related.keySet());
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             var topFilesText =

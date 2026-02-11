@@ -386,7 +386,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         watchService.start(CompletableFuture.completedFuture(null));
 
         this.io = new Chrome(this);
-        this.toolRegistry.register(new UiTools((Chrome) this.io));
         this.userActions.setIo(this.io);
 
         // Check if project root is outside git repository and show warning
@@ -1155,9 +1154,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** usage for identifier with control over including test files */
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
-        var fragment = new ContextFragments.UsageFragment(this, identifier, includeTestFiles);
+        usageForIdentifier(identifier, includeTestFiles, ContextFragments.UsageMode.FULL);
+    }
+
+    /** usage for identifier with control over including test files and mode */
+    public void usageForIdentifier(String identifier, boolean includeTestFiles, ContextFragments.UsageMode mode) {
+        var fragment = new ContextFragments.UsageFragment(this, identifier, includeTestFiles, mode);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
-        String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "");
+        String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "")
+                + (mode == ContextFragments.UsageMode.SAMPLE ? " (sampled)" : "");
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
@@ -1379,8 +1384,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private CompletableFuture<Void> submitSessionSyncIfActive() {
         if (sessionsSyncActive) {
             return syncExecutor.submit(() -> {
-                new SessionSynchronizer(this).synchronize();
-                project.getMainProject().sessionsListChanged();
+                try {
+                    // Perform sync; let SessionSynchronizer surface IO/Interrupted exceptions which we handle here.
+                    new SessionSynchronizer(this).synchronize();
+                    // Only notify UI of sessions list changes when sync completed normally.
+                    project.getMainProject().sessionsListChanged();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                } catch (IOException ioe) {
+                    logger.debug("Remote session sync failed due to I/O error", ioe);
+                }
                 return null;
             });
         } else {
@@ -1704,8 +1717,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return LoggingFuture.supplyCallableVirtual(() -> {
             var msgs = SummarizerPrompts.instance.collectMessages(input, words);
             // Use quickModel for summarization
-            Llm.StreamingResult result = getLlm(
-                            getService().quickestModel(), "Summarize: " + input, TaskResult.Type.SUMMARIZE)
+            Llm.StreamingResult result = getLlm(getService().quickestModel(), input, TaskResult.Type.SUMMARIZE)
                     .sendRequest(msgs);
 
             if (result.error() != null) {

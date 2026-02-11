@@ -50,7 +50,7 @@ Or via Gradle:
 | `--planner-model MODEL` | String | **Yes** | N/A | LLM model for planning and reasoning (e.g., `gpt-5`, `claude-3-opus`) |
 | `--scan-model MODEL` | String | No | Project default | LLM model to use for repository scanning (used by `SEARCH` mode; if omitted, the project's default scan model is used) |
 | `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes). Note: `--code-model` is ignored when using `--mode SEARCH` or `--mode ASK`. |
-| `--pre-scan` | Flag | No | `false` | When used together with `--mode ASK`, enable a repository pre-scan that seeds the Workspace before ASK reasoning. If provided, `--scan-model` will be used for the pre-scan; otherwise the project's default scan model is used. Ignored for modes other than `ASK`. |
+| `--pre-scan` | Flag | No | `false` | When used together with `--mode ASK`, enable a repository pre-scan that seeds the Workspace before ASK reasoning. The current executor implementation uses the project's default scan model for this pre-scan. Ignored for modes other than `ASK`. |
 | `--reasoning-level LEVEL` | String | No | N/A | Job-level reasoning level override for the planner model (passed as `reasoningLevel` in the `POST /v1/jobs` payload) |
 | `--reasoning-level-code LEVEL` | String | No | N/A | Job-level reasoning level override for the code model (passed as `reasoningLevelCode` in the `POST /v1/jobs` payload). Applies to CODE and ARCHITECT modes. |
 | `--temperature VALUE` | Number | No | N/A | Job-level temperature override for the planner model (passed as `temperature` in the `POST /v1/jobs` payload) |
@@ -74,41 +74,35 @@ Or via Gradle:
 
 | Option | Description |
 |--------|-------------|
-| ASK Mode: Read-Only Codebase Search | Search and explore code without making modifications: `--mode ASK` |
+| ASK Mode: Read-Only Answer | Produce a single answer from current context: `--mode ASK` |
 | SEARCH Mode: Read-Only Repository Scan | Explicit scan-only mode where you can choose the scanning LLM via `--scan-model` |
 | CODE Mode: Single-Shot Code Generation | Use `--mode CODE` and provide `--code-model` for code generation |
 | ARCHITECT / LUTZ | Multi-step planning and execution flows |
 | ISSUE Mode: GitHub Issue Processing | Solve a GitHub issue, verify the fix, and optionally create a PR |
 | REVIEW Mode: Pull Request Review | Analyze a Pull Request and provide review comments |
 
-### ASK Mode: Read-Only Codebase Search
+### ASK Mode: Read-Only Answer From Current Workspace Context
 
-Search and explore code without making modifications:
+Generate a single written answer without making modifications:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 'Find the UserService class and explain its responsibilities'"
+./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 'Based on the current Workspace context, explain what the UserService class does.'"
 ```
 
 Characteristics:
 - Read-only: no code changes or commits
-- Uses `SearchAgent` for intelligent codebase exploration
-- `--code-model` is ignored (SearchAgent doesn't generate code)
-- Streams search results and code summaries
+- Uses `--planner-model` to produce one answer from the current Workspace context
+- `--code-model` is ignored (ASK does not generate code)
+- Streams the answer as events/tokens
 
 Optional pre-scan:
 - Use `--pre-scan` (only meaningful with `--mode ASK`) to seed the Workspace via a repository scan before running ASK reasoning. This can improve recall for large repositories or vague queries.
-- If you pass `--scan-model` together with `--pre-scan`, the CLI will include the scan model in the job payload and the executor will use that model for the prescan. If you omit `--scan-model`, the project's default scan model will be used by the executor.
+- The CLI may include `scanModel` in the job payload, but the current executor implementation does not apply `scanModel` to the ASK pre-scan. Use `--scan-model` with `--mode SEARCH` to control the scanning model.
 
-ASK with pre-scan (explicit scan model):
-
-```bash
-./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 --pre-scan --scan-model gpt-5-mini 'Find the UserService class and explain its responsibilities'"
-```
-
-ASK with pre-scan (use project default scan model):
+ASK with pre-scan:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 --pre-scan 'Summarize where AuthenticationManager is used across the repo.'"
+./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 --pre-scan 'Explain what the UserService class does.'"
 ```
 
 **Note:** The `--pre-scan` flag is ignored unless `--mode ASK` is selected.

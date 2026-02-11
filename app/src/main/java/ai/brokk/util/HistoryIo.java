@@ -12,6 +12,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
@@ -25,12 +26,20 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 import org.apache.logging.log4j.LogManager;
@@ -64,69 +73,220 @@ public final class HistoryIo {
 
     private HistoryIo() {}
 
+    /** Holds total and incomplete task counts for a session. */
+    public record TaskCounts(int total, int incomplete) {}
+
+    /** Holds combined session statistics: AI response count and task counts. */
+    public record SessionCounts(int aiResponses, TaskCounts tasks) {}
+
+    private static final String LEGACY_TASKLIST_FILENAME = "tasklist.json";
+
+    /**
+     * Counts both AI responses and tasks in a session zip with a single pass.
+     *
+     * <p>AI response definition: count(distinct TaskEntry.sequence across all Contexts
+     * where the TaskEntry has non-null TaskMeta).
+     *
+     * <p>Uses ZipFile (random access) and reads only the specific entries needed,
+     * avoiding buffering all content/* entries into memory.
+     *
+     * @return SessionCounts with AI response count and task counts, or empty counts if file doesn't exist
+     */
+    @Blocking
+    public static SessionCounts countSessionStats(Path zip) throws IOException {
+        if (!Files.exists(zip)) {
+            return new SessionCounts(0, new TaskCounts(0, 0));
+        }
+
+        String lastContextLine = null;
+        byte[] fragmentsBytes = null;
+        var distinctSequences = new HashSet<Integer>();
+
+        try (var zipFile = new ZipFile(zip.toFile())) {
+            // Read contexts.jsonl: count AI responses (distinct sequences with TaskMeta)
+            // and track lastContextLine for task list lookup
+            var contextsEntry = zipFile.getEntry(CONTEXTS_FILENAME);
+            if (contextsEntry != null) {
+                try (var reader = new BufferedReader(
+                        new InputStreamReader(zipFile.getInputStream(contextsEntry), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        try {
+                            var node = objectMapper.readTree(line);
+                            lastContextLine = line;
+
+                            var tasksNode = node.get("tasks");
+                            if (tasksNode == null || !tasksNode.isArray()) {
+                                continue;
+                            }
+
+                            for (var taskNode : tasksNode) {
+                                if (taskNode == null || !taskNode.isObject()) continue;
+
+                                var taskType = taskNode.get("taskType");
+                                var primaryModelName = taskNode.get("primaryModelName");
+                                var primaryModelReasoning = taskNode.get("primaryModelReasoning");
+                                boolean hasMeta = (taskType != null && !taskType.isNull())
+                                        || (primaryModelName != null && !primaryModelName.isNull())
+                                        || (primaryModelReasoning != null && !primaryModelReasoning.isNull());
+                                if (!hasMeta) continue;
+
+                                var sequenceNode = taskNode.get("sequence");
+                                if (sequenceNode == null || !sequenceNode.canConvertToInt()) continue;
+
+                                distinctSequences.add(sequenceNode.intValue());
+                            }
+                        } catch (Exception e) {
+                            logger.debug(
+                                    "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
+                                    line.length() > 200 ? line.substring(0, 200) + "..." : line,
+                                    e.toString());
+                        }
+                    }
+                }
+            }
+
+            // Read fragments (try v4 first, then v3)
+            var fragEntry = zipFile.getEntry(V4_FRAGMENTS_FILENAME);
+            if (fragEntry == null) {
+                fragEntry = zipFile.getEntry(V3_FRAGMENTS_FILENAME);
+            }
+            if (fragEntry != null) {
+                try (var is = zipFile.getInputStream(fragEntry)) {
+                    fragmentsBytes = is.readAllBytes();
+                }
+            }
+
+            // Determine taskListContentId from fragments + last context,
+            // then read ONLY that single content entry
+            TaskCounts taskCounts;
+            if (lastContextLine != null && fragmentsBytes != null) {
+                var contentId = findTaskListContentId(lastContextLine, fragmentsBytes);
+                if (contentId != null) {
+                    var contentEntry = zipFile.getEntry(CONTENT_DIR_PREFIX + contentId + ".txt");
+                    if (contentEntry != null) {
+                        String json;
+                        try (var is = zipFile.getInputStream(contentEntry)) {
+                            json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                        }
+                        taskCounts = parseTaskListJson(json);
+                    } else {
+                        taskCounts = new TaskCounts(0, 0);
+                    }
+                } else {
+                    taskCounts = readLegacyTaskCounts(zipFile);
+                }
+            } else {
+                taskCounts = readLegacyTaskCounts(zipFile);
+            }
+
+            return new SessionCounts(distinctSequences.size(), taskCounts);
+        }
+    }
+
+    /**
+     * Counts incomplete tasks in a session zip without full deserialization.
+     *
+     * Note: If you also need AI response counts, use countSessionStats() instead to avoid
+     * reading the zip file twice.
+     */
+    @Blocking
+    public static TaskCounts countIncompleteTasks(Path zip) throws IOException {
+        return countSessionStats(zip).tasks();
+    }
+
+    private static TaskCounts readLegacyTaskCounts(ZipFile zipFile) throws IOException {
+        var legacyEntry = zipFile.getEntry(LEGACY_TASKLIST_FILENAME);
+        if (legacyEntry == null) {
+            return new TaskCounts(0, 0);
+        }
+        try (var is = zipFile.getInputStream(legacyEntry)) {
+            return countTasksFromLegacyJson(is.readAllBytes());
+        }
+    }
+
+    @Nullable
+    private static String findTaskListContentId(String lastContextLine, byte[] fragmentsBytes) {
+        try {
+            var contextNode = objectMapper.readTree(lastContextLine);
+            var virtualsNode = contextNode.get("virtuals");
+            if (virtualsNode == null || !virtualsNode.isArray()) {
+                return null;
+            }
+
+            Set<String> virtualIds = new HashSet<>();
+            for (var idNode : virtualsNode) {
+                virtualIds.add(idNode.asText());
+            }
+
+            var fragmentsNode = objectMapper.readTree(fragmentsBytes);
+            var virtualFragments = fragmentsNode.get("virtual");
+            if (virtualFragments == null) {
+                return null;
+            }
+
+            var fieldNames = virtualFragments.fieldNames();
+            while (fieldNames.hasNext()) {
+                var fragmentId = fieldNames.next();
+                if (!virtualIds.contains(fragmentId)) {
+                    continue;
+                }
+                var fragment = virtualFragments.get(fragmentId);
+                var descriptionNode = fragment.get("description");
+                if (descriptionNode != null && "Task List".equals(descriptionNode.asText())) {
+                    var contentIdNode = fragment.get("contentId");
+                    if (contentIdNode != null && !contentIdNode.isNull()) {
+                        return contentIdNode.asText();
+                    }
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            logger.debug("Error finding task list content ID from fragments: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static TaskCounts countTasksFromLegacyJson(byte[] legacyTaskListBytes) {
+        try {
+            String json = new String(legacyTaskListBytes, StandardCharsets.UTF_8);
+            if (json.isBlank()) {
+                return new TaskCounts(0, 0);
+            }
+            return parseTaskListJson(json);
+        } catch (Exception e) {
+            logger.debug("Error parsing legacy tasklist.json: {}", e.getMessage());
+            return new TaskCounts(0, 0);
+        }
+    }
+
+    private static TaskCounts parseTaskListJson(String taskListJson) {
+        try {
+            var taskListData = objectMapper.readValue(taskListJson, TaskList.TaskListData.class);
+            var tasks = taskListData.tasks();
+            int total = (int) tasks.stream().filter(Objects::nonNull).count();
+            int incomplete = (int) tasks.stream()
+                    .filter(Objects::nonNull)
+                    .filter(t -> !t.done())
+                    .count();
+            return new TaskCounts(total, incomplete);
+        } catch (Exception e) {
+            logger.debug("Error parsing task list JSON: {}", e.getMessage());
+            return new TaskCounts(0, 0);
+        }
+    }
+
     /**
      * Counts AI responses in a session zip without full deserialization.
      *
-     * <p>Definition: count(distinct TaskEntry.sequence across all Contexts where the TaskEntry has non-null TaskMeta).
-     *
-     * <p>Implementation: stream contexts.jsonl line-by-line and count distinct "tasks[*].sequence" entries where any
-     * TaskMeta field is present (e.g. "taskType" or "primaryModelName" is non-null).
+     * Note: If you also need task counts, use countSessionStats() instead to avoid
+     * reading the zip file twice.
      */
+    @Blocking
     public static int countAiResponses(Path zip) throws IOException {
-        if (!Files.exists(zip)) {
-            return 0;
-        }
-
-        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (!entry.getName().equals(CONTEXTS_FILENAME)) {
-                    continue;
-                }
-
-                var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
-                var distinctSequences = new HashSet<Integer>();
-
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.trim().isEmpty()) continue;
-
-                    try {
-                        var node = objectMapper.readTree(line);
-                        var tasksNode = node.get("tasks");
-                        if (tasksNode == null || !tasksNode.isArray()) {
-                            continue;
-                        }
-
-                        for (var taskNode : tasksNode) {
-                            if (taskNode == null || !taskNode.isObject()) continue;
-
-                            var taskType = taskNode.get("taskType");
-                            var primaryModelName = taskNode.get("primaryModelName");
-                            var primaryModelReasoning = taskNode.get("primaryModelReasoning");
-                            boolean hasMeta = (taskType != null && !taskType.isNull())
-                                    || (primaryModelName != null && !primaryModelName.isNull())
-                                    || (primaryModelReasoning != null && !primaryModelReasoning.isNull());
-                            if (!hasMeta) continue;
-
-                            var sequenceNode = taskNode.get("sequence");
-                            if (sequenceNode == null || !sequenceNode.canConvertToInt()) continue;
-
-                            distinctSequences.add(sequenceNode.intValue());
-                        }
-                    } catch (Exception e) {
-                        logger.debug(
-                                "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
-                                line.length() > 200 ? line.substring(0, 200) + "..." : line,
-                                e.toString());
-                    }
-                }
-
-                return distinctSequences.size();
-            }
-        }
-
-        return 0;
+        return countSessionStats(zip).aiResponses();
     }
 
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {

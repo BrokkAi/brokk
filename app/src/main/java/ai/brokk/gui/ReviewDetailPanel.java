@@ -5,7 +5,6 @@ import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.components.SplitButton;
-import ai.brokk.gui.dialogs.AskHumanDialog;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -25,18 +24,14 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
-import javax.swing.Box;
-import javax.swing.JMenuItem;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.JSplitPane;
-import javax.swing.JTextArea;
-import javax.swing.SwingUtilities;
-import javax.swing.Timer;
-import javax.swing.UIManager;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -97,6 +92,47 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         add(contentCard, CARD_CONTENT);
 
         showPlaceholder();
+    }
+
+    /**
+     * Shows a simple text editing dialog and returns the result.
+     * Blocks until the user clicks OK or Cancel.
+     */
+    @Blocking
+    public static @Nullable String showEditDialog(Chrome chrome, String title, String initialText) {
+        assert !SwingUtilities.isEventDispatchThread();
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<String> resultRef = new AtomicReference<>(null);
+
+        SwingUtil.runOnEdt(() -> {
+            var textArea = new JTextArea(initialText, 10, 50);
+            textArea.setLineWrap(true);
+            textArea.setWrapStyleWord(true);
+            var scroll = new JScrollPane(textArea);
+
+            int result = MaterialOptionPane.showOptionDialog(
+                    null,
+                    scroll,
+                    title,
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.PLAIN_MESSAGE,
+                    null,
+                    new String[] {"OK", "Cancel"},
+                    "OK");
+
+            if (result == 0) { // OK
+                resultRef.set(textArea.getText().trim());
+            }
+            latch.countDown();
+        });
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return resultRef.get();
     }
 
     public void showPlaceholder() {
@@ -224,8 +260,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             JMenuItem editItem = new JMenuItem("Edit + Enqueue");
             editItem.addActionListener(e -> {
                 contextManager.getBackgroundTasks().submit(() -> {
-                    String edited = AskHumanDialog.showEditDialog(
-                            (Chrome) contextManager.getIo(), "Edit Recommendation", recommendation);
+                    String edited =
+                            showEditDialog((Chrome) contextManager.getIo(), "Edit Recommendation", recommendation);
                     if (edited != null && !edited.isBlank()) {
                         SwingUtilities.invokeLater(() -> {
                             enqueueTask(title, edited);

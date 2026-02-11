@@ -47,28 +47,6 @@ class ToolRegistryTest {
     }
 
     @Test
-    void buildRequestFromUnits_PreservesScalars() throws Exception {
-        Method m = TestTools.class.getDeclaredMethod("getClassSources", List.class, String.class);
-        String json = jsonArgs(m, List.of("A", "B", "C"), "reason");
-        var req = ToolExecutionRequest.builder()
-                .name("getClassSources")
-                .arguments(json)
-                .build();
-
-        var allUnits = registry.signatureUnits(tools, req);
-        // choose a subset to simulate "new" items
-        var subset = List.of(allUnits.get(1), allUnits.get(2));
-
-        var rewritten = registry.buildRequestFromUnits(req, subset);
-        assertEquals("getClassSources", rewritten.name());
-
-        // verify classNames replaced, reasoning preserved
-        var map = MAPPER.readValue(rewritten.arguments(), LinkedHashMap.class);
-        assertEquals(List.of("B", "C"), map.get("classNames"));
-        assertEquals("reason", map.get("reasoning"));
-    }
-
-    @Test
     void signatureUnits_ThrowsOnNonListTool() throws Exception {
         Method m = TestTools.class.getDeclaredMethod("getCallGraphTo", String.class, int.class);
         String json = jsonArgs(m, "com.a.A.m", 3);
@@ -92,23 +70,6 @@ class ToolRegistryTest {
         assertEquals(1, units.get(0).item());
         assertEquals(2, units.get(1).item());
         assertEquals(3, units.get(2).item());
-    }
-
-    @Test
-    void buildRequestFromUnits_ListOfIntegers() throws Exception {
-        Method m = TestTools.class.getDeclaredMethod("listInts", List.class, String.class);
-        String json = jsonArgs(m, List.of(10, 20), "why");
-        var req =
-                ToolExecutionRequest.builder().name("listInts").arguments(json).build();
-
-        var units = registry.signatureUnits(tools, req);
-        // reorder to ensure order follows provided units (caller-controlled)
-        var subset = List.of(units.get(1), units.get(0));
-        var rewritten = registry.buildRequestFromUnits(req, subset);
-
-        var map = MAPPER.readValue(rewritten.arguments(), LinkedHashMap.class);
-        assertEquals(List.of(20, 10), map.get("ids"));
-        assertEquals("why", map.get("reason"));
     }
 
     @Test

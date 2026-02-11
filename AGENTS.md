@@ -1,5 +1,12 @@
 # Brokk Coding Guide
 
+## Multi-Project Routing
+
+This repository contains multiple subprojects with different languages and standards.
+
+- **Python (Terminal UI)**: If you are editing files under `brokk-code/`, follow [brokk-code/AGENTS.md](brokk-code/AGENTS.md) for Python-specific rules (Textual, Ruff, Pytest).
+- **Java (Executor/Core)**: For Java code (mostly under `app/`), follow this root guide and any nested `AGENTS.md` files within Java packages.
+
 ## Null Safety
 
 1. **Null Away**: This project is built with Null Away: fields, parameter, and return values are non-null by default. 

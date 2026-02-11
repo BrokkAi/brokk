@@ -336,7 +336,12 @@ public class V3_DtoMapper {
                         summaryDto.id(), mgr, summaryDto.targetIdentifier(), mapSummaryType(summaryDto.summaryType()));
             case V3_FragmentDtos.UsageFragmentDto usageDto ->
                 new ContextFragments.UsageFragment(
-                        usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
+                        usageDto.id(),
+                        mgr,
+                        usageDto.targetIdentifier(),
+                        usageDto.includeTestFiles(),
+                        null,
+                        ContextFragments.UsageMode.FULL);
             case V3_FragmentDtos.PasteTextFragmentDto pasteTextDto ->
                 new ContextFragments.PasteTextFragment(
                         pasteTextDto.id(),
