@@ -48,12 +48,11 @@ class DependencyFilesSymlinkLoopTest {
         Set<ProjectFile> result = assertDoesNotThrow(
                 dependency::files, "files() should not throw when dependency contains a symlink cycle");
 
-        boolean isEmpty = result.isEmpty();
-        boolean containsRegularFile =
-                result.stream().anyMatch(pf -> pf.getFileName().equals("file.txt"));
         assertTrue(
-                isEmpty || containsRegularFile,
-                "Expected either Set.of() (loop detected and skipped) or a set containing file.txt (walk did not follow links)");
+                result.stream().anyMatch(pf -> pf.getFileName().equals("file.txt")), "Result should contain file.txt");
+        assertTrue(
+                result.stream().noneMatch(pf -> pf.getFileName().equals("loop")),
+                "Result should not contain the symlink 'loop'");
     }
 
     @Test
