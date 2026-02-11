@@ -8,6 +8,15 @@ from brokk_code.app import BrokkApp
 from brokk_code.prompt_history import load_history
 from tests.test_tui_resubmit import StubExecutor
 
+# NOTE (Issue #2672):
+# The tests in this module intentionally inject a StubExecutor and disable the
+# BrokkApp's background workers and automatic executor startup so that Textual
+# TUI tests run fast and deterministically (especially on Windows where
+# spawning background processes caused large slowdowns). See GitHub Issue #2672
+# for discussion and rationale. If you need to exercise real executor startup
+# or background polling, add dedicated integration tests rather than enabling
+# those features here.
+
 
 async def type_text(pilot: Any, text: str) -> None:
     for ch in text:
