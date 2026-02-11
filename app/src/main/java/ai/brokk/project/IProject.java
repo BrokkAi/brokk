@@ -16,6 +16,8 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.IStringDiskCache;
 import java.awt.Rectangle;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.FileSystemLoopException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -648,12 +650,29 @@ public interface IProject extends AutoCloseable {
         }
 
         public Set<ProjectFile> files() {
-            try (var pathStream = Files.walk(root.absPath())) {
-                var masterRoot = root.getRoot();
-                return pathStream
-                        .filter(Files::isRegularFile)
-                        .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
-                        .collect(Collectors.toSet());
+            try {
+                try (var pathStream = Files.walk(root.absPath())) {
+                    var masterRoot = root.getRoot();
+                    return pathStream
+                            .filter(Files::isRegularFile)
+                            .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
+                            .collect(Collectors.toSet());
+                }
+            } catch (FileSystemLoopException e) {
+                logger.warn(
+                        "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
+                        root.absPath(),
+                        e.getMessage());
+                return Set.of();
+            } catch (UncheckedIOException uioe) {
+                if (uioe.getCause() instanceof FileSystemLoopException) {
+                    logger.warn(
+                            "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
+                            root.absPath(),
+                            uioe.getCause().getMessage());
+                    return Set.of();
+                }
+                throw uioe;
             } catch (IOException e) {
                 logger.error("Error loading dependency files from {}: {}", root.absPath(), e.getMessage());
                 return Set.of();
