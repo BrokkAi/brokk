@@ -1,34 +1,36 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock
-from brokk_code.app import BrokkApp
+
+from brokk_code.app import BrokkApp, ContextModalScreen
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 
 
 @pytest.mark.asyncio
-async def test_toggle_context_syncs_token_bar_visibility():
+async def test_toggle_context_opens_fullscreen_modal_and_syncs_token_bar_visibility():
     """
-    Verify that toggling the context panel visibility correctly toggles
-    the token bar visibility in the ChatPanel.
+    Verify that Ctrl+L toggles a full-screen context modal and token bar visibility.
     """
-    app = BrokkApp(executor=MagicMock())
+    mock_executor = MagicMock()
+    mock_executor.stop = AsyncMock()
+    app = BrokkApp(executor=mock_executor)
 
     async with app.run_test() as pilot:
-        context_panel = app.query_one("#context-panel", ContextPanel)
         chat_panel = app.query_one("#chat-main", ChatPanel)
         token_usage = chat_panel.query_one("#chat-token-usage")
 
-        # Initial State: Context Panel is visible (not hidden),
-        # Token usage is hidden.
-        assert not context_panel.has_class("hidden")
-        assert token_usage.has_class("hidden")
-
-        # Toggle 1: Hide Context -> Show Token Bar
-        await pilot.press("ctrl+l")
-        assert context_panel.has_class("hidden")
+        # Initial state: no context modal on top; token usage bar visible.
+        assert not isinstance(app.screen, ContextModalScreen)
         assert not token_usage.has_class("hidden")
 
-        # Toggle 2: Show Context -> Hide Token Bar
+        # Toggle 1: Open context modal -> hide token bar.
         await pilot.press("ctrl+l")
-        assert not context_panel.has_class("hidden")
+        assert isinstance(app.screen, ContextModalScreen)
+        app.screen.query_one("#context-panel", ContextPanel)
         assert token_usage.has_class("hidden")
+
+        # Toggle 2: Close context modal -> show token bar.
+        await pilot.press("ctrl+l")
+        assert not isinstance(app.screen, ContextModalScreen)
+        assert not token_usage.has_class("hidden")

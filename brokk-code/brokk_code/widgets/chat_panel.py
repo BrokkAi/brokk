@@ -12,8 +12,6 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
 
-from brokk_code.widgets.context_panel import ContextPanel
-
 
 class ChatInput(TextArea):
     """A multiline text area for chat input that submits on Enter."""
@@ -91,7 +89,6 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
             yield Static(id="chat-token-usage", classes="token-usage hidden")
-        yield ContextPanel(id="context-panel")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
 

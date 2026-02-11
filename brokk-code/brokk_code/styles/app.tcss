@@ -2,6 +2,17 @@ Screen {
     background: $surface;
 }
 
+ContextModalScreen {
+    align: center middle;
+}
+
+#context-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
+}
+
 #side-tasklist {
     width: 30;
     dock: right;
@@ -66,9 +77,10 @@ ChatPanel {
 }
 
 #context-panel {
-    margin: 0 2;
-    height: auto;
-    max-height: 25;
+    margin: 0;
+    height: 1fr;
+    max-height: 100%;
+    width: 100%;
     background: $panel;
     border: solid $primary-darken-2;
     padding: 0 1;

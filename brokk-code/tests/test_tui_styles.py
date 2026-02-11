@@ -63,21 +63,24 @@ def test_context_chip_no_clipping():
 
 def test_context_panel_height_regression():
     """
-    Ensure #context-panel is large enough and not constrained to the old tiny size.
+    Ensure context panel styles support full-screen modal layout.
     """
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    modal_match = re.search(r"#context-modal-container\s*\{([^}]*)\}", css_content)
+    assert modal_match, "Could not find #context-modal-container rule in app.tcss"
+    modal_body = modal_match.group(1)
+    assert "width: 100%" in modal_body, "#context-modal-container should use full width"
+    assert "height: 100%" in modal_body, "#context-modal-container should use full height"
 
     panel_match = re.search(r"#context-panel\s*\{([^}]*)\}", css_content)
     assert panel_match, "Could not find #context-panel rule in app.tcss"
 
     panel_body = panel_match.group(1)
 
-    assert "max-height: 6" not in panel_body, (
-        "#context-panel should not be constrained to max-height: 6"
-    )
-    assert "max-height: 25" in panel_body, (
-        "#context-panel should have a much larger max-height (expected 25)"
-    )
+    assert "height: 1fr" in panel_body, "#context-panel should fill modal height"
+    assert "max-height: 100%" in panel_body, "#context-panel should expand to modal height"
+    assert "width: 100%" in panel_body, "#context-panel should fill modal width"
 
     scroll_match = re.search(r"#context-chip-scroll\s*\{([^}]*)\}", css_content)
     assert scroll_match, "Could not find #context-chip-scroll rule in app.tcss"

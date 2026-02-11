@@ -3,11 +3,12 @@ import logging
 import random
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Header
 
 from brokk_code.executor import ExecutorError, ExecutorManager
@@ -18,6 +19,27 @@ from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 logger = logging.getLogger(__name__)
+
+
+class ContextModalScreen(ModalScreen[None]):
+    """Full-screen modal wrapper for the context panel."""
+
+    BINDINGS = [
+        Binding("escape", "close_context", "Close", show=False),
+        Binding("ctrl+l", "close_context", "Close", show=False),
+    ]
+
+    def __init__(self, on_close: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_close = on_close
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="context-modal-container"):
+            yield ContextPanel(id="context-panel")
+
+    def action_close_context(self) -> None:
+        self._on_close()
+        self.dismiss(None)
 
 
 class BrokkApp(App):
@@ -105,6 +127,7 @@ class BrokkApp(App):
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
+            chat.set_token_bar_visible(True)
             chat.add_system_message("Starting Brokk executor...")
 
             # Load initial prompt history for arrow-key navigation
@@ -241,7 +264,13 @@ class BrokkApp(App):
 
                 # UI updates are best-effort if screen is not on stack
                 try:
-                    self.query_one(ContextPanel).refresh_context(context_data)
+                    if isinstance(self.screen, ContextModalScreen):
+                        self.screen.query_one(ContextPanel).refresh_context(context_data)
+                    else:
+                        self.query_one(ContextPanel).refresh_context(context_data)
+                except (ScreenStackError, Exception):
+                    pass
+                try:
                     task_list = self.query_one(TaskListPanel)
                     if not task_list.has_detailed_info:
                         task_list.refresh_tasklist(context_data)
@@ -507,18 +536,24 @@ class BrokkApp(App):
             chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
 
     def action_toggle_context(self) -> None:
-        panel = self.query_one("#context-panel", ContextPanel)
-        panel.toggle_class("hidden")
-        is_hidden = panel.has_class("hidden")
+        if isinstance(self.screen, ContextModalScreen):
+            self._show_chat_token_bar()
+            self.screen.dismiss(None)
+            return
 
-        # Sync token bar visibility: hidden when context is visible (not hidden),
-        # shown when context is hidden.
         chat = self._maybe_chat()
         if chat:
-            chat.set_token_bar_visible(is_hidden)
+            chat.set_token_bar_visible(False)
 
-        if not is_hidden and self._executor_ready:
+        self.push_screen(ContextModalScreen(on_close=self._show_chat_token_bar))
+
+        if self._executor_ready:
             self.run_worker(self._refresh_context_panel())
+
+    def _show_chat_token_bar(self) -> None:
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_token_bar_visible(True)
 
     def action_toggle_tasklist(self) -> None:
         panel = self.query_one("#side-tasklist")

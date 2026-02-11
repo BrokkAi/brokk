@@ -220,8 +220,13 @@ async def test_context_polling_updates_ui(tmp_path):
             await app._refresh_context_panel()
             await pilot.pause()
 
+            # Open context modal before querying ContextPanel.
+            await pilot.press("ctrl+l")
+            await app._refresh_context_panel()
+            await pilot.pause()
+
             # Verify Header
-            panel = app.query_one("#context-panel", ContextPanel)
+            panel = app.screen.query_one("#context-panel", ContextPanel)
             usage = panel.query_one("#context-token-usage")
             assert "1,500 / 100,000 tokens" in str(usage.render())
 
@@ -266,7 +271,7 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
         mock_ctx.return_value = mock_context
         mock_tl.return_value = mock_tasklist
 
-        async with app.run_test():
+        async with app.run_test() as pilot:
             # Initially not ready
             app._executor_ready = False
 
@@ -282,5 +287,8 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await app._refresh_context_panel()
 
             mock_ctx.assert_called()
-            panel = app.query_one(ContextPanel)
+            await pilot.press("ctrl+l")
+            await app._refresh_context_panel()
+            await pilot.pause()
+            panel = app.screen.query_one(ContextPanel)
             assert "100 /" in str(panel.query_one("#context-token-usage").render())
