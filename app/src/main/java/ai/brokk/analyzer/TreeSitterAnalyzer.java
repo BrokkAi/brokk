@@ -1763,7 +1763,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // SPECIAL CASE: For functions and classes, prefer the definition (with body) over a forward declaration.
-        if ((cu.isFunction() && existingDuplicate.isFunction()) || (cu.isClass() && existingDuplicate.isClass())) {
+        if ((cu.isFunction()
+                        && existingDuplicate.isFunction()
+                        && Objects.equals(cu.signature(), existingDuplicate.signature()))
+                || (cu.isClass() && existingDuplicate.isClass())) {
             boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
             boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
@@ -1830,9 +1833,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             log.trace("Ignoring duplicate {} per language policy", cu.fqName());
-        } else if (!existingDuplicate.equals(cu)) {
+        } else {
+            // If it's not ignored and not replaced, we add it (e.g. for overloads)
             localTopLevelCUs.add(cu);
-            log.trace("Adding non-duplicate {} (e.g., overload)", cu.fqName());
+            localCuByFqName.put(cu.fqName(), cu);
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
+                    .add(cu);
+            if (!cu.shortName().equals(cu.identifier())) {
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
+                        .add(cu);
+            }
+            log.trace("Adding non-ignored duplicate {} (e.g., overload)", cu.fqName());
         }
     }
 
@@ -1940,7 +1953,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // If both are functions or classes, prefer the one with a body (definition over forward decl)
-        if ((cu.isFunction() && existingDuplicate.isFunction()) || (cu.isClass() && existingDuplicate.isClass())) {
+        if ((cu.isFunction()
+                        && existingDuplicate.isFunction()
+                        && Objects.equals(cu.signature(), existingDuplicate.signature()))
+                || (cu.isClass() && existingDuplicate.isClass())) {
             boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
             boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
@@ -2005,9 +2021,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, cu.source())) {
             log.trace("Skipping duplicate child '{}' per language policy", cu.fqName());
-        } else if (!existingDuplicate.equals(cu)) {
+        } else {
+            // If it's not ignored and not replaced, we add it (e.g. for overloads)
             kids.add(cu);
-            log.trace("Adding non-duplicate child '{}' (e.g., overload)", cu.fqName());
+            localCuByFqName.put(cu.fqName(), cu);
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
+                    .add(cu);
+            if (!cu.shortName().equals(cu.identifier())) {
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
+                        .add(cu);
+            }
+            log.trace("Adding non-ignored child duplicate '{}' (e.g., overload)", cu.fqName());
         }
     }
 
