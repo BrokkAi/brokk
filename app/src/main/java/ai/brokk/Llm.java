@@ -990,17 +990,19 @@ public class Llm {
         public static @Nullable ResponseMetadata sum(@Nullable ResponseMetadata a, @Nullable ResponseMetadata b) {
             if (a == null) return b;
             if (b == null) return a;
+            // Sum numeric fields; prefer categorical fields from b when present, otherwise fall back to a.
+            // Use simple null-coalescing (bField != null ? bField : aField) to avoid throwing if both are null.
             return new ResponseMetadata(
                     a.inputTokens() + b.inputTokens(),
                     a.cachedInputTokens() + b.cachedInputTokens(),
                     a.thinkingTokens() + b.thinkingTokens(),
                     a.outputTokens() + b.outputTokens(),
                     a.elapsedMs() + b.elapsedMs(),
-                    requireNonNullElse(b.modelName(), a.modelName()),
-                    requireNonNullElse(b.finishReason(), a.finishReason()),
-                    requireNonNullElse(b.created(), a.created()),
-                    requireNonNullElse(b.serviceTier(), a.serviceTier()),
-                    requireNonNullElse(b.error(), a.error()));
+                    b.modelName() != null ? b.modelName() : a.modelName(),
+                    b.finishReason() != null ? b.finishReason() : a.finishReason(),
+                    b.created() != null ? b.created() : a.created(),
+                    b.serviceTier() != null ? b.serviceTier() : a.serviceTier(),
+                    b.error() != null ? b.error() : a.error());
         }
     }
 

@@ -3,6 +3,7 @@ package ai.brokk;
 import static java.lang.Math.min;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.Llm.ResponseMetadata;
 import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
@@ -334,5 +335,82 @@ public class LlmTest {
         assertNotNull(result.error(), "Expected failure after exceeding tool contract retries");
         assertInstanceOf(Llm.MissingToolCallsException.class, result.error());
         assertEquals(4, model.seenRequests().size(), "Expected 4 attempts (initial + 3 contract retries)");
+    }
+
+    @Test
+    void sumBothNullReturnsNull() {
+        assertNull(ResponseMetadata.sum(null, null), "Sum of two null metadata should be null");
+    }
+
+    @Test
+    void sumReturnsSecondWhenFirstNull() {
+        var metaB = new ResponseMetadata(5, 2, 3, 7, 150L, "mB", "DONE", "cB", "tierB", "noerror");
+        var res = ResponseMetadata.sum(null, metaB);
+        assertNotNull(res);
+        assertEquals(metaB.inputTokens(), res.inputTokens());
+        assertEquals(metaB.cachedInputTokens(), res.cachedInputTokens());
+        assertEquals(metaB.thinkingTokens(), res.thinkingTokens());
+        assertEquals(metaB.outputTokens(), res.outputTokens());
+        assertEquals(metaB.elapsedMs(), res.elapsedMs());
+        assertEquals(metaB.modelName(), res.modelName());
+        assertEquals(metaB.finishReason(), res.finishReason());
+        assertEquals(metaB.created(), res.created());
+        assertEquals(metaB.serviceTier(), res.serviceTier());
+        assertEquals(metaB.error(), res.error());
+    }
+
+    @Test
+    void sumReturnsFirstWhenSecondNull() {
+        var metaA = new ResponseMetadata(8, 1, 0, 2, 50L, "mA", "STOP", "cA", "tierA", "errA");
+        var res = ResponseMetadata.sum(metaA, null);
+        assertNotNull(res);
+        assertEquals(metaA.inputTokens(), res.inputTokens());
+        assertEquals(metaA.cachedInputTokens(), res.cachedInputTokens());
+        assertEquals(metaA.thinkingTokens(), res.thinkingTokens());
+        assertEquals(metaA.outputTokens(), res.outputTokens());
+        assertEquals(metaA.elapsedMs(), res.elapsedMs());
+        assertEquals(metaA.modelName(), res.modelName());
+        assertEquals(metaA.finishReason(), res.finishReason());
+        assertEquals(metaA.created(), res.created());
+        assertEquals(metaA.serviceTier(), res.serviceTier());
+        assertEquals(metaA.error(), res.error());
+    }
+
+    @Test
+    void sumCombinesNumericAndPrefersSecondCategoricals() {
+        var metaA = new ResponseMetadata(10, 1, 2, 3, 100L, "modelA", "STOP", "t1", "tierA", "errA");
+        var metaB = new ResponseMetadata(5, 2, 4, 6, 200L, "modelB", null, "t2", null, null);
+
+        var combined = ResponseMetadata.sum(metaA, metaB);
+        assertNotNull(combined);
+        assertEquals(15, combined.inputTokens());
+        assertEquals(3, combined.cachedInputTokens());
+        assertEquals(6, combined.thinkingTokens());
+        assertEquals(9, combined.outputTokens());
+        assertEquals(300L, combined.elapsedMs());
+        assertEquals("modelB", combined.modelName(), "modelName should come from B");
+        assertEquals("STOP", combined.finishReason(), "finishReason should fall back to A when B is null");
+        assertEquals("t2", combined.created(), "created should come from B");
+        assertEquals("tierA", combined.serviceTier(), "serviceTier should fall back to A when B is null");
+        assertEquals("errA", combined.error(), "error should fall back to A when B is null");
+    }
+
+    @Test
+    void sumAllowsAllCategoricalsNull() {
+        var metaA = new ResponseMetadata(3, 0, 1, 1, 10L, null, null, null, null, null);
+        var metaB = new ResponseMetadata(4, 0, 2, 2, 20L, null, null, null, null, null);
+
+        var combined = ResponseMetadata.sum(metaA, metaB);
+        assertNotNull(combined);
+        assertEquals(7, combined.inputTokens());
+        assertEquals(0, combined.cachedInputTokens());
+        assertEquals(3, combined.thinkingTokens());
+        assertEquals(3, combined.outputTokens());
+        assertEquals(30L, combined.elapsedMs());
+        assertNull(combined.modelName());
+        assertNull(combined.finishReason());
+        assertNull(combined.created());
+        assertNull(combined.serviceTier());
+        assertNull(combined.error());
     }
 }
