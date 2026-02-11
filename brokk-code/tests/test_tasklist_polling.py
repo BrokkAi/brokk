@@ -237,8 +237,7 @@ async def test_context_polling_updates_ui(tmp_path):
             assert "1,500 / 100,000" in str(usage_label.render())
 
             # Verify List Contents
-            chip_row = panel.query_one("#context-chip-row")
-            fragment_items = chip_row.query(ContextFragmentItem)
+            fragment_items = panel.query(ContextFragmentItem)
             assert len(fragment_items) == 2
 
             items_text = " ".join(item.render().plain for item in fragment_items)
@@ -292,3 +291,43 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await pilot.pause()
             panel = app.screen.query_one(ContextPanel)
             assert "100 /" in str(panel.query_one("#context-token-usage").render())
+
+
+@pytest.mark.asyncio
+async def test_context_chips_wrap_into_multiple_rows(tmp_path):
+    """Verifies chip rendering wraps to additional rows when width is constrained."""
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+
+    mock_context = {
+        "usedTokens": 2500,
+        "maxTokens": 100000,
+        "fragments": [
+            {
+                "chipKind": "EDIT",
+                "shortDescription": "Updated an authentication flow",
+                "tokens": 400,
+            },
+            {"chipKind": "HISTORY", "shortDescription": "Long prior chat summary", "tokens": 800},
+            {"chipKind": "TASK_LIST", "shortDescription": "Break work into steps", "tokens": 500},
+        ],
+    }
+
+    with patch(
+        "brokk_code.executor.ExecutorManager.get_context", new_callable=AsyncMock
+    ) as mock_ctx:
+        mock_ctx.return_value = mock_context
+
+        async with app.run_test() as pilot:
+            app._executor_ready = True
+            await pilot.press("ctrl+l")
+            await app._refresh_context_panel()
+            await pilot.pause()
+
+            panel = app.screen.query_one(ContextPanel)
+            panel._chip_wrap_width = lambda: 35
+            panel.refresh_context(mock_context)
+            await pilot.pause()
+
+            rows = panel.query(".context-chip-row")
+            assert len(rows) > 1

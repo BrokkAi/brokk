@@ -111,10 +111,15 @@ ChatPanel {
     width: 100%;
 }
 
-#context-chip-row {
-    layout: horizontal;
+#context-chip-wrap {
+    width: 100%;
     height: auto;
-    min-width: 100%;
+}
+
+.context-chip-row {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
 }
 
 .context-chip {
