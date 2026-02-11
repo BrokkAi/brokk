@@ -991,16 +991,15 @@ public class Llm {
             if (a == null) return b;
             if (b == null) return a;
 
+            // Track which fields overflowed so we emit a single log entry if any overflow occurs.
+            List<String> overflowedFields = new ArrayList<>();
+
             int inputTokens;
             try {
                 inputTokens = Math.addExact(a.inputTokens(), b.inputTokens());
             } catch (ArithmeticException e) {
                 inputTokens = Integer.MAX_VALUE;
-                logger.warn(
-                        "Overflow summing ResponseMetadata.inputTokens: {} + {} -> clamped to {}",
-                        a.inputTokens(),
-                        b.inputTokens(),
-                        inputTokens);
+                overflowedFields.add("inputTokens");
             }
 
             int cachedInputTokens;
@@ -1008,11 +1007,7 @@ public class Llm {
                 cachedInputTokens = Math.addExact(a.cachedInputTokens(), b.cachedInputTokens());
             } catch (ArithmeticException e) {
                 cachedInputTokens = Integer.MAX_VALUE;
-                logger.warn(
-                        "Overflow summing ResponseMetadata.cachedInputTokens: {} + {} -> clamped to {}",
-                        a.cachedInputTokens(),
-                        b.cachedInputTokens(),
-                        cachedInputTokens);
+                overflowedFields.add("cachedInputTokens");
             }
 
             int thinkingTokens;
@@ -1020,11 +1015,7 @@ public class Llm {
                 thinkingTokens = Math.addExact(a.thinkingTokens(), b.thinkingTokens());
             } catch (ArithmeticException e) {
                 thinkingTokens = Integer.MAX_VALUE;
-                logger.warn(
-                        "Overflow summing ResponseMetadata.thinkingTokens: {} + {} -> clamped to {}",
-                        a.thinkingTokens(),
-                        b.thinkingTokens(),
-                        thinkingTokens);
+                overflowedFields.add("thinkingTokens");
             }
 
             int outputTokens;
@@ -1032,11 +1023,7 @@ public class Llm {
                 outputTokens = Math.addExact(a.outputTokens(), b.outputTokens());
             } catch (ArithmeticException e) {
                 outputTokens = Integer.MAX_VALUE;
-                logger.warn(
-                        "Overflow summing ResponseMetadata.outputTokens: {} + {} -> clamped to {}",
-                        a.outputTokens(),
-                        b.outputTokens(),
-                        outputTokens);
+                overflowedFields.add("outputTokens");
             }
 
             long elapsedMs;
@@ -1044,11 +1031,17 @@ public class Llm {
                 elapsedMs = Math.addExact(a.elapsedMs(), b.elapsedMs());
             } catch (ArithmeticException e) {
                 elapsedMs = Long.MAX_VALUE;
+                overflowedFields.add("elapsedMs");
+            }
+
+            if (!overflowedFields.isEmpty()) {
+                // Summarize the overflow event in a single log entry to avoid per-field log spam.
+                // Include the two source ResponseMetadata instances for context (their toString shows fields).
                 logger.warn(
-                        "Overflow summing ResponseMetadata.elapsedMs: {} + {} -> clamped to {}",
-                        a.elapsedMs(),
-                        b.elapsedMs(),
-                        elapsedMs);
+                        "Overflow summing ResponseMetadata for fields: {}. Values: a={}, b={}. Results clamped where necessary.",
+                        String.join(", ", overflowedFields),
+                        a,
+                        b);
             }
 
             // Keep categorical-field behavior unchanged: prefer non-null values from b, falling back to a.
