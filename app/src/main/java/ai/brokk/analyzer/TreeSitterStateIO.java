@@ -24,8 +24,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.ZipException;
 import net.jpountz.lz4.LZ4FrameInputStream;
 import net.jpountz.lz4.LZ4FrameOutputStream;
 import org.jetbrains.annotations.Blocking;
@@ -387,26 +385,9 @@ public final class TreeSitterStateIO {
         }
         long startMs = System.currentTimeMillis();
 
-        // Check if the file name implies a legacy GZIP format
-        String fileName = file.getFileName().toString();
-        boolean isGzipExtension = fileName.endsWith(".gz") || fileName.endsWith(".gzip");
-
-        try {
-            if (isGzipExtension) {
-                try (var in = new GZIPInputStream(Files.newInputStream(file))) {
-                    return loadFromStream(in, file, startMs);
-                }
-            } else {
-                try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
-                    return loadFromStream(in, file, startMs);
-                } catch (IOException e) {
-                    log.debug("Failed to open {} as LZ4, retrying with GZIP fallback: {}", file, e.getMessage());
-                    try (var in = new GZIPInputStream(Files.newInputStream(file))) {
-                        return loadFromStream(in, file, startMs);
-                    }
-                }
-            }
-        } catch (ZipException | EOFException e) {
+        try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
+            return loadFromStream(in, file, startMs);
+        } catch (EOFException e) {
             log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
             return Optional.empty();
         } catch (MismatchedInputException mie) {

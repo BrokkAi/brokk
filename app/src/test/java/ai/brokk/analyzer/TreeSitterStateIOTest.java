@@ -19,7 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -676,10 +675,10 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 12345L);
 
-        // Serialize to file using Smile
-        Path file = tempDir.resolve("legacy.bin.gz");
+        // Serialize to file using Smile + LZ4
+        Path file = tempDir.resolve("legacy.bin.lz4");
         ObjectMapper mapper = new ObjectMapper(new SmileFactory());
-        try (var out = new GZIPOutputStream(Files.newOutputStream(file))) {
+        try (var out = new net.jpountz.lz4.LZ4FrameOutputStream(Files.newOutputStream(file))) {
             mapper.writeValue(out, stateDtoMap);
         }
 
@@ -703,7 +702,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadLegacyStateWithPerCodeUnitSupertypes(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("legacy_per_cu_supertypes.bin.gz");
+        Path out = tempDir.resolve("legacy_per_cu_supertypes.bin.lz4");
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
         var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
@@ -730,7 +729,7 @@ public class TreeSitterStateIOTest {
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+        try (var os = new net.jpountz.lz4.LZ4FrameOutputStream(Files.newOutputStream(out))) {
             mapper.writeValue(os, stateDtoMap);
         }
 
@@ -775,7 +774,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadIgnoresLegacyRawSupertypesField(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("legacy_raw_supertypes.bin.gz");
+        Path out = tempDir.resolve("legacy_raw_supertypes.bin.lz4");
 
         // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
@@ -803,7 +802,7 @@ public class TreeSitterStateIOTest {
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+        try (var os = new net.jpountz.lz4.LZ4FrameOutputStream(Files.newOutputStream(out))) {
             mapper.writeValue(os, stateDtoMap);
         }
 
