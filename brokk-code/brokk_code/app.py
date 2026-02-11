@@ -43,8 +43,27 @@ class BrokkApp(App):
         executor: Optional[ExecutorManager] = None,
         session_id: Optional[str] = None,
         resume_session: bool = True,
+        *,
+        enable_background_workers: bool = True,
+        enable_executor_start: bool = True,
     ) -> None:
+        """
+        Initialize BrokkApp.
+
+        The two feature flags below are primarily intended for tests so they can
+        avoid starting long-running background loops or spawning the external
+        executor process during App startup. See Issue #2672.
+
+        - enable_background_workers: when False, periodic polling and monitoring
+          workers are not launched.
+        - enable_executor_start: when False, the executor startup sequence is
+          not automatically started on mount.
+        """
         super().__init__()
+        # Test hooks: stored as private attributes to avoid changing external API.
+        self._enable_background_workers = enable_background_workers
+        self._enable_executor_start = enable_executor_start
+
         if executor:
             self.executor = executor
             if workspace_dir:
@@ -112,10 +131,12 @@ class BrokkApp(App):
             history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
 
-        self.run_worker(self._start_executor())
-        self.run_worker(self._monitor_executor())
-        self.run_worker(self._poll_tasklist())
-        self.run_worker(self._poll_context())
+        # Start executor startup only if enabled (tests may disable to avoid slow startup).
+        if getattr(self, "_enable_executor_start", True):
+            self.run_worker(self._start_executor())
+
+        # Start background workers (may be a no-op in tests depending on flag).
+        self._start_background_workers()
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
