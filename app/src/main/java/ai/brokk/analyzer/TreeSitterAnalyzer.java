@@ -3754,7 +3754,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         }
                                     } else {
                                         deletedCount.incrementAndGet();
-                                        log.debug("File {} deleted; state cleaned.", file);
+                                        log.trace("File {} deleted; state cleaned.", file);
                                     }
                                 },
                                 executor)

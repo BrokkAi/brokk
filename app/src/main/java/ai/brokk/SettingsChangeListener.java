@@ -8,4 +8,6 @@ public interface SettingsChangeListener {
     default void autoUpdateLocalDependenciesChanged() {}
 
     default void autoUpdateGitDependenciesChanged() {}
+
+    default void openAiOauthConnectionChanged() {}
 }

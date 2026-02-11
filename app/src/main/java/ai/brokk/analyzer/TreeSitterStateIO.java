@@ -275,7 +275,10 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record CodeUnitPropertiesDto(
-            List<CodeUnitDto> children, List<String> signatures, List<IAnalyzer.Range> ranges, boolean hasBody) {}
+            @Nullable List<CodeUnitDto> children,
+            @Nullable List<String> signatures,
+            @Nullable List<IAnalyzer.Range> ranges,
+            boolean hasBody) {}
 
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
@@ -645,9 +648,13 @@ public final class TreeSitterStateIO {
             var v = entry.value();
 
             var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                    v.children().stream().map(TreeSitterStateIO::fromDto).toList(),
-                    v.signatures(),
-                    v.ranges(),
+                    v.children() == null
+                            ? Collections.emptyList()
+                            : v.children().stream()
+                                    .map(TreeSitterStateIO::fromDto)
+                                    .toList(),
+                    v.signatures() == null ? Collections.emptyList() : v.signatures(),
+                    v.ranges() == null ? Collections.emptyList() : v.ranges(),
                     v.hasBody());
 
             cuState.put(fromDto(entry.key()), props);

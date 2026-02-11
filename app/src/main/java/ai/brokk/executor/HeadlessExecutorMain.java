@@ -232,6 +232,7 @@ public final class HeadlessExecutorMain {
 
         var contextRouter = new ContextRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/context", contextRouter);
+        this.server.registerAuthenticatedContext("/v1/tasklist", contextRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -442,6 +443,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/context/classes          - add class summaries to context");
             System.out.println("    POST /v1/context/methods          - add method sources to context");
             System.out.println("    POST /v1/context/text             - add pasted text to context");
+            System.out.println("    GET  /v1/tasklist                 - get current task list content");
             System.out.println();
 
             // Create and start executor

@@ -129,6 +129,7 @@ public final class MainProject extends AbstractProject {
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
     private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
     private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
+    private static final String OPENAI_CODEX_OAUTH_CONNECTED_KEY = "openAiCodexOauthConnected";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -208,6 +209,9 @@ public final class MainProject extends AbstractProject {
     public static final String STAGING_PROXY_URL = "https://staging.brokk.ai";
     public static final String BROKK_SERVICE_URL = "https://app.brokk.ai";
     public static final String STAGING_SERVICE_URL = "https://brokk-backend-staging.up.railway.app";
+    public static final String BROKK_FRONTEND_URL = "https://brokk.ai";
+    public static final String LOCALHOST_FRONTEND_URL = "http://localhost:5173";
+    public static final String STAGING_FRONTEND_URL = "https://brokk-frontend-staging.up.railway.app";
 
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
 
@@ -1022,8 +1026,16 @@ public final class MainProject extends AbstractProject {
     public static String getServiceUrl() {
         return switch (getProxySetting()) {
             case BROKK -> BROKK_SERVICE_URL;
-            case LOCALHOST -> BROKK_SERVICE_URL;
+            case LOCALHOST -> "http://localhost:8000";
             case STAGING -> STAGING_SERVICE_URL;
+        };
+    }
+
+    public static String getFrontendUrl() {
+        return switch (getProxySetting()) {
+            case BROKK -> BROKK_FRONTEND_URL;
+            case LOCALHOST -> LOCALHOST_FRONTEND_URL;
+            case STAGING -> STAGING_FRONTEND_URL;
         };
     }
 
@@ -1091,6 +1103,35 @@ public final class MainProject extends AbstractProject {
             } catch (Exception e) {
                 logger.error("Error notifying listener of auto-update git dependencies change", e);
             }
+        }
+    }
+
+    private static void notifyOpenAiOauthConnectionChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.openAiOauthConnectionChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of OpenAI OAuth connection change", e);
+            }
+        }
+    }
+
+    public static boolean isOpenAiCodexOauthConnected() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "false"));
+    }
+
+    public static void setOpenAiCodexOauthConnected(boolean connected) {
+        var props = loadGlobalProperties();
+        boolean currentValue = Boolean.parseBoolean(props.getProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "false"));
+        if (currentValue != connected) {
+            if (connected) {
+                props.setProperty(OPENAI_CODEX_OAUTH_CONNECTED_KEY, "true");
+            } else {
+                props.remove(OPENAI_CODEX_OAUTH_CONNECTED_KEY);
+            }
+            saveGlobalProperties(props);
+            notifyOpenAiOauthConnectionChanged();
         }
     }
 
@@ -1197,7 +1238,7 @@ public final class MainProject extends AbstractProject {
             return Set.of();
         }
 
-        return namesToDependencies(liveDepsNames);
+        return resolveDependencies(liveDepsNames);
     }
 
     @Override
