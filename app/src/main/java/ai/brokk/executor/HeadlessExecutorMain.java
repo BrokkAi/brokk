@@ -286,8 +286,21 @@ public final class HeadlessExecutorMain {
             return;
         }
 
+        // Use ContextManager.getCurrentSessionId() as the single source of truth for the active session id.
+        // If the ContextManager does not currently report an active session, treat the service as not ready.
         var sessionId = contextManager.getCurrentSessionId();
-        var response = Map.of("status", "ready", "sessionId", String.valueOf(sessionId));
+        if (sessionId == null) {
+            // This can happen if background maintenance replaced/quarantined the session after sessionLoaded was set.
+            // Documented semantics: readiness reports the executor's current active session id. If there's no active
+            // session at this instant, report NOT_READY so callers know there's nothing to run against.
+            logger.warn("/health/ready: sessionLoaded=true but ContextManager has no current session; returning 503");
+            var error = ErrorPayload.of("NOT_READY", "No active session");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
+            return;
+        }
+
+        logger.info("/health/ready: reporting ready with sessionId={}", sessionId);
+        var response = Map.of("status", "ready", "sessionId", sessionId.toString());
         SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
