@@ -2431,20 +2431,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 }
             }
 
-            var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
-            var originalRange = new Range(
-                    rangeNode.getStartByte(),
-                    rangeNode.getEndByte(),
-                    rangeNode.getStartPoint().getRow(),
-                    rangeNode.getEndPoint().getRow(),
-                    rangeNode.getStartByte());
-
-            var finalRange = (cu.isClass() || cu.isFunction())
-                    ? expandRangeWithComments(rangeNode, sourceContent)
-                    : originalRange;
-
-            localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
-
             localCuByFqName.put(cu.fqName(), cu);
             cuToCaptureName.put(cu, primaryCaptureName);
             localChildren.putIfAbsent(cu, new ArrayList<>());
@@ -2525,6 +2511,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
                 }
             }
+
+            var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
+            var originalRange = new Range(
+                    rangeNode.getStartByte(),
+                    rangeNode.getEndByte(),
+                    rangeNode.getStartPoint().getRow(),
+                    rangeNode.getEndPoint().getRow(),
+                    rangeNode.getStartByte());
+
+            var finalRange = (cu.isClass() || cu.isFunction())
+                    ? expandRangeWithComments(rangeNode, sourceContent)
+                    : originalRange;
+
+            localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             log.trace("Stored/Updated info for CU: {}", cu);
         }
 
