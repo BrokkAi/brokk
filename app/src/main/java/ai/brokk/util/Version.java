@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import com.google.common.base.Splitter;
 import java.util.ArrayList;
 import java.util.List;
 import org.jspecify.annotations.NullMarked;
@@ -133,19 +134,16 @@ public record Version(String versionString) implements Comparable<Version> {
         }
 
         public static SemVer parse(String text) {
-            if (text == null) {
-                return new SemVer(0, 0, 0, "0.0.0");
-            }
             String s = text.strip();
             // Remove any pre-release or build metadata for numeric parsing
             int idx = s.indexOf('-');
             if (idx >= 0) s = s.substring(0, idx);
             idx = s.indexOf('+');
             if (idx >= 0) s = s.substring(0, idx);
-            String[] parts = s.split("\\.");
-            int maj = parts.length > 0 ? parseOrZero(parts[0]) : 0;
-            int min = parts.length > 1 ? parseOrZero(parts[1]) : 0;
-            int pat = parts.length > 2 ? parseOrZero(parts[2]) : 0;
+            List<String> parts = Splitter.on('.').splitToList(s);
+            int maj = parts.size() > 0 ? parseOrZero(parts.get(0)) : 0;
+            int min = parts.size() > 1 ? parseOrZero(parts.get(1)) : 0;
+            int pat = parts.size() > 2 ? parseOrZero(parts.get(2)) : 0;
             return new SemVer(maj, min, pat, text);
         }
 
@@ -178,14 +176,13 @@ public record Version(String versionString) implements Comparable<Version> {
 
         @Override
         public String toString() {
-            return original != null ? original : (major + "." + minor + "." + patch);
+            return original;
         }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
-            if (!(o instanceof SemVer)) return false;
-            SemVer other = (SemVer) o;
+            if (!(o instanceof SemVer other)) return false;
             return this.major == other.major && this.minor == other.minor && this.patch == other.patch;
         }
 
