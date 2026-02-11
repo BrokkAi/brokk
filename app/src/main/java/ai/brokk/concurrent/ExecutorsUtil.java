@@ -1,7 +1,6 @@
 package ai.brokk.concurrent;
 
 import ai.brokk.exception.GlobalExceptionHandler;
-
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
