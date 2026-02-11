@@ -244,7 +244,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                 .toList();
 
         List<String> instructions = relevantContexts.stream()
-                .map(ctx -> ctx.getTaskHistory().getLast().log())
+                .map(ctx -> ctx.getTaskHistory().getLast().mopLog())
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(log -> log.id()))
                 .map(log -> log.description().join())

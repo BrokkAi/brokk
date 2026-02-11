@@ -147,7 +147,7 @@ public class DtoMapper {
                             : null;
                     return new TaskEntryRefDto(
                             te.sequence(),
-                            te.hasLog() ? castNonNull(te.log()).id() : null,
+                            te.hasLog() ? castNonNull(te.mopLog()).id() : null,
                             te.isCompressed() ? writer.writeContent(castNonNull(te.summary()), null) : null,
                             type,
                             pmName,

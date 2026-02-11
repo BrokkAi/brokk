@@ -287,16 +287,17 @@ public class ContextSerializationTest {
         if (expected.isCompressed()) {
             assertEquals(expected.summary(), actual.summary());
         } else {
-            assertNotNull(expected.log());
-            assertNotNull(actual.log());
+            assertNotNull(expected.mopLog());
+            assertNotNull(actual.mopLog());
             assertEquals(
-                    expected.log().description().join(),
-                    actual.log().description().join());
+                    expected.mopLog().description().join(),
+                    actual.mopLog().description().join());
             assertEquals(
-                    expected.log().messages().size(), actual.log().messages().size());
-            for (int i = 0; i < expected.log().messages().size(); i++) {
-                ChatMessage expectedMsg = expected.log().messages().get(i);
-                ChatMessage actualMsg = actual.log().messages().get(i);
+                    expected.mopLog().messages().size(),
+                    actual.mopLog().messages().size());
+            for (int i = 0; i < expected.mopLog().messages().size(); i++) {
+                ChatMessage expectedMsg = expected.mopLog().messages().get(i);
+                ChatMessage actualMsg = actual.mopLog().messages().get(i);
                 assertEquals(expectedMsg.type(), actualMsg.type());
                 assertEquals(Messages.getRepr(expectedMsg), Messages.getRepr(actualMsg));
             }
@@ -623,8 +624,8 @@ public class ContextSerializationTest {
         var loadedTaskCtx1 = loadedHistoryWithTask.getHistory().get(0);
         var loadedTaskCtx2 = loadedHistoryWithTask.getHistory().get(1);
 
-        var taskLog1 = loadedTaskCtx1.getTaskHistory().get(0).log();
-        var taskLog2 = loadedTaskCtx2.getTaskHistory().get(0).log();
+        var taskLog1 = loadedTaskCtx1.getTaskHistory().get(0).mopLog();
+        var taskLog2 = loadedTaskCtx2.getTaskHistory().get(0).mopLog();
 
         assertNotNull(taskLog1);
         assertNotNull(taskLog2);
@@ -1562,7 +1563,7 @@ public class ContextSerializationTest {
         assertEquals(1, loaded1.sequence());
         assertTrue(loaded1.hasLog());
         assertFalse(loaded1.isCompressed());
-        assertEquals(2, loaded1.log().messages().size());
+        assertEquals(2, loaded1.mopLog().messages().size());
 
         // Verify Entry 2: Both log and summary
         TaskEntry loaded2 = loadedEntries.get(1);
@@ -1570,7 +1571,7 @@ public class ContextSerializationTest {
         assertTrue(loaded2.hasLog());
         assertTrue(loaded2.isCompressed());
         assertEquals("Summary of task 2", loaded2.summary());
-        assertEquals(2, loaded2.log().messages().size());
+        assertEquals(2, loaded2.mopLog().messages().size());
 
         // Verify Entry 3: Summary only
         TaskEntry loaded3 = loadedEntries.get(2);

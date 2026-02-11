@@ -526,7 +526,7 @@ public final class HistoryIo {
 
                     if (vf instanceof ContextFragments.HistoryFragment hf) {
                         hf.entries().stream()
-                                .map(TaskEntry::log)
+                                .map(TaskEntry::mopLog)
                                 .filter(Objects::nonNull)
                                 .forEach(log -> {
                                     if (!collectedTaskDtos.containsKey(log.id())) {
@@ -537,7 +537,7 @@ public final class HistoryIo {
                 }
             });
             ctx.getTaskHistory().stream()
-                    .map(TaskEntry::log)
+                    .map(TaskEntry::mopLog)
                     .filter(Objects::nonNull)
                     .forEach(log -> {
                         if (!collectedTaskDtos.containsKey(log.id())) {

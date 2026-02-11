@@ -1143,7 +1143,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             var last = history.getLast();
-            var log = last.log();
+            var log = last.mopLog();
             if (log != null) {
                 addFragments(log);
                 return;

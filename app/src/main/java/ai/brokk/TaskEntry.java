@@ -17,19 +17,20 @@ import org.jetbrains.annotations.Nullable;
  * but the UI prefers to render the full log messages with a visual indicator.
  *
  * @param sequence A unique sequence number for ordering tasks.
- * @param log The uncompressed list of chat messages for this task. Null if not available.
+ * @param mopLog The uncompressed list of chat messages for this task, as shown in the MOP.
+ *               Null if not available in historical sessions that threw it away on compression.
  * @param summary The compressed representation of the chat messages. Null if not available.
  * @param meta Optional metadata (task type, model config) associated with this task entry.
  */
 public record TaskEntry(
         int sequence,
-        @Nullable ContextFragments.TaskFragment log,
+        @Nullable ContextFragments.TaskFragment mopLog,
         @Nullable String summary,
         @Nullable TaskResult.TaskMeta meta) {
 
     /** Enforce that at least one of log or summary is non-null */
     public TaskEntry {
-        assert (log != null) || (summary != null) : "At least one of log or summary must be non-null";
+        assert (mopLog != null) || (summary != null) : "At least one of log or summary must be non-null";
         assert summary == null || !summary.isEmpty() : "summary must not be empty when present";
     }
 
@@ -50,14 +51,14 @@ public record TaskEntry(
         if (summary != null && summary.equals(newSummary)) {
             return this;
         }
-        return new TaskEntry(sequence, log, newSummary, meta);
+        return new TaskEntry(sequence, mopLog, newSummary, meta);
     }
 
     /**
      * Returns true if this TaskEntry holds an original message log.
      */
     public boolean hasLog() {
-        return log != null;
+        return mopLog != null;
     }
 
     /**
@@ -94,7 +95,7 @@ public record TaskEntry(
                     .formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
         }
 
-        var logText = formatMessages(castNonNull(log).messages());
+        var logText = formatMessages(castNonNull(mopLog).messages());
         return """
           <task sequence=%s>
           %s

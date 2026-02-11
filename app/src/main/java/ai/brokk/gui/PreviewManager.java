@@ -555,7 +555,7 @@ public class PreviewManager {
             if (entry.isCompressed()) {
                 combinedMessages.add(Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
             } else {
-                combinedMessages.addAll(castNonNull(entry.log()).messages());
+                combinedMessages.addAll(castNonNull(entry.mopLog()).messages());
             }
         }
 

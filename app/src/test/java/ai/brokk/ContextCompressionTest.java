@@ -108,13 +108,13 @@ public class ContextCompressionTest {
 
         // Create a compressed entry (simulating what compressHistory does)
         String compressedSummary = "The user asked about France's capital, and AI responded with Paris.";
-        var compressedEntry = new TaskEntry(1, originalEntry.log(), compressedSummary, null);
+        var compressedEntry = new TaskEntry(1, originalEntry.mopLog(), compressedSummary, null);
 
         // Verify compressed state: still has log, now also has summary
         assertTrue(compressedEntry.hasLog(), "Compressed entry should preserve original log");
-        assertSame(originalEntry.log(), compressedEntry.log(), "Log instance should be identical");
+        assertSame(originalEntry.mopLog(), compressedEntry.mopLog(), "Log instance should be identical");
         assertEquals(
-                messages.size(), compressedEntry.log().messages().size(), "Log should have same number of messages");
+                messages.size(), compressedEntry.mopLog().messages().size(), "Log should have same number of messages");
 
         assertTrue(compressedEntry.isCompressed(), "Compressed entry should now have summary");
         assertEquals(compressedSummary, compressedEntry.summary(), "Summary should match");
@@ -132,7 +132,7 @@ public class ContextCompressionTest {
         var originalEntry = new TaskEntry(42, taskFragment, null, meta);
 
         String summary = "Test summary";
-        var compressedEntry = new TaskEntry(42, originalEntry.log(), summary, originalEntry.meta());
+        var compressedEntry = new TaskEntry(42, originalEntry.mopLog(), summary, originalEntry.meta());
 
         assertEquals(42, compressedEntry.sequence(), "Sequence should be preserved");
         assertNotNull(compressedEntry.meta(), "Metadata should be preserved");
@@ -198,7 +198,7 @@ public class ContextCompressionTest {
 
         // Simulate compression
         String summary = "User requested code refactoring; AI provided refactored version.";
-        var compressedEntry = new TaskEntry(5, originalEntry.log(), summary, originalEntry.meta());
+        var compressedEntry = new TaskEntry(5, originalEntry.mopLog(), summary, originalEntry.meta());
 
         // Verify all metadata is preserved
         assertEquals(5, compressedEntry.sequence());
@@ -214,7 +214,7 @@ public class ContextCompressionTest {
 
         // Verify messages are intact
         assertTrue(compressedEntry.hasLog());
-        assertEquals(2, compressedEntry.log().messages().size());
+        assertEquals(2, compressedEntry.mopLog().messages().size());
 
         // Verify summary is attached
         assertEquals(summary, compressedEntry.summary());
@@ -254,7 +254,7 @@ public class ContextCompressionTest {
 
         // State 2: Both log and summary (compressed, AI uses summary)
         String summary = "Summary";
-        var withBoth = new TaskEntry(1, logOnly.log(), summary);
+        var withBoth = new TaskEntry(1, logOnly.mopLog(), summary);
         assertTrue(withBoth.isCompressed());
         assertTrue(withBoth.hasLog());
 

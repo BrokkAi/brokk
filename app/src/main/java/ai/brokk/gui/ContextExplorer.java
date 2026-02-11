@@ -380,8 +380,8 @@ public final class ContextExplorer extends JFrame {
             return ctx.getTaskHistory().stream()
                     .mapToInt(te -> {
                         try {
-                            if (te.log() != null) {
-                                var t = te.log().text().join();
+                            if (te.mopLog() != null) {
+                                var t = te.mopLog().text().join();
                                 return t.isEmpty() ? 0 : (int) t.lines().count();
                             } else if (te.summary() != null) {
                                 var s = te.summary();

@@ -257,14 +257,15 @@ public class SessionManagerTest {
         if (expected.isCompressed()) {
             assertEquals(expected.summary(), actual.summary());
         } else {
-            assertNotNull(expected.log());
-            assertNotNull(actual.log());
-            assertEquals(expected.log().description(), actual.log().description());
+            assertNotNull(expected.mopLog());
+            assertNotNull(actual.mopLog());
+            assertEquals(expected.mopLog().description(), actual.mopLog().description());
             assertEquals(
-                    expected.log().messages().size(), actual.log().messages().size());
-            for (int i = 0; i < expected.log().messages().size(); i++) {
-                ChatMessage expectedMsg = expected.log().messages().get(i);
-                ChatMessage actualMsg = actual.log().messages().get(i);
+                    expected.mopLog().messages().size(),
+                    actual.mopLog().messages().size());
+            for (int i = 0; i < expected.mopLog().messages().size(); i++) {
+                ChatMessage expectedMsg = expected.mopLog().messages().get(i);
+                ChatMessage actualMsg = actual.mopLog().messages().get(i);
                 assertEquals(expectedMsg.type(), actualMsg.type());
                 assertEquals(Messages.getRepr(expectedMsg), Messages.getRepr(actualMsg));
             }

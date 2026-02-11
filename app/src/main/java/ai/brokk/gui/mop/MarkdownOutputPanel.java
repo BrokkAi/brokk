@@ -127,7 +127,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             if (entry.isCompressed()) {
                 sb.append("C:").append(Objects.hashCode(entry.summary()));
             } else {
-                sb.append("U:").append(Objects.hashCode(entry.log()));
+                sb.append("U:").append(Objects.hashCode(entry.mopLog()));
             }
             sb.append(';');
         }
@@ -170,7 +170,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     public CompletableFuture<Void> setMainThenHistoryAsync(TaskEntry main, List<TaskEntry> history) {
         // Prefer full messages when available (even if compressed); fall back to summary only if log is unavailable
         List<? extends ChatMessage> mainMessages = main.hasLog()
-                ? castNonNull(main.log()).messages()
+                ? castNonNull(main.mopLog()).messages()
                 : List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")));
 
         // Send main messages first (which triggers clear on frontend). After the flush, apply history in-order,

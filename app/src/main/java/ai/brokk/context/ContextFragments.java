@@ -1931,7 +1931,7 @@ public class ContextFragments {
                             TaskEntry.formatMessages(history.stream()
                                     .flatMap(e -> e.isCompressed()
                                             ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                            : castNonNull(e.log()).messages().stream())
+                                            : castNonNull(e.mopLog()).messages().stream())
                                     .toList()),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             HistoryFragment.class.getName()),
@@ -1948,7 +1948,7 @@ public class ContextFragments {
                     ContentSnapshot.textSnapshot(TaskEntry.formatMessages(history.stream()
                             .flatMap(e -> e.isCompressed()
                                     ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                    : castNonNull(e.log()).messages().stream())
+                                    : castNonNull(e.mopLog()).messages().stream())
                             .toList())));
             this.history = List.copyOf(history);
         }

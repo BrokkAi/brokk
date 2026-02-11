@@ -397,7 +397,7 @@ public class CodePrompts {
 
         // Uncompressed messages: process for tool and S/R block redaction
         taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
-            var entryRawMessages = castNonNull(e.log()).messages();
+            var entryRawMessages = castNonNull(e.mopLog()).messages();
             if (entryRawMessages.isEmpty()) {
                 return;
             }

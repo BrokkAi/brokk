@@ -137,8 +137,8 @@ class HistoryV4MigrationTest {
 
             assertEquals(1, ctx2.getTaskHistory().size());
             var taskEntry = ctx2.getTaskHistory().get(0);
-            assertNotNull(taskEntry.log());
-            assertEquals(2, taskEntry.log().messages().size());
+            assertNotNull(taskEntry.mopLog());
+            assertEquals(2, taskEntry.mopLog().messages().size());
         } else if ("v3-gitfile-fragment-only.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();

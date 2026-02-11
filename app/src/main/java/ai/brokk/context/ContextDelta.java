@@ -219,8 +219,9 @@ public record ContextDelta(
     private String buildTaskDescription(TaskEntry entry, IContextManager icm) throws InterruptedException {
         String prefix = (entry.meta() == null) ? "" : entry.meta().type().displayName() + ": ";
 
-        String taskText =
-                entry.isCompressed() ? requireNonNull(entry.summary()) : requireNonNull(entry.log()).shortDescription;
+        String taskText = entry.isCompressed()
+                ? requireNonNull(entry.summary())
+                : requireNonNull(entry.mopLog()).shortDescription;
 
         String cacheKey = "action_" + StringDiskCache.sha1Hex(taskText);
         var actionText = taskText.split("\\s+").length <= 7

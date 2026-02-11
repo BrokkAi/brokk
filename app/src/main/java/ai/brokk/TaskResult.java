@@ -155,6 +155,6 @@ public record TaskResult(Context context, StopDetails stopDetails) {
     }
 
     public ContextFragments.TaskFragment output() {
-        return requireNonNull(context.getTaskHistory().getLast().log());
+        return requireNonNull(context.getTaskHistory().getLast().mopLog());
     }
 }
