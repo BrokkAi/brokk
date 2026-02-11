@@ -714,9 +714,15 @@ public class Environment {
     }
 
     boolean isSystemTrayNotificationSupported() {
-        // Only enable AWT SystemTray on platforms we explicitly intend to support (e.g., Windows).
-        // Explicitly disable on macOS and Linux to avoid platform-specific AWT/system-tray issues.
-        return isWindows() && SystemTray.isSupported();
+        // Only enable AWT SystemTray on platforms we explicitly intend to support (only Windows atm).
+        if (!isWindows()) return false;
+        try {
+            // sometimes also windows does not support it (i.e. headless)
+            return SystemTray.isSupported();
+        } catch (RuntimeException | Error e) {
+            logger.info("SystemTray not available; falling back", e);
+            return false;
+        }
     }
 
     private void sendLinuxNotification(String message) throws IOException {
