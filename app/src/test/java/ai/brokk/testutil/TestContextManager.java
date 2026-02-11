@@ -13,6 +13,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -38,6 +39,7 @@ public final class TestContextManager implements IContextManager {
     private final Set<ProjectFile> editableFiles;
     private final IConsoleIO consoleIO;
     private final TestService stubService;
+    private final ToolRegistry toolRegistry;
     private Context liveContext;
 
     // Test-friendly AnalyzerWrapper that uses a "quick runner" to return the mockAnalyzer immediately.
@@ -81,6 +83,7 @@ public final class TestContextManager implements IContextManager {
         this.repo = repoToSet;
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
+        this.toolRegistry = new ToolRegistry();
         this.analyzerWrapper = new TestAnalyzerWrapper(analyzer);
         this.liveContext = new Context(this).addFragments(toPathFragments(editableFiles));
     }
@@ -156,6 +159,11 @@ public final class TestContextManager implements IContextManager {
     @Override
     public TestService getService() {
         return stubService;
+    }
+
+    @Override
+    public ToolRegistry getToolRegistry() {
+        return toolRegistry;
     }
 
     @Override

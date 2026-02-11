@@ -85,7 +85,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         this.chrome = chrome;
         this.cm = chrome.getContextManager();
 
-        this.model = new TaskListModel(() -> cm.getTaskList().tasks());
+        this.model = new TaskListModel(() -> getResolvedTaskListData().tasks());
         this.list = new JList<>(model);
 
         this.bigPicturePanel = new MarkdownOutputPanel();
@@ -102,7 +102,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2 && taskListEditable) {
-                    var data = cm.getTaskList();
+                    var data = getResolvedTaskListData();
                     if (data.bigPicture() != null && !data.bigPicture().isBlank()) {
                         openBigPictureEditDialog(data.bigPicture());
                     }
@@ -1295,6 +1295,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * Centralized UI refresh. Ensures EDT, refreshes model, buttons, and optionally performs
      * structural layout invalidation when list structure changes (add/remove/reorder/split/combine/clear).
      */
+    /**
+     * Resolves the task list data to display. If a historical context is selected,
+     * returns its data; otherwise falls back to the live context.
+     */
+    private TaskList.TaskListData getResolvedTaskListData() {
+        Context selected = cm.selectedContext();
+        if (selected != null) {
+            return selected.getTaskListDataOrEmpty();
+        }
+        return cm.liveContext().getTaskListDataOrEmpty();
+    }
+
     private void refreshUi(boolean structuralChange) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> refreshUi(structuralChange));
@@ -1303,7 +1315,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         model.fireRefresh();
 
-        var data = cm.getTaskList();
+        var data = getResolvedTaskListData();
         String bp = data.bigPicture();
         if (bp != null && !bp.isBlank()) {
             bigPicturePanel.setStaticDocument(bp);

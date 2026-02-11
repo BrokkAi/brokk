@@ -88,12 +88,6 @@ public final class BprCli implements Callable<Integer> {
     private List<String> addUrls = new ArrayList<>();
 
     @CommandLine.Option(
-            names = "--add-usage",
-            description =
-                    "Add the full source of all methods calling then given FQ symbol to the workspace for editing. Can be repeated.")
-    private List<String> addUsages = new ArrayList<>();
-
-    @CommandLine.Option(
             names = "--add-summary-class",
             description = "Add a summary of the given class to the workspace. Can be repeated.")
     private List<String> addSummaryClasses = new ArrayList<>();
@@ -171,6 +165,13 @@ public final class BprCli implements Callable<Integer> {
     private String proxySetting;
 
     @CommandLine.Option(
+            names = "--favorite-models",
+            description =
+                    "Favorite models override as JSON array (uses BROKK_FAVORITE_MODELS env var if not specified).")
+    @Nullable
+    private String favoriteModelsJson;
+
+    @CommandLine.Option(
             names = "--deepscan",
             arity = "0..1",
             fallbackValue = "true",
@@ -214,6 +215,26 @@ public final class BprCli implements Callable<Integer> {
     @Override
     @Blocking
     public Integer call() throws Exception {
+
+        // Process favorite models override (CLI flag > env var)
+        // Must run before --list-models so that overridden models are visible
+        String effectiveFavoriteModels = favoriteModelsJson;
+        if (effectiveFavoriteModels == null || effectiveFavoriteModels.isBlank()) {
+            effectiveFavoriteModels = System.getenv("BROKK_FAVORITE_MODELS");
+        }
+        if (effectiveFavoriteModels != null && !effectiveFavoriteModels.isBlank()) {
+            try {
+                var objectMapper = AbstractProject.objectMapper;
+                var typeFactory = objectMapper.getTypeFactory();
+                var listType = typeFactory.constructCollectionType(List.class, Service.FavoriteModel.class);
+                List<Service.FavoriteModel> models = objectMapper.readValue(effectiveFavoriteModels, listType);
+                MainProject.setHeadlessFavoriteModelsOverride(models);
+                logger.info("Using CLI-specified favorite models ({} models)", models.size());
+            } catch (Exception e) {
+                System.err.println("Error parsing favorite models JSON: " + e.getMessage());
+                return 1;
+            }
+        }
 
         // Handle --list-models early exit
         if (listModels) {
@@ -503,9 +524,6 @@ public final class BprCli implements Callable<Integer> {
         if (!addMethodSources.isEmpty()) tools.addMethodsToWorkspace(addMethodSources);
         for (var url : addUrls) {
             tools.addUrlContentsToWorkspace(url);
-        }
-        for (var symbol : addUsages) {
-            tools.addSymbolUsagesToWorkspace(symbol);
         }
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();

@@ -16,7 +16,7 @@ import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonReferenceSchema;
 import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
-import dev.langchain4j.model.output.structured.Description;
+import dev.langchain4j.model.output.structured.D;
 import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -159,17 +159,17 @@ public class JsonSchemaElementUtils {
     }
 
     private static String descriptionFrom(Field field) {
-        return descriptionFrom(field.getAnnotation(Description.class));
+        return descriptionFrom(field.getAnnotation(D.class));
     }
 
     private static String descriptionFrom(Class<?> type) {
         if (type == UUID.class) {
             return DEFAULT_UUID_DESCRIPTION;
         }
-        return descriptionFrom(type.getAnnotation(Description.class));
+        return descriptionFrom(type.getAnnotation(D.class));
     }
 
-    private static String descriptionFrom(Description description) {
+    private static String descriptionFrom(D description) {
         if (description == null) {
             return null;
         }

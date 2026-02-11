@@ -158,24 +158,24 @@ public class SearchTools {
 
     @Tool(
             """
-                    Search for symbols (class/function/field/module definitions) using static analysis.
-                    ONLY returns symbol definitions (declarations).
-                    DO NOT use for usages/call sites/instantiation/access patterns — use addSymbolUsagesToWorkspace or searchSubstrings.
-                    Output is grouped by file, then by symbol kind within each file.
+            Search for symbols (class/function/field/module definitions) using static analysis.
+            ONLY returns symbol definitions (declarations).
+            DO NOT use for usages/call sites/instantiation/access patterns — use scanUsages or searchSubstrings.
+            Output is grouped by file, then by symbol kind within each file.
 
-                    - kinds: CLASS, FUNCTION, FIELD, MODULE
-                    - FUNCTION may represent a member/instance/static method or a free/top-level function (varies by language/analyzer)
-                    - FIELD may represent a class/instance/static field or a top-level/module/global variable (varies by language/analyzer)
-                    - empty kind sections are omitted
+            - kinds: CLASS, FUNCTION, FIELD, MODULE
+            - FUNCTION may represent a member/instance/static method or a free/top-level function (varies by language/analyzer)
+            - FIELD may represent a class/instance/static field or a top-level/module/global variable (varies by language/analyzer)
+            - empty kind sections are omitted
 
-                    Examples:
-                    <file path="src/main/java/com/example/Foo.java">
-                    [CLASS]
-                    - com.example.Foo
-                    [FUNCTION]
-                    - com.example.Foo.bar
-                    </file>
-                    """)
+            Examples:
+            <file path="src/main/java/com/example/Foo.java">
+            [CLASS]
+            - com.example.Foo
+            [FUNCTION]
+            - com.example.Foo.bar
+            </file>
+            """)
     public String searchSymbols(
             @P(
                             "Case-insensitive regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
@@ -251,20 +251,16 @@ public class SearchTools {
 
     @Tool(
             """
-                    Finds and returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
-                    Use this for questions like “how is X used/accessed/obtained/wired”.
-                    If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
-                    """)
-    public String getUsages(
+            Returns the call sites where symbols are used and three examples of full call site source. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
+            Use this for questions like “how is X used/accessed/obtained/wired”.
+            If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
+            """)
+    public String scanUsages(
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")
                     List<String> symbols,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning)
-            throws InterruptedException {
-        return getUsages(symbols, reasoning, false);
-    }
-
-    public String getUsages(List<String> symbols, String reasoning, boolean includeTests) {
+                    String reasoning,
+            @P("Include call sites in test files in results.") boolean includeTests) {
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -278,7 +274,8 @@ public class SearchTools {
         for (String symbol : symbols) {
             if (symbol.isBlank()) continue;
 
-            var fragment = new ContextFragments.UsageFragment(contextManager, symbol, includeTests);
+            var fragment = new ContextFragments.UsageFragment(
+                    contextManager, symbol, includeTests, ContextFragments.UsageMode.SAMPLE);
             String text = fragment.text().join();
             if (!text.isEmpty()) {
                 results.add(text);
@@ -289,7 +286,7 @@ public class SearchTools {
             return "No usages found for: " + String.join(", ", symbols);
         }
 
-        return "Usages of " + String.join(", ", symbols) + ":\n\n" + String.join("\n\n", results);
+        return String.join("\n\n", results);
     }
 
     @Tool(
