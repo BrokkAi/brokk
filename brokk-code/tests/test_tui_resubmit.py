@@ -87,13 +87,13 @@ async def test_multiline_paste_and_submit():
         assert chat_input.text == "line1\nline2"
 
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0)
 
         # 2. Test "Paste" behavior (direct text setting)
         multiline_paste = "first line\nsecond line\nthird line"
         chat_input.text = multiline_paste
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0)
 
         # Verify executor calls
         submits = [c for c in stub.calls if c["type"] == "submit"]
@@ -120,7 +120,7 @@ async def test_large_paste_submits_as_job():
 
         chat_input.text = large_text
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0)
 
         # Verify it was submitted as a job, not added to context
         submits = [c for c in stub.calls if c["type"] == "submit"]

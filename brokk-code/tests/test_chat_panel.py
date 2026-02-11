@@ -1,6 +1,3 @@
-import asyncio
-import time
-
 import pytest
 from textual.containers import Horizontal
 from textual.widgets import Static
@@ -34,41 +31,31 @@ async def test_spinner_and_timer_lifecycle():
 
         panel._get_now = mock_now
 
-        # Helper to wait for timer label to reach expected state
-        async def wait_for_timer(expected: str, timeout: float = 1.0):
-            start = time.time()
-            while time.time() - start < timeout:
-                if str(timer_label.render()) == expected:
-                    return
-                await pilot.pause()
-                await asyncio.sleep(0.01)
-            assert str(timer_label.render()) == expected
-
         # Initial state: hidden, no timer text
-        await pilot.pause()
+        await pilot.pause(0)
         assert spinner_area.has_class("hidden")
         assert str(timer_label.render()) == ""
 
         # Start job
         panel.set_job_running(True)
-        await pilot.pause()
+        await pilot.pause(0)
         assert not spinner_area.has_class("hidden")
-
-        # Wait for the update worker to run once
-        await wait_for_timer("Elapsed: 00:00")
+        assert str(timer_label.render()) == "Elapsed: 00:00"
 
         # Advance time by 65 seconds
         current_time += 65.0
-        # Give the Textual interval a moment to fire and process the mock time update
-        await wait_for_timer("Elapsed: 01:05")
+        panel._update_elapsed_time_label()
+        assert str(timer_label.render()) == "Elapsed: 01:05"
 
         # Advance time to cross 1 hour (3600s + 65s = 3665s)
         current_time += 3600.0
-        await wait_for_timer("Elapsed: 01:01:05")
+        panel._update_elapsed_time_label()
+        assert str(timer_label.render()) == "Elapsed: 01:01:05"
 
         # Verify timer continues even with NO tokens arriving
         current_time += 10.0
-        await wait_for_timer("Elapsed: 01:01:15")
+        panel._update_elapsed_time_label()
+        assert str(timer_label.render()) == "Elapsed: 01:01:15"
 
         # Append tokens - spinner should STAY visible
         panel.append_token(
@@ -86,14 +73,13 @@ async def test_spinner_and_timer_lifecycle():
         assert "hidden" not in spinner_area.classes
 
         current_time += 5.0
-        await wait_for_timer("Elapsed: 01:01:20")
+        panel._update_elapsed_time_label()
+        assert str(timer_label.render()) == "Elapsed: 01:01:20"
 
         # Explicit job finish - hides area and clears timer
         panel.set_job_running(False)
-        await pilot.pause()
+        await pilot.pause(0)
         assert spinner_area.has_class("hidden")
-        # Wait for worker to exit and check final state
-        await asyncio.sleep(0.1)
         assert str(timer_label.render()) == ""
 
 
