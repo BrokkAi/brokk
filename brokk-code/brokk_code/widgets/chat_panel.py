@@ -90,7 +90,7 @@ class ChatPanel(Vertical):
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
-            yield Static(id="chat-token-usage", classes="token-usage")
+            yield Static(id="chat-token-usage", classes="token-usage hidden")
         yield ContextPanel(id="context-panel")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
@@ -410,6 +410,14 @@ class ChatPanel(Vertical):
             output.append(f"{author}: ", style="bold green")
             output.append(text)
             log.write(output)
+
+    def set_token_bar_visible(self, visible: bool) -> None:
+        """Toggles the visibility of the token usage bar."""
+        try:
+            usage_label = self.query_one("#chat-token-usage", Static)
+            usage_label.set_class(not visible, "hidden")
+        except Exception:
+            pass
 
     def set_token_usage(self, used: int, max_tokens: Optional[int] = None) -> None:
         """Updates the token usage display in the spinner area."""

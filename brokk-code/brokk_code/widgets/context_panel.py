@@ -18,7 +18,7 @@ class ContextFragmentItem(Static):
         description = self.fragment.get("shortDescription", "Unknown")
         tokens = self.fragment.get("tokens", 0)
 
-        kind_class = f"kind-{str(chip_kind).lower().replace('_', '-') }"
+        kind_class = f"kind-{str(chip_kind).lower().replace('_', '-')}"
         self.add_class(kind_class)
         if self.fragment.get("pinned"):
             self.add_class("is-pinned")

@@ -133,3 +133,29 @@ async def test_token_usage_update():
         # Update with 0 clears it
         panel.set_token_usage(0)
         assert str(usage_label.render()) == ""
+
+
+@pytest.mark.asyncio
+async def test_token_bar_visibility_control():
+    """Verify that the token bar visibility can be controlled explicitly."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        usage_label = panel.query_one("#chat-token-usage", Static)
+
+        # Initial state: hidden
+        assert usage_label.has_class("hidden")
+
+        # Set visible
+        panel.set_token_bar_visible(True)
+        assert not usage_label.has_class("hidden")
+
+        # Set hidden
+        panel.set_token_bar_visible(False)
+        assert usage_label.has_class("hidden")

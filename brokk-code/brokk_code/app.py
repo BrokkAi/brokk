@@ -509,7 +509,14 @@ class BrokkApp(App):
     def action_toggle_context(self) -> None:
         panel = self.query_one("#context-panel", ContextPanel)
         panel.toggle_class("hidden")
-        if not panel.has_class("hidden") and self._executor_ready:
+        is_hidden = panel.has_class("hidden")
+
+        # Sync token bar visibility: hidden when context is visible, shown when context is hidden
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_token_bar_visible(is_hidden)
+
+        if not is_hidden and self._executor_ready:
             self.run_worker(self._refresh_context_panel())
 
     def action_toggle_tasklist(self) -> None:
