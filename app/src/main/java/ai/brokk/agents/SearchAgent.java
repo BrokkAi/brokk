@@ -33,6 +33,7 @@ import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -363,12 +364,7 @@ public class SearchAgent {
         return builder.build();
     }
 
-    private List<String> calculateTerminalTools(Context context, boolean dropOnlyMode) {
-        if (dropOnlyMode) {
-            assert hasDroppableFragments(context);
-            return List.of();
-        }
-
+    private List<String> calculateTerminalTools() {
         var terminals = new ArrayList<String>();
         var allowed = objective.terminals();
 
@@ -879,7 +875,7 @@ public class SearchAgent {
 
             if (pendingTerminal == null) {
                 allowedToolNames = agent.calculateAllowedToolNames(context, dropOnlyMode);
-                agentTerminalTools = agent.calculateTerminalTools(context, dropOnlyMode);
+                agentTerminalTools = dropOnlyMode ? List.of() : agent.calculateTerminalTools();
             } else {
                 messages = new ArrayList<>(messages);
                 extraUserMessage = new UserMessage(
@@ -890,10 +886,7 @@ public class SearchAgent {
                 agentTerminalTools = List.of();
             }
 
-            var allAllowed = new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size());
-            allAllowed.addAll(allowedToolNames);
-            allAllowed.addAll(agentTerminalTools);
-
+            var allAllowed = Streams.concat(allowedToolNames.stream(), agentTerminalTools.stream()).toList();
             var toolSpecs = tr.getTools(allAllowed);
             return new TurnPrompt(messages, toolSpecs, extraUserMessage);
         }
