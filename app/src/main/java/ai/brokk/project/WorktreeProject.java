@@ -47,6 +47,11 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    public void invalidateAutoDetectedLanguages() {
+        parent.invalidateAutoDetectedLanguages();
+    }
+
+    @Override
     public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
         return parent.loadBuildDetails();
     }

@@ -181,7 +181,7 @@ public class ToolRegistry {
         var present = toolNames.stream().filter(toolMap::containsKey).toList();
         var missing = toolNames.stream().filter(t -> !toolMap.containsKey(t)).toList();
         if (!missing.isEmpty()) {
-            logger.warn("Some requested global tools are not registered and will be skipped: {}", missing);
+            throw new IllegalArgumentException("Requested global tools %s are not registered".formatted(missing));
         }
         return present.stream()
                 .map(toolMap::get)
@@ -476,37 +476,6 @@ public class ToolRegistry {
         return coll.stream()
                 .map(item -> new SignatureUnit(toolName, sliceName, item))
                 .collect(Collectors.toList());
-    }
-
-    /** Rebuild a ToolExecutionRequest from a slice of signature units belonging to the same list parameter. */
-    public ToolExecutionRequest buildRequestFromUnits(ToolExecutionRequest original, List<SignatureUnit> units) {
-        if (units.isEmpty()) return original;
-
-        String toolName = original.name();
-        String paramName = units.getFirst().paramName();
-
-        boolean consistent = units.stream()
-                .allMatch(u -> u.toolName().equals(toolName) && u.paramName().equals(paramName));
-        if (!consistent) {
-            logger.error("Inconsistent SignatureUnits when rebuilding request for {}: {}", toolName, units);
-            return original;
-        }
-
-        try {
-            Map<String, Object> args = OBJECT_MAPPER.readValue(
-                    original.arguments(), new TypeReference<LinkedHashMap<String, Object>>() {});
-            var items = units.stream().map(SignatureUnit::item).collect(Collectors.toList());
-            if (!args.containsKey(paramName)) {
-                logger.error("Parameter '{}' not found in original arguments for tool {}", paramName, toolName);
-                return original;
-            }
-            args.put(paramName, items);
-            String json = OBJECT_MAPPER.writeValueAsString(args);
-            return ToolExecutionRequest.builder().name(toolName).arguments(json).build();
-        } catch (JsonProcessingException e) {
-            logger.error("Error rebuilding request from units for {}: {}", toolName, e.getMessage(), e);
-            return original;
-        }
     }
 
     private static boolean isSimpleScalar(@Nullable Object v) {

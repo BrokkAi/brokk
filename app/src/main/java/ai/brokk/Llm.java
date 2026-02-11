@@ -990,17 +990,72 @@ public class Llm {
         public static @Nullable ResponseMetadata sum(@Nullable ResponseMetadata a, @Nullable ResponseMetadata b) {
             if (a == null) return b;
             if (b == null) return a;
+
+            // Track which fields overflowed so we emit a single log entry if any overflow occurs.
+            List<String> overflowedFields = new ArrayList<>();
+
+            int inputTokens;
+            try {
+                inputTokens = Math.addExact(a.inputTokens(), b.inputTokens());
+            } catch (ArithmeticException e) {
+                inputTokens = Integer.MAX_VALUE;
+                overflowedFields.add("inputTokens");
+            }
+
+            int cachedInputTokens;
+            try {
+                cachedInputTokens = Math.addExact(a.cachedInputTokens(), b.cachedInputTokens());
+            } catch (ArithmeticException e) {
+                cachedInputTokens = Integer.MAX_VALUE;
+                overflowedFields.add("cachedInputTokens");
+            }
+
+            int thinkingTokens;
+            try {
+                thinkingTokens = Math.addExact(a.thinkingTokens(), b.thinkingTokens());
+            } catch (ArithmeticException e) {
+                thinkingTokens = Integer.MAX_VALUE;
+                overflowedFields.add("thinkingTokens");
+            }
+
+            int outputTokens;
+            try {
+                outputTokens = Math.addExact(a.outputTokens(), b.outputTokens());
+            } catch (ArithmeticException e) {
+                outputTokens = Integer.MAX_VALUE;
+                overflowedFields.add("outputTokens");
+            }
+
+            long elapsedMs;
+            try {
+                elapsedMs = Math.addExact(a.elapsedMs(), b.elapsedMs());
+            } catch (ArithmeticException e) {
+                elapsedMs = Long.MAX_VALUE;
+                overflowedFields.add("elapsedMs");
+            }
+
+            if (!overflowedFields.isEmpty()) {
+                // Summarize the overflow event in a single log entry to avoid per-field log spam.
+                // Include the two source ResponseMetadata instances for context (their toString shows fields).
+                logger.warn(
+                        "Overflow summing ResponseMetadata for fields: {}. Values: a={}, b={}. Results clamped where necessary.",
+                        String.join(", ", overflowedFields),
+                        a,
+                        b);
+            }
+
+            // Keep categorical-field behavior unchanged: prefer non-null values from b, falling back to a.
             return new ResponseMetadata(
-                    a.inputTokens() + b.inputTokens(),
-                    a.cachedInputTokens() + b.cachedInputTokens(),
-                    a.thinkingTokens() + b.thinkingTokens(),
-                    a.outputTokens() + b.outputTokens(),
-                    a.elapsedMs() + b.elapsedMs(),
-                    requireNonNullElse(b.modelName(), a.modelName()),
-                    requireNonNullElse(b.finishReason(), a.finishReason()),
-                    requireNonNullElse(b.created(), a.created()),
-                    requireNonNullElse(b.serviceTier(), a.serviceTier()),
-                    requireNonNullElse(b.error(), a.error()));
+                    inputTokens,
+                    cachedInputTokens,
+                    thinkingTokens,
+                    outputTokens,
+                    elapsedMs,
+                    b.modelName() != null ? b.modelName() : a.modelName(),
+                    b.finishReason() != null ? b.finishReason() : a.finishReason(),
+                    b.created() != null ? b.created() : a.created(),
+                    b.serviceTier() != null ? b.serviceTier() : a.serviceTier(),
+                    b.error() != null ? b.error() : a.error());
         }
     }
 

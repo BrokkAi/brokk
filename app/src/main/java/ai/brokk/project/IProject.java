@@ -346,6 +346,16 @@ public interface IProject extends AutoCloseable {
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
+    /**
+     * Invalidates any cached auto-detected languages. This should be called when project
+     * structure or dependencies change in a way that might affect language detection.
+     *
+     * <p>The next call to {@link #getAnalyzerLanguages()} will re-detect languages from
+     * the filesystem if no explicit user configuration exists. This does not clear
+     * explicit user configuration set via {@link #setAnalyzerLanguages(Set)}.
+     */
+    default void invalidateAutoDetectedLanguages() {}
+
     // Primary build language configuration
     @Blocking
     default Language getBuildLanguage() {
@@ -629,6 +639,13 @@ public interface IProject extends AutoCloseable {
      */
     record Dependency(ProjectFile root, Language language) {
         private static final Logger logger = LogManager.getLogger(Dependency.class);
+
+        public Set<Language> languages() {
+            return files().stream()
+                    .map(pf -> Languages.fromExtension(pf.extension()))
+                    .filter(l -> l != Languages.NONE)
+                    .collect(Collectors.toSet());
+        }
 
         public Set<ProjectFile> files() {
             try (var pathStream = Files.walk(root.absPath())) {

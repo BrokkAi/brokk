@@ -725,8 +725,7 @@ public final class JobRunner {
                                                     SearchPrompts.Objective.ANSWER_ONLY,
                                                     scope,
                                                     cm.getIo(),
-                                                    scanConfig,
-                                                    null);
+                                                    scanConfig);
                                             var result = searchAgent.execute();
                                             scope.append(result);
                                         }
@@ -1047,8 +1046,7 @@ public final class JobRunner {
                                                         SearchPrompts.Objective.TASKS_ONLY,
                                                         scope,
                                                         cm.getIo(),
-                                                        scanConfig,
-                                                        null);
+                                                        scanConfig);
                                                 var taskListResult = searchAgent.execute();
                                                 scope.append(taskListResult);
 
