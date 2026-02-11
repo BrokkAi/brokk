@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
@@ -274,6 +275,11 @@ public final class HeadlessExecutorMain {
         logger.info(
                 "HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/sessions, /v1/jobs, etc.; cmSession={}",
                 contextManager.getCurrentSessionId());
+    }
+
+    @TestOnly
+    public CompletableFuture<Void> getInitFuture() {
+        return headlessInit;
     }
 
     public void stop(int delaySeconds) {

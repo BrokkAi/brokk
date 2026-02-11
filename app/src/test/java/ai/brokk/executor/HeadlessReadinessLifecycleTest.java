@@ -11,6 +11,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,7 +53,10 @@ class HeadlessReadinessLifecycleTest {
         var errorBody = MAPPER.readValue(conn1.getErrorStream(), Map.class);
         assertEquals("NOT_READY", errorBody.get("code"));
 
-        // 2. Create a session
+        // 2. Wait for background init to complete so it doesn't race with session creation
+        executor.getInitFuture().get(30, TimeUnit.SECONDS);
+
+        // 3. Create a session
         var sessionsUrl = URI.create(baseUrl + "/v1/sessions").toURL();
         var conn2 = (HttpURLConnection) sessionsUrl.openConnection();
         conn2.setRequestMethod("POST");
@@ -68,7 +72,7 @@ class HeadlessReadinessLifecycleTest {
         String createdSessionId = (String) createBody.get("sessionId");
         assertNotNull(createdSessionId);
 
-        // 3. Post-creation state: should be 200 OK
+        // 4. Post-creation state: should be 200 OK
         var conn3 = (HttpURLConnection) readyUrl.openConnection();
         conn3.setRequestMethod("GET");
         assertEquals(200, conn3.getResponseCode());
