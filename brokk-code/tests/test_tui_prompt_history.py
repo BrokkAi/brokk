@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from pathlib import Path
 
 from brokk_code.app import BrokkApp
 from brokk_code.prompt_history import load_history
@@ -12,54 +13,76 @@ async def type_text(pilot: Any, text: str) -> None:
         await pilot.press(ch)
 
 
+# --- Fixtures to reduce per-test setup and avoid starting real executor/workers ---
+@pytest.fixture
+def workspace(tmp_path: Path) -> Path:
+    p = tmp_path / "project"
+    p.mkdir()
+    return p
+
+
+@pytest.fixture
+def stub_executor(workspace: Path) -> StubExecutor:
+    stub = StubExecutor(auto_release=True)
+    # Let the test supply a concrete workspace directory; BrokkApp will set this on the executor.
+    stub.workspace_dir = workspace
+    return stub
+
+
+@pytest.fixture
+def app(stub_executor: StubExecutor, workspace: Path) -> BrokkApp:
+    """
+    Create a BrokkApp configured for fast tests:
+    - disable background workers
+    - avoid automatic executor startup on mount
+    The injected StubExecutor will not spawn any subprocess or network I/O.
+    """
+    # Use test hooks to avoid long-running background tasks and executor startup.
+    a = BrokkApp(
+        executor=stub_executor,
+        workspace_dir=workspace,
+        enable_background_workers=False,
+        enable_executor_start=False,
+    )
+    # Ensure small default history size unless a test overrides it.
+    a.settings.prompt_history_size = a.settings.prompt_history_size
+    return a
+
+
 @pytest.mark.asyncio
-async def test_tui_prompt_persistence(tmp_path):
+async def test_tui_prompt_persistence(app: BrokkApp, workspace: Path):
     """
     Verify that submitting prompts via the TUI correctly persists them to
     the workspace history file and respects trimming.
     """
-    workspace = tmp_path / "project"
-    workspace.mkdir()
-
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
-
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
-
     async with app.run_test() as pilot:
         # 1. Submit a normal prompt
         await pilot.click("#chat-input")
         await type_text(pilot, "hello world")
         await pilot.press("enter")
-        await pilot.pause()
+        # allow Textual to process the submit
+        await pilot.pause(0.01)
 
         # 2. Submit a command (should NOT be persisted)
         await type_text(pilot, "/info")
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0.01)
 
         # 3. Submit another normal prompt
         await type_text(pilot, "second prompt")
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0.01)
 
-        # Verify history on disk
-        history = load_history(workspace)
-        assert history == ["hello world", "second prompt"]
+    # Verify history on disk
+    history = load_history(workspace)
+    assert history == ["hello world", "second prompt"]
 
 
 @pytest.mark.asyncio
-async def test_tui_prompt_trimming(tmp_path):
+async def test_tui_prompt_trimming(app: BrokkApp, workspace: Path):
     """
     Verify that prompt history is trimmed when it exceeds the limit.
     """
-    workspace = tmp_path / "project_trim"
-    workspace.mkdir()
-
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
-
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
     # Force a small max history for testing via settings
     app.settings.prompt_history_size = 2
 
@@ -69,71 +92,54 @@ async def test_tui_prompt_trimming(tmp_path):
         for i in range(3):
             await type_text(pilot, f"prompt {i}")
             await pilot.press("enter")
-            await pilot.pause()
-            # Clear input manually if needed (ChatPanel usually clears on submit)
+            await pilot.pause(0.005)
 
-        history = load_history(workspace)
-        assert len(history) == 2
-        assert history == ["prompt 1", "prompt 2"]
+    history = load_history(workspace)
+    assert len(history) == 2
+    assert history == ["prompt 1", "prompt 2"]
 
 
 @pytest.mark.asyncio
-async def test_tui_history_commands(tmp_path):
+async def test_tui_history_commands(app: BrokkApp, workspace: Path):
     """
     Verify /history and /history-clear commands via TUI.
     """
-    workspace = tmp_path / "project_cmd"
-    workspace.mkdir()
-
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
-
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
-
     async with app.run_test() as pilot:
         # 1. Add some history
         await pilot.click("#chat-input")
         await type_text(pilot, "prompt A")
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0.005)
 
         # 2. Check /history (just ensures no crash)
         await type_text(pilot, "/history")
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0.005)
 
         # 3. Clear history
         await type_text(pilot, "/history-clear")
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0.005)
 
-        # Verify empty on disk
-        assert load_history(workspace) == []
+    # Verify empty on disk
+    assert load_history(workspace) == []
 
 
 @pytest.mark.asyncio
-async def test_tui_history_navigation(tmp_path):
+async def test_tui_history_navigation(app: BrokkApp, workspace: Path):
     """
     Verify that Up/Down arrows cycle through history in the TUI.
     """
-    workspace = tmp_path / "project_nav"
-    workspace.mkdir()
-
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
-
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
-
     async with app.run_test() as pilot:
         await pilot.click("#chat-input")
 
         # 1. Populate some history
         await type_text(pilot, "first prompt")
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0.005)
         await type_text(pilot, "second prompt")
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0.005)
 
         # 2. Test navigation
         await pilot.click("#chat-input")
@@ -145,13 +151,13 @@ async def test_tui_history_navigation(tmp_path):
 
         # Up once -> second prompt
         await pilot.press("up")
-        await pilot.pause()
+        await pilot.pause(0.005)
         assert chat_input_widget.text == "second prompt"
 
         # Up again -> first prompt
         chat_input_widget.cursor_location = (0, 0)
         await pilot.press("up")
-        await pilot.pause()
+        await pilot.pause(0.005)
         assert chat_input_widget.text == "first prompt"
 
         # Up again -> stays at first prompt (boundary)
@@ -171,26 +177,18 @@ async def test_tui_history_navigation(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tui_history_navigation_places_cursor_at_end(tmp_path):
+async def test_tui_history_navigation_places_cursor_at_end(app: BrokkApp, workspace: Path):
     """
     Verify history navigation moves cursor to end so Down works immediately.
     """
-    workspace = tmp_path / "project_nav_cursor_end"
-    workspace.mkdir()
-
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
-
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
-
     async with app.run_test() as pilot:
         await pilot.click("#chat-input")
         await type_text(pilot, "first")
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0.005)
         await type_text(pilot, "second")
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(0.005)
 
         chat_input = app.query_one("#chat-input")
         await pilot.click("#chat-input")
@@ -198,31 +196,23 @@ async def test_tui_history_navigation_places_cursor_at_end(tmp_path):
 
         chat_input.cursor_location = (0, 0)
         await pilot.press("up")
-        await pilot.pause()
+        await pilot.pause(0.005)
         assert chat_input.text == "second"
 
         # Cursor should already be at end after loading history.
         await pilot.press("down")
-        await pilot.pause()
+        await pilot.pause(0.005)
         assert chat_input.text == "draft"
 
 
 @pytest.mark.asyncio
-async def test_tui_history_navigation_complex(tmp_path):
+async def test_tui_history_navigation_complex(app: BrokkApp, workspace: Path):
     """
     Verify complex history navigation:
     1. Submit multiple prompts.
     2. Check Up/Down cycling.
     3. Ensure draft is preserved when navigating away and back.
     """
-    workspace = tmp_path / "project_nav_complex"
-    workspace.mkdir()
-
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
-
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
-
     async with app.run_test() as pilot:
         # Submit: one, two, three
         prompts = ["one", "two", "three"]
@@ -230,7 +220,7 @@ async def test_tui_history_navigation_complex(tmp_path):
             await pilot.click("#chat-input")
             await type_text(pilot, p)
             await pilot.press("enter")
-            await pilot.pause()
+            await pilot.pause(0.005)
 
         chat_input = app.query_one("#chat-input")
 
@@ -239,25 +229,24 @@ async def test_tui_history_navigation_complex(tmp_path):
         await type_text(pilot, "draft")
         assert chat_input.text == "draft"
 
-        # Start a draft. Cursor is at the end after typing.
-        # To trigger Up navigation from non-empty draft, must move to start.
+        # To trigger Up navigation from non-empty draft, move to start.
         chat_input.cursor_location = (0, 0)
 
         # Up x1 -> "three"
         await pilot.press("up")
-        await pilot.pause()
+        await pilot.pause(0.005)
         assert chat_input.text == "three"
 
         # Up x1 -> "two"
         chat_input.cursor_location = (0, 0)
         await pilot.press("up")
-        await pilot.pause()
+        await pilot.pause(0.005)
         assert chat_input.text == "two"
 
         # Up x1 -> "one"
         chat_input.cursor_location = (0, 0)
         await pilot.press("up")
-        await pilot.pause()
+        await pilot.pause(0.005)
         assert chat_input.text == "one"
 
         # Up x1 -> stays at "one"
@@ -287,18 +276,10 @@ async def test_tui_history_navigation_complex(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tui_history_duplicates(tmp_path):
+async def test_tui_history_duplicates(app: BrokkApp, workspace: Path):
     """
     Verify that history preserves duplicates and cycles through them.
     """
-    workspace = tmp_path / "project_dupes"
-    workspace.mkdir()
-
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
-
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
-
     async with app.run_test() as pilot:
         chat_input = app.query_one("#chat-input")
 
@@ -307,7 +288,7 @@ async def test_tui_history_duplicates(tmp_path):
             await pilot.click("#chat-input")
             await type_text(pilot, p)
             await pilot.press("enter")
-            await pilot.pause()
+            await pilot.pause(0.005)
 
         await pilot.click("#chat-input")
 
