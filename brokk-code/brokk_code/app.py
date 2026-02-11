@@ -511,7 +511,8 @@ class BrokkApp(App):
         panel.toggle_class("hidden")
         is_hidden = panel.has_class("hidden")
 
-        # Sync token bar visibility: hidden when context is visible, shown when context is hidden
+        # Sync token bar visibility: hidden when context is visible (not hidden),
+        # shown when context is hidden.
         chat = self._maybe_chat()
         if chat:
             chat.set_token_bar_visible(is_hidden)
