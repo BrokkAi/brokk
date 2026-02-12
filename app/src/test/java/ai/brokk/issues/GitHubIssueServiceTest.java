@@ -64,6 +64,20 @@ public class GitHubIssueServiceTest {
         assertEquals("author2", details.comments().get(1).author());
     }
 
+    @Test
+    void testLoadDetailsFiltersMinimizedComments() throws IOException {
+        String response1 = createGraphQLResponseWithMinimizedComment();
+        mockHttpClient.addResponse(response1);
+
+        IssueDetails details = service.loadDetails("456");
+
+        assertNotNull(details);
+        assertEquals("#456", details.header().id());
+        assertEquals(1, details.comments().size());
+        assertEquals("Visible comment", details.comments().get(0).markdownBody());
+        assertEquals("visible-author", details.comments().get(0).author());
+    }
+
     private String createGraphQLResponse(boolean hasNextPage, String endCursor, String commentBody, String author) {
         ObjectMapper objectMapper = new ObjectMapper();
         ObjectNode root = objectMapper.createObjectNode();
@@ -98,8 +112,56 @@ public class GitHubIssueServiceTest {
         comment.put("body", commentBody);
         comment.put("bodyHTML", "<p>" + commentBody + "</p>");
         comment.put("createdAt", "2023-01-02T00:00:00Z");
+        comment.put("isMinimized", false);
         ObjectNode commentAuthor = comment.putObject("author");
         commentAuthor.put("login", author);
+
+        return root.toString();
+    }
+
+    private String createGraphQLResponseWithMinimizedComment() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectNode root = objectMapper.createObjectNode();
+        ObjectNode data = root.putObject("data");
+        ObjectNode repository = data.putObject("repository");
+        ObjectNode issue = repository.putObject("issue");
+
+        issue.put("number", 456);
+        issue.put("title", "Test Issue With Minimized Comments");
+        issue.put("url", "https://github.com/test-owner/test-repo/issues/456");
+        issue.put("state", "OPEN");
+        issue.put("body", "Issue Body");
+        issue.put("bodyHTML", "<p>Issue Body</p>");
+        issue.put("createdAt", "2023-01-01T00:00:00Z");
+        issue.put("updatedAt", "2023-01-01T00:00:00Z");
+
+        ObjectNode issueAuthor = issue.putObject("author");
+        issueAuthor.put("login", "issue-author");
+
+        issue.putObject("assignees").putArray("nodes");
+        issue.putObject("labels").putArray("nodes");
+
+        ObjectNode comments = issue.putObject("comments");
+        ObjectNode pageInfo = comments.putObject("pageInfo");
+        pageInfo.put("hasNextPage", false);
+
+        ArrayNode nodes = comments.putArray("nodes");
+
+        ObjectNode visibleComment = nodes.addObject();
+        visibleComment.put("body", "Visible comment");
+        visibleComment.put("bodyHTML", "<p>Visible comment</p>");
+        visibleComment.put("createdAt", "2023-01-02T00:00:00Z");
+        visibleComment.put("isMinimized", false);
+        ObjectNode visibleAuthor = visibleComment.putObject("author");
+        visibleAuthor.put("login", "visible-author");
+
+        ObjectNode minimizedComment = nodes.addObject();
+        minimizedComment.put("body", "Spam comment");
+        minimizedComment.put("bodyHTML", "<p>Spam comment</p>");
+        minimizedComment.put("createdAt", "2023-01-03T00:00:00Z");
+        minimizedComment.put("isMinimized", true);
+        ObjectNode minimizedAuthor = minimizedComment.putObject("author");
+        minimizedAuthor.put("login", "spammer");
 
         return root.toString();
     }
