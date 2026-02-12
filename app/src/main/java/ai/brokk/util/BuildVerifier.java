@@ -47,6 +47,62 @@ public final class BuildVerifier {
     }
 
     /**
+     * Run a lint/compile command first; if it passes, run the test command with retries.
+     * Each retry resets the bounded-output buffer so memory stays bounded.
+     *
+     * @param project the project context
+     * @param lintCommand compile/lint command to run first (may be blank to skip)
+     * @param testCommand the test command to retry on failure
+     * @param maxRetries maximum number of test attempts (must be >= 1)
+     * @param extraEnv optional additional environment variables
+     * @param outputConsumer optional consumer that receives each output line as it is produced
+     * @return VerificationResult from the lint failure, or the first successful test run,
+     *         or the last failed test run if all retries are exhausted
+     */
+    public static VerificationResult verifyWithRetries(
+            IProject project,
+            String lintCommand,
+            String testCommand,
+            int maxRetries,
+            @Nullable Map<String, String> extraEnv,
+            @Nullable Consumer<String> outputConsumer) {
+        // 1. Run lint/compile first (if configured)
+        if (!lintCommand.isBlank()) {
+            var lintResult = verifyStreaming(project, lintCommand, extraEnv, outputConsumer);
+            if (!lintResult.success()) {
+                logger.debug("Lint/compile failed (exit {}); skipping tests", lintResult.exitCode());
+                return lintResult;
+            }
+            logger.debug("Lint/compile succeeded; proceeding to tests");
+        }
+
+        // 2. Run tests with retries
+        if (testCommand.isBlank()) {
+            return new VerificationResult(true, 0, "");
+        }
+
+        int effectiveRetries = Math.max(1, maxRetries);
+        VerificationResult lastResult = null;
+        for (int attempt = 1; attempt <= effectiveRetries; attempt++) {
+            if (attempt > 1) {
+                logger.info("Test retry attempt {}/{}", attempt, effectiveRetries);
+                if (outputConsumer != null) {
+                    outputConsumer.accept("[Retry attempt " + attempt + "/" + effectiveRetries + "]");
+                }
+            }
+            lastResult = verifyStreaming(project, testCommand, extraEnv, outputConsumer);
+            if (lastResult.success()) {
+                if (attempt > 1) {
+                    logger.info("Tests passed on attempt {}/{}", attempt, effectiveRetries);
+                }
+                return lastResult;
+            }
+            logger.debug("Test attempt {}/{} failed (exit {})", attempt, effectiveRetries, lastResult.exitCode());
+        }
+        return lastResult;
+    }
+
+    /**
      * Verify a build command by executing it, streaming output line-by-line while also capturing bounded output.
      *
      * @param project the project context (used for executor config and root path)
@@ -65,7 +121,7 @@ public final class BuildVerifier {
             return new VerificationResult(false, -1, "Command is blank.");
         }
 
-        ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
+        ShellConfig execCfg = project.getShellConfig();
         Path root = project.getRoot();
         Map<String, String> env = buildEnvironmentForCommand(project, extraEnv);
 

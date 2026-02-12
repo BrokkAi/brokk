@@ -3,8 +3,10 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.EditBlock.OutputBlock;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.testutil.AssertionHelperUtil;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -215,6 +217,45 @@ class EditBlockParserTest {
         assertNull(block.rawFileName());
         assertTrue(block.beforeText().contains("ours"));
         assertTrue(block.afterText().contains("B"));
+    }
+
+    @Test
+    void testFenceLessBlockAfterFencedBlockReusesRememberedFilename() {
+        String input =
+                """
+                ```java
+                app/src/main/java/ai/brokk/executor/jobs/IssueOrchestration.java
+                <<<<<<< SEARCH
+                import ai.brokk.IConsoleIO;
+                =======
+                import ai.brokk.IConsoleIO;
+                import org.jetbrains.annotations.Nullable;
+                >>>>>>> REPLACE
+                <<<<<<< SEARCH
+                import org.jetbrains.annotations.Nullable;
+                import ai.brokk.executor.jobs.JobRunner.IssueCancelledException;
+                =======
+                import org.jetbrains.annotations.Nullable;
+                import ai.brokk.executor.jobs.JobRunner.IssueCancelledException;
+                import java.util.Objects;
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        Path root = Path.of("/tmp/brokk-test-root").toAbsolutePath().normalize();
+        Set<ProjectFile> projectFiles = Set.of(
+                new ProjectFile(root, "brokk"),
+                new ProjectFile(root, "app/src/main/java/ai/brokk/executor/jobs/IssueOrchestration.java"));
+
+        var result = EditBlockParser.instance.parse(input, projectFiles).blocks();
+
+        assertEquals(2, result.size(), result.toString());
+        assertEquals(
+                "app/src/main/java/ai/brokk/executor/jobs/IssueOrchestration.java",
+                result.get(0).block().rawFileName());
+        assertEquals(
+                "app/src/main/java/ai/brokk/executor/jobs/IssueOrchestration.java",
+                result.get(1).block().rawFileName());
     }
 
     @Test
@@ -462,7 +503,11 @@ class EditBlockParserTest {
                 new content
                 >>>>>>> REPLACE
                 """;
-        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+
+        Path root = Path.of("/tmp/brokk-test-root").toAbsolutePath().normalize();
+        Set<ProjectFile> projectFiles = Set.of(new ProjectFile(root, "brokk"), new ProjectFile(root, "file.txt"));
+
+        var result = EditBlockParser.instance.parse(input, projectFiles).blocks();
 
         assertEquals(2, result.size(), "Should have one plain text block and one edit block");
 
@@ -528,7 +573,14 @@ class EditBlockParserTest {
                 r2
                 >>>>>>> REPLACE
                 Final part.""";
-        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+
+        Path root = Path.of("/tmp/brokk-test-root").toAbsolutePath().normalize();
+        Set<ProjectFile> projectFiles = Set.of(
+                new ProjectFile(root, "brokk"),
+                new ProjectFile(root, "file1.txt"),
+                new ProjectFile(root, "file2.java"));
+
+        var result = EditBlockParser.instance.parse(input, projectFiles).blocks();
 
         assertEquals(5, result.size(), "Should have 3 plain text blocks and 2 edit blocks");
 

@@ -187,8 +187,18 @@ curl -sS -X GET "${BASE}/v1/tasklist" \
 {
   "bigPicture": "Implement error handling in UserService",
   "tasks": [
-    { "id": "task-1", "title": "Add try-catch blocks", "text": "Wrap all database calls...", "done": true },
-    { "id": "task-2", "title": "Configure logger", "text": "Set up log4j configuration", "done": false }
+    {
+      "id": "6f0de4ca-3a41-45ce-8fd4-57fe9dc3e6f1",
+      "title": "Add try-catch blocks",
+      "text": "Wrap all database calls...",
+      "done": true
+    },
+    {
+      "id": "b5cf4f05-52f9-4919-93c8-16dbd2ced1c5",
+      "title": "Configure logger",
+      "text": "Set up log4j configuration",
+      "done": false
+    }
   ]
 }
 ```
@@ -204,10 +214,8 @@ If no task list is active, the executor returns:
 
 Behavior notes:
 - **Polling**: Clients should poll this endpoint periodically (e.g., approximately every 15 seconds) to reflect updates from autonomous agents (like LUTZ or ISSUE modes). This is a suggestion for UI responsiveness, not a protocol requirement.
-- Size limit: Up to 1 MiB (UTF-8 bytes). Larger payloads are rejected with HTTP 400.
-- Logging: Only the size is logged; the text content is never logged.
-- Blank text is rejected with HTTP 400.
-- Fragments added via this endpoint are not auto-removed; if you need job-scoped text that is automatically cleaned up, use inline job seeding in POST /v1/jobs (see below).
+- **IDs are opaque**: Treat `tasks[].id` as an opaque string identifier. In practice it is typically UUID-like, but clients should not assume a specific format.
+- **Auth and errors**: Missing/invalid bearer token returns `401 Unauthorized`; unexpected server failures return `500` with a structured error payload.
 
 ### Workflow: Pre-seed Context, Then Ask
 
@@ -662,6 +670,39 @@ JSON
 - Posts summary comment and inline line comments to the PR
 - Skips duplicate comments; falls back to PR comment if inline fails
 - `codeModel` is ignored (no code generation)
+
+### ISSUE_WRITER Mode (Create GitHub Issue)
+
+ISSUE_WRITER mode performs read-only repository discovery to draft a high-quality issue report, then creates a new GitHub issue via the GitHub API.
+
+#### Standard Endpoint with Tags
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "taskInput": "Create a GitHub issue describing the NPE when AuthenticationProvider receives a null user, including code evidence.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ISSUE_WRITER",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo"
+  }
+}
+JSON
+```
+
+**Key characteristics:**
+- Read-only to the local repo (no edits, commits, or branch operations)
+- Uses repository discovery to gather evidence and draft issue title/body
+- Creates a new GitHub issue in the target repository
+- Requires `plannerModel` and GitHub tags: `github_token`, `repo_owner`, `repo_name`
 
 ### ISSUE Mode (Automated Issue Resolution)
 

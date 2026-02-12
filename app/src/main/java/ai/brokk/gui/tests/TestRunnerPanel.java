@@ -17,8 +17,8 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Environment;
-import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.SerialByKeyExecutor;
+import ai.brokk.util.ShellConfig;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -549,7 +549,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         cm.submitBackgroundTask("Running tests", () -> {
             int exitCode = -1;
             try {
-                ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
+                ShellConfig execCfg = project.getShellConfig();
 
                 Environment.instance.runShellCommand(
                         command,

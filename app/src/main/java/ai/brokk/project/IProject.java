@@ -14,8 +14,11 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.IStringDiskCache;
+import ai.brokk.util.ShellConfig;
 import java.awt.Rectangle;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.FileSystemLoopException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -376,17 +379,11 @@ public interface IProject extends AutoCloseable {
     }
 
     // Command executor configuration: custom shell/interpreter for command execution
-    default @Nullable String getCommandExecutor() {
-        return null;
+    default ShellConfig getShellConfig() {
+        return ShellConfig.basic();
     }
 
-    default void setCommandExecutor(@Nullable String executor) {}
-
-    default @Nullable String getExecutorArgs() {
-        return null;
-    }
-
-    default void setExecutorArgs(@Nullable String args) {}
+    default void setShellConfig(@Nullable ShellConfig config) {}
 
     /** Gets a UI filter property for persistence across sessions (e.g., "issues.status"). */
     default @Nullable String getUiFilterProperty(String key) {
@@ -648,12 +645,29 @@ public interface IProject extends AutoCloseable {
         }
 
         public Set<ProjectFile> files() {
-            try (var pathStream = Files.walk(root.absPath())) {
-                var masterRoot = root.getRoot();
-                return pathStream
-                        .filter(Files::isRegularFile)
-                        .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
-                        .collect(Collectors.toSet());
+            try {
+                try (var pathStream = Files.walk(root.absPath())) {
+                    var masterRoot = root.getRoot();
+                    return pathStream
+                            .filter(Files::isRegularFile)
+                            .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
+                            .collect(Collectors.toSet());
+                }
+            } catch (FileSystemLoopException e) {
+                logger.warn(
+                        "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
+                        root.absPath(),
+                        e.getMessage());
+                return Set.of();
+            } catch (UncheckedIOException uioe) {
+                if (uioe.getCause() instanceof FileSystemLoopException) {
+                    logger.warn(
+                            "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
+                            root.absPath(),
+                            uioe.getCause().getMessage());
+                    return Set.of();
+                }
+                throw uioe;
             } catch (IOException e) {
                 logger.error("Error loading dependency files from {}: {}", root.absPath(), e.getMessage());
                 return Set.of();

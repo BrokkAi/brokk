@@ -133,3 +133,82 @@ async def test_token_usage_update():
         # Update with 0 clears it
         panel.set_token_usage(0)
         assert str(usage_label.render()) == ""
+
+
+@pytest.mark.asyncio
+async def test_token_bar_visibility_control():
+    """Verify that the token bar visibility can be controlled explicitly."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        usage_label = panel.query_one("#chat-token-usage", Static)
+
+        # Initial state: hidden
+        assert usage_label.has_class("hidden")
+
+        # Set visible
+        panel.set_token_bar_visible(True)
+        assert not usage_label.has_class("hidden")
+
+        # Set hidden
+        panel.set_token_bar_visible(False)
+        assert usage_label.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_streaming_duplication_regression():
+    """
+    Verify that streaming tokens incrementally does not result in duplicated
+    content in the RichLog.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+
+        # Simulate a stream: "Hello" -> "Hello world" -> "Hello world!"
+        # We use a short flush interval to ensure incremental flushes trigger.
+        panel._flush_interval = 0.01
+
+        panel.append_token(
+            "Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=False
+        )
+        await pilot.pause()
+
+        panel.append_token(
+            " world", "AI", is_new_message=False, is_reasoning=False, is_terminal=False
+        )
+        await pilot.pause()
+
+        panel.append_token("!", "AI", is_new_message=False, is_reasoning=False, is_terminal=True)
+        await pilot.pause()
+
+        # Check the rendered lines in the log.
+        # We expect "Hello world!" to appear exactly once.
+        # It should not appear as:
+        # Hello
+        # Hello world
+        # Hello world!
+
+        # log.lines contains the objects passed to write()
+        content_strings = [str(line) for line in log.lines]
+        combined_text = "".join(content_strings)
+
+        # Count occurrences of the final string
+        count = combined_text.count("Hello world!")
+        assert count == 1, (
+            f"Expected 'Hello world!' once, found {count}. Content: {content_strings}"
+        )

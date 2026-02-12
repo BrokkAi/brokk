@@ -85,10 +85,11 @@ class ChatPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
+        yield Static(id="streaming-response", classes="hidden")
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
-            yield Static(id="chat-token-usage", classes="token-usage")
+            yield Static(id="chat-token-usage", classes="token-usage hidden")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
 
@@ -218,22 +219,37 @@ class ChatPanel(Vertical):
         # Some backends do not emit an explicit terminal token; flush any buffered text on finish.
         self._flush_message()
 
-    def _show_spinner(self, show: bool) -> None:
+    def _update_spinner_area_visibility(self) -> None:
         try:
             area = self.query_one("#chat-spinner-area", Horizontal)
+            spinner = self.query_one("#chat-spinner", LoadingIndicator)
+            timer = self.query_one("#chat-timer", Static)
+            usage_label = self.query_one("#chat-token-usage", Static)
+        except Exception:
+            return
+
+        should_show = (
+            not usage_label.has_class("hidden")
+            or not spinner.has_class("hidden")
+            or not timer.has_class("hidden")
+        )
+        area.set_class(not should_show, "hidden")
+
+    def _show_spinner(self, show: bool) -> None:
+        try:
             spinner = self.query_one("#chat-spinner", LoadingIndicator)
             timer = self.query_one("#chat-timer", Static)
         except Exception:
             return
 
         if show:
-            area.remove_class("hidden")
             spinner.remove_class("hidden")
             timer.remove_class("hidden")
         else:
-            area.add_class("hidden")
             spinner.add_class("hidden")
             timer.add_class("hidden")
+
+        self._update_spinner_area_visibility()
 
     def _update_elapsed_time_label(self) -> None:
         """Updates the elapsed time ticker label."""
@@ -283,17 +299,23 @@ class ChatPanel(Vertical):
         now = self._get_now()
         self._last_token_time = now
 
-        if is_new_message:
+        # Defensive: Ensure response is marked active if tokens are arriving
+        if not self.response_active:
             self.set_response_active()
             self._monitor_inactivity()
-            self._flush_message()
+
+        # Handle transitions: new message flag or switching between reasoning/normal
+        should_start_new = is_new_message or (
+            self._current_message_buffer and self._is_reasoning != is_reasoning
+        )
+
+        if should_start_new:
+            if self._current_message_buffer:
+                self._flush_message()
+
             self._current_message_type = message_type
             self._is_reasoning = is_reasoning
             self._last_flush_time = now
-
-            if is_reasoning:
-                log = self.query_one("#chat-log", RichLog)
-                log.write(Text("Thinking...", style="italic grey50"))
 
         self._current_message_buffer += token
 
@@ -308,50 +330,47 @@ class ChatPanel(Vertical):
 
     def _flush_message(self, is_incremental: bool = False) -> None:
         """Renders the accumulated buffer as Markdown or a reasoning Panel."""
+        log = self.query_one("#chat-log", RichLog)
+        streaming_area = self.query_one("#streaming-response", Static)
+
         if not self._current_message_buffer.strip():
             if not is_incremental:
                 self._current_message_buffer = ""
-                self._incremental_line_index = None
+                streaming_area.update("")
+                streaming_area.add_class("hidden")
             return
-
-        log = self.query_one("#chat-log", RichLog)
 
         if self._is_reasoning:
             # Reasoning is flushed only when complete
             if not is_incremental:
+                content = self._current_message_buffer.strip()
                 log.write(
                     Panel(
-                        Text(self._current_message_buffer.strip(), style="grey50"),
+                        Text(content, style="grey50"),
                         title="Thinking",
                         border_style="grey37",
                     )
                 )
+                log.write("")  # Spacer
                 self._current_message_buffer = ""
                 self._is_reasoning = False
         else:
             # AI Response
             content = self._current_message_buffer.strip()
-            # If incremental, we replace the previous line we wrote if it exists
             if is_incremental:
-                if self._incremental_line_index is not None:
-                    # Clear the previous incremental line. RichLog doesn't have a direct 'replace'
-                    # so we clear and rewrite if it's the last line, but Textual RichLog
-                    # is append-only. To achieve "incremental" look without excessive growth:
-                    # we write the markdown. Note: Multiple log.write calls for the same
-                    # message will repeat the content.
-                    # Standard RichLog behavior makes it hard to 'update' a line.
-                    # We will append, but only if significant content has changed.
-                    pass
-
-                # For now, append markdown. In a real terminal, we'd ideally use a Static
-                # widget for the "active" message and move it to RichLog when done,
-                # but RichLog is the current architecture.
-                log.write(Markdown(content))
+                # Update the live preview widget instead of the append-only log
+                streaming_area.remove_class("hidden")
+                streaming_area.update(Markdown(content))
+                streaming_area.scroll_end(animate=False)
+                # Auto-scroll the log to keep the bottom visible while streaming
+                log.scroll_end(animate=False)
             else:
+                # Message is complete, hide preview and commit to log
+                streaming_area.update("")
+                streaming_area.add_class("hidden")
                 log.write(Markdown(content))
                 log.write("")  # Spacer
                 self._current_message_buffer = ""
-                self._incremental_line_index = None
 
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""
@@ -407,6 +426,16 @@ class ChatPanel(Vertical):
             output.append(f"{author}: ", style="bold green")
             output.append(text)
             log.write(output)
+
+    def set_token_bar_visible(self, visible: bool) -> None:
+        """Toggles the visibility of the token usage bar."""
+        try:
+            usage_label = self.query_one("#chat-token-usage", Static)
+            usage_label.set_class(not visible, "hidden")
+        except Exception:
+            return
+
+        self._update_spinner_area_visibility()
 
     def set_token_usage(self, used: int, max_tokens: Optional[int] = None) -> None:
         """Updates the token usage display in the spinner area."""

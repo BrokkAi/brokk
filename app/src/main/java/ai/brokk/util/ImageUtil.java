@@ -8,7 +8,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Base64;
+import java.util.List;
 import java.util.Locale;
+import java.util.function.BiConsumer;
 import javax.imageio.ImageIO;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -196,5 +198,50 @@ public class ImageUtil {
         try (var bais = new ByteArrayInputStream(bytes)) {
             return ImageIO.read(bais);
         }
+    }
+
+    /**
+     * Iterates over a list of attachment URIs, downloads images, and passes each successfully
+     * downloaded image to the provided consumer.
+     *
+     * <p>This method filters URIs to only process those that appear to be images (via {@link #isImageUri}),
+     * downloads each image (via {@link #downloadImage}), and invokes the consumer with the image
+     * and a description string derived from the URI.
+     *
+     * @param attachmentUrls The list of URIs to process (may contain non-image URIs which are skipped)
+     * @param client The OkHttpClient to use for HTTP requests (should be authenticated for private repos)
+     * @param imageConsumer A callback that receives each successfully downloaded image and its description
+     * @return The number of images successfully captured
+     */
+    public static int captureIssueImages(
+            List<URI> attachmentUrls, OkHttpClient client, BiConsumer<Image, String> imageConsumer) {
+        if (attachmentUrls.isEmpty()) {
+            return 0;
+        }
+
+        int captured = 0;
+        for (URI uri : attachmentUrls) {
+            try {
+                if (!isImageUri(uri, client)) {
+                    logger.debug("Skipping non-image URI: {}", uri);
+                    continue;
+                }
+
+                Image image = downloadImage(uri, client);
+                if (image == null) {
+                    logger.warn("Failed to download image from URI: {}", uri);
+                    continue;
+                }
+
+                String description = "Issue attachment: " + uri;
+                imageConsumer.accept(image, description);
+                captured++;
+                logger.debug("Captured image from URI: {}", uri);
+            } catch (Exception e) {
+                logger.warn("Failed to process image attachment from {}: {}", uri, e.getMessage());
+            }
+        }
+
+        return captured;
     }
 }

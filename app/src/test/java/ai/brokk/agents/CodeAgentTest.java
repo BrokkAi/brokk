@@ -167,14 +167,14 @@ class CodeAgentTest {
         // the first block and then stop without reporting an error.
         String llmText =
                 """
-                         <block>
+                         ```
                          file.java
                          <<<<<<< SEARCH
                          System.out.println("Hello");
                          =======
                          System.out.println("World");
                          >>>>>>> REPLACE
-                         </block>
+                         ```
                          This is some trailing text.
                          """;
 
@@ -194,12 +194,12 @@ class CodeAgentTest {
         var originalRequest = new UserMessage("original user request");
         String llmTextWithParseError =
                 """
-                <block>
+                ```
                 file.java
                 <<<<<<< SEARCH
                 foo();
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """; // Missing ======= divider
         var badAiResponse = new AiMessage(llmTextWithParseError);
 
@@ -425,14 +425,14 @@ class CodeAgentTest {
 
         var firstResponse =
                 """
-                            <block>
+                            ```
                             test.txt
                             <<<<<<< SEARCH
                             hello
                             =======
                             goodbye
                             >>>>>>> REPLACE
-                            </block>
+                            ```
                             """;
         var secondResponse = "I am unable to fix the build error.";
         var stubModel = new TestScriptedLanguageModel(firstResponse, secondResponse);
@@ -807,14 +807,14 @@ class CodeAgentTest {
         // Create a model that returns partial text (some valid blocks) + error (simulating connection drop)
         var partialBlockText =
                 """
-                <block>
+                ```
                 test.txt
                 <<<<<<< SEARCH
                 hello
                 =======
                 goodbye
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """;
 
         // Prepare the Llm.StreamingResult with partial text and an error.
@@ -859,14 +859,14 @@ class CodeAgentTest {
         // First response: apply edit hello -> goodbye
         var firstResponse =
                 """
-                <block>
+                ```
                 %s
                 <<<<<<< SEARCH
                 hello
                 =======
                 goodbye
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """
                         .formatted(file.toString());
 
@@ -924,14 +924,14 @@ class CodeAgentTest {
         // Scripted model proposes an edit to the read-only file
         var response =
                 """
-                <block>
+                ```
                 %s
                 <<<<<<< SEARCH
                 hello
                 =======
                 goodbye
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """
                         .formatted(roFile.toString());
         var stubModel = new TestScriptedLanguageModel(response);
@@ -978,14 +978,14 @@ class CodeAgentTest {
 
         var response =
                 """
-                <block>
+                ```
                 %s
                 <<<<<<< SEARCH
                 hello
                 =======
                 goodbye
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """
                         .formatted(file.toString());
         var stubModel = new TestScriptedLanguageModel(response);

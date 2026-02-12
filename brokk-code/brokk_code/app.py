@@ -3,11 +3,12 @@ import logging
 import random
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Header
 
 from brokk_code.executor import ExecutorError, ExecutorManager
@@ -18,6 +19,30 @@ from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 logger = logging.getLogger(__name__)
+
+
+class ContextModalScreen(ModalScreen[None]):
+    """Full-screen modal wrapper for the context panel."""
+
+    BINDINGS = [
+        Binding("escape", "close_context", "Close", show=False),
+        Binding("ctrl+l", "close_context", "Close", show=False),
+    ]
+
+    def __init__(self, on_close: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_close = on_close
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="context-modal-container"):
+            yield ContextPanel(id="context-panel")
+
+    def on_mount(self) -> None:
+        self.query_one(ContextPanel).focus()
+
+    def action_close_context(self) -> None:
+        self._on_close()
+        self.dismiss(None)
 
 
 class BrokkApp(App):
@@ -97,7 +122,6 @@ class BrokkApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
-            yield ContextPanel(id="side-context")
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
         yield Footer()
@@ -106,6 +130,7 @@ class BrokkApp(App):
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
+            chat.set_token_bar_visible(True)
             chat.add_system_message("Starting Brokk executor...")
 
             # Load initial prompt history for arrow-key navigation
@@ -242,7 +267,13 @@ class BrokkApp(App):
 
                 # UI updates are best-effort if screen is not on stack
                 try:
-                    self.query_one(ContextPanel).refresh_context(context_data)
+                    if isinstance(self.screen, ContextModalScreen):
+                        self.screen.query_one(ContextPanel).refresh_context(context_data)
+                    else:
+                        self.query_one(ContextPanel).refresh_context(context_data)
+                except (ScreenStackError, Exception):
+                    pass
+                try:
                     task_list = self.query_one(TaskListPanel)
                     if not task_list.has_detailed_info:
                         task_list.refresh_tasklist(context_data)
@@ -270,6 +301,90 @@ class BrokkApp(App):
                         logger.error(msg)
                     self._reported_refresh_errors.add(err_key)
                 logger.debug("Failed to refresh context panel", exc_info=True)
+
+    def on_context_panel_action_requested(self, message: ContextPanel.ActionRequested) -> None:
+        self.run_worker(self._execute_context_action(message))
+
+    async def _execute_context_action(self, message: ContextPanel.ActionRequested) -> None:
+        if not self._executor_ready:
+            return
+
+        chat = self._maybe_chat()
+        if isinstance(self.screen, ContextModalScreen):
+            panel = self.screen.query_one(ContextPanel)
+        else:
+            panel = self.query_one(ContextPanel)
+        selected_fragments = panel.selected_fragments
+        try:
+            match message.action:
+                case "drop_selected":
+                    await self.executor.drop_context_fragments(message.fragment_ids)
+                    if chat:
+                        chat.add_system_message(f"Dropped {len(message.fragment_ids)} fragment(s).")
+                case "drop_all":
+                    await self.executor.drop_all_context()
+                    if chat:
+                        chat.add_system_message("Dropped all context fragments.")
+                case "toggle_pin_selected":
+                    updates = self._collect_pin_updates(selected_fragments)
+                    for fragment_id, pinned in updates:
+                        await self.executor.set_context_fragment_pinned(fragment_id, pinned)
+                    if chat and updates:
+                        chat.add_system_message(
+                            f"Updated pin state for {len(updates)} fragment(s)."
+                        )
+                case "toggle_readonly_selected":
+                    updates = self._collect_readonly_updates(selected_fragments)
+                    for fragment_id, readonly in updates:
+                        await self.executor.set_context_fragment_readonly(fragment_id, readonly)
+                    if chat and updates:
+                        chat.add_system_message(
+                            f"Updated read-only state for {len(updates)} editable fragment(s)."
+                        )
+                case "compress_history":
+                    await self.executor.compress_context_history()
+                    if chat:
+                        chat.add_system_message("Compressing history...")
+                case "clear_history":
+                    await self.executor.clear_context_history()
+                    if chat:
+                        chat.add_system_message("Cleared history.")
+                case _:
+                    logger.warning("Unknown context action requested: %s", message.action)
+                    return
+
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Context action failed: {e}", level="ERROR")
+            else:
+                logger.error("Context action failed: %s", e)
+
+    @staticmethod
+    def _collect_pin_updates(selected_fragments: List[Dict[str, Any]]) -> List[tuple[str, bool]]:
+        updates: List[tuple[str, bool]] = []
+        for fragment in selected_fragments:
+            fragment_id = str(fragment.get("id", "")).strip()
+            if not fragment_id:
+                continue
+            current = bool(fragment.get("pinned", False))
+            updates.append((fragment_id, not current))
+        return updates
+
+    @staticmethod
+    def _collect_readonly_updates(
+        selected_fragments: List[Dict[str, Any]],
+    ) -> List[tuple[str, bool]]:
+        updates: List[tuple[str, bool]] = []
+        for fragment in selected_fragments:
+            if not bool(fragment.get("editable", False)):
+                continue
+            fragment_id = str(fragment.get("id", "")).strip()
+            if not fragment_id:
+                continue
+            current = bool(fragment.get("readonly", False))
+            updates.append((fragment_id, not current))
+        return updates
 
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
@@ -385,9 +500,9 @@ class BrokkApp(App):
             chat.append_token(
                 token=data.get("token", ""),
                 message_type=data.get("messageType", "AI"),
-                is_new_message=data.get("isNewMessage", False),
-                is_reasoning=data.get("isReasoning", False),
-                is_terminal=data.get("isTerminal", False),
+                is_new_message=bool(data.get("isNewMessage", False)),
+                is_reasoning=bool(data.get("isReasoning", False)),
+                is_terminal=bool(data.get("isTerminal", False)),
             )
         elif event_type == "NOTIFICATION":
             level = data.get("level", "INFO")
@@ -508,10 +623,24 @@ class BrokkApp(App):
             chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
 
     def action_toggle_context(self) -> None:
-        panel = self.query_one(ContextPanel)
-        panel.display = not panel.display
-        if panel.display and self._executor_ready:
+        if isinstance(self.screen, ContextModalScreen):
+            self._show_chat_token_bar()
+            self.screen.dismiss(None)
+            return
+
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_token_bar_visible(False)
+
+        self.push_screen(ContextModalScreen(on_close=self._show_chat_token_bar))
+
+        if self._executor_ready:
             self.run_worker(self._refresh_context_panel())
+
+    def _show_chat_token_bar(self) -> None:
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_token_bar_visible(True)
 
     def action_toggle_tasklist(self) -> None:
         panel = self.query_one("#side-tasklist")
