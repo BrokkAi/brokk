@@ -209,6 +209,7 @@ public class ArchitectAgent {
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
         // Record planning history before invoking CodeAgent
+        context = cm.compressHistory(context);
         addPlanningToHistory();
 
         io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
