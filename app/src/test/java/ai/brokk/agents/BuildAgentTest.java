@@ -752,6 +752,19 @@ class BuildAgentTest {
     }
 
     @Test
+    void testInterpolateMustacheTemplateAllowsSpecificListKeyEvenIfNotCanonical() {
+        // Regression test: interpolateCommandWithPythonVersion uses listKey="unused"
+        // The validator must allow the specific listKey passed to the method, not just canonical ones
+        String template = "cmd {{#unused}}{{.}}{{/unused}}";
+        List<String> items = List.of("x");
+
+        // Should NOT throw - "unused" is the listKey for this call, so it must be allowed
+        String result = BuildAgent.interpolateMustacheTemplate(template, items, "unused", null);
+
+        assertEquals("cmd x", result);
+    }
+
+    @Test
     void testReportBuildDetailsThrowsOnDelimiterChangeTag(@TempDir Path tempDir) throws Exception {
         Files.createDirectory(tempDir.resolve("src"));
         var testProject = new TestProject(tempDir);
