@@ -217,10 +217,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                         : '.';
 
         String correctedClassChain = classChain;
-        if (!packageName.isEmpty() && classChain.startsWith(packageName + ".")) {
+        // Normalize packageName separator from C++ '::' to '.' for comparison with classChain
+        String normalizedPackageName = packageName.replace("::", ".");
+        if (!packageName.isEmpty() && classChain.startsWith(normalizedPackageName + ".")) {
             // Class is nested within the package namespace, strip the package prefix
-            correctedClassChain = classChain.substring(packageName.length() + 1);
-        } else if (!packageName.isEmpty() && classChain.equals(packageName)) {
+            correctedClassChain = classChain.substring(normalizedPackageName.length() + 1);
+        } else if (!packageName.isEmpty() && classChain.equals(normalizedPackageName)) {
             // Free function/class directly in namespace with no nesting, clear classChain
             correctedClassChain = "";
         }
@@ -724,13 +726,19 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                             .strip();
                 }
             } else {
-                // Fallback heuristic: remove a trailing token that looks like an identifier
-                String[] toks = raw.split("\\s+");
-                if (toks.length > 1) {
-                    String last = toks[toks.length - 1];
-                    if (!last.isEmpty() && Character.isJavaIdentifierStart(last.charAt(0))) {
-                        raw = String.join(" ", Arrays.copyOf(toks, toks.length - 1))
-                                .strip();
+                // For anonymous parameters, try to extract the type directly from the AST
+                TSNode typeNode = paramNode.getChildByFieldName("type");
+                if (typeNode != null && !typeNode.isNull()) {
+                    raw = sourceContent.substringFrom(typeNode).strip();
+                } else {
+                    // Fallback heuristic: remove a trailing token that looks like an identifier
+                    String[] toks = raw.split("\\s+");
+                    if (toks.length > 1) {
+                        String last = toks[toks.length - 1];
+                        if (!last.isEmpty() && Character.isJavaIdentifierStart(last.charAt(0))) {
+                            raw = String.join(" ", Arrays.copyOf(toks, toks.length - 1))
+                                    .strip();
+                        }
                     }
                 }
             }
@@ -741,7 +749,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     .replaceAll("\\s*&\\s*", "&")
                     .strip();
 
-            if (!raw.isEmpty()) paramTypes.add(raw);
+            if (!raw.isEmpty()) {
+                // Normalize template argument list spacing: remove spaces after commas
+                // so "std::map<int, double>" becomes "std::map<int,double>"
+                raw = raw.replaceAll(",\\s+", ",");
+                paramTypes.add(raw);
+            }
         }
 
         return String.join(",", paramTypes);
@@ -903,32 +916,107 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     /**
-     * Extracts the signature string for a function/method, including parameter types and qualifiers.
+     * Extracts the signature string for a function/method, including parameter types and qualifiers,
+     * or for a class-like entity if it has template parameters.
      * This signature is used to populate CodeUnit.signature field for overload disambiguation.
      *
      * @param captureName The capture name from the query
-     * @param definitionNode The AST node for the function definition
+     * @param definitionNode The AST node for the definition
      * @param sourceContent The source content wrapper
-     * @return The signature string (e.g., "(int)" or "(int) const"), or null for non-functions
+     * @return The signature string, or null if no signature-relevant traits are present
      */
     @Override
     protected @Nullable String extractSignature(
             String captureName, TSNode definitionNode, SourceContent sourceContent) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
-        // Only extract signature for function-like entities
-        if (skeletonType != SkeletonType.FUNCTION_LIKE) {
+        if (skeletonType == SkeletonType.FUNCTION_LIKE) {
+            String paramSignature = buildCppOverloadSuffix(definitionNode, sourceContent);
+            String qualifierSuffix = buildCppQualifierSuffix(definitionNode, sourceContent);
+            String functionTemplateSignature = buildCppTemplateSignature(definitionNode, sourceContent);
+            String enclosingClassTemplateSignature =
+                    buildEnclosingClassTemplateSignature(definitionNode, sourceContent);
+
+            String paramsAndQualifiers =
+                    "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+
+            // Combine signatures: enclosing class template + function template + params/qualifiers
+            var sig = new StringBuilder();
+            if (enclosingClassTemplateSignature != null && !enclosingClassTemplateSignature.isEmpty()) {
+                sig.append(enclosingClassTemplateSignature);
+            }
+            if (functionTemplateSignature != null && !functionTemplateSignature.isEmpty()) {
+                sig.append(functionTemplateSignature);
+            }
+            sig.append(paramsAndQualifiers);
+            return sig.toString();
+        }
+
+        if (skeletonType == SkeletonType.CLASS_LIKE) {
+            return buildCppTemplateSignature(definitionNode, sourceContent);
+        }
+
+        return null;
+    }
+
+    /**
+     * Walks up the AST to find if the node is enclosed within a template class/struct.
+     *
+     * @param funcNode the function or constructor node
+     * @param sourceContent the source content
+     * @return the template parameter list of the enclosing class, or null if not inside a template class
+     */
+    private @Nullable String buildEnclosingClassTemplateSignature(TSNode funcNode, SourceContent sourceContent) {
+        TSNode current = funcNode.getParent();
+        while (current != null && !current.isNull()) {
+            String nodeType = current.getType();
+            // Check if we've reached a class/struct specifier
+            if (CLASS_SPECIFIER.equals(nodeType) || STRUCT_SPECIFIER.equals(nodeType)) {
+                // Check if this class is inside a template_declaration
+                TSNode parent = current.getParent();
+                if (parent != null && !parent.isNull() && TEMPLATE_DECLARATION.equals(parent.getType())) {
+                    TSNode paramsNode = parent.getChildByFieldName("parameters");
+                    if (paramsNode != null && !paramsNode.isNull()) {
+                        String templateText =
+                                sourceContent.substringFrom(paramsNode).strip();
+                        return templateText.isEmpty() ? null : templateText;
+                    }
+                }
+                return null; // Class found but not a template
+            }
+            current = current.getParent();
+        }
+        return null;
+    }
+
+    /**
+     * Extracts template parameters for a class or function to be used as part of its CodeUnit signature.
+     *
+     * @param node the definition node (e.g. class_specifier)
+     * @param sourceContent the source content
+     * @return the template parameter list (e.g. "<typename T>"), or null if not a template
+     */
+    private @Nullable String buildCppTemplateSignature(TSNode node, SourceContent sourceContent) {
+        if (node.isNull()) return null;
+
+        // Template parameters are usually on the parent template_declaration node
+        TSNode templateDecl = node.getParent();
+        if (templateDecl == null || templateDecl.isNull() || !TEMPLATE_DECLARATION.equals(templateDecl.getType())) {
+            // Check if the node itself is a template_declaration (unlikely for capture, but defensive)
+            if (TEMPLATE_DECLARATION.equals(node.getType())) {
+                templateDecl = node;
+            } else {
+                return null;
+            }
+        }
+
+        TSNode paramsNode = templateDecl.getChildByFieldName("parameters");
+        if (paramsNode == null || paramsNode.isNull()) {
             return null;
         }
 
-        String paramSignature = buildCppOverloadSuffix(definitionNode, sourceContent);
-        String qualifierSuffix = buildCppQualifierSuffix(definitionNode, sourceContent);
-
-        if (!paramSignature.isEmpty()) {
-            return "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
-        }
-        // Empty parameter list: still return "()" for stable function identity, optionally with qualifiers
-        return "()" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+        String templateText = sourceContent.substringFrom(paramsNode).strip();
+        return templateText.isEmpty() ? null : templateText;
     }
 
     /**
@@ -1265,9 +1353,17 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return false; // Don't ignore - add the candidate
         }
 
-        if (candidate.isClass() || candidate.isField() || candidate.isModule()) {
+        if (candidate.isField() || candidate.isModule()) {
             // These are true duplicates in C++ (header guards, preprocessor conditionals, etc.)
             return true; // Ignore the duplicate
+        }
+
+        if (candidate.isClass()) {
+            // For classes/structs, ignore ONLY if the signature is also identical.
+            // This allows template overloads/specializations with different parameters to coexist.
+            // Note: TreeSitterAnalyzer.addTopLevelCodeUnit already handles preferring definitions
+            // (hasBody=true) over forward declarations (hasBody=false) for classes with the same FQN.
+            return Objects.equals(existing.signature(), candidate.signature());
         }
 
         // For other types, use default behavior

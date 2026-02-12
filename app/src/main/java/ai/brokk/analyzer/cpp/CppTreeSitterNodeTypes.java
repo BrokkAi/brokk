@@ -40,6 +40,9 @@ public final class CppTreeSitterNodeTypes {
     // Types and Return Types
     public static final String TRAILING_RETURN_TYPE = "trailing_return_type";
 
+    // Templates
+    public static final String TEMPLATE_DECLARATION = "template_declaration";
+
     // Other nodes
     public static final String ENUMERATOR = "enumerator";
 
