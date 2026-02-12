@@ -32,7 +32,6 @@ import org.slf4j.LoggerFactory;
 /**
  * Uses Eclipse JDT to perform precise usage analysis for Java code.
  */
-@NullMarked
 public class JdtUsageAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(JdtUsageAnalyzer.class);
 
@@ -205,20 +204,26 @@ public class JdtUsageAnalyzer {
                 }
 
                 private String getFqn(IBinding binding) {
-                    if (binding instanceof ITypeBinding tb) {
-                        return tb.getErasure().getQualifiedName().replace('$', '.');
-                    } else if (binding instanceof IMethodBinding mb) {
-                        IMethodBinding decl = mb.getMethodDeclaration();
-                        ITypeBinding declaringClass = decl.getDeclaringClass();
-                        String typeFqn = declaringClass != null ? getFqn(declaringClass) : "unknown";
-                        String name = decl.isConstructor()
-                                ? (declaringClass != null ? declaringClass.getName() : "unknown")
-                                : decl.getName();
-                        return typeFqn + "." + name;
-                    } else if (binding instanceof IVariableBinding vb) {
-                        ITypeBinding owner = vb.getDeclaringClass();
-                        String parent = owner != null ? getFqn(owner) : "unknown";
-                        return parent + "." + vb.getName();
+                    switch (binding) {
+                        case ITypeBinding tb -> {
+                            return tb.getErasure().getQualifiedName().replace('$', '.');
+                        }
+                        case IMethodBinding mb -> {
+                            IMethodBinding decl = mb.getMethodDeclaration();
+                            ITypeBinding declaringClass = decl.getDeclaringClass();
+                            String typeFqn = declaringClass != null ? getFqn(declaringClass) : "unknown";
+                            String name = decl.isConstructor()
+                                    ? (declaringClass != null ? declaringClass.getName() : "unknown")
+                                    : decl.getName();
+                            return typeFqn + "." + name;
+                        }
+                        case IVariableBinding vb -> {
+                            ITypeBinding owner = vb.getDeclaringClass();
+                            String parent = owner != null ? getFqn(owner) : "unknown";
+                            return parent + "." + vb.getName();
+                        }
+                        default -> {
+                        }
                     }
                     return binding.getName();
                 }
