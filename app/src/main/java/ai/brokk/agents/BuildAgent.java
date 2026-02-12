@@ -24,8 +24,8 @@ import ai.brokk.util.BuildToolConventions;
 import ai.brokk.util.BuildToolConventions.BuildSystem;
 import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentPython;
-import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.Messages;
+import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -1281,7 +1281,7 @@ public class BuildAgent {
         try {
             var details = override != null ? override : cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
-            var execCfg = ExecutorConfig.fromProject(cm.getProject());
+            var execCfg = cm.getProject().getShellConfig();
 
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
@@ -1309,13 +1309,13 @@ public class BuildAgent {
                 "\nRunning command: \n\n```bash\n" + command + "\n```\n",
                 ChatMessageType.CUSTOM,
                 LlmOutputMeta.DEFAULT);
-        String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
+        String shellLang = ShellConfig.getShellLanguageFromProject(cm.getProject());
         io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
         try {
             var details = override != null ? override : cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
-            var execCfg = ExecutorConfig.fromProject(cm.getProject());
+            var execCfg = cm.getProject().getShellConfig();
 
             var output = Environment.instance.runShellCommand(
                     command,
