@@ -143,7 +143,7 @@ public final class FuzzyUsageFinder {
         // --- Precise Java Analysis Path ---
         if (lang.equals(Languages.JAVA)) {
             Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, candidateFiles, project).stream()
-                    .filter(h -> !h.enclosing().fqName().equals(target.fqName()))
+                    .filter(h -> !h.enclosing().equals(target))
                     .collect(Collectors.toSet());
 
             logger.debug(
