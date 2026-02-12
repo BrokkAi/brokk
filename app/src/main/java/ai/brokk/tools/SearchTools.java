@@ -446,6 +446,106 @@ public class SearchTools {
 
     @Tool(
             """
+            Retrieves the git commit log for a file or directory path, showing the history of changes.
+            Provides short commit hash, author, date, commit message, and file list for each entry.
+            Tracks file renames to help follow code evolution across different filenames.
+            Use an empty path to get the repository-wide commit log.
+            """)
+    public String getGitLog(
+            @P("File or directory path relative to the project root. Use empty string for repository-wide log.")
+                    String path,
+            @P("Maximum number of log entries to return (capped at 100).") int limit,
+            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
+                    String reasoning) {
+        if (reasoning.isBlank()) {
+            logger.warn("Missing reasoning for getGitLog call");
+        }
+
+        var repo = contextManager.getRepo();
+
+        // Cap limit at 100 and ensure at least 1
+        int effectiveLimit = Math.max(1, Math.min(limit, 100));
+
+        // Canonicalize: normalize the path, treat blank as empty
+        String canonicalPathString = (path == null || path.isBlank()) ? "" : path.strip();
+        if (!canonicalPathString.isEmpty()) {
+            canonicalPathString =
+                    Path.of(canonicalPathString).normalize().toString().replace('\\', '/');
+        }
+
+        try {
+            var entries = repo.getGitLog(canonicalPathString, effectiveLimit);
+            if (entries.isEmpty()) {
+                return "No history found for path: "
+                        + (canonicalPathString.isEmpty() ? "(repo root)" : canonicalPathString);
+            }
+
+            var sb = new StringBuilder();
+            sb.append("<git_log");
+            if (!canonicalPathString.isEmpty()) {
+                sb.append(" path=\"").append(canonicalPathString).append("\"");
+            }
+            sb.append(">\n");
+
+            ProjectFile previousPath = null;
+            for (var entry : entries) {
+                var commit = entry.commit();
+                var shortId = (repo instanceof GitRepo gr)
+                        ? gr.shortHash(commit.id())
+                        : commit.id().substring(0, 7);
+                String fullMessage;
+                try {
+                    fullMessage =
+                            (repo instanceof GitRepo gr) ? gr.getCommitFullMessage(commit.id()) : commit.message();
+                } catch (GitAPIException e) {
+                    fullMessage = commit.message();
+                }
+
+                sb.append("<entry hash=\"").append(shortId).append("\"");
+                sb.append(" author=\"").append(commit.author()).append("\"");
+                sb.append(" date=\"").append(commit.date()).append("\"");
+                if (entry.path() != null) {
+                    sb.append(" path=\"").append(entry.path()).append("\"");
+                }
+                sb.append(">\n");
+
+                // Rename detection: entries are ordered newest-first.
+                // If this commit's path differs from the next (newer) commit's path, it's a rename.
+                if (previousPath != null && entry.path() != null && !previousPath.equals(entry.path())) {
+                    sb.append("[RENAMED] ")
+                            .append(entry.path())
+                            .append(" -> ")
+                            .append(previousPath)
+                            .append("\n");
+                }
+
+                sb.append(fullMessage.strip()).append("\n");
+
+                // Include CDL of simple filenames
+                List<ProjectFile> changedFiles = CommitInfo.changedFiles((GitRepo) repo, commit.id());
+                if (!changedFiles.isEmpty()) {
+                    String fileCdl = changedFiles.stream()
+                            .map(ProjectFile::getFileName)
+                            .distinct()
+                            .sorted()
+                            .collect(Collectors.joining(", "));
+                    sb.append("Files: ").append(fileCdl).append("\n");
+                }
+
+                sb.append("</entry>\n");
+
+                previousPath = entry.path();
+            }
+            sb.append("</git_log>");
+            return sb.toString();
+        } catch (GitAPIException e) {
+            logger.error("Error retrieving git log for path '{}': {}", path, e.getMessage(), e);
+            return "Error retrieving git log: " + e.getMessage();
+        }
+    }
+
+    @Tool(
+            """
                     Search git commit messages using a Java regular expression.
                     Returns matching commits with their message and list of changed files.
                     If the list of files is extremely long, it will be summarized with respect to your explanation.

@@ -86,6 +86,7 @@ public class ToolRegistry {
             Map.entry("getMethodSources", "Fetching method source"),
             Map.entry("getCallGraphTo", "Getting call graph TO"),
             Map.entry("getCallGraphFrom", "Getting call graph FROM"),
+            Map.entry("getGitLog", "Getting git log"),
             Map.entry("searchGitCommitMessages", "Searching git commits"),
             Map.entry("listFiles", "Listing files"),
             Map.entry("addFilesToWorkspace", "Adding files to workspace"),

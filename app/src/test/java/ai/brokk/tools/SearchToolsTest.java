@@ -349,4 +349,86 @@ public class SearchToolsTest {
         String result4 = tools.getClassSkeletons(List.of("A"));
         assertTrue(result4.contains("class A"), "CodeUnit-native API should work correctly");
     }
+
+    @Test
+    void testGetGitLog_limitEnforced() throws Exception {
+        // Create several commits
+        try (Git git = Git.open(projectRoot.toFile())) {
+            for (int i = 1; i <= 5; i++) {
+                git.commit()
+                        .setAllowEmpty(true)
+                        .setMessage("Extra commit " + i)
+                        .setSign(false)
+                        .call();
+            }
+        }
+
+        // Request with limit of 3 (repo already has 2 commits from setUp + 5 = 7 total)
+        String result = searchTools.getGitLog("", 3, "test");
+        // Count the number of <entry> tags
+        // Count occurrences of "<entry " to be precise
+        int entries = countOccurrences(result, "<entry ");
+        assertEquals(3, entries, "Should have exactly 3 entries when limit is 3. Result:\n" + result);
+    }
+
+    @Test
+    void testGetGitLog_emptyPathReturnsRepoWideLog() {
+        String result = searchTools.getGitLog("", 100, "test");
+
+        // Should contain commits from setUp (Initial commit + "Commit with [[ pattern")
+        assertTrue(result.contains("<git_log>"), "Should have git_log wrapper");
+        assertTrue(result.contains("Initial commit"), "Should contain initial commit message");
+        assertTrue(result.contains("Commit with [[ pattern"), "Should contain second commit message");
+    }
+
+    @Test
+    void testGetGitLog_invalidPathReturnsNoHistory() {
+        String result = searchTools.getGitLog("nonexistent/path/to/file.txt", 10, "test");
+        assertTrue(
+                result.contains("No history found"), "Should indicate no history for invalid path. Result:\n" + result);
+    }
+
+    @Test
+    void testGetGitLog_fileWithNoHistory() throws Exception {
+        // Create a new untracked file (not committed)
+        Path newFile = projectRoot.resolve("untracked.txt");
+        Files.writeString(newFile, "not committed");
+
+        String result = searchTools.getGitLog("untracked.txt", 10, "test");
+        assertTrue(
+                result.contains("No history found"),
+                "Should indicate no history for untracked file. Result:\n" + result);
+    }
+
+    @Test
+    void testGetGitLog_limitCappedAt100() throws Exception {
+        // Verify that requesting more than 100 doesn't exceed 100
+        // We only have a few commits, so just verify no error and entries <= requested
+        String result = searchTools.getGitLog("", 200, "test");
+        int entries = countOccurrences(result, "<entry ");
+        assertTrue(entries <= 100, "Entries should never exceed 100");
+        assertTrue(entries > 0, "Should have at least one entry");
+    }
+
+    @Test
+    void testGetGitLog_specificFile() throws Exception {
+        String result = searchTools.getGitLog("README.md", 10, "test");
+        assertTrue(result.contains("<git_log"), "Should have git_log wrapper");
+        assertTrue(result.contains("Initial commit"), "Should contain the commit that added README.md");
+        assertTrue(result.contains("Files: README.md"), "Should contain simple filename CDL");
+
+        // The "Commit with [[ pattern" is an empty commit, so README.md shouldn't appear in it
+        assertFalse(
+                result.contains("Commit with [[ pattern"), "Should not contain empty commit unrelated to README.md");
+    }
+
+    private static int countOccurrences(String text, String substring) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(substring, idx)) != -1) {
+            count++;
+            idx += substring.length();
+        }
+        return count;
+    }
 }
