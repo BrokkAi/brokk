@@ -287,14 +287,13 @@ class ChatPanel(Vertical):
         if is_new_message:
             self.set_response_active()
             self._monitor_inactivity()
-            self._flush_message()
+            # If we were already mid-message, flush it before starting new one
+            if self._current_message_buffer:
+                self._flush_message()
+
             self._current_message_type = message_type
             self._is_reasoning = is_reasoning
             self._last_flush_time = now
-
-            if is_reasoning:
-                log = self.query_one("#chat-log", RichLog)
-                log.write(Text("Thinking...", style="italic grey50"))
 
         self._current_message_buffer += token
 
@@ -322,13 +321,15 @@ class ChatPanel(Vertical):
         if self._is_reasoning:
             # Reasoning is flushed only when complete
             if not is_incremental:
+                content = self._current_message_buffer.strip()
                 log.write(
                     Panel(
-                        Text(self._current_message_buffer.strip(), style="grey50"),
+                        Text(content, style="grey50"),
                         title="Thinking",
                         border_style="grey37",
                     )
                 )
+                log.write("")  # Spacer
                 self._current_message_buffer = ""
                 self._is_reasoning = False
         else:
