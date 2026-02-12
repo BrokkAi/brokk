@@ -633,19 +633,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         //    with the same simple name has not already been added from an explicit import
         //    or a preceding wildcard import. This ensures deterministic resolution.
         for (String packageName : wildcardImportPackages) {
-            Optional<CodeUnit> pkgModule = getDefinitions(packageName).stream()
+            getDefinitions(packageName).stream()
                     .filter(CodeUnit::isModule)
-                    .findFirst();
-
-            if (pkgModule.isPresent()) {
-                for (CodeUnit child : getDirectChildren(pkgModule.get())) {
-                    if (child.isClass()
-                            && packageName.equals(child.packageName())
-                            && resolvedSimpleNames.add(child.identifier())) {
-                        resolved.add(child);
-                    }
-                }
-            }
+                    .flatMap(module -> getDirectChildren(module).stream())
+                    .filter(CodeUnit::isClass)
+                    .filter(child -> packageName.equals(child.packageName()))
+                    .filter(child -> resolvedSimpleNames.add(child.identifier()))
+                    .forEach(resolved::add);
         }
 
         return Collections.unmodifiableSet(resolved);
@@ -822,7 +816,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
         if (modulePackageName.isBlank()) {
             return;
         }

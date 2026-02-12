@@ -13,6 +13,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -751,6 +752,10 @@ public class SearchTools {
         var analyzer = getAnalyzer();
         var targetDir = Path.of(directoryPath).normalize();
 
+        // Check if we're inside the dependencies directory - don't filter by gitignore there
+        Path dependenciesPath = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR);
+        boolean isInDependencies = targetDir.startsWith(dependenciesPath);
+
         Path absTargetDir = project.getRoot().resolve(targetDir);
         File[] fsItems = absTargetDir.toFile().listFiles();
 
@@ -763,7 +768,7 @@ public class SearchTools {
 
         for (File item : fsItems) {
             String name = item.getName();
-            if (project.isGitignored(targetDir.resolve(name))) {
+            if (!isInDependencies && project.isGitignored(targetDir.resolve(name))) {
                 continue;
             }
             if (item.isDirectory()) {

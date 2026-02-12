@@ -2,7 +2,6 @@ package ai.brokk.prompts;
 
 import ai.brokk.analyzer.ProjectFile;
 import java.io.File;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -130,51 +129,19 @@ public final class EditBlockUtils {
 
         // Search up to 3 lines above headIndex
         int start = Math.max(0, headIndex - 3);
-        var candidates = new ArrayList<String>();
-        var rawContextLines = new ArrayList<String>();
 
         for (int i = headIndex - 1; i >= start; i--) {
             String rawLine = lines[i];
             String s = rawLine.trim();
-            String possible = stripFilename(s);
-            if (possible != null && !possible.isBlank()) {
-                candidates.add(possible);
-            }
-            rawContextLines.add(rawLine);
-        }
-
-        // (1) Exact match (including path) in valid ProjectFiles using stripped candidates: high confidence
-        for (var c : candidates) {
-            if (projectFiles.stream().anyMatch(f -> f.toString().equals(c))) {
-                return c;
+            String candidate = stripFilename(s);
+            if (candidate != null && !candidate.isBlank()) {
+                if (projectFiles.stream().anyMatch(f -> f.toString().equals(candidate))) {
+                    return candidate;
+                }
             }
         }
 
-        // (2) Look for unique ProjectFile occurrences in the RAW, unstripped context lines
-        // (handles case of, it gave us a filename but included extra noise in the line)
-        // (also high confidence)
-        var rawMatches = rawContextLines.stream()
-                .flatMap(raw -> projectFiles.stream().filter(f -> raw.contains(f.toString())))
-                .distinct()
-                .toList();
-        if (rawMatches.size() == 1) {
-            return rawMatches.getFirst().toString();
-        }
-
-        // (3) If we found multiple project file matches in raw lines, it's ambiguous; don't guess.
-        if (rawMatches.size() > 1) {
-            return null;
-        }
-
-        // (4) If any stripped candidate looks like a path (has an extension and no spaces), use it verbatim
-        // (low confidence but arguably better than nothing)
-        for (var c : candidates) {
-            if (c.contains(".") && !c.contains(" ")) {
-                return c;
-            }
-        }
-
-        // (4) Continue using currentPath if we have it
+        // Continue using currentPath if we have it
         return currentPath;
     }
 }

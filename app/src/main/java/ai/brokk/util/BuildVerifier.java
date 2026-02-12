@@ -65,7 +65,7 @@ public final class BuildVerifier {
             return new VerificationResult(false, -1, "Command is blank.");
         }
 
-        ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
+        ShellConfig execCfg = project.getShellConfig();
         Path root = project.getRoot();
         Map<String, String> env = buildEnvironmentForCommand(project, extraEnv);
 

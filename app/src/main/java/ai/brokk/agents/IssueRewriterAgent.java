@@ -43,14 +43,14 @@ public final class IssueRewriterAgent {
         try (var scope = cm.beginTaskUngrouped("Issue Writer")) {
             String goal =
                     """
-                    Issue Writer: produce a high-quality GitHub issue by discovering and citing evidence in this repository.
+                    Describe a high-quality GitHub issue to characterize the user request by discovering and citing evidence in this repository.
 
                     User request:
                     %s
                     """
                             .formatted(userRequest);
 
-            var agent = new SearchAgent(context, goal, model, SearchPrompts.Objective.ISSUE_DIAGNOSIS, scope);
+            var agent = new SearchAgent(context, goal, model, SearchPrompts.Objective.ISSUE_DESCRIPTION, scope);
             var result = agent.execute();
             Context resultingContext = scope.append(result);
 

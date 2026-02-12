@@ -309,7 +309,12 @@ public class UsageResultsExplorer extends BaseThemedDialog {
 
     private void updatePreview(CodeUnitDetail detail) {
         StringBuilder sb = new StringBuilder();
-        sb.append("// Searched FQN: ").append(detail.searchedFqn()).append("\n");
+        sb.append("// Searched FQN: ")
+                .append(detail.searchedFqn())
+                .append(" (line ")
+                .append(detail.declarationLineNumber())
+                .append(")")
+                .append("\n");
         sb.append("// Project: ").append(detail.project()).append("\n\n");
 
         String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;

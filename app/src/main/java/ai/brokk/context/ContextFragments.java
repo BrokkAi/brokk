@@ -467,6 +467,11 @@ public class ContextFragments {
         }
 
         @Override
+        public ComputedValue<Set<ProjectFile>> sourceFiles() {
+            return files();
+        }
+
+        @Override
         public FragmentType getType() {
             return FragmentType.PROJECT_PATH;
         }
@@ -562,6 +567,11 @@ public class ContextFragments {
         @Override
         public ProjectFile file() {
             return file;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> sourceFiles() {
+            return files();
         }
 
         @Override
@@ -670,6 +680,11 @@ public class ContextFragments {
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
             return new ImageFileFragment(file, existingId, contextManager);
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> sourceFiles() {
+            return files();
         }
 
         @Override

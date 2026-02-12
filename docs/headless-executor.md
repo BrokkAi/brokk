@@ -556,7 +556,7 @@ Once running, the executor exposes the following endpoints:
       "bigPicture": "Goal or overview of the current task sequence",
       "tasks": [
         {
-          "id": "uuid-or-string",
+          "id": "opaque-task-id",
           "title": "Short task name",
           "text": "Detailed task instructions",
           "done": false

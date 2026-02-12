@@ -10,6 +10,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.IStringDiskCache;
+import ai.brokk.util.ShellConfig;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -17,6 +18,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 public final class WorktreeProject extends AbstractProject {
     private final MainProject parent;
@@ -44,6 +46,11 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setAnalyzerLanguages(Set<Language> languages) {
         parent.setAnalyzerLanguages(languages);
+    }
+
+    @Override
+    public void invalidateAutoDetectedLanguages() {
+        parent.invalidateAutoDetectedLanguages();
     }
 
     @Override
@@ -295,5 +302,15 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public Set<ProjectFile> getAllOnDiskDependencies() {
         return parent.getAllOnDiskDependencies();
+    }
+
+    @Override
+    public ShellConfig getShellConfig() {
+        return parent.getShellConfig();
+    }
+
+    @Override
+    public void setShellConfig(@Nullable ShellConfig config) {
+        parent.setShellConfig(config);
     }
 }

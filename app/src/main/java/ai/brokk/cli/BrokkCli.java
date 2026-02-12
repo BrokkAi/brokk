@@ -558,8 +558,7 @@ public final class BrokkCli implements Callable<Integer> {
                         SearchPrompts.Objective.CODE_ONLY,
                         scope,
                         new MutedConsoleIO(io),
-                        SearchAgent.ScanConfig.defaults(),
-                        null);
+                        SearchAgent.ScanConfig.defaults());
                 result = agent.execute();
             }
 

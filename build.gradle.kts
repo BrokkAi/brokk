@@ -128,13 +128,37 @@ tasks.register("tidy") {
     dependsOn("brokkCodeRuffFormat")
 }
 
-fun isUvAvailable(): Boolean {
-    return try {
-        ProcessBuilder("uv", "--version").start().waitFor() == 0
+fun findUvExecutable(): String? {
+    // Try simple command first (works if uv is in PATH)
+    try {
+        if (ProcessBuilder("uv", "--version").start().waitFor() == 0) {
+            return "uv"
+        }
     } catch (e: Exception) {
-        false
+        // Not found in PATH, try common locations
     }
+
+    // Common Homebrew locations on macOS
+    val candidates = listOf(
+        "/opt/homebrew/bin/uv",  // Apple Silicon
+        "/usr/local/bin/uv",     // Intel Mac / Linux Homebrew
+        System.getProperty("user.home") + "/.local/bin/uv",  // pipx / uv self-install
+        System.getProperty("user.home") + "/.cargo/bin/uv"   // cargo install
+    )
+
+    for (candidate in candidates) {
+        val file = File(candidate)
+        if (file.exists() && file.canExecute()) {
+            return candidate
+        }
+    }
+
+    return null
 }
+
+val uvExecutable: String? by lazy { findUvExecutable() }
+
+fun isUvAvailable(): Boolean = uvExecutable != null
 
 val skipPythonTasks = project.hasProperty("skipPython")
 
@@ -142,7 +166,9 @@ tasks.register<Exec>("brokkCodeRuffFormat") {
     description = "Formats brokk-code using ruff"
     group = "formatting"
     workingDir = file("brokk-code")
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "ruff", "format") else listOf("uv", "run", "--group", "dev", "python", "-m", "ruff", "format"))
+
+    val uv = uvExecutable ?: "uv"
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "ruff", "format") else listOf(uv, "run", "--group", "dev", "python", "-m", "ruff", "format"))
 
     inputs.dir("brokk-code/brokk_code")
     inputs.file("brokk-code/pyproject.toml")
@@ -150,7 +176,7 @@ tasks.register<Exec>("brokkCodeRuffFormat") {
 
     onlyIf {
         val available = isUvAvailable()
-        if (!available) logger.warn("Skipping brokkCodeRuffFormat: 'uv' not found in PATH")
+        if (!available) logger.warn("Skipping brokkCodeRuffFormat: 'uv' not found in PATH or common locations")
         if (skipPythonTasks) logger.info("Skipping brokkCodeRuffFormat: skipPython property is set")
         available && !skipPythonTasks
     }
@@ -160,7 +186,9 @@ tasks.register<Exec>("brokkCodeRuffCheck") {
     description = "Lints brokk-code using ruff"
     group = "verification"
     workingDir = file("brokk-code")
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "ruff", "check") else listOf("uv", "run", "--group", "dev", "python", "-m", "ruff", "check"))
+
+    val uv = uvExecutable ?: "uv"
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "ruff", "check") else listOf(uv, "run", "--group", "dev", "python", "-m", "ruff", "check"))
 
     inputs.dir("brokk-code/brokk_code")
     inputs.file("brokk-code/pyproject.toml")
@@ -168,7 +196,7 @@ tasks.register<Exec>("brokkCodeRuffCheck") {
 
     onlyIf {
         val available = isUvAvailable()
-        if (!available) logger.warn("Skipping brokkCodeRuffCheck: 'uv' not found in PATH")
+        if (!available) logger.warn("Skipping brokkCodeRuffCheck: 'uv' not found in PATH or common locations")
         if (skipPythonTasks) logger.info("Skipping brokkCodeRuffCheck: skipPython property is set")
         available && !skipPythonTasks
     }
@@ -178,8 +206,9 @@ tasks.register<Exec>("brokkCodePytest") {
     description = "Runs brokk-code tests using pytest"
     group = "verification"
     workingDir = file("brokk-code")
-    // Ensure dependencies are installed before running
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "pytest") else listOf("uv", "run", "--group", "dev", "python", "-m", "pytest"))
+
+    val uv = uvExecutable ?: "uv"
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "pytest") else listOf(uv, "run", "--group", "dev", "python", "-m", "pytest"))
 
     inputs.dir("brokk-code/brokk_code")
     inputs.dir("brokk-code/tests")
@@ -188,7 +217,7 @@ tasks.register<Exec>("brokkCodePytest") {
 
     onlyIf {
         val available = isUvAvailable()
-        if (!available) logger.warn("Skipping brokkCodePytest: 'uv' not found in PATH")
+        if (!available) logger.warn("Skipping brokkCodePytest: 'uv' not found in PATH or common locations")
         if (skipPythonTasks) logger.info("Skipping brokkCodePytest: skipPython property is set")
         available && !skipPythonTasks
     }

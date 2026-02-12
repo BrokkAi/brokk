@@ -86,8 +86,10 @@ async def test_tasklist_polling_updates_ui(tmp_path):
             assert "Update LoginController" in content_text
             assert "Change the authentication endpoint" in content_text
             assert "Add logging" in content_text
-            assert "DONE" in content_text
-            assert "TODO" in content_text
+            assert "[x]" in content_text
+            assert "[ ]" in content_text
+            assert "(done)" in content_text
+            assert "(todo)" in content_text
 
             # Observable outcome: content is present
             assert "Refactor Authentication" in content_text
@@ -166,8 +168,8 @@ async def test_refresh_context_panel_integration_preserves_task_details(tmp_path
             initial_render = panel.query_one("#tasklist-content").render().plain
             assert "Complex Refactoring Goal" in initial_render
             assert "Task One" in initial_render
-            assert "TODO" in initial_render
-            assert "DONE" in initial_render
+            assert "[ ]" in initial_render
+            assert "[x]" in initial_render
 
             # 2. Trigger the app-level context refresh
             await app._refresh_context_panel()
@@ -220,10 +222,15 @@ async def test_context_polling_updates_ui(tmp_path):
             await app._refresh_context_panel()
             await pilot.pause()
 
+            # Open context modal before querying ContextPanel.
+            await pilot.press("ctrl+l")
+            await app._refresh_context_panel()
+            await pilot.pause()
+
             # Verify Header
-            panel = app.query_one("#side-context", ContextPanel)
-            header = panel.query_one("#context-header")
-            assert "1,500 / 100,000 tokens" in str(header.render())
+            panel = app.screen.query_one("#context-panel", ContextPanel)
+            usage = panel.query_one("#context-token-usage")
+            assert "1,500 / 100,000 tokens" in str(usage.render())
 
             # Verify ChatPanel Token Usage
             chat_panel = app.query_one(ChatPanel)
@@ -232,20 +239,10 @@ async def test_context_polling_updates_ui(tmp_path):
             assert "1,500 / 100,000" in str(usage_label.render())
 
             # Verify List Contents
-            list_view = panel.query_one("#context-list")
-            # Query explicitly for ContextFragmentItem to avoid counting internal ListView nodes
-            fragment_items = list_view.query(ContextFragmentItem)
+            fragment_items = panel.query(ContextFragmentItem)
             assert len(fragment_items) == 2
 
-            # Check for specific text in list items
-            # We iterate each ContextFragmentItem and render its Label children
-            # because rendering the ListItem itself may return a Blank object.
-            all_labels_text = []
-            for item in fragment_items:
-                for label in item.query("Label"):
-                    all_labels_text.append(label.render().plain)
-
-            items_text = " ".join(all_labels_text)
+            items_text = " ".join(item.render().plain for item in fragment_items)
             assert "Modified UserAuth.java" in items_text
             assert "Previous chat history" in items_text
             assert "EDIT" in items_text
@@ -275,7 +272,7 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
         mock_ctx.return_value = mock_context
         mock_tl.return_value = mock_tasklist
 
-        async with app.run_test():
+        async with app.run_test() as pilot:
             # Initially not ready
             app._executor_ready = False
 
@@ -291,5 +288,48 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await app._refresh_context_panel()
 
             mock_ctx.assert_called()
-            panel = app.query_one(ContextPanel)
-            assert "100 /" in str(panel.query_one("#context-header").render())
+            await pilot.press("ctrl+l")
+            await app._refresh_context_panel()
+            await pilot.pause()
+            panel = app.screen.query_one(ContextPanel)
+            assert "100 /" in str(panel.query_one("#context-token-usage").render())
+
+
+@pytest.mark.asyncio
+async def test_context_chips_wrap_into_multiple_rows(tmp_path):
+    """Verifies chip rendering wraps to additional rows when width is constrained."""
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+
+    mock_context = {
+        "usedTokens": 2500,
+        "maxTokens": 100000,
+        "fragments": [
+            {
+                "chipKind": "EDIT",
+                "shortDescription": "Updated an authentication flow",
+                "tokens": 400,
+            },
+            {"chipKind": "HISTORY", "shortDescription": "Long prior chat summary", "tokens": 800},
+            {"chipKind": "TASK_LIST", "shortDescription": "Break work into steps", "tokens": 500},
+        ],
+    }
+
+    with patch(
+        "brokk_code.executor.ExecutorManager.get_context", new_callable=AsyncMock
+    ) as mock_ctx:
+        mock_ctx.return_value = mock_context
+
+        async with app.run_test() as pilot:
+            app._executor_ready = True
+            await pilot.press("ctrl+l")
+            await app._refresh_context_panel()
+            await pilot.pause()
+
+            panel = app.screen.query_one(ContextPanel)
+            panel._chip_wrap_width = lambda: 35
+            panel.refresh_context(mock_context)
+            await pilot.pause()
+
+            rows = panel.query(".context-chip-row")
+            assert len(rows) > 1

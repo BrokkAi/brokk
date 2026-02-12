@@ -3,10 +3,16 @@
   name: (_) @namespace.name) @namespace.definition
 
 ; Class declarations
+(template_declaration
+  (class_specifier
+    name: (type_identifier) @class.name)) @class.definition
 (class_specifier
   name: (type_identifier) @class.name) @class.definition
 
 ; Struct declarations
+(template_declaration
+  (struct_specifier
+    name: (type_identifier) @struct.name)) @struct.definition
 (struct_specifier
   name: (type_identifier) @struct.name) @struct.definition
 

@@ -17,7 +17,6 @@ import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.ArrayList;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -401,7 +400,7 @@ class ContextTest {
     }
 
     @Test
-    void testBuildRelatedSymbolsPreservesInsertionOrder() throws Exception {
+    void testBuildRelatedSymbolsReturnsExpectedFilesIndependentOfMapOrder() throws Exception {
         var pf1 = new ProjectFile(tempDir, "src/Order1.java");
         Files.createDirectories(pf1.absPath().getParent());
         pf1.write("class Order1 {}");
@@ -430,12 +429,14 @@ class ContextTest {
 
         var result = ctx.buildRelatedSymbols(10, 20, Set.of());
 
-        // Verify LinkedHashMap insertion order matches candidate list order
-        var keys = new ArrayList<>(result.keySet());
-        assertEquals(3, keys.size());
-        assertEquals(pf1, keys.get(0));
-        assertEquals(pf2, keys.get(1));
-        assertEquals(pf3, keys.get(2));
+        // buildRelatedSymbols may run in parallel and does not guarantee map iteration order.
+        var keys = result.keySet().stream()
+                .sorted(Comparator.comparing(ProjectFile::toString))
+                .toList();
+        var expected = orderedCandidates.stream()
+                .sorted(Comparator.comparing(ProjectFile::toString))
+                .toList();
+        assertEquals(expected, keys);
     }
 
     @Test
