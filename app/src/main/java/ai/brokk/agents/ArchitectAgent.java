@@ -594,8 +594,8 @@ public class ArchitectAgent {
                     .min()
                     .orElseThrow();
 
-            var outcome = runPlanningTurnWithContextTooLargeRecovery(
-                    llm, maxInputTokens, protectedFromPruning, isFinalTurn);
+            var outcome =
+                    runPlanningTurnWithContextTooLargeRecovery(llm, maxInputTokens, protectedFromPruning, isFinalTurn);
             if (outcome instanceof PlanningTurnOutcome.Terminal terminal) {
                 return terminal.taskResult();
             }

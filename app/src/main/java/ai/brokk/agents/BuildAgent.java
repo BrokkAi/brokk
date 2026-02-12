@@ -19,7 +19,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
-import ai.brokk.util.BuildOutputPreprocessor;
+import ai.brokk.util.BuildOutputProcessor;
 import ai.brokk.util.BuildToolConventions;
 import ai.brokk.util.BuildToolConventions.BuildSystem;
 import ai.brokk.util.Environment;
@@ -1295,7 +1295,7 @@ public class BuildAgent {
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
             String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
-            String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
+            String processed = BuildOutputProcessor.processForLlm(rawBuild, cm);
             return ctx.withBuildResult(false, processed);
         }
     }
@@ -1332,7 +1332,7 @@ public class BuildAgent {
             io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
             String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
-            String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
+            String processed = BuildOutputProcessor.processForLlm(rawBuild, cm);
             return ctx.withBuildResult(false, processed);
         }
     }
