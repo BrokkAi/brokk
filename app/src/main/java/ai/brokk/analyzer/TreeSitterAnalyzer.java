@@ -1771,13 +1771,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
-                log.debug(
+                log.trace(
                         "Ignoring {} declaration for {} (definition already present)",
                         cu.kind().name().toLowerCase(Locale.ROOT),
                         cu.fqName());
                 return;
             } else if (candidateHasBody && !existingHasBody) {
-                log.debug("Replacing forward declaration with definition for: {}", cu.fqName());
+                log.trace("Replacing forward declaration with definition for: {}", cu.fqName());
                 localTopLevelCUs.remove(existingDuplicate);
 
                 removeCodeUnitAndDescendants(
@@ -1805,7 +1805,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
             // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
-            log.debug(
+            log.trace(
                     "Replacing duplicate CodeUnit: existing='{}', candidate='{}'",
                     existingDuplicate.fqName(),
                     cu.fqName());
@@ -1862,13 +1862,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
             Map<String, CodeUnit> localCuByFqName) {
 
-        log.debug("removeCodeUnitAndDescendants start: {} (kind={})", cu.fqName(), cu.kind());
+        log.trace("removeCodeUnitAndDescendants start: {} (kind={})", cu.fqName(), cu.kind());
 
         // 1. Recursively remove descendants first (bottom-up)
         // We use remove() which returns the previous value to get children.
         List<CodeUnit> children = localChildren.remove(cu);
         if (children != null) {
-            log.debug("Found {} children to remove for {}", children.size(), cu.fqName());
+            log.trace("Found {} children to remove for {}", children.size(), cu.fqName());
             for (CodeUnit child : children) {
                 removeCodeUnitAndDescendants(
                         child,
@@ -1907,7 +1907,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
-        log.debug("Processed removal: {} (kind={})", cu.fqName(), cu.kind());
+        log.trace("Processed removal: {} (kind={})", cu.fqName(), cu.kind());
     }
 
     /**
@@ -1961,14 +1961,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
-                log.debug(
+                log.trace(
                         "Skipping {} child '{}' in parent '{}' - definition already present",
                         cu.kind().name().toLowerCase(Locale.ROOT),
                         cu.fqName(),
                         parentCu.fqName());
                 return;
             } else if (candidateHasBody && !existingHasBody) {
-                log.debug("Replacing child forward declaration with definition for: {}", cu.fqName());
+                log.trace("Replacing child forward declaration with definition for: {}", cu.fqName());
                 kids.remove(existingDuplicate);
 
                 removeCodeUnitAndDescendants(
@@ -2770,51 +2770,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<CodeUnit, List<Range>> localSourceRanges,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
-        // Base implementation: delegate to legacy signature for backward compatibility
-        createModulesFromImports(
-                file,
-                localImportStatements,
-                rootNode,
-                modulePackageName,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges,
-                localChildren);
-    }
-
-    protected void createModulesFromImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
-        // Delegate to legacy signature
-        createModulesFromImports(
-                file,
-                localImportStatements,
-                rootNode,
-                modulePackageName,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges);
-    }
-
-    @Deprecated
-    protected void createModulesFromImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
         // default no-op
     }
 
