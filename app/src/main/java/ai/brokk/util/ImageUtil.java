@@ -215,7 +215,7 @@ public class ImageUtil {
      */
     public static int captureIssueImages(
             List<URI> attachmentUrls, OkHttpClient client, BiConsumer<Image, String> imageConsumer) {
-        if (attachmentUrls == null || attachmentUrls.isEmpty()) {
+        if (attachmentUrls.isEmpty()) {
             return 0;
         }
 
