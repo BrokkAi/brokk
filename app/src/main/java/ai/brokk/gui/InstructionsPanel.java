@@ -1789,7 +1789,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         Context ctx = cm.liveContext();
         messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
 
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question, TaskResult.Type.ASK).withEcho());
+        var llm = cm.getLlm(new Llm.Options(model, question, TaskResult.Type.ASK).withEcho());
         return executeAskCommand(llm, messages, cm, question, meta);
     }
 
@@ -2051,7 +2051,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 chrome.showOutputSpinner(spinnerText);
                 var title = input.length() > 50 ? input.substring(0, 47) + "..." : input;
-                try (var scope = cm.beginTask(input, false, "Lutz Mode: " + title)) {
+                try (var scope = cm.beginTask(input, true, "Lutz Mode: " + title)) {
                     var result = task.apply(scope);
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

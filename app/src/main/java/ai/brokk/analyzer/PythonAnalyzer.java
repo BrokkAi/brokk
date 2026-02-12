@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,6 +44,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             Set.of(CLASS_DEFINITION),
             Set.of(FUNCTION_DEFINITION),
             Set.of(ASSIGNMENT, TYPED_PARAMETER),
+            Set.of(),
             Set.of(DECORATOR),
             IMPORT_DECLARATION,
             "name", // identifierFieldName
@@ -66,17 +68,19 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         super(project, Languages.PYTHON, listener);
     }
 
-    private PythonAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.PYTHON, state, listener);
+    private PythonAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.PYTHON, state, listener, cache);
     }
 
     public static PythonAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new PythonAnalyzer(project, state, listener);
+        return new PythonAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new PythonAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new PythonAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -596,6 +600,20 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         // Pattern: class Child(Parent1, Parent2): ...
         var query = getThreadLocalQuery();
 
+        // Use the actual definition node for range matching.
+        // If classNode is a decorated_definition, we must find the inner class_definition node
+        // to match the 'type.decl' capture in python.scm.
+        TSNode matchNode = classNode;
+        if (DECORATED_DEFINITION.equals(classNode.getType())) {
+            for (int i = 0; i < classNode.getNamedChildCount(); i++) {
+                TSNode child = classNode.getNamedChild(i);
+                if (CLASS_DEFINITION.equals(child.getType())) {
+                    matchNode = child;
+                    break;
+                }
+            }
+        }
+
         // Ascend to root node for matching
         TSNode root = classNode;
         while (root.getParent() != null && !root.getParent().isNull()) {
@@ -608,8 +626,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         var match = new TSQueryMatch();
         List<TSNode> aggregateSuperNodes = new ArrayList<>();
 
-        final int targetStart = classNode.getStartByte();
-        final int targetEnd = classNode.getEndByte();
+        final int targetStart = matchNode.getStartByte();
+        final int targetEnd = matchNode.getEndByte();
 
         while (cursor.nextMatch(match)) {
             TSNode declNode = null;
@@ -852,7 +870,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
 
         if (modulePackageName.isBlank()) {
             return;
@@ -863,6 +882,16 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
 
         CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
+
+        // Register module in symbol index for getDefinitions() lookup
+        localCodeUnitsBySymbol
+                .computeIfAbsent(moduleCu.identifier(), k -> new HashSet<>())
+                .add(moduleCu);
+        if (!moduleCu.shortName().equals(moduleCu.identifier())) {
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(moduleCu.shortName(), k -> new HashSet<>())
+                    .add(moduleCu);
+        }
 
         List<CodeUnit> children = localTopLevelCUs.stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
@@ -1156,12 +1185,16 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return "__init__".equals(candidate.identifier());
+    }
+
+    @Override
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
-        // Get raw supertype names from CodeUnitProperties
-        var rawNames = withCodeUnitProperties(
-                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).rawSupertypes());
+        // Get raw supertype names lazily
+        var rawNames = getRawSupertypesLazily(cu);
 
         if (rawNames.isEmpty()) {
             return List.of();

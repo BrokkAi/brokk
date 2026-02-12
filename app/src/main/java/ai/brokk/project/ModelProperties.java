@@ -32,10 +32,17 @@ public final class ModelProperties {
     private static final String GPT_5_MINI = "gpt-5-mini";
     private static final String GPT_5_2 = "gpt-5.2";
 
+    private static final String GPT_5_1_CODEX_MINI_OAUTH = "gpt-5.1-codex-mini-oauth";
+    public static final String GPT_5_2_CODEX_OAUTH = "gpt-5.2-codex-oauth";
+    public static final String GPT_5_2_OAUTH = "gpt-5.2-oauth";
+
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
     private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.LOW);
     private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.DISABLE);
+
+    private static final ModelConfig gpt51CodexMiniOauth =
+            new ModelConfig(GPT_5_1_CODEX_MINI_OAUTH, ReasoningLevel.LOW);
 
     private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
     private static final ModelConfig haiku4_5 = new ModelConfig(HAIKU_4_5);
@@ -44,7 +51,7 @@ public final class ModelProperties {
     private static final ModelConfig flash2Lite = new ModelConfig(FLASH_2_0_LITE);
     private static final ModelConfig flash2 = new ModelConfig(FLASH_2_0);
     private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
-    private static final ModelConfig gp3 = new ModelConfig(GEMINI_3_PRO_PREVIEW);
+    private static final ModelConfig g3p = new ModelConfig(GEMINI_3_PRO_PREVIEW, ReasoningLevel.DISABLE);
 
     private static final ModelConfig gcf1 = new ModelConfig(GCF_1);
 
@@ -72,6 +79,7 @@ public final class ModelProperties {
             new Service.FavoriteModel("Opus 4.5", opus4_5),
             new Service.FavoriteModel("GPT-5.2", gpt5_2),
             new Service.FavoriteModel("Flash 3", flash3),
+            new Service.FavoriteModel("Gemini 3 Pro", g3p),
             new Service.FavoriteModel("Haiku 4.5", haiku4_5));
 
     /**
@@ -91,7 +99,6 @@ public final class ModelProperties {
         QUICKEST("quickestConfig", flash2Lite),
         COMMIT_MESSAGE("commitMessageConfig", flash3, gcf1),
         SCAN("scanConfig", flash3, gcf1),
-        ARCHITECT_FALLBACK("architectFallbackConfig", gp3, gcf1),
         BUILD_PROCESSOR("buildProcessorConfig", gpt5Mini, gpt5Nano);
 
         public final String propertyKey;
@@ -133,7 +140,6 @@ public final class ModelProperties {
                             ModelType.QUICKEST, haiku3,
                             ModelType.COMMIT_MESSAGE, haiku3,
                             ModelType.SCAN, haiku4_5,
-                            ModelType.ARCHITECT_FALLBACK, opus4_5,
                             ModelType.BUILD_PROCESSOR, haiku4_5));
             map.put(
                     "Gemini",
@@ -144,7 +150,6 @@ public final class ModelProperties {
                             ModelType.QUICKEST, flash2Lite,
                             ModelType.COMMIT_MESSAGE, flash3,
                             ModelType.SCAN, flash3,
-                            ModelType.ARCHITECT_FALLBACK, gp3,
                             ModelType.BUILD_PROCESSOR, flash3));
             map.put(
                     "OpenAI",
@@ -155,8 +160,17 @@ public final class ModelProperties {
                             ModelType.QUICKEST, gpt5Nano,
                             ModelType.COMMIT_MESSAGE, gpt5Mini,
                             ModelType.SCAN, gpt5Mini,
-                            ModelType.ARCHITECT_FALLBACK, gpt5_2,
                             ModelType.BUILD_PROCESSOR, gpt5Mini));
+            map.put(
+                    "OpenAI - Codex",
+                    Map.of(
+                            ModelType.SUMMARIZE, gpt51CodexMiniOauth,
+                            ModelType.USAGES, gpt51CodexMiniOauth,
+                            ModelType.QUICK_EDIT, gpt51CodexMiniOauth,
+                            ModelType.QUICKEST, gpt51CodexMiniOauth,
+                            ModelType.COMMIT_MESSAGE, gpt51CodexMiniOauth,
+                            ModelType.SCAN, gpt51CodexMiniOauth,
+                            ModelType.BUILD_PROCESSOR, gpt51CodexMiniOauth));
 
             // Validate that all vendors have configurations for all internal ModelTypes
             for (var entry : map.entrySet()) {

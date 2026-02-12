@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.concurrent.AtomicWrites;
@@ -13,12 +14,14 @@ import ai.brokk.util.Messages;
 import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.data.message.*;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.NonRetriableException;
 import dev.langchain4j.exception.PaymentRequiredException;
@@ -26,18 +29,7 @@ import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.request.ResponseFormat;
-import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.request.ToolChoice;
-import dev.langchain4j.model.chat.request.json.JsonArraySchema;
-import dev.langchain4j.model.chat.request.json.JsonBooleanSchema;
-import dev.langchain4j.model.chat.request.json.JsonEnumSchema;
-import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
-import dev.langchain4j.model.chat.request.json.JsonNumberSchema;
-import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
-import dev.langchain4j.model.chat.request.json.JsonSchema;
-import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
-import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
@@ -64,11 +56,9 @@ import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -107,7 +97,7 @@ public class Llm {
     public static class Options {
         private final StreamingChatModel model;
         private final String task;
-        private TaskResult.Type type;
+        private final TaskResult.Type type;
         private boolean allowPartialResponses;
         private boolean echo;
         // FIXME this is a hack to keep ContextAgent's file scan from living permanently (until compression)
@@ -147,6 +137,7 @@ public class Llm {
     private final TaskResult.Type taskType;
     final IContextManager contextManager;
     private static final int DEFAULT_MAX_ATTEMPTS = 8;
+    private static final int MAX_TOOL_CONTRACT_RETRIES = 3;
     private final int MAX_ATTEMPTS;
     private StreamingChatModel model;
     private final boolean allowPartialResponses;
@@ -154,8 +145,6 @@ public class Llm {
     private final boolean tagRetain;
     private final boolean echo;
 
-    // Monotonically increasing sequence for emulated tool request IDs
-    private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
     // Sequence for request/response log files
     private int requestSequence = 1;
 
@@ -321,12 +310,11 @@ public class Llm {
      * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. Partial
      * tokens go to console if the `echo` field is true.
      */
-    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean addJsonFence)
-            throws InterruptedException {
+    private StreamingResult doSingleStreamingCall(ChatRequest request) throws InterruptedException {
         int logSequence = logRequest(request);
         StreamingResult result;
         try {
-            result = doSingleStreamingCallInternal(request, addJsonFence);
+            result = doSingleStreamingCallInternal(request);
         } catch (InterruptedException e) {
             logResult(model, request, null, logSequence);
             throw e;
@@ -335,8 +323,7 @@ public class Llm {
         return result;
     }
 
-    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean addJsonFence)
-            throws InterruptedException {
+    private StreamingResult doSingleStreamingCallInternal(ChatRequest request) throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
         }
@@ -356,7 +343,6 @@ public class Llm {
         var accumulatedReasoningBuilder = new StringBuilder();
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Exception>();
-        var fenceOpen = new AtomicBoolean(false);
         long elapsedMs;
 
         Consumer<Runnable> ifNotCancelled = r -> {
@@ -389,13 +375,6 @@ public class Llm {
                     }
                     accumulatedTextBuilder.append(token);
                     if (echo) {
-                        if (addJsonFence && !fenceOpen.get()) {
-                            io.llmOutput(
-                                    "\n```json\n",
-                                    ChatMessageType.AI,
-                                    LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
-                            fenceOpen.set(true);
-                        }
                         io.llmOutput(
                                 token, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     }
@@ -449,11 +428,6 @@ public class Llm {
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
-                    if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput(
-                                "\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
-                        fenceOpen.set(false);
-                    }
                     completed.set(true);
                 });
             }
@@ -469,11 +443,6 @@ public class Llm {
                             "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     errorRef.set(mapped);
-                    if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput(
-                                "\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
-                        fenceOpen.set(false);
-                    }
                     completed.set(true);
                 });
             }
@@ -495,10 +464,6 @@ public class Llm {
                         "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 errorRef.set(mapped);
-                if (echo && addJsonFence && fenceOpen.get()) {
-                    io.llmOutput("\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
-                    fenceOpen.set(false);
-                }
                 completed.set(true);
             } finally {
                 lock.unlock();
@@ -534,12 +499,6 @@ public class Llm {
         // Record elapsed time
         long endTime = System.currentTimeMillis();
         elapsedMs = endTime - startTime;
-
-        // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
-        if (echo && addJsonFence && fenceOpen.get()) {
-            io.llmOutput("\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
-            fenceOpen.set(false);
-        }
 
         // At this point, latch has been counted down and we have a result or an error
         var error = errorRef.get();
@@ -651,37 +610,98 @@ public class Llm {
     public StreamingResult sendRequest(List<ChatMessage> messages, ToolContext toolContext)
             throws InterruptedException {
 
-        var result = sendMessageWithRetry(messages, toolContext, MAX_ATTEMPTS);
-        var cr = result.chatResponse();
-
-        // poor man's ToolChoice.REQUIRED (not supported by langchain4j for some providers)
-        // Also needed for our emulation if it returns a response without a tool call
-        var toolChoice = toolContext.toolChoice();
-        int totalAttemptsMade = result.retries() + 1;
-        while (result.error == null
-                && (cr != null && cr.toolRequests.isEmpty())
-                && toolChoice == ToolChoice.REQUIRED
-                && totalAttemptsMade < MAX_ATTEMPTS) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Enforcing tool selection");
-
-            var extraMessages = new ArrayList<>(messages);
-            extraMessages.add(requireNonNull(cr.originalResponse).aiMessage());
-            extraMessages.add(new UserMessage("At least one tool execution request is REQUIRED. Please call a tool."));
-
-            result = sendMessageWithRetry(extraMessages, toolContext, MAX_ATTEMPTS - totalAttemptsMade);
-            totalAttemptsMade += (result.retries() + 1);
-            cr = result.chatResponse();
+        if (toolContext.toolSpecifications().isEmpty()) {
+            return sendMessageWithRetry(messages, toolContext, MAX_ATTEMPTS);
         }
 
-        // If we exhausted attempts and still don't have tool calls when REQUIRED, fail
-        if (totalAttemptsMade >= MAX_ATTEMPTS
-                && result.error == null
-                && (cr != null && cr.toolRequests.isEmpty())
-                && toolChoice == ToolChoice.REQUIRED) {
-            return new StreamingResult(null, new MissingToolCallsException(totalAttemptsMade), result.retries());
+        int remainingAttempts = MAX_ATTEMPTS;
+        int toolContractFailures = 0;
+        int totalAttemptsUsed = 0;
+
+        var attemptMessages = messages;
+
+        while (true) {
+            var rawResult = sendMessageWithRetry(attemptMessages, toolContext, remainingAttempts);
+            int attemptsUsedThisRound = rawResult.retries() + 1;
+            totalAttemptsUsed += attemptsUsedThisRound;
+            remainingAttempts -= attemptsUsedThisRound;
+
+            if (rawResult.error() != null) {
+                return rawResult.withRetryCount(totalAttemptsUsed - 1);
+            }
+
+            var check = checkToolContractAndPostProcess(rawResult, toolContext);
+            if (check.errors().isEmpty()) {
+                var finalResult = check.processedResult();
+                if (echo) {
+                    prettyPrintToolCalls(toolContext, finalResult.toolRequests());
+                }
+                return new StreamingResult(
+                        finalResult.chatResponse(), null, totalAttemptsUsed - 1, finalResult.elapsedMs());
+            }
+
+            boolean missingRequired = toolContext.toolChoice() == ToolChoice.REQUIRED
+                    && check.processedResult().toolRequests().isEmpty();
+
+            if (missingRequired) {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Enforcing tool selection");
+            }
+
+            if (toolContractFailures >= MAX_TOOL_CONTRACT_RETRIES || remainingAttempts <= 0) {
+                Exception ex = missingRequired
+                        ? new MissingToolCallsException(totalAttemptsUsed)
+                        : new IllegalArgumentException(
+                                "Tool call validation failed: " + String.join("; ", check.errors()));
+                return new StreamingResult(null, ex, totalAttemptsUsed - 1, rawResult.elapsedMs());
+            }
+
+            toolContractFailures++;
+
+            if (echo) {
+                io.llmOutput(
+                        "\nTool contract errors:\n- " + String.join("\n- ", check.errors()),
+                        ChatMessageType.CUSTOM,
+                        LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+            }
+
+            // Create a new list for the next attempt. We replace the last user message
+            // with a modified version that includes retry instructions to avoid message bloat.
+            var lastMessage = messages.getLast();
+            assert lastMessage instanceof UserMessage : "Expected last message to be a UserMessage";
+            attemptMessages = new ArrayList<>(messages);
+            String originalText = Messages.getText(lastMessage);
+            String retryInstructions = buildRetryInstructions(check.errors());
+            attemptMessages.set(attemptMessages.size() - 1, new UserMessage(originalText + "\n\n" + retryInstructions));
+        }
+    }
+
+    private record ToolContractCheck(StreamingResult rawResult, StreamingResult processedResult, List<String> errors) {}
+
+    private ToolContractCheck checkToolContractAndPostProcess(StreamingResult result, ToolContext toolContext) {
+        var errors = new ArrayList<String>();
+        var requests = result.toolRequests();
+        var tr = toolContext.toolRegistry();
+
+        if (toolContext.toolChoice() == ToolChoice.REQUIRED && requests.isEmpty()) {
+            errors.add("At least one tool execution request is REQUIRED.");
         }
 
-        return result;
+        for (var req : requests) {
+            try {
+                tr.validateTool(req);
+            } catch (ToolRegistry.ToolValidationException e) {
+                errors.add("%s: %s".formatted(req.name(), e.getMessage()));
+            }
+        }
+
+        return new ToolContractCheck(result, result, List.copyOf(errors));
+    }
+
+    private String buildRetryInstructions(List<String> errors) {
+        var errorText = "- " + String.join("\n- ", errors);
+
+        return "[HARNESS NOTE: I am retrying this turn; your previous response requested tool calls that failed as follows:\n%s\nPlease check the tool specifications carefully and issue corrected requests.]"
+                .formatted(errorText);
     }
 
     /**
@@ -776,9 +796,7 @@ public class Llm {
     }
 
     /**
-     * Sends messages to model in a single attempt. If the model doesn't natively support function calling for these
-     * tools, we emulate it using a JSON Schema approach. This method now also triggers writing the request to the
-     * history file.
+     * Sends messages to model in a single attempt.
      */
     private StreamingResult doSingleSendMessage(
             StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext) throws InterruptedException {
@@ -788,15 +806,8 @@ public class Llm {
         var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
 
-        var messagesToSend = messages;
-
-        if (!tools.isEmpty() && contextManager.getService().requiresEmulatedTools(model)) {
-            // Emulation handles its own preprocessing and needs the toolContext to validate owner
-            return emulateTools(model, messagesToSend, toolContext);
-        }
-
         // Build request with parameters (always include base params for previousResponseId/metadata)
-        var requestBuilder = ChatRequest.builder().messages(messagesToSend);
+        var requestBuilder = ChatRequest.builder().messages(messages);
         var paramsBuilder = getParamsBuilder();
 
         if (!tools.isEmpty()) {
@@ -812,15 +823,7 @@ public class Llm {
         }
 
         var request = requestBuilder.parameters(paramsBuilder.build()).build();
-        var sr = doSingleStreamingCall(request, false);
-
-        // Pretty-print native tool calls when echo is enabled
-        // (For emulated calls, echo means we get the raw json in the response which is not ideal but
-        // there's no reason to add a second print of it)
-        if (echo && !tools.isEmpty() && !contextManager.getService().requiresEmulatedTools(model)) {
-            prettyPrintToolCalls(toolContext, sr.toolRequests());
-        }
-        return sr;
+        return doSingleStreamingCall(request);
     }
 
     private void prettyPrintToolCalls(ToolContext toolContext, List<ToolExecutionRequest> requests) {
@@ -843,6 +846,7 @@ public class Llm {
     private OpenAiChatRequestParameters.Builder getParamsBuilder() {
         OpenAiChatRequestParameters.Builder builder = OpenAiChatRequestParameters.builder();
 
+        // user opted in to data retention for this request
         if (tagRetain) {
             // this is the only place we add metadata so we can just overwrite what's there
             logger.trace("Adding 'retain' metadata tag to LLM request.");
@@ -852,631 +856,6 @@ public class Llm {
         }
 
         return builder;
-    }
-
-    /**
-     * Emulates function calling for models that don't natively support it. We have two approaches: 1. Schema-based: For
-     * models that support JSON schema in response_format 2. Text-based: For models without schema support, using text
-     * instructions
-     */
-    private StreamingResult emulateTools(StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext)
-            throws InterruptedException {
-        var tools = toolContext.toolSpecifications();
-        var enhancedTools = ensureThinkToolPresent(tools);
-        var toolChoice = toolContext.toolChoice();
-        if (contextManager.getService().supportsJsonSchema(model)) {
-            return emulateToolsUsingJsonSchema(messages, enhancedTools, toolChoice, toolContext);
-        } else {
-            return emulateToolsUsingJsonObject(messages, enhancedTools, toolChoice, toolContext);
-        }
-    }
-
-    /** Common helper for emulating function calling tools using JSON output */
-    private StreamingResult emulateToolsCommon(
-            List<ChatMessage> messages,
-            List<ToolSpecification> tools,
-            ToolChoice toolChoice,
-            Function<List<ChatMessage>, ChatRequest> requestBuilder,
-            Function<Throwable, String> retryInstructionsProvider,
-            ToolContext toolContext)
-            throws InterruptedException {
-        assert !tools.isEmpty();
-
-        // Pre-process messages to combine tool results with subsequent user messages for emulation
-        List<ChatMessage> initialProcessedMessages = Llm.emulateToolExecutionResults(messages);
-        validateEmulatedToolMessages(initialProcessedMessages);
-
-        final int maxTries = 3;
-        List<ChatMessage> attemptMessages = new ArrayList<>(initialProcessedMessages);
-
-        ChatRequest lastRequest; // for logging
-        StreamingResult finalResult; // what we will return (and have logged)
-
-        for (int attempt = 1; true; attempt++) {
-            validateEmulatedToolMessages(attemptMessages);
-
-            // Perform the request for THIS attempt
-            lastRequest = requestBuilder.apply(attemptMessages);
-            StreamingResult rawResult = doSingleStreamingCall(lastRequest, true);
-
-            // Fast-fail on transport / HTTP errors (no retry)
-            if (rawResult.error() != null) {
-                finalResult = rawResult; // will be logged below
-                break;
-            }
-
-            // Now parse the JSON
-            try {
-                var parseResult = parseJsonToToolRequests(rawResult, objectMapper);
-
-                if (toolChoice == ToolChoice.REQUIRED
-                        && parseResult.toolRequests().isEmpty()) {
-                    // REQUIRED but none produced – force retry
-                    throw new IllegalArgumentException("No 'tool_calls' found in JSON");
-                }
-
-                if (echo) {
-                    // output the LLM's thinking
-                    String textToOutput = parseResult.text();
-                    if (textToOutput != null && !textToOutput.isBlank()) {
-                        io.llmOutput(textToOutput, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
-                    }
-                }
-
-                // Validate tool call arguments using ToolRegistry; on failure, retry with error feedback
-                var tr = toolContext.toolRegistry();
-                var validationErrors = new ArrayList<String>();
-                for (var ter : parseResult.toolRequests()) {
-                    try {
-                        tr.validateTool(ter);
-                    } catch (ToolRegistry.ToolValidationException e) {
-                        validationErrors.add(ter.name() + ": " + e.getMessage());
-                    }
-                }
-                if (!validationErrors.isEmpty()) {
-                    if (attempt == maxTries) {
-                        finalResult = new StreamingResult(
-                                null,
-                                new IllegalArgumentException(
-                                        "Tool call validation failed: " + String.join("; ", validationErrors)),
-                                rawResult.retries());
-                        break;
-                    }
-                    if (echo) {
-                        io.llmOutput(
-                                "\nTool call validation errors:\n- " + String.join("\n- ", validationErrors),
-                                ChatMessageType.CUSTOM,
-                                LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
-                    }
-                    attemptMessages.add(new AiMessage(rawResult.text()));
-                    attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(new IllegalArgumentException(
-                            "Tool call validation failed: " + String.join("; ", validationErrors)))));
-                    continue;
-                }
-
-                // we got tool calls, or they're optional -- we're done
-                finalResult = new StreamingResult(parseResult, null, rawResult.retries());
-                break;
-            } catch (IllegalArgumentException parseError) {
-                // JSON invalid or lacked tool_calls
-                if (attempt == maxTries) {
-                    // create dummy result for failure
-                    finalResult = new StreamingResult(null, parseError, rawResult.retries());
-                    break; // out of retry loop
-                }
-
-                // Add the model’s invalid output and user instructions, then retry
-                io.llmOutput(
-                        "\nRetry " + attempt + "/" + (maxTries - 1)
-                                + ": invalid JSON response; requesting proper format.",
-                        ChatMessageType.CUSTOM,
-                        LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
-                var txt = rawResult.text();
-                attemptMessages.add(new AiMessage(txt));
-                attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(parseError)));
-            }
-        }
-
-        // All retries exhausted OR fatal error occurred
-        return finalResult;
-    }
-
-    /**
-     * Preprocesses messages for models requiring tool emulation by combining sequences of ToolExecutionResultMessages
-     * with the *subsequent* UserMessage.
-     *
-     * <p>If a sequence of one or more ToolExecutionResultMessages is immediately followed by a UserMessage, the results
-     * are formatted as text and prepended to the UserMessage's content. If the results are followed by a different
-     * message type or are at the end of the list. Throws IllegalArgumentException if this condition is violated.
-     *
-     * @param originalMessages The original list of messages.
-     * @return A new list with tool results folded into subsequent UserMessages, or the original list if no
-     *     modifications were needed.
-     * @throws IllegalArgumentException if ToolExecutionResultMessages are not followed by a UserMessage.
-     */
-    static List<ChatMessage> emulateToolExecutionResults(List<ChatMessage> originalMessages) {
-        var processedMessages = new ArrayList<ChatMessage>();
-        var pendingTerms = new ArrayList<ToolExecutionResultMessage>(); // Keep as ArrayList for internal modification
-        for (var msg : originalMessages) {
-            if (msg instanceof ToolExecutionResultMessage term) {
-                // Collect consecutive tool results to group together
-                pendingTerms.add(term);
-                continue;
-            }
-
-            if (!pendingTerms.isEmpty()) {
-                // Current message is not a tool result. Check if we have pending results.
-                String formattedResults = formatToolResults(pendingTerms);
-                if (msg instanceof UserMessage userMessage) {
-                    // Combine pending results with this user message
-                    String combinedContent = formattedResults + "\n" + Messages.getText(userMessage);
-                    UserMessage updatedUserMessage = new UserMessage(userMessage.name(), combinedContent);
-                    processedMessages.add(updatedUserMessage);
-                    logger.trace("Prepended {} tool result(s) to subsequent user message.", pendingTerms.size());
-
-                    pendingTerms.clear();
-                    continue;
-                } else {
-                    // Create a UserMessage to hold the tool calls
-                    processedMessages.add(new UserMessage(formattedResults));
-                    pendingTerms.clear();
-                    // do not continue, fall through to process the current msg
-                }
-            }
-
-            if (msg instanceof AiMessage) {
-                // pull the tool requests into plaintext, OpenAi is fine with it but it confuses Anthropic and Gemini
-                // to see tool requests in the history if there are no tools defined for the current request
-                processedMessages.add(new AiMessage(Messages.getRepr(msg)));
-                continue;
-            }
-
-            // else just add the original message
-            processedMessages.add(msg);
-        }
-
-        // Handle any trailing tool results - this is invalid.
-        if (!pendingTerms.isEmpty()) {
-            var formattedResults = formatToolResults(pendingTerms);
-            processedMessages.add(new UserMessage(formattedResults));
-        }
-
-        validateEmulatedToolMessages(processedMessages);
-        return processedMessages;
-    }
-
-    /** Verifies that the given messages contain no native ToolExecutionRequests or ToolExecutionResultMessages */
-    private static void validateEmulatedToolMessages(List<ChatMessage> messages) {
-        assert !containsRawToolResultMessages(messages)
-                : "emulateToolExecutionResults failed to fold a ToolExecutionResultMessage: "
-                        + summarizeMessages(messages);
-        assert !containsAiToolExecutionRequests(messages)
-                : "emulateToolExecutionResults left AI tool requests: " + summarizeMessages(messages);
-    }
-
-    private static String formatToolResults(
-            List<ToolExecutionResultMessage> pendingTerms) { // Changed parameter to List
-        return pendingTerms.stream()
-                .map(tr ->
-                        """
-                             <toolcall id="%s" name="%s">
-                             %s
-                             </toolcall>
-                             """
-                                .formatted(tr.id(), tr.toolName(), tr.text()))
-                .collect(Collectors.joining("\n"));
-    }
-
-    private static boolean containsRawToolResultMessages(List<ChatMessage> messages) {
-        return messages.stream().anyMatch(m -> m instanceof ToolExecutionResultMessage);
-    }
-
-    private static boolean containsAiToolExecutionRequests(List<ChatMessage> messages) {
-        return messages.stream()
-                .filter(m -> m instanceof AiMessage)
-                .map(m -> (AiMessage) m)
-                .anyMatch(AiMessage::hasToolExecutionRequests);
-    }
-
-    private static String summarizeMessages(List<ChatMessage> messages) {
-        return messages.stream()
-                .map(m -> {
-                    if (m instanceof SystemMessage) return "System";
-                    if (m instanceof UserMessage) return "User";
-                    if (m instanceof ToolExecutionResultMessage trm)
-                        return "TER(" + trm.toolName() + ":" + trm.id() + ")";
-                    if (m instanceof AiMessage ai) return ai.hasToolExecutionRequests() ? "AI(toolCalls)" : "AI";
-                    return m.getClass().getSimpleName();
-                })
-                .collect(Collectors.joining(" -> "));
-    }
-
-    /** Emulates function calling for models that support structured output with JSON schema */
-    private StreamingResult emulateToolsUsingJsonSchema(
-            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, ToolContext toolContext)
-            throws InterruptedException {
-        // Build a top-level JSON schema with "tool_calls" as an array of objects
-        var toolNames = tools.stream().map(ToolSpecification::name).distinct().toList();
-        var schema = buildToolCallsSchema(toolNames);
-        var responseFormat = ResponseFormat.builder()
-                .type(ResponseFormatType.JSON)
-                .jsonSchema(schema)
-                .build();
-        var requestParams = getParamsBuilder().responseFormat(responseFormat).build();
-
-        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) ->
-                """
-                %s
-                Please ensure you only return a JSON object matching the schema:
-                  {
-                    "tool_calls": [
-                      {
-                        "name": "...",
-                        "arguments": { ... }
-                      },
-                      {
-                        "name": "...",
-                        "arguments": { ... }
-                      }
-                    ]
-                  }
-                """
-                        .formatted(
-                                e == null
-                                        ? ""
-                                        : "Your previous response was invalid or did not contain tool_calls: "
-                                                + e.getMessage());
-
-        // We'll add a user reminder to produce a JSON that matches the schema
-        var instructions = getInstructions(tools, retryInstructionsProvider);
-        var modified = new UserMessage(Messages.getText(messages.getLast()) + "\n\n" + instructions);
-        var initialMessages = new ArrayList<>(messages);
-        initialMessages.set(initialMessages.size() - 1, modified);
-        logger.trace("Modified messages are {}", initialMessages);
-
-        // Build request creator function
-        Function<List<ChatMessage>, ChatRequest> requestBuilder = attemptMessages -> ChatRequest.builder()
-                .messages(attemptMessages)
-                .parameters(requestParams)
-                .build();
-
-        return emulateToolsCommon(
-                initialMessages, tools, toolChoice, requestBuilder, retryInstructionsProvider, toolContext);
-    }
-
-    /** Emulates function calling for models that don't support schema but can output JSON based on text instructions */
-    private StreamingResult emulateToolsUsingJsonObject(
-            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, ToolContext toolContext)
-            throws InterruptedException {
-        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) ->
-                """
-                %s
-                Respond with a single JSON object containing a `tool_calls` array. Each entry in the array represents one invocation of a tool.
-                No additional keys or text are allowed outside of that JSON object.
-                Each tool call must have a `name` that matches one of the available tools, and an `arguments` object containing valid parameters as required by that tool.
-
-                Here is the format visualized, where $foo indicates that you will make appropriate substitutions for the given tool call
-                {
-                  "tool_calls": [
-                    {
-                      "name": "$tool_name1",
-                      "arguments": {
-                        "$arg1": "$value1",
-                        "$arg2": "$value2",
-                        ...
-                      }
-                    },
-                    {
-                      "name": "$tool_name2",
-                      "arguments": {
-                        "$arg3": "$value3",
-                        "$arg4": "$value4",
-                        ...
-                      }
-                    }
-                  ]
-                }
-                """
-                        .formatted(e == null ? "" : "Your previous response was not valid: " + e.getMessage());
-
-        // Check if we've already added tool instructions to any message
-        boolean instructionsPresent = messages.stream()
-                .anyMatch(m -> Messages.getText(m).contains("available tools:")
-                        && Messages.getText(m).contains("tool_calls"));
-
-        logger.trace(
-                "Tool emulation sending {} messages with instructionsPresent={}", messages.size(), instructionsPresent);
-
-        // Prepare messages, possibly adding instructions
-        List<ChatMessage> initialMessages = new ArrayList<>(messages);
-        if (!instructionsPresent) {
-            var instructions = getInstructions(tools, retryInstructionsProvider);
-            var lastMessage = messages.getLast();
-            var modified = new UserMessage(Messages.getText(lastMessage) + "\n\n" + instructions);
-            initialMessages.set(initialMessages.size() - 1, modified);
-            logger.trace("Added tool instructions to last message");
-        }
-
-        // Simple request builder for JSON output format
-        Function<List<ChatMessage>, ChatRequest> requestBuilder = attemptMessages -> ChatRequest.builder()
-                .messages(attemptMessages)
-                .parameters(getParamsBuilder()
-                        .responseFormat(ResponseFormat.builder()
-                                .type(ResponseFormatType.JSON)
-                                .build())
-                        .build())
-                .build();
-
-        return emulateToolsCommon(
-                initialMessages, tools, toolChoice, requestBuilder, retryInstructionsProvider, toolContext);
-    }
-
-    /**
-     * Builds a JSON schema describing exactly: { "tool_calls": [ { "name": "oneOfTheTools", "arguments": { ...
-     * arbitrary object ...} } ] } We do not attempt fancy anyOf references here (not all providers support them).
-     */
-    private static JsonSchema buildToolCallsSchema(List<String> toolNames) {
-        // name => enum of tool names
-        var nameSchema = JsonEnumSchema.builder()
-                .enumValues(toolNames)
-                .description("Name of the tool to call; must be one of: " + String.join(", ", toolNames))
-                .build();
-
-        // arguments => free-form object
-        // FIXME this should really use anyOf, but that's not supported by LLMs today
-        var argumentsSchema = JsonObjectSchema.builder()
-                .description("Tool arguments object (specific structure depends on the tool).")
-                .build();
-
-        // each item => { name, arguments }
-        var itemSchema = JsonObjectSchema.builder()
-                .addProperty("name", nameSchema)
-                .addProperty("arguments", argumentsSchema)
-                .required("name", "arguments")
-                .build();
-
-        // array property "tool_calls"
-        var toolCallsArray = JsonArraySchema.builder()
-                .description("All tool calls to be made in sequence.")
-                .items(itemSchema)
-                .build();
-
-        // top-level object
-        var rootSchema = JsonObjectSchema.builder()
-                .addProperty("tool_calls", toolCallsArray)
-                .required("tool_calls")
-                .description("Top-level object containing a 'tool_calls' array describing calls to be made.")
-                .build();
-
-        return JsonSchema.builder().name("ToolCalls").rootElement(rootSchema).build();
-    }
-
-    /**
-     * Parse the model's JSON response into a ChatResponse that includes ToolExecutionRequests. Expects the top-level to
-     * have a "tool_calls" array (or the root might be that array).
-     */
-    @VisibleForTesting
-    NullSafeResponse parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
-        // In the primary call path (emulateToolsCommon), if result.error() is null,
-        // then result.chatResponse() is guaranteed to be non-null by StreamingResult's invariant.
-        // This method is called in that context.
-        NullSafeResponse cResponse = castNonNull(result.chatResponse());
-        String rawText = cResponse.text() == null ? "" : cResponse.text();
-        logger.trace("parseJsonToToolRequests: rawText={}", rawText);
-
-        // First try to parse the entire response as JSON
-        JsonNode root;
-        try {
-            root = mapper.readTree(rawText);
-        } catch (JsonProcessingException initialParseError) {
-            // If direct parsing fails, extract JSON from text by finding the first '{' and last '}'
-            int firstBrace = rawText.indexOf('{');
-            int lastBrace = rawText.lastIndexOf('}');
-
-            if (firstBrace == -1 || lastBrace == -1 || lastBrace < firstBrace) {
-                logger.debug("Invalid JSON: no braces found in response", initialParseError);
-                throw new IllegalArgumentException("Invalid JSON response: " + initialParseError.getMessage());
-            }
-
-            // Extract text between braces, inclusive
-            String extractedJson = rawText.substring(firstBrace, lastBrace + 1);
-
-            // Try parsing the extracted content
-            try {
-                root = mapper.readTree(extractedJson);
-            } catch (JsonProcessingException extractionParseError) {
-                // Extracted content is also invalid JSON
-                logger.debug("Invalid JSON extracted from response", extractionParseError);
-                throw new IllegalArgumentException("Invalid JSON in response: " + extractionParseError.getMessage());
-            }
-        }
-
-        JsonNode toolCallsNode;
-        if (root.has("tool_calls") && root.get("tool_calls").isArray()) {
-            // happy path, this is what we asked for
-            toolCallsNode = root.get("tool_calls");
-        } else if (root.isArray()) {
-            // some models like to give a top-level array instead
-            toolCallsNode = root;
-        } else {
-            throw new IllegalArgumentException("Response does not contain a 'tool_calls' array");
-        }
-
-        // Transform json into tool execution requests, special-casing "think" calls
-        var toolExecutionRequests = new ArrayList<ToolExecutionRequest>();
-        var thinkReasoning = new ArrayList<String>();
-
-        for (int i = 0; i < toolCallsNode.size(); i++) {
-            JsonNode toolCall = toolCallsNode.get(i);
-            if (!toolCall.has("name") || !toolCall.has("arguments")) {
-                throw new IllegalArgumentException(
-                        "Tool call object is missing 'name' or 'arguments' field at index " + i);
-            }
-
-            String toolName = toolCall.get("name").asText();
-            JsonNode arguments = toolCall.get("arguments");
-
-            if (!arguments.isObject()) {
-                throw new IllegalArgumentException("tool_calls[" + i + "] provided non-object arguments " + arguments);
-            }
-            String argsStr = arguments.toString(); // Preserve raw JSON for execution
-
-            if ("think".equals(toolName)) {
-                // Extract reasoning from the "think" tool
-                if (!arguments.has("reasoning") || !arguments.get("reasoning").isTextual()) {
-                    throw new IllegalArgumentException(
-                            "Found 'think' tool call without a textual 'reasoning' argument at index " + i);
-                }
-                thinkReasoning.add(arguments.get("reasoning").asText());
-                // Don't add "think" to actual tool execution requests
-                continue;
-            }
-            var toolExecutionRequest = ToolExecutionRequest.builder()
-                    .id(String.valueOf(toolRequestIdSeq.getAndIncrement()))
-                    .name(toolName)
-                    .arguments(argsStr)
-                    .build();
-            toolExecutionRequests.add(toolExecutionRequest);
-        }
-        logger.trace("Generated tool execution requests: {}", toolExecutionRequests);
-
-        String mergedReasoning;
-        if (thinkReasoning.isEmpty()) {
-            mergedReasoning = null;
-        } else {
-            mergedReasoning = String.join("\n\n", thinkReasoning); // Merged reasoning from think tool
-        }
-
-        // Pass the original raw response alongside the parsed one
-        return new NullSafeResponse("", mergedReasoning, toolExecutionRequests, result.originalResponse());
-    }
-
-    // package-private for testing
-    static String getInstructions(
-            List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
-        String toolsDescription = tools.stream()
-                .map(tool -> {
-                    var props = tool.parameters() == null
-                            ? Map.<String, JsonSchemaElement>of()
-                            : tool.parameters().properties();
-                    var parametersInfo = props.entrySet().stream()
-                            .map(entry -> {
-                                var schema = entry.getValue();
-                                String description;
-                                String type;
-
-                                // this seems unnecessarily clunky but the common interface does not offer anything
-                                // useful
-                                switch (schema) {
-                                    case JsonStringSchema jsSchema -> {
-                                        description = jsSchema.description();
-                                        type = "string";
-                                    }
-                                    case JsonArraySchema jaSchema -> {
-                                        description = jaSchema.description();
-                                        var itemSchema = jaSchema.items();
-                                        String itemType =
-                                                switch (itemSchema) {
-                                                    case JsonStringSchema __ -> "string";
-                                                    case JsonIntegerSchema __ -> "integer";
-                                                    case JsonNumberSchema __ -> "number";
-                                                    case JsonBooleanSchema __ -> "boolean";
-                                                    case JsonObjectSchema __ -> "object";
-                                                    default ->
-                                                        throw new IllegalArgumentException(
-                                                                "Unsupported array item type: " + itemSchema);
-                                                };
-                                        type = "array of %s".formatted(itemType);
-                                    }
-                                    case JsonIntegerSchema jiSchema -> {
-                                        description = jiSchema.description();
-                                        type = "integer";
-                                    }
-                                    case JsonNumberSchema jnSchema -> {
-                                        description = jnSchema.description();
-                                        type = "number";
-                                    }
-                                    case JsonBooleanSchema jbSchema -> {
-                                        description = jbSchema.description();
-                                        type = "boolean";
-                                    }
-                                    case JsonObjectSchema joSchema -> {
-                                        description = joSchema.description();
-                                        type = "map";
-                                    }
-                                    default -> throw new IllegalArgumentException("Unsupported schema type: " + schema);
-                                }
-                                assert description != null : "null description for " + entry;
-
-                                return """
-                                <parameter name="%s" type="%s" required="%s">
-                                %s
-                                </parameter>
-                                """
-                                        .formatted(
-                                                entry.getKey(),
-                                                type,
-                                                requireNonNull(tool.parameters())
-                                                        .required()
-                                                        .contains(entry.getKey()),
-                                                description);
-                            })
-                            .collect(Collectors.joining("\n"));
-
-                    return """
-                    <tool name="%s">
-                    %s
-                    %s
-                    </tool>
-                    """
-                            .formatted(
-                                    tool.name(),
-                                    tool.description(),
-                                    parametersInfo.isEmpty() ? "(No parameters)" : parametersInfo);
-                })
-                .collect(Collectors.joining("\n"));
-
-        // if you change this you probably also need to change emulatedToolInstructionsPresent
-        return """
-                %d available tools:
-                %s
-
-                %s
-
-                Include all the tool calls necessary to satisfy the request in a single object!
-                """
-                .formatted(tools.size(), toolsDescription, retryInstructionsProvider.apply(null));
-    }
-
-    /**
-     * Ensures the "think" tool is present in the tools list for emulation, but only for models that are *not*
-     * designated as "reasoning" models (which are expected to think implicitly). This provides a consistent way for
-     * non-reasoning models to reason through complex problems.
-     *
-     * @param originalTools The original list of tool specifications.
-     * @return A new list containing all original tools plus the think tool if not already present and the model is not
-     *     a designated reasoning model.
-     */
-    private List<ToolSpecification> ensureThinkToolPresent(List<ToolSpecification> originalTools) {
-        // Check if the think tool is already in the list
-        boolean hasThinkTool = originalTools.stream().anyMatch(tool -> "think".equals(tool.name()));
-        if (hasThinkTool) {
-            return originalTools;
-        }
-
-        // Add the think tool only if the model is not a reasoning model
-        if (!contextManager.getService().isReasoning(this.model)) {
-            logger.trace(
-                    "Adding 'think' tool for non-reasoning model {}",
-                    contextManager.getService().nameOf(this.model));
-            var enhancedTools = new ArrayList<>(originalTools);
-            enhancedTools.addAll(contextManager.getToolRegistry().getTools(List.of("think")));
-            return enhancedTools;
-        }
-        logger.trace(
-                "Skipping 'think' tool for reasoning model {}",
-                contextManager.getService().nameOf(this.model));
-        return originalTools;
     }
 
     /**
@@ -1593,20 +972,90 @@ public class Llm {
     }
 
     public record ResponseMetadata(
-            int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens, long elapsedMs) {
+            int inputTokens,
+            int cachedInputTokens,
+            int thinkingTokens,
+            int outputTokens,
+            long elapsedMs,
+            @Nullable String modelName,
+            @Nullable String finishReason,
+            @Nullable String created,
+            @Nullable String serviceTier,
+            @Nullable String error) {
         /**
          * Combines two ResponseMetadata objects by summing their token counts and elapsed time.
          * Handles null values: returns the other metadata if one is null.
+         * Note: categorical fields (modelName, etc.) are taken from the second operand if present.
          */
         public static @Nullable ResponseMetadata sum(@Nullable ResponseMetadata a, @Nullable ResponseMetadata b) {
             if (a == null) return b;
             if (b == null) return a;
+
+            // Track which fields overflowed so we emit a single log entry if any overflow occurs.
+            List<String> overflowedFields = new ArrayList<>();
+
+            int inputTokens;
+            try {
+                inputTokens = Math.addExact(a.inputTokens(), b.inputTokens());
+            } catch (ArithmeticException e) {
+                inputTokens = Integer.MAX_VALUE;
+                overflowedFields.add("inputTokens");
+            }
+
+            int cachedInputTokens;
+            try {
+                cachedInputTokens = Math.addExact(a.cachedInputTokens(), b.cachedInputTokens());
+            } catch (ArithmeticException e) {
+                cachedInputTokens = Integer.MAX_VALUE;
+                overflowedFields.add("cachedInputTokens");
+            }
+
+            int thinkingTokens;
+            try {
+                thinkingTokens = Math.addExact(a.thinkingTokens(), b.thinkingTokens());
+            } catch (ArithmeticException e) {
+                thinkingTokens = Integer.MAX_VALUE;
+                overflowedFields.add("thinkingTokens");
+            }
+
+            int outputTokens;
+            try {
+                outputTokens = Math.addExact(a.outputTokens(), b.outputTokens());
+            } catch (ArithmeticException e) {
+                outputTokens = Integer.MAX_VALUE;
+                overflowedFields.add("outputTokens");
+            }
+
+            long elapsedMs;
+            try {
+                elapsedMs = Math.addExact(a.elapsedMs(), b.elapsedMs());
+            } catch (ArithmeticException e) {
+                elapsedMs = Long.MAX_VALUE;
+                overflowedFields.add("elapsedMs");
+            }
+
+            if (!overflowedFields.isEmpty()) {
+                // Summarize the overflow event in a single log entry to avoid per-field log spam.
+                // Include the two source ResponseMetadata instances for context (their toString shows fields).
+                logger.warn(
+                        "Overflow summing ResponseMetadata for fields: {}. Values: a={}, b={}. Results clamped where necessary.",
+                        String.join(", ", overflowedFields),
+                        a,
+                        b);
+            }
+
+            // Keep categorical-field behavior unchanged: prefer non-null values from b, falling back to a.
             return new ResponseMetadata(
-                    a.inputTokens() + b.inputTokens(),
-                    a.cachedInputTokens() + b.cachedInputTokens(),
-                    a.thinkingTokens() + b.thinkingTokens(),
-                    a.outputTokens() + b.outputTokens(),
-                    a.elapsedMs() + b.elapsedMs());
+                    inputTokens,
+                    cachedInputTokens,
+                    thinkingTokens,
+                    outputTokens,
+                    elapsedMs,
+                    b.modelName() != null ? b.modelName() : a.modelName(),
+                    b.finishReason() != null ? b.finishReason() : a.finishReason(),
+                    b.created() != null ? b.created() : a.created(),
+                    b.serviceTier() != null ? b.serviceTier() : a.serviceTier(),
+                    b.error() != null ? b.error() : a.error());
         }
     }
 
@@ -1651,10 +1100,13 @@ public class Llm {
         }
 
         public @Nullable ResponseMetadata metadata() {
-            if (originalResponse() == null) {
-                return null;
+            var response = originalResponse();
+            if (response == null) {
+                return error == null
+                        ? null
+                        : new ResponseMetadata(0, 0, 0, 0, elapsedMs, null, null, null, null, error.getMessage());
             }
-            var usage = (OpenAiTokenUsage) originalResponse().tokenUsage();
+            var usage = (OpenAiTokenUsage) response.tokenUsage();
             if (usage == null) {
                 logger.warn("Response is present but tokenUsage is null. Litellm bug?");
                 return null;
@@ -1676,7 +1128,34 @@ public class Llm {
                 thinkingTokens = outputDetails.reasoningTokens();
             }
 
-            return new ResponseMetadata(inputTokens, cachedInputTokens, thinkingTokens, outputTokens, elapsedMs);
+            String modelName = response.metadata().modelName();
+            String finishReason = response.finishReason() == null
+                    ? null
+                    : response.finishReason().name();
+            String created = null;
+            String serviceTier = null;
+
+            if (response.metadata() instanceof dev.langchain4j.model.openai.OpenAiChatResponseMetadata meta) {
+                if (meta.created() != null) {
+                    created = LocalDateTime.ofInstant(
+                                    java.time.Instant.ofEpochSecond(meta.created()), ZoneId.systemDefault())
+                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                }
+                serviceTier =
+                        meta.serviceTier() == null ? null : meta.serviceTier().name();
+            }
+
+            return new ResponseMetadata(
+                    inputTokens,
+                    cachedInputTokens,
+                    thinkingTokens,
+                    outputTokens,
+                    elapsedMs,
+                    modelName,
+                    finishReason,
+                    created,
+                    serviceTier,
+                    error == null ? null : error.getMessage());
         }
 
         public String text() {
@@ -1741,11 +1220,20 @@ public class Llm {
             try {
                 toolRequestsJson =
                         objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(ai.toolExecutionRequests());
-                if (originalResponse() != null) {
-                    metadataJson = objectMapper
-                            .writerWithDefaultPrettyPrinter()
-                            .writeValueAsString(originalResponse().metadata());
+                Map<String, Object> metadata = new HashMap<>();
+                var meta = metadata();
+                if (meta != null) {
+                    metadata.put("inputTokens", meta.inputTokens());
+                    metadata.put("cachedInputTokens", meta.cachedInputTokens());
+                    metadata.put("thinkingTokens", meta.thinkingTokens());
+                    metadata.put("outputTokens", meta.outputTokens());
+                    if (meta.modelName() != null) metadata.put("modelName", meta.modelName());
+                    if (meta.finishReason() != null) metadata.put("finishReason", meta.finishReason());
+                    if (meta.created() != null) metadata.put("created", meta.created());
+                    if (meta.serviceTier() != null) metadata.put("serviceTier", meta.serviceTier());
                 }
+                metadata.put("elapsedMs", elapsedMs);
+                metadataJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(metadata);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to serialize components for formatted()", e);
             }
@@ -1777,7 +1265,7 @@ public class Llm {
          */
         public String getDescription() {
             if (error != null) {
-                return requireNonNull(error.getMessage(), error.toString());
+                return requireNonNullElse(error.getMessage(), error.toString());
             }
 
             var cr = castNonNull(chatResponse);
@@ -1795,7 +1283,7 @@ public class Llm {
         }
 
         public StreamingResult withRetryCount(int retries) {
-            return new StreamingResult(chatResponse, error, retries);
+            return new StreamingResult(chatResponse, error, retries, elapsedMs);
         }
     }
 

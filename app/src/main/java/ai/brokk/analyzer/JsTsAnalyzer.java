@@ -3,11 +3,13 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_CALL_CAPTURE_NAME;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -45,7 +47,16 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     protected JsTsAnalyzer(IProject project, Language language, AnalyzerState state, ProgressListener listener) {
-        super(project, language, state, listener);
+        this(project, language, state, listener, null);
+    }
+
+    protected JsTsAnalyzer(
+            IProject project,
+            Language language,
+            AnalyzerState state,
+            ProgressListener listener,
+            @Nullable AnalyzerCache cache) {
+        super(project, language, state, listener, cache);
     }
 
     @Override
@@ -109,7 +120,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
         createModulesFromJavaScriptLikeImports(
                 file,
                 localImportStatements,
@@ -118,7 +130,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 localCuByFqName,
                 localTopLevelCUs,
                 localSignatures,
-                localSourceRanges);
+                localSourceRanges,
+                localCodeUnitsBySymbol);
     }
 
     protected static void createModulesFromJavaScriptLikeImports(
@@ -129,7 +142,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             Map<String, CodeUnit> localCuByFqName,
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
         if (!localImportStatements.isEmpty()) {
             String moduleShortName = file.getFileName();
             CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
@@ -151,6 +165,15 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 localSourceRanges
                         .computeIfAbsent(moduleCU, k -> new ArrayList<>())
                         .add(moduleRange);
+
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(moduleCU.identifier(), k -> new HashSet<>())
+                        .add(moduleCU);
+                if (!moduleCU.shortName().equals(moduleCU.identifier())) {
+                    localCodeUnitsBySymbol
+                            .computeIfAbsent(moduleCU.shortName(), k -> new HashSet<>())
+                            .add(moduleCU);
+                }
             }
         }
     }
@@ -354,5 +377,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 }
             }
         }
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return "constructor".equals(candidate.identifier());
     }
 }

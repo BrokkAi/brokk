@@ -30,8 +30,8 @@ public record UsagePrompt(String filterDescription, String candidateText, String
             Collection<CodeUnit> polymorphicMatches,
             boolean hierarchySupported,
             IAnalyzer analyzer,
-            String shortName,
-            int maxTokens) {
+            int maxTokens,
+            List<CodeUnit> overloads) {
         return build(
                 List.of(hit),
                 codeUnitTarget,
@@ -39,8 +39,8 @@ public record UsagePrompt(String filterDescription, String candidateText, String
                 polymorphicMatches,
                 hierarchySupported,
                 analyzer,
-                shortName,
-                maxTokens);
+                maxTokens,
+                overloads);
     }
 
     /**
@@ -52,8 +52,8 @@ public record UsagePrompt(String filterDescription, String candidateText, String
      * @param polymorphicMatches subclasses of the declaring class for the target method/field
      * @param hierarchySupported whether the analyzer supports type hierarchy resolution
      * @param analyzer used to retrieve import statements for the file containing the usage
-     * @param shortName the short name being searched (e.g., "A.method2")
      * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
+     * @param overloads list of overloaded code units to score against
      * @return UsagePrompt containing filterDescription, combined candidateText, and promptText
      */
     public static UsagePrompt build(
@@ -63,11 +63,12 @@ public record UsagePrompt(String filterDescription, String candidateText, String
             Collection<CodeUnit> polymorphicMatches,
             boolean hierarchySupported,
             IAnalyzer analyzer,
-            String shortName,
-            int maxTokens) {
+            int maxTokens,
+            List<CodeUnit> overloads) {
         if (hits.isEmpty()) {
             throw new IllegalArgumentException("hits must not be empty");
         }
+        assert !overloads.isEmpty() : "overloads must not be empty";
 
         UsageHit first = hits.get(0);
 
@@ -88,13 +89,23 @@ public record UsagePrompt(String filterDescription, String candidateText, String
                                     .collect(Collectors.joining(", ")));
         }
 
+        // Build overload info section
+        var overloadLines = new StringBuilder();
+        overloadLines.append("\nThe target has the following overloads (distinct signatures):");
+        for (int i = 0; i < overloads.size(); i++) {
+            var ol = overloads.get(i);
+            String sig = ol.hasSignature() ? ol.signature() : ol.shortName();
+            overloadLines.append("\n%d. %s".formatted(i + 1, sig));
+        }
+        overloadLines.append("\nReturn a JSON array of %d probabilities [p1, p2, ...] corresponding to each overload."
+                .formatted(overloads.size()));
+        String overloadSection = overloadLines.toString();
+
         // Filter description for RelevanceClassifier.relevanceScore
         String filterDescription =
                 """
                 Determine if the candidate snippet represents a usage of the %s %s, and not another symbol with the same name.
-                Symbols with the same name (that we do NOT want to match) are: %s.%s
-                Return a real number in [0.0, 1.0] representing your confidence that this snippet is referring to
-                %s."""
+                Symbols with the same name (that we do NOT want to match) are: %s.%s%s"""
                         .formatted(
                                 codeUnitTarget.kind().name(),
                                 codeUnitTarget.fqName(),
@@ -104,7 +115,7 @@ public record UsagePrompt(String filterDescription, String candidateText, String
                                                 .map(CodeUnit::fqName)
                                                 .collect(Collectors.joining(", ")),
                                 polyInfo,
-                                codeUnitTarget.fqName());
+                                overloadSection);
 
         // Gather imports (best effort)
         List<String> imports;

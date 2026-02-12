@@ -59,6 +59,7 @@ import picocli.CommandLine;
 @SuppressWarnings("NullAway.Init") // NullAway is upset that some fields are initialized in picocli's call()
 @CommandLine.Command(
         name = "brokk-cli",
+        version = "Brokk " + ai.brokk.BuildInfo.version,
         mixinStandardHelpOptions = true,
         description = "One-shot Brokk workspace and task runner.")
 public final class BprCli implements Callable<Integer> {
@@ -84,12 +85,6 @@ public final class BprCli implements Callable<Integer> {
             names = "--add-url",
             description = "Add content from a URL as a read-only fragment. Can be repeated.")
     private List<String> addUrls = new ArrayList<>();
-
-    @CommandLine.Option(
-            names = "--add-usage",
-            description =
-                    "Add the full source of all methods calling then given FQ symbol to the workspace for editing. Can be repeated.")
-    private List<String> addUsages = new ArrayList<>();
 
     @CommandLine.Option(
             names = "--add-summary-class",
@@ -162,6 +157,20 @@ public final class BprCli implements Callable<Integer> {
     private String brokkApiKey;
 
     @CommandLine.Option(
+            names = "--proxy",
+            description =
+                    "LLM proxy setting override: BROKK, LOCALHOST, or STAGING (uses BROKK_PROXY env var if not specified).")
+    @Nullable
+    private String proxySetting;
+
+    @CommandLine.Option(
+            names = "--favorite-models",
+            description =
+                    "Favorite models override as JSON array (uses BROKK_FAVORITE_MODELS env var if not specified).")
+    @Nullable
+    private String favoriteModelsJson;
+
+    @CommandLine.Option(
             names = "--deepscan",
             arity = "0..1",
             fallbackValue = "true",
@@ -196,9 +205,7 @@ public final class BprCli implements Callable<Integer> {
     private AbstractProject project;
 
     public static void main(String[] args) {
-        logger.info("Starting Brokk CLI...");
         System.setProperty("java.awt.headless", "true");
-
         int exitCode = new CommandLine(new BprCli()).execute(args);
         System.exit(exitCode);
     }
@@ -208,12 +215,34 @@ public final class BprCli implements Callable<Integer> {
     @Blocking
     public Integer call() throws Exception {
 
+        // Process favorite models override (CLI flag > env var)
+        // Must run before --list-models so that overridden models are visible
+        String effectiveFavoriteModels = favoriteModelsJson;
+        if (effectiveFavoriteModels == null || effectiveFavoriteModels.isBlank()) {
+            effectiveFavoriteModels = System.getenv("BROKK_FAVORITE_MODELS");
+        }
+        if (effectiveFavoriteModels != null && !effectiveFavoriteModels.isBlank()) {
+            try {
+                var objectMapper = AbstractProject.objectMapper;
+                var typeFactory = objectMapper.getTypeFactory();
+                var listType = typeFactory.constructCollectionType(List.class, Service.FavoriteModel.class);
+                List<Service.FavoriteModel> models = objectMapper.readValue(effectiveFavoriteModels, listType);
+                MainProject.setHeadlessFavoriteModelsOverride(models);
+                logger.info("Using CLI-specified favorite models ({} models)", models.size());
+            } catch (Exception e) {
+                System.err.println("Error parsing favorite models JSON: " + e.getMessage());
+                return 1;
+            }
+        }
+
         // Handle --list-models early exit
         if (listModels) {
             String modelsJson = getModelsJson();
             System.out.println(modelsJson);
             return 0;
         }
+
+        logger.info("Starting Brokk CLI...");
 
         // Validate --project is provided when not using --build-commit or --list-models
         if (projectPath == null) {
@@ -229,6 +258,23 @@ public final class BprCli implements Callable<Integer> {
         if (effectiveBrokkKey != null && !effectiveBrokkKey.isBlank()) {
             MainProject.setHeadlessBrokkApiKeyOverride(effectiveBrokkKey);
             logger.info("Using CLI-specified Brokk API key (length={})", effectiveBrokkKey.length());
+        }
+
+        // Process proxy setting override (CLI flag > env var)
+        String effectiveProxy = proxySetting;
+        if (effectiveProxy == null || effectiveProxy.isBlank()) {
+            effectiveProxy = System.getenv("BROKK_PROXY");
+        }
+        if (effectiveProxy != null && !effectiveProxy.isBlank()) {
+            try {
+                var setting = MainProject.LlmProxySetting.valueOf(effectiveProxy.toUpperCase(Locale.ROOT));
+                MainProject.setHeadlessProxySettingOverride(setting);
+                logger.info("Using CLI-specified proxy setting: {}", setting);
+            } catch (IllegalArgumentException e) {
+                System.err.println(
+                        "Unknown proxy setting: " + effectiveProxy + ". Valid values: BROKK, LOCALHOST, STAGING");
+                return 1;
+            }
         }
 
         // --- Action Validation ---
@@ -477,9 +523,6 @@ public final class BprCli implements Callable<Integer> {
         if (!addMethodSources.isEmpty()) tools.addMethodsToWorkspace(addMethodSources);
         for (var url : addUrls) {
             tools.addUrlContentsToWorkspace(url);
-        }
-        for (var symbol : addUsages) {
-            tools.addSymbolUsagesToWorkspace(symbol);
         }
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();
@@ -742,12 +785,15 @@ public final class BprCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
+                    var config = new SearchAgent.ScanConfig(true, null, true, false);
                     var agent = new SearchAgent(
-                            cm.liveContext(),
+                            context,
                             requireNonNull(lutzPrompt),
                             planModel,
                             SearchPrompts.Objective.TASKS_ONLY,
-                            scope);
+                            scope,
+                            cm.getIo(),
+                            config);
                     result = agent.execute();
                     context = scope.append(result);
 

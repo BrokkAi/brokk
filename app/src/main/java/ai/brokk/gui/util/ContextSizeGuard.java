@@ -88,7 +88,7 @@ public final class ContextSizeGuard {
                     logger.debug("Error walking directory {}: {}", path, e.getMessage());
                 }
             } else if (Files.isRegularFile(path)) {
-                if (pf.isBinary()) {
+                if (new ExternalFile(path.toAbsolutePath()).isBinary()) {
                     continue;
                 }
                 try {

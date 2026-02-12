@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import ai.brokk.project.IProject;
 import java.util.*;
@@ -30,17 +31,19 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         super(project, Languages.JAVA, listener);
     }
 
-    private JavaAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.JAVA, state, listener);
+    private JavaAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.JAVA, state, listener, cache);
     }
 
     public static JavaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new JavaAnalyzer(project, state, listener);
+        return new JavaAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new JavaAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new JavaAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -67,6 +70,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                     ANNOTATION_TYPE_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT, CONSTANT_DECLARATION),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of(ANNOTATION, MARKER_ANNOTATION),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -629,19 +633,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         //    with the same simple name has not already been added from an explicit import
         //    or a preceding wildcard import. This ensures deterministic resolution.
         for (String packageName : wildcardImportPackages) {
-            Optional<CodeUnit> pkgModule = getDefinitions(packageName).stream()
+            getDefinitions(packageName).stream()
                     .filter(CodeUnit::isModule)
-                    .findFirst();
-
-            if (pkgModule.isPresent()) {
-                for (CodeUnit child : getDirectChildren(pkgModule.get())) {
-                    if (child.isClass()
-                            && packageName.equals(child.packageName())
-                            && resolvedSimpleNames.add(child.identifier())) {
-                        resolved.add(child);
-                    }
-                }
-            }
+                    .flatMap(module -> getDirectChildren(module).stream())
+                    .filter(CodeUnit::isClass)
+                    .filter(child -> packageName.equals(child.packageName()))
+                    .filter(child -> resolvedSimpleNames.add(child.identifier()))
+                    .forEach(resolved::add);
         }
 
         return Collections.unmodifiableSet(resolved);
@@ -651,9 +649,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
-        // Pull cached raw supertypes from CodeUnitProperties
-        var rawNames = withCodeUnitProperties(
-                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).rawSupertypes());
+        // Pull raw supertypes lazily. This extracts the names from the AST on-demand.
+        var rawNames = getRawSupertypesLazily(cu);
 
         if (rawNames.isEmpty()) {
             return List.of();
@@ -819,7 +816,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
         if (modulePackageName.isBlank()) {
             return;
         }
@@ -1324,6 +1322,26 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 .replaceFirst("\\.\\*;$", "")
                 .replaceFirst(";$", "")
                 .trim();
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
+    }
+
+    @Override
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
+        if (!CaptureNames.CLASS_DEFINITION.equals(classCaptureName)) {
+            return null;
+        }
+
+        // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
+        // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)
+        String constructorName = enclosingClass.identifier();
+        String shortName = enclosingClass.shortName() + "." + constructorName;
+
+        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
     }
 
     @Override
