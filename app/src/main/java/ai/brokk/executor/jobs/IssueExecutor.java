@@ -567,7 +567,7 @@ public final class IssueExecutor {
         String body = details.markdownBody();
         String safeBody = body.isBlank() ? "(No description provided)" : body;
 
-        String issueHeader = "# GitHub Issue #" + issueNumber + ((!title.isBlank()) ? ": " + title : "");
+        String issueHeader = "# GitHub Issue #" + issueNumber + (!title.isBlank() ? ": " + title : "");
 
         var out = new StringBuilder();
         out.append(issueHeader).append("\n\n");
