@@ -18,6 +18,7 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.ArchitectPrompts;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
@@ -438,9 +439,18 @@ public class ArchitectAgent {
     @Tool(
             "Invoke the Search Agent to find information relevant to the given query. The Search Agent explores the codebase to find relevant identifiers and files. Searching is slower than adding known files directly, but useful when you don't know exact names or locations. ")
     public String callSearchAgent(
-            @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
-            throws ToolRegistry.FatalLlmException, InterruptedException {
-        logger.debug("callSearchAgent invoked with query: {}", query);
+            @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query,
+            @P(
+                            "The search mode: WORKSPACE to direct SearchAgent to add relevant fragments to the Workspace; ANSWER to answer the question and leave the Workspace untouched")
+                    String mode)
+            throws ToolRegistry.FatalLlmException {
+        logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
+
+        SearchPrompts.Objective objective =
+                switch (mode.toUpperCase()) {
+                    case "ANSWER" -> SearchPrompts.Objective.ANSWER_ONLY;
+                    default -> SearchPrompts.Objective.WORKSPACE_ONLY;
+                };
 
         // Acquire echo lock - only first caller gets to stream output
         boolean shouldEcho = searchAgentEchoInUse.compareAndSet(false, true);
@@ -454,8 +464,8 @@ public class ArchitectAgent {
             }
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
-            var searchAgent =
-                    new SearchAgent(context, query, planningModel, scope, saIo, SearchAgent.ScanConfig.noAppend());
+            var searchAgent = new SearchAgent(
+                    context, query, planningModel, objective, scope, saIo, SearchAgent.ScanConfig.noAppend());
             var result = searchAgent.execute();
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
