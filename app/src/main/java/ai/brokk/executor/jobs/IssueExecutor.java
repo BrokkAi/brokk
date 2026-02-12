@@ -19,7 +19,6 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import java.util.StringJoiner;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
@@ -568,43 +567,45 @@ public final class IssueExecutor {
         String body = details.markdownBody();
         String safeBody = (body != null && !body.isBlank()) ? body : "(No description provided)";
 
-        var sb = new StringJoiner("\n");
-
         String issueHeader =
                 "# GitHub Issue #" + issueNumber + ((title != null && !title.isBlank()) ? ": " + title : "");
-        sb.add(issueHeader);
-        sb.add("");
-        sb.add("## Description");
-        sb.add("");
-        sb.add(safeBody);
-        sb.add("");
+
+        var out = new StringBuilder();
+        out.append(issueHeader).append("\n\n");
+        out.append("## Description\n\n");
+        out.append(safeBody).append("\n\n");
 
         var comments = details.comments();
         if (comments != null && !comments.isEmpty()) {
-            sb.add("## Comments");
-            sb.add("");
+            out.append("## Comments\n\n");
             for (var comment : comments) {
                 String author = comment.author();
                 var created = comment.created();
                 String timestamp = created != null ? created.toString() : "unknown time";
-                sb.add("@" + (author != null ? author : "unknown") + " (" + timestamp + "):");
+                out.append("@")
+                        .append(author != null ? author : "unknown")
+                        .append(" (")
+                        .append(timestamp)
+                        .append("):\n");
+
                 String commentBody = comment.markdownBody();
-                sb.add(commentBody != null ? commentBody : "");
-                sb.add("");
+                if (commentBody != null && !commentBody.isBlank()) {
+                    out.append(commentBody);
+                }
+                out.append("\n\n");
             }
         }
 
         var attachments = details.attachmentUrls();
         if (attachments != null && !attachments.isEmpty()) {
-            sb.add("## Attached Images");
-            sb.add("");
+            out.append("## Attached Images\n\n");
             for (var uri : attachments) {
-                sb.add("- " + uri);
+                out.append("- ").append(uri).append("\n");
             }
-            sb.add("");
+            out.append("\n");
         }
 
-        return sb.toString();
+        return out.toString();
     }
 
     static boolean issueHasDiagnosisMarker(IssueDetails details) {
