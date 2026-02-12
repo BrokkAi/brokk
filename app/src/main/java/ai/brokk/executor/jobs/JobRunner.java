@@ -19,6 +19,7 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -1520,6 +1521,33 @@ public final class JobRunner {
 
                                         // loadDetails expects issue ID like "#123"
                                         var issueDetails = githubIssueService.loadDetails("#" + issueNumber);
+
+                                        // Capture images from issue attachments into the context
+                                        var attachmentUrls = issueDetails.attachmentUrls();
+                                        if (attachmentUrls != null && !attachmentUrls.isEmpty()) {
+                                            try {
+                                                var httpClient = auth.authenticatedClient();
+                                                int capturedCount = ImageUtil.captureIssueImages(
+                                                        attachmentUrls,
+                                                        httpClient,
+                                                        (image, description) ->
+                                                                cm.addPastedImageFragment(image, description));
+                                                if (capturedCount > 0) {
+                                                    logger.info(
+                                                            "ISSUE_DIAGNOSE job {}: captured {} image(s) from issue #{}",
+                                                            jobId,
+                                                            capturedCount,
+                                                            issueNumber);
+                                                }
+                                            } catch (Exception e) {
+                                                logger.warn(
+                                                        "ISSUE_DIAGNOSE job {}: failed to capture images from issue #{}: {}",
+                                                        jobId,
+                                                        issueNumber,
+                                                        e.getMessage(),
+                                                        e);
+                                            }
+                                        }
 
                                         String diagnosePrompt =
                                                 formatIssueDiagnosePrompt(issueDetails, issueNumber.intValue());

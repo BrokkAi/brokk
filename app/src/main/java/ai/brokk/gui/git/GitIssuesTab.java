@@ -1319,48 +1319,30 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     private int processAndCaptureImagesFromDetails(IssueDetails details) {
         IssueHeader header = details.header();
-        List<URI> attachmentUris = details.attachmentUrls(); // Already extracted by IssueService
+        List<URI> attachmentUris = details.attachmentUrls();
         if (attachmentUris.isEmpty()) {
             return 0;
         }
 
-        int capturedImageCount = 0;
         OkHttpClient clientToUse;
         try {
-            clientToUse = issueService.httpClient(); // Use authenticated client from service
+            clientToUse = issueService.httpClient();
         } catch (IOException e) {
             logger.error(
                     "Failed to get authenticated client from IssueService for image download, falling back. Error: {}",
                     e.getMessage());
-            // Fallback to the one initialized in GitIssuesTab constructor (might be unauthenticated)
-            clientToUse = this.httpClient; // Assumes this.httpClient is still available and initialized
+            clientToUse = this.httpClient;
             chrome.showNotification(
                     IConsoleIO.NotificationRole.INFO,
                     "Could not get authenticated client for image download. Private images might not load. Error: "
                             + e.getMessage());
         }
 
-        for (URI imageUri : attachmentUris) {
-            try {
-                if (ImageUtil.isImageUri(imageUri, clientToUse)) {
-                    chrome.showNotification(
-                            IConsoleIO.NotificationRole.INFO, "Downloading image: " + imageUri.toString());
-                    @Nullable Image image = ImageUtil.downloadImage(imageUri, clientToUse);
-                    if (image == null) {
-                        logger.warn("Failed to download image identified by ImageUtil: {}", imageUri.toString());
-                        chrome.toolError("Failed to download image: " + imageUri.toString());
-                    } else {
-                        String description = String.format("Issue %s: Image", header.id());
-                        contextManager.addPastedImageFragment(image, description);
-                        capturedImageCount++;
-                    }
-                }
-            } catch (Exception e) {
-                logger.error("Error downloading image: {}", imageUri.toString(), e);
-                chrome.toolError("Error downloading image: " + imageUri.toString() + " - " + e.getMessage());
-            }
-        }
-        return capturedImageCount;
+        String issueId = header.id();
+        return ImageUtil.captureIssueImages(attachmentUris, clientToUse, (image, description) -> {
+            String issueDescription = String.format("Issue %s: Image", issueId);
+            contextManager.addPastedImageFragment(image, issueDescription);
+        });
     }
 
     private void copySelectedIssueDescription() {
