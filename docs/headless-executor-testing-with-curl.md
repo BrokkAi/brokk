@@ -671,6 +671,39 @@ JSON
 - Skips duplicate comments; falls back to PR comment if inline fails
 - `codeModel` is ignored (no code generation)
 
+### ISSUE_WRITER Mode (Create GitHub Issue)
+
+ISSUE_WRITER mode performs read-only repository discovery to draft a high-quality issue report, then creates a new GitHub issue via the GitHub API.
+
+#### Standard Endpoint with Tags
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "taskInput": "Create a GitHub issue describing the NPE when AuthenticationProvider receives a null user, including code evidence.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ISSUE_WRITER",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo"
+  }
+}
+JSON
+```
+
+**Key characteristics:**
+- Read-only to the local repo (no edits, commits, or branch operations)
+- Uses repository discovery to gather evidence and draft issue title/body
+- Creates a new GitHub issue in the target repository
+- Requires `plannerModel` and GitHub tags: `github_token`, `repo_owner`, `repo_name`
+
 ### ISSUE Mode (Automated Issue Resolution)
 
 ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (controlled by `buildSettings.maxBuildAttempts`, per task).
