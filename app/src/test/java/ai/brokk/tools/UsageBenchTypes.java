@@ -15,6 +15,7 @@ public class UsageBenchTypes {
     public record ProgramUsages(@JsonProperty("codeUnits") List<CodeUnitUsages> codeUnits) {}
 
     public record CodeUnitUsages(
+            @JsonProperty("declarationLineNumber") int declarationLineNumber,
             @JsonProperty("fullyQualifiedName") String fullyQualifiedName,
             @JsonProperty("type") String type,
             @JsonProperty("usages") List<UsageLocation> usages) {}
