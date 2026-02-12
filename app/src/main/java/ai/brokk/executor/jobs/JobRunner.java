@@ -19,21 +19,18 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -1494,124 +1491,10 @@ public final class JobRunner {
                                         }
                                     }
                                     case ISSUE_DIAGNOSE -> {
-                                        String githubToken = spec.getGithubToken();
-                                        String repoOwner = spec.getRepoOwner();
-                                        String repoName = spec.getRepoName();
-                                        Integer issueNumber = spec.getIssueNumber();
-
-                                        if (githubToken == null || githubToken.isBlank()) {
-                                            throw new IllegalArgumentException(
-                                                    "ISSUE_DIAGNOSE requires github_token in tags");
-                                        }
-                                        if (repoOwner == null || repoOwner.isBlank()) {
-                                            throw new IllegalArgumentException(
-                                                    "ISSUE_DIAGNOSE requires repo_owner in tags");
-                                        }
-                                        if (repoName == null || repoName.isBlank()) {
-                                            throw new IllegalArgumentException(
-                                                    "ISSUE_DIAGNOSE requires repo_name in tags");
-                                        }
-                                        if (issueNumber == null) {
-                                            throw new IllegalArgumentException(
-                                                    "ISSUE_DIAGNOSE requires issue_number in tags");
-                                        }
-
-                                        var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
-                                        var githubIssueService = new GitHubIssueService(cm.getProject(), auth);
-
-                                        // loadDetails expects issue ID like "#123"
-                                        var issueDetails = githubIssueService.loadDetails("#" + issueNumber);
-
-                                        // Capture images from issue attachments into the context
-                                        var attachmentUrls = issueDetails.attachmentUrls();
-                                        if (attachmentUrls != null && !attachmentUrls.isEmpty()) {
-                                            try {
-                                                var httpClient = auth.authenticatedClient();
-                                                int capturedCount = ImageUtil.captureIssueImages(
-                                                        attachmentUrls,
-                                                        httpClient,
-                                                        (image, description) ->
-                                                                cm.addPastedImageFragment(image, description));
-                                                if (capturedCount > 0) {
-                                                    logger.info(
-                                                            "ISSUE_DIAGNOSE job {}: captured {} image(s) from issue #{}",
-                                                            jobId,
-                                                            capturedCount,
-                                                            issueNumber);
-                                                }
-                                            } catch (Exception e) {
-                                                logger.warn(
-                                                        "ISSUE_DIAGNOSE job {}: failed to capture images from issue #{}: {}",
-                                                        jobId,
-                                                        issueNumber,
-                                                        e.getMessage(),
-                                                        e);
-                                            }
-                                        }
-
-                                        String diagnosePrompt =
-                                                formatIssueDiagnosePrompt(issueDetails, issueNumber.intValue());
-
                                         var model = resolveModelOrThrow(
                                                 spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
-
-                                        try {
-                                            store.appendEvent(
-                                                    jobId,
-                                                    JobEvent.of(
-                                                            "NOTIFICATION",
-                                                            "ISSUE_DIAGNOSE: analyzing issue #" + issueNumber));
-                                        } catch (IOException ioe) {
-                                            logger.warn(
-                                                    "Failed to append ISSUE_DIAGNOSE start notification for job {}: {}",
-                                                    jobId,
-                                                    ioe.getMessage(),
-                                                    ioe);
-                                        }
-
-                                        var context = cm.liveContext();
-                                        var writerAgent = new IssueRewriterAgent(context, model, diagnosePrompt);
-                                        var analysisResult = writerAgent.execute();
-
-                                        cm.pushContext(ctx -> analysisResult.context());
-
-                                        String timestamp = Instant.now().toString();
-                                        String diagnosisComment =
-                                                """
-                                                <!-- brokk:diagnosis:v1 timestamp="%s" -->
-
-                                                ## Issue Analysis
-
-                                                %s
-
-                                                ---
-
-                                                **Next steps:** Reply with `@BrokkBot solve` to proceed with the fix, or add comments to provide additional guidance.
-                                                """
-                                                        .formatted(timestamp, analysisResult.bodyMarkdown());
-
-                                        var ghRepo = auth.getGhRepository();
-                                        IssueService.postIssueComment(ghRepo, issueNumber.intValue(), diagnosisComment);
-
-                                        logger.info(
-                                                "ISSUE_DIAGNOSE job {} posted diagnosis comment to issue #{}",
-                                                jobId,
-                                                issueNumber);
-
-                                        try {
-                                            store.appendEvent(
-                                                    jobId,
-                                                    JobEvent.of(
-                                                            "NOTIFICATION",
-                                                            "ISSUE_DIAGNOSE: diagnosis posted to issue #"
-                                                                    + issueNumber));
-                                        } catch (IOException ioe) {
-                                            logger.warn(
-                                                    "Failed to append ISSUE_DIAGNOSE complete notification for job {}: {}",
-                                                    jobId,
-                                                    ioe.getMessage(),
-                                                    ioe);
-                                        }
+                                        var issueExecutor = new IssueExecutor(cm, store, jobId);
+                                        issueExecutor.executeDiagnose(spec, model);
                                     }
                                     case ISSUE_WRITER -> {
                                         String githubToken = spec.getGithubToken();
@@ -2892,52 +2775,6 @@ public final class JobRunner {
                 throw re;
             }
         }
-    }
-
-    static String formatIssueDiagnosePrompt(ai.brokk.issues.IssueDetails details, int issueNumber) {
-        var header = details.header();
-        String title = header != null ? header.title() : null;
-
-        String body = details.markdownBody();
-        String safeBody = (body != null && !body.isBlank()) ? body : "(No description provided)";
-
-        var sb = new StringJoiner("\n");
-
-        String issueHeader =
-                "# GitHub Issue #" + issueNumber + ((title != null && !title.isBlank()) ? ": " + title : "");
-        sb.add(issueHeader);
-        sb.add("");
-        sb.add("## Description");
-        sb.add("");
-        sb.add(safeBody);
-        sb.add("");
-
-        var comments = details.comments();
-        if (comments != null && !comments.isEmpty()) {
-            sb.add("## Comments");
-            sb.add("");
-            for (var comment : comments) {
-                String author = comment.author();
-                var created = comment.created();
-                String timestamp = created != null ? created.toString() : "unknown time";
-                sb.add("### @" + (author != null ? author : "unknown") + " (" + timestamp + "):");
-                String commentBody = comment.markdownBody();
-                sb.add(commentBody != null ? commentBody : "");
-                sb.add("");
-            }
-        }
-
-        var attachments = details.attachmentUrls();
-        if (attachments != null && !attachments.isEmpty()) {
-            sb.add("## Attached Images");
-            sb.add("");
-            for (var uri : attachments) {
-                sb.add("- " + uri);
-            }
-            sb.add("");
-        }
-
-        return sb.toString();
     }
 
     static List<PrReviewService.InlineComment> issueModeComputeInlineCommentsOrEmpty(
