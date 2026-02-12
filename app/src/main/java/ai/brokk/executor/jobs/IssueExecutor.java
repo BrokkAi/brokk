@@ -68,12 +68,7 @@ public final class IssueExecutor {
      * for diagnosis or solving.
      */
     public record IssuePreparedContext(
-            GitHubAuth auth,
-            GHRepository ghRepo,
-            GitHubIssueService issueService,
-            IssueDetails details,
-            String formattedPrompt,
-            int issueNumber) {}
+            GitHubAuth auth, GHRepository ghRepo, IssueDetails details, String formattedPrompt, int issueNumber) {}
 
     /**
      * Prepares the issue context by fetching issue details and capturing images.
@@ -114,8 +109,7 @@ public final class IssueExecutor {
 
         String diagnosePrompt = formatIssueDiagnosePrompt(issueDetails, issueNumber.intValue());
 
-        return new IssuePreparedContext(
-                auth, ghRepo, githubIssueService, issueDetails, diagnosePrompt, issueNumber.intValue());
+        return new IssuePreparedContext(auth, ghRepo, issueDetails, diagnosePrompt, issueNumber.intValue());
     }
 
     /**
