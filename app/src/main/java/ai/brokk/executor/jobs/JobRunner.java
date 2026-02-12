@@ -237,6 +237,7 @@ public final class JobRunner {
         REVIEW,
         LUTZ,
         ISSUE,
+        ISSUE_DIAGNOSE,
         ISSUE_WRITER
     }
 
@@ -382,7 +383,7 @@ public final class JobRunner {
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
                             case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
-                            case ISSUE_WRITER -> "(unused)";
+                            case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
                         };
                 String codeModelNameForLog =
                         switch (mode) {
@@ -391,14 +392,14 @@ public final class JobRunner {
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
-                            case ISSUE_WRITER -> "(unused)";
+                            case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
                             case ASK, SEARCH, REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
-                            case ISSUE_WRITER -> true;
+                            case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
                     plannerModelNameForLog = (mode == Mode.CODE) ? "(unused)" : "(unknown)";
