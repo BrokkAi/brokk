@@ -871,7 +871,6 @@ public final class JobRunner {
                                             var plannerModel = Objects.requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
                                             TaskResult reviewResult = reviewDiff(
-                                                    cm,
                                                     context,
                                                     plannerModel,
                                                     annotatedDiff,
@@ -1486,16 +1485,13 @@ public final class JobRunner {
     }
 
     /**
-     * Static helper to perform a diff review using the provided model and context.
-     * This is extracted to allow both REVIEW mode and ISSUE mode to share the review logic.
+     * Perform a diff review using the provided model and context.
+     *
+     * <p>Package-private instance method: this is not stateless since it depends on the JobRunner's
+     * {@link ContextManager} for service/model access and IO routing.
      */
-    static TaskResult reviewDiff(
-            ContextManager cm,
-            Context ctx,
-            StreamingChatModel model,
-            String annotatedDiff,
-            String prTitle,
-            String prDescription) {
+    TaskResult reviewDiff(
+            Context ctx, StreamingChatModel model, String annotatedDiff, String prTitle, String prDescription) {
         var svc = cm.getService();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.REVIEW, Service.ModelConfig.from(model, svc));
 
@@ -2290,7 +2286,8 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult = reviewDiff(cm, ctx, reviewModel, annotatedDiff, "", "");
+                    TaskResult reviewResult =
+                            new JobRunner(cm, store).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
                     String reviewText = reviewResult.output().text().join();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
