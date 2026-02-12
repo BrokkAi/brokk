@@ -134,14 +134,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             return new CodeUnit(file, type, parentPkg, leafName);
         }
 
-        String signature = null;
-        if (definitionNode != null) {
-            String content = file.read().orElse("");
-            if (!content.isEmpty()) {
-                signature = extractSignature(captureName, definitionNode, SourceContent.of(content));
-            }
-        }
-        return new CodeUnit(file, type, packageName, shortName, signature);
+        return new CodeUnit(file, type, packageName, shortName);
     }
 
     @Override
