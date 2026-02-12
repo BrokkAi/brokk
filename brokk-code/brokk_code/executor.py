@@ -199,9 +199,11 @@ class ExecutorManager:
                     if not tgz_asset:
                         tgz_asset = archive_assets[0]
 
+                downloaded_asset_name = "brokk.jar"
                 if jar_asset:
                     jar_url = jar_asset["browser_download_url"]
                     jar_name = jar_asset.get("name", "brokk.jar")
+                    downloaded_asset_name = jar_name
                     logger.info(
                         "Downloading executor jar (tag=%s, asset=%s) ...",
                         target_release.get("tag_name"),
@@ -213,6 +215,7 @@ class ExecutorManager:
                 elif tgz_asset:
                     tgz_url = tgz_asset["browser_download_url"]
                     asset_filename = tgz_asset.get("name", "archive.tgz")
+                    downloaded_asset_name = asset_filename
                     logger.info(
                         "Downloading executor archive (tag=%s, asset=%s) ...",
                         target_release.get("tag_name"),
@@ -237,7 +240,7 @@ class ExecutorManager:
         except (KeyError, IndexError, TypeError, ValueError) as e:
             raise ExecutorError(f"Failed to parse GitHub release info: {e}")
 
-        logger.info("Downloaded %s to %s", jar_name, dest_jar)
+        logger.info("Downloaded %s to %s", downloaded_asset_name, dest_jar)
         return dest_jar
 
     def _extract_jar_from_tgz(
@@ -568,6 +571,98 @@ class ExecutorManager:
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/context")
             raise  # Should not be reached
+
+    async def drop_context_fragments(self, fragment_ids: List[str]) -> Dict[str, Any]:
+        """Drops specific fragments from context by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not fragment_ids:
+            raise ExecutorError("fragment_ids must not be empty")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/drop", json={"fragmentIds": fragment_ids}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/drop (status={status}): {e}") from e
+
+    async def set_context_fragment_pinned(self, fragment_id: str, pinned: bool) -> Dict[str, Any]:
+        """Sets pin state for a specific context fragment."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/pin", json={"fragmentId": fragment_id, "pinned": pinned}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/pin (status={status}): {e}") from e
+
+    async def set_context_fragment_readonly(
+        self, fragment_id: str, readonly: bool
+    ) -> Dict[str, Any]:
+        """Sets readonly state for a specific editable context fragment."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/readonly", json={"fragmentId": fragment_id, "readonly": readonly}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/readonly (status={status}): {e}") from e
+
+    async def compress_context_history(self) -> Dict[str, Any]:
+        """Requests history compression for the current context."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/context/compress-history")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(
+                f"Failed POST /v1/context/compress-history (status={status}): {e}"
+            ) from e
+
+    async def clear_context_history(self) -> Dict[str, Any]:
+        """Clears history fragments from current context."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/context/clear-history")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(
+                f"Failed POST /v1/context/clear-history (status={status}): {e}"
+            ) from e
+
+    async def drop_all_context(self) -> Dict[str, Any]:
+        """Drops all context fragments."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/context/drop-all")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/drop-all (status={status}): {e}") from e
 
     async def get_tasklist(self) -> Dict[str, Any]:
         """Returns the current task list data."""

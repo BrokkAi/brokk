@@ -2,33 +2,15 @@ Screen {
     background: $surface;
 }
 
-#side-context {
-    width: 40;
-    dock: left;
-    background: $panel;
-    border-right: solid $primary;
-    display: none;
+ContextModalScreen {
+    align: center middle;
 }
 
-#context-header {
+#context-modal-container {
+    width: 100%;
+    height: 100%;
     padding: 1 2;
-    background: $primary-darken-1;
-    color: $text;
-    text-style: bold;
-    width: 100%;
-    opacity: 0.6;
-}
-
-#context-list {
-    background: transparent;
-}
-
-ContextFragmentItem {
-    padding: 0 1;
-}
-
-ContextFragmentItem Label {
-    width: 100%;
+    background: $surface;
 }
 
 #side-tasklist {
@@ -70,7 +52,6 @@ ChatPanel {
     height: 1;
     margin: 0 2;
     layout: horizontal;
-    /* Ensure the area doesn't collapse if children are hidden */
     min-height: 1;
 }
 
@@ -93,6 +74,147 @@ ChatPanel {
     height: 1;
     content-align: right middle;
     color: $text-disabled;
+}
+
+#context-panel {
+    margin: 0;
+    height: 1fr;
+    max-height: 100%;
+    width: 100%;
+    background: $panel;
+    border: solid $primary-darken-2;
+    padding: 0 1;
+}
+
+#context-header {
+    height: 1;
+    width: 100%;
+    layout: horizontal;
+    margin: 0;
+}
+
+#context-title {
+    text-style: bold;
+    color: $text;
+    width: auto;
+}
+
+#context-token-usage {
+    width: 1fr;
+    content-align: right middle;
+    color: $text-disabled;
+}
+
+#context-help {
+    width: 100%;
+    color: $text-muted;
+    margin: 0 0 1 0;
+}
+
+#context-selection-status {
+    width: 100%;
+    color: $text-disabled;
+}
+
+#context-selection-status.has-selection {
+    color: $warning;
+    text-style: bold;
+}
+
+#context-active-status {
+    width: 100%;
+    color: $text-disabled;
+}
+
+#context-active-status.has-active {
+    color: $accent;
+    text-style: bold;
+}
+
+#context-chip-scroll {
+    height: 1fr;
+    min-height: 3;
+    width: 100%;
+}
+
+#context-chip-wrap {
+    width: 100%;
+    height: auto;
+}
+
+.context-chip-row {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+}
+
+.context-chip {
+    height: 3;
+    width: auto;
+    margin-right: 1;
+    padding: 0 1;
+    border: round $primary-darken-2;
+    background: $surface-lighten-1;
+    color: $text;
+}
+
+.context-chip:focus {
+    border: round $accent;
+}
+
+.context-chip:hover {
+    border: round $accent;
+    background: $accent 22%;
+}
+
+.context-chip.is-active {
+    border: round $accent;
+    background: $accent 28%;
+    text-style: bold;
+}
+
+.context-chip.is-selected {
+    border: round $warning;
+    background: $warning 35%;
+    color: $warning-lighten-3;
+    text-style: bold;
+}
+
+.context-chip-empty {
+    border: none;
+    padding: 0;
+    color: $text-disabled;
+    background: transparent;
+}
+
+.context-chip.kind-edit {
+    background: $success 15%;
+    border: round $success;
+    color: $success-lighten-3;
+}
+
+.context-chip.kind-summary {
+    background: $accent 12%;
+    border: round $accent;
+}
+
+.context-chip.kind-history {
+    background: $warning 15%;
+    border: round $warning;
+}
+
+.context-chip.kind-invalid {
+    background: $error 15%;
+    border: round $error;
+}
+
+.context-chip.kind-task-list {
+    background: $primary 18%;
+    border: round $primary;
+}
+
+.context-chip.is-pinned {
+    text-style: bold;
 }
 
 #chat-input {
