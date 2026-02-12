@@ -35,6 +35,80 @@ public class JdtUsageAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(JdtUsageAnalyzer.class);
 
     /**
+     * Extracts a method signature from an IMethodBinding.
+     * Package-private for testing.
+     */
+    static String extractMethodSignature(IMethodBinding mb) {
+        ITypeBinding[] paramTypes = mb.getParameterTypes();
+        if (paramTypes.length == 0) {
+            return "()";
+        }
+        return Arrays.stream(paramTypes).map(t -> t.getErasure().getName()).collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    /**
+     * Parses Java source code and extracts method FQ names with signatures.
+     * Intended for testing signature consistency with other analyzers.
+     */
+    public static Set<String> extractMethodSignatures(String sourceCode, IProject project) {
+        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+        parser.setSource(sourceCode.toCharArray());
+        parser.setResolveBindings(true);
+        parser.setBindingsRecovery(true);
+        parser.setKind(ASTParser.K_COMPILATION_UNIT);
+        parser.setUnitName("Test.java");
+
+        Map<String, String> options = JavaCore.getOptions();
+        JavaCore.setComplianceOptions(JavaCore.latestSupportedJavaVersion(), options);
+        parser.setCompilerOptions(options);
+
+        String[] sourceRoots = inferSourceRoots(project);
+        parser.setEnvironment(new String[0], sourceRoots, null, true);
+
+        CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+        Set<String> signatures = new HashSet<>();
+
+        cu.accept(new ASTVisitor() {
+            @Override
+            public boolean visit(MethodDeclaration node) {
+                IMethodBinding mb = node.resolveBinding();
+                if (mb != null) {
+                    String fqn = getFqn(mb);
+                    String sig = extractMethodSignature(mb);
+                    signatures.add(fqn + sig);
+                }
+                return super.visit(node);
+            }
+        });
+
+        return signatures;
+    }
+
+    static String getFqn(IBinding binding) {
+        switch (binding) {
+            case ITypeBinding tb -> {
+                return tb.getErasure().getQualifiedName().replace('$', '.');
+            }
+            case IMethodBinding mb -> {
+                IMethodBinding decl = mb.getMethodDeclaration();
+                ITypeBinding declaringClass = decl.getDeclaringClass();
+                String typeFqn = declaringClass != null ? getFqn(declaringClass) : "unknown";
+                String name = decl.isConstructor()
+                        ? (declaringClass != null ? declaringClass.getName() : "unknown")
+                        : decl.getName();
+                return typeFqn + "." + name;
+            }
+            case IVariableBinding vb -> {
+                ITypeBinding owner = vb.getDeclaringClass();
+                String parent = owner != null ? getFqn(owner) : "unknown";
+                return parent + "." + vb.getName();
+            }
+            default -> {}
+        }
+        return binding.getName();
+    }
+
+    /**
      * Finds precise usages of a target CodeUnit within a set of candidate files.
      */
     public static Set<UsageHit> findUsages(CodeUnit target, Set<ProjectFile> candidateFiles, IProject project) {
@@ -150,7 +224,7 @@ public class JdtUsageAnalyzer {
                 private void checkBinding(@Nullable IBinding binding, ASTNode node) {
                     if (binding == null) return;
 
-                    String fqn = getFqn(binding);
+                    String fqn = JdtUsageAnalyzer.getFqn(binding);
                     if (target.fqName().equals(fqn)) {
                         recordHit(node);
                     }
@@ -191,7 +265,7 @@ public class JdtUsageAnalyzer {
                 }
 
                 private CodeUnit createCodeUnit(IBinding binding, CodeUnitType type) {
-                    String fqn = getFqn(binding);
+                    String fqn = JdtUsageAnalyzer.getFqn(binding);
                     String pkg = "";
                     String name = fqn;
                     int lastDot = fqn.lastIndexOf('.');
@@ -203,44 +277,10 @@ public class JdtUsageAnalyzer {
                     // Extract signature for methods
                     String signature = null;
                     if (type == CodeUnitType.FUNCTION && binding instanceof IMethodBinding mb) {
-                        signature = extractMethodSignature(mb);
+                        signature = JdtUsageAnalyzer.extractMethodSignature(mb);
                     }
 
                     return new CodeUnit(file, type, pkg, name, signature);
-                }
-
-                private String extractMethodSignature(IMethodBinding mb) {
-                    ITypeBinding[] paramTypes = mb.getParameterTypes();
-                    if (paramTypes.length == 0) {
-                        return "()";
-                    }
-                    return Arrays.stream(paramTypes)
-                            .map(t -> t.getErasure().getName())
-                            .collect(Collectors.joining(", ", "(", ")"));
-                }
-
-                private String getFqn(IBinding binding) {
-                    switch (binding) {
-                        case ITypeBinding tb -> {
-                            return tb.getErasure().getQualifiedName().replace('$', '.');
-                        }
-                        case IMethodBinding mb -> {
-                            IMethodBinding decl = mb.getMethodDeclaration();
-                            ITypeBinding declaringClass = decl.getDeclaringClass();
-                            String typeFqn = declaringClass != null ? getFqn(declaringClass) : "unknown";
-                            String name = decl.isConstructor()
-                                    ? (declaringClass != null ? declaringClass.getName() : "unknown")
-                                    : decl.getName();
-                            return typeFqn + "." + name;
-                        }
-                        case IVariableBinding vb -> {
-                            ITypeBinding owner = vb.getDeclaringClass();
-                            String parent = owner != null ? getFqn(owner) : "unknown";
-                            return parent + "." + vb.getName();
-                        }
-                        default -> {}
-                    }
-                    return binding.getName();
                 }
             });
         }
