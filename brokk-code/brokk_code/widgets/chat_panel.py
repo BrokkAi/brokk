@@ -346,6 +346,7 @@ class ChatPanel(Vertical):
                 # Update the live preview widget instead of the append-only log
                 streaming_area.remove_class("hidden")
                 streaming_area.update(Markdown(content))
+                streaming_area.scroll_end(animate=False)
                 # Auto-scroll the log to keep the bottom visible while streaming
                 log.scroll_end(animate=False)
             else:
