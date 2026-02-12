@@ -4,11 +4,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 public class JdtUsageAnalyzerTest {
@@ -307,6 +309,49 @@ public class JdtUsageAnalyzerTest {
 
             Set<UsageHit> libraryHits = JdtUsageAnalyzer.findUsages(libraryExec, candidates, project);
             assertFalse(libraryHits.isEmpty(), "Should find Library.exec usage in Main.java");
+        }
+    }
+
+    @Test
+    public void testSignatureConsistencyWithJavaAnalyzer() throws Exception {
+        String source =
+                """
+            package com.example;
+            import java.util.List;
+            import java.util.Map;
+
+            public class OverloadedMethods {
+                public void noArgs() {}
+                public void singleArg(String s) {}
+                public void multiArg(String s, int i) {}
+                public void process() {}
+                public void process(String s) {}
+                public void process(String s, int i) {}
+                public void genericErased(List<String> list) {}
+                public void mapParam(Map<String, Integer> map) {}
+                public OverloadedMethods() {}
+                public OverloadedMethods(String name) {}
+            }
+            """;
+
+        try (IProject project = InlineTestProjectCreator.code(source, "com/example/OverloadedMethods.java")
+                .build()) {
+
+            // Get signatures from JavaAnalyzer (Tree-sitter based)
+            JavaAnalyzer javaAnalyzer = new JavaAnalyzer(project);
+            Set<String> treeSitterFqNames = javaAnalyzer.getAllDeclarations().stream()
+                    .filter(CodeUnit::isFunction)
+                    .map(cu -> cu.fqName() + (cu.signature() != null ? cu.signature() : ""))
+                    .collect(Collectors.toSet());
+
+            // Get signatures from JDT
+            Set<String> jdtFqNames = JdtUsageAnalyzer.extractMethodSignatures(source, project);
+
+            // They should match
+            assertEquals(
+                    treeSitterFqNames,
+                    jdtFqNames,
+                    "JDT and JavaAnalyzer should produce identical method FQ names with signatures");
         }
     }
 }

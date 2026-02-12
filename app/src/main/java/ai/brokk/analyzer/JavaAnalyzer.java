@@ -100,6 +100,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    protected boolean shouldMergeSignaturesForSameFqn() {
+        return true;
+    }
+
+    @Override
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file,
             String captureName,
@@ -134,7 +139,14 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             return new CodeUnit(file, type, parentPkg, leafName);
         }
 
-        return new CodeUnit(file, type, packageName, shortName);
+        String signature = null;
+        if (definitionNode != null) {
+            String content = file.read().orElse("");
+            if (!content.isEmpty()) {
+                signature = extractSignature(captureName, definitionNode, SourceContent.of(content));
+            }
+        }
+        return new CodeUnit(file, type, packageName, shortName, signature);
     }
 
     @Override
@@ -309,6 +321,37 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return "}";
+    }
+
+    @Override
+    protected @Nullable String extractSignature(
+            String captureName, TSNode definitionNode, SourceContent sourceContent) {
+        if (!CaptureNames.METHOD_DEFINITION.equals(captureName)
+                && !CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName)) {
+            return null;
+        }
+
+        TSNode parametersNode =
+                definitionNode.getChildByFieldName(getLanguageSyntaxProfile().parametersFieldName());
+        if (parametersNode == null || parametersNode.isNull()) {
+            return "()";
+        }
+
+        List<String> params = new ArrayList<>();
+        for (int i = 0; i < parametersNode.getNamedChildCount(); i++) {
+            TSNode param = parametersNode.getNamedChild(i);
+            if (param == null || param.isNull() || !FORMAL_PARAMETER.equals(param.getType())) {
+                continue;
+            }
+
+            TSNode typeNode = param.getChildByFieldName("type");
+            if (typeNode != null && !typeNode.isNull()) {
+                String typeText = sourceContent.substringFrom(typeNode).strip();
+                params.add(stripGenericTypeArguments(typeText));
+            }
+        }
+
+        return params.stream().collect(Collectors.joining(", ", "(", ")"));
     }
 
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
