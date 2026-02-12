@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static java.util.Objects.requireNonNull;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystemLoopException;
 import java.nio.file.FileVisitOption;
@@ -214,6 +215,15 @@ public final class DependencyCopyUtil {
                     throw new RuntimeException(e);
                 }
             });
+        } catch (UncheckedIOException uioe) {
+            if (uioe.getCause() instanceof FileSystemLoopException) {
+                logger.warn(
+                        "Symlink loop while copying node package from {}: {}; skipping",
+                        source,
+                        uioe.getCause().getMessage());
+            } else {
+                throw uioe;
+            }
         }
     }
 

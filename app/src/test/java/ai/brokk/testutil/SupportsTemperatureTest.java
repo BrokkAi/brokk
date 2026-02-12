@@ -29,7 +29,7 @@ class SupportsTemperatureTest {
         String location = "loc/my-model";
 
         service.setModelLocations(Map.of(modelName, location));
-        service.setModelInfoMap(Map.of(location, Map.of("supported_openai_params", List.of("temperature", "top_p"))));
+        service.setModelInfoMap(Map.of(modelName, Map.of("supported_openai_params", List.of("temperature", "top_p"))));
 
         Assertions.assertTrue(
                 service.supportsTemperature(modelName),
@@ -43,7 +43,7 @@ class SupportsTemperatureTest {
         String location = "loc/my-model";
 
         service.setModelLocations(Map.of(modelName, location));
-        service.setModelInfoMap(Map.of(location, Map.of("supported_openai_params", List.of("top_p"))));
+        service.setModelInfoMap(Map.of(modelName, Map.of("supported_openai_params", List.of("top_p"))));
 
         Assertions.assertFalse(
                 service.supportsTemperature(modelName),

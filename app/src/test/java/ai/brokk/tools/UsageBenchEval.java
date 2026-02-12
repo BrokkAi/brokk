@@ -1,6 +1,7 @@
 package ai.brokk.tools;
 
 import ai.brokk.*;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -306,8 +307,7 @@ public class UsageBenchEval implements Callable<Integer> {
             // Get the declaration file path for the searched symbol
             var definitions = analyzer.getDefinitions(unit.fullyQualifiedName());
             String searchedFilePath = "";
-            ai.brokk.analyzer.CodeUnit matchedDef = null;
-
+            CodeUnit matchedDef = null;
             if (!definitions.isEmpty()) {
                 if (definitions.size() > 1 && analyzer instanceof ai.brokk.analyzer.TreeSitterAnalyzer tsAnalyzer) {
                     matchedDef = definitions.stream()
@@ -323,9 +323,10 @@ public class UsageBenchEval implements Callable<Integer> {
             var result = finder.findUsages(matchedDef != null ? matchedDef.fqName() : unit.fullyQualifiedName());
             var either = result.toEither();
 
-            Set<String> expectedFqns = unit.usages().stream()
-                    .map(UsageLocation::fullyQualifiedName)
-                    .collect(Collectors.toSet());
+            Map<String, UsageLocation> expectedLocations = unit.usages().stream()
+                    .collect(Collectors.toMap(UsageLocation::fullyQualifiedName, loc -> loc, (a, b) -> a));
+
+            Set<String> expectedFqns = expectedLocations.keySet();
 
             Set<UsageHit> detectedHits = new HashSet<>();
             Set<String> detectedFqns = new HashSet<>();
@@ -392,8 +393,15 @@ public class UsageBenchEval implements Callable<Integer> {
                         fpDetails));
             }
             if (!fn.isEmpty()) {
-                List<UsageDetail> fnDetails =
-                        fn.stream().map(fqn -> new UsageDetail(fqn, "", "", "")).toList();
+                List<UsageDetail> fnDetails = fn.stream()
+                        .map(fqn -> {
+                            UsageLocation loc = expectedLocations.get(fqn);
+                            String snippet = loc != null ? loc.snippet() : "";
+                            String filePath = loc != null ? loc.filePath() : "";
+                            String syntaxStyle = loc != null ? loc.syntaxStyle() : "";
+                            return new UsageDetail(fqn, snippet, filePath, syntaxStyle);
+                        })
+                        .toList();
                 projectFNs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
                         searchedFilePath,

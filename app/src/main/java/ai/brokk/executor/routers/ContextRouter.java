@@ -45,9 +45,14 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         var path = exchange.getRequestURI().getPath();
         var normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
 
-        if (method.equals("GET") && normalizedPath.equals("/v1/context")) {
-            handleGetContext(exchange);
-            return;
+        if (method.equals("GET")) {
+            if (normalizedPath.equals("/v1/context")) {
+                handleGetContext(exchange);
+                return;
+            } else if (normalizedPath.equals("/v1/tasklist")) {
+                handleGetTaskList(exchange);
+                return;
+            }
         }
 
         if (!method.equals("POST")) {
@@ -69,6 +74,20 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             default ->
                 SimpleHttpServer.sendJsonResponse(
                         exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
+        }
+    }
+
+    private void handleGetTaskList(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
+            return;
+        }
+        try {
+            var taskListData = contextManager.getTaskList();
+            SimpleHttpServer.sendJsonResponse(exchange, taskListData);
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/tasklist", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to retrieve task list", e));
         }
     }
 

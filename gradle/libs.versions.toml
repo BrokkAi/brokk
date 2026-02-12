@@ -21,6 +21,7 @@ pnpm = "9.15.4"
 jediterm = "3.54"
 jediterm-pty = "2.69"
 pty4j = "0.13.11"
+lz4 = "1.10.3"
 
 [libraries]
 # Logging
@@ -31,6 +32,9 @@ log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", ver
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
 jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
 jackson-smile = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-smile", version.ref = "jackson" }
+
+# LZ4 compression library (frame format)
+lz4 = { module = "at.yawk.lz4:lz4-java", version.ref = "lz4" }
 
 # Testing
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }

@@ -846,6 +846,7 @@ public class Llm {
     private OpenAiChatRequestParameters.Builder getParamsBuilder() {
         OpenAiChatRequestParameters.Builder builder = OpenAiChatRequestParameters.builder();
 
+        // user opted in to data retention for this request
         if (tagRetain) {
             // this is the only place we add metadata so we can just overwrite what's there
             logger.trace("Adding 'retain' metadata tag to LLM request.");
@@ -971,20 +972,90 @@ public class Llm {
     }
 
     public record ResponseMetadata(
-            int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens, long elapsedMs) {
+            int inputTokens,
+            int cachedInputTokens,
+            int thinkingTokens,
+            int outputTokens,
+            long elapsedMs,
+            @Nullable String modelName,
+            @Nullable String finishReason,
+            @Nullable String created,
+            @Nullable String serviceTier,
+            @Nullable String error) {
         /**
          * Combines two ResponseMetadata objects by summing their token counts and elapsed time.
          * Handles null values: returns the other metadata if one is null.
+         * Note: categorical fields (modelName, etc.) are taken from the second operand if present.
          */
         public static @Nullable ResponseMetadata sum(@Nullable ResponseMetadata a, @Nullable ResponseMetadata b) {
             if (a == null) return b;
             if (b == null) return a;
+
+            // Track which fields overflowed so we emit a single log entry if any overflow occurs.
+            List<String> overflowedFields = new ArrayList<>();
+
+            int inputTokens;
+            try {
+                inputTokens = Math.addExact(a.inputTokens(), b.inputTokens());
+            } catch (ArithmeticException e) {
+                inputTokens = Integer.MAX_VALUE;
+                overflowedFields.add("inputTokens");
+            }
+
+            int cachedInputTokens;
+            try {
+                cachedInputTokens = Math.addExact(a.cachedInputTokens(), b.cachedInputTokens());
+            } catch (ArithmeticException e) {
+                cachedInputTokens = Integer.MAX_VALUE;
+                overflowedFields.add("cachedInputTokens");
+            }
+
+            int thinkingTokens;
+            try {
+                thinkingTokens = Math.addExact(a.thinkingTokens(), b.thinkingTokens());
+            } catch (ArithmeticException e) {
+                thinkingTokens = Integer.MAX_VALUE;
+                overflowedFields.add("thinkingTokens");
+            }
+
+            int outputTokens;
+            try {
+                outputTokens = Math.addExact(a.outputTokens(), b.outputTokens());
+            } catch (ArithmeticException e) {
+                outputTokens = Integer.MAX_VALUE;
+                overflowedFields.add("outputTokens");
+            }
+
+            long elapsedMs;
+            try {
+                elapsedMs = Math.addExact(a.elapsedMs(), b.elapsedMs());
+            } catch (ArithmeticException e) {
+                elapsedMs = Long.MAX_VALUE;
+                overflowedFields.add("elapsedMs");
+            }
+
+            if (!overflowedFields.isEmpty()) {
+                // Summarize the overflow event in a single log entry to avoid per-field log spam.
+                // Include the two source ResponseMetadata instances for context (their toString shows fields).
+                logger.warn(
+                        "Overflow summing ResponseMetadata for fields: {}. Values: a={}, b={}. Results clamped where necessary.",
+                        String.join(", ", overflowedFields),
+                        a,
+                        b);
+            }
+
+            // Keep categorical-field behavior unchanged: prefer non-null values from b, falling back to a.
             return new ResponseMetadata(
-                    a.inputTokens() + b.inputTokens(),
-                    a.cachedInputTokens() + b.cachedInputTokens(),
-                    a.thinkingTokens() + b.thinkingTokens(),
-                    a.outputTokens() + b.outputTokens(),
-                    a.elapsedMs() + b.elapsedMs());
+                    inputTokens,
+                    cachedInputTokens,
+                    thinkingTokens,
+                    outputTokens,
+                    elapsedMs,
+                    b.modelName() != null ? b.modelName() : a.modelName(),
+                    b.finishReason() != null ? b.finishReason() : a.finishReason(),
+                    b.created() != null ? b.created() : a.created(),
+                    b.serviceTier() != null ? b.serviceTier() : a.serviceTier(),
+                    b.error() != null ? b.error() : a.error());
         }
     }
 
@@ -1029,10 +1100,13 @@ public class Llm {
         }
 
         public @Nullable ResponseMetadata metadata() {
-            if (originalResponse() == null) {
-                return null;
+            var response = originalResponse();
+            if (response == null) {
+                return error == null
+                        ? null
+                        : new ResponseMetadata(0, 0, 0, 0, elapsedMs, null, null, null, null, error.getMessage());
             }
-            var usage = (OpenAiTokenUsage) originalResponse().tokenUsage();
+            var usage = (OpenAiTokenUsage) response.tokenUsage();
             if (usage == null) {
                 logger.warn("Response is present but tokenUsage is null. Litellm bug?");
                 return null;
@@ -1054,7 +1128,34 @@ public class Llm {
                 thinkingTokens = outputDetails.reasoningTokens();
             }
 
-            return new ResponseMetadata(inputTokens, cachedInputTokens, thinkingTokens, outputTokens, elapsedMs);
+            String modelName = response.metadata().modelName();
+            String finishReason = response.finishReason() == null
+                    ? null
+                    : response.finishReason().name();
+            String created = null;
+            String serviceTier = null;
+
+            if (response.metadata() instanceof dev.langchain4j.model.openai.OpenAiChatResponseMetadata meta) {
+                if (meta.created() != null) {
+                    created = LocalDateTime.ofInstant(
+                                    java.time.Instant.ofEpochSecond(meta.created()), ZoneId.systemDefault())
+                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                }
+                serviceTier =
+                        meta.serviceTier() == null ? null : meta.serviceTier().name();
+            }
+
+            return new ResponseMetadata(
+                    inputTokens,
+                    cachedInputTokens,
+                    thinkingTokens,
+                    outputTokens,
+                    elapsedMs,
+                    modelName,
+                    finishReason,
+                    created,
+                    serviceTier,
+                    error == null ? null : error.getMessage());
         }
 
         public String text() {
@@ -1126,6 +1227,10 @@ public class Llm {
                     metadata.put("cachedInputTokens", meta.cachedInputTokens());
                     metadata.put("thinkingTokens", meta.thinkingTokens());
                     metadata.put("outputTokens", meta.outputTokens());
+                    if (meta.modelName() != null) metadata.put("modelName", meta.modelName());
+                    if (meta.finishReason() != null) metadata.put("finishReason", meta.finishReason());
+                    if (meta.created() != null) metadata.put("created", meta.created());
+                    if (meta.serviceTier() != null) metadata.put("serviceTier", meta.serviceTier());
                 }
                 metadata.put("elapsedMs", elapsedMs);
                 metadataJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(metadata);

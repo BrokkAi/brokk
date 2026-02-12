@@ -5,6 +5,7 @@ import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.Messages;
@@ -22,6 +23,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -76,15 +78,15 @@ public class SearchPrompts {
                 return EnumSet.of(Terminal.WORKSPACE);
             }
         },
-        ISSUE_DIAGNOSIS(
-                "issue_diagnosis",
-                "You are the Search Agent, a code researcher focused on diagnosing issues.",
-                "Your goal is to gather enough context to diagnose the issue and produce a formal issue report with evidence from the repo.",
-                "a high-quality GitHub issue (via createIssue(String, String))",
+        ISSUE_DESCRIPTION(
+                "issue_description",
+                "You are the Search Agent, a code researcher focused on describing issues with precision.",
+                "Your goal is to gather enough context to describe the issue and produce a formal issue report with evidence from the repo.",
+                "a high-quality GitHub issue (via describeIssue(String, String))",
                 false) {
             @Override
             public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.ISSUE);
+                return EnumSet.of(Terminal.DESCRIBE_ISSUE);
             }
         },
         CODE_ONLY(
@@ -395,8 +397,8 @@ public class SearchPrompts {
                 </{{objectiveTag}}>
 
                 <search-objective>
-                {{#if (eq (lower objectiveTag) "issue_diagnosis")~}}
-                Deliver a high-quality GitHub issue using the createIssue(String title, String body) tool.
+                {{#if (eq (lower objectiveTag) "issue_description")~}}
+                Deliver a high-quality GitHub issue using the describeIssue(String title, String body) tool.
 
                 Requirements:
                   - "title": concise, specific issue title.
@@ -471,7 +473,7 @@ public class SearchPrompts {
 
                 Finalization options:
                 {{#if isIssueDiagnosis}}
-                - Use createIssue(String title, String body) to finalize. abortSearch(explanation) is the only other allowed final tool.
+                - Use describeIssue(String title, String body) to finalize. abortSearch(explanation) is the only other allowed final tool.
                 {{else}}
                 {{#if terminalAnswer}}
                 - Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <markdown-reminder>).
@@ -496,7 +498,7 @@ public class SearchPrompts {
                 You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
                 usefully do so.
 
-                Terminal actions (answer, createOrReplaceTaskList, workspaceComplete, callCodeAgent, createIssue, abortSearch)
+                Terminal actions ({{#if terminalAnswer}}answer, {{/if}}{{#if terminalTasks}}createOrReplaceTaskList, {{/if}}{{#if terminalWorkspace}}workspaceComplete, {{/if}}{{#if terminalCode}}callCodeAgent, {{/if}}{{#if terminalIssue}}describeIssue, {{/if}}abortSearch)
                 must be the ONLY tool in a turn. If final cleanup is needed (for example, dropWorkspaceFragments), do it first,
                 then finalize on the next turn. If you include a terminal together with other tools, the terminal will be ignored for this turn.
 
@@ -545,8 +547,8 @@ public class SearchPrompts {
             String goal,
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
-            List<ChatMessage> sessionMessages)
-            throws InterruptedException {
+            List<ChatMessage> sessionMessages,
+            Map<ProjectFile, String> relatedSymbols) {
 
         var cm = context.getContextManager();
         var inputLimit = cm.getService().getMaxInputTokens(model);
@@ -578,9 +580,8 @@ public class SearchPrompts {
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)
-        var related = context.buildRelatedSymbols(10);
-        if (!related.isEmpty()) {
-            var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
+        if (!relatedSymbols.isEmpty()) {
+            var relatedBlock = ArchitectPrompts.formatRelatedFiles(relatedSymbols);
             messages.add(new UserMessage(
                     """
                     <related_files>
@@ -632,12 +633,12 @@ public class SearchPrompts {
                 warning,
                 WorkspacePrompts.formatToc(context, suppressed),
                 objective == Objective.WORKSPACE_ONLY,
-                objective == Objective.ISSUE_DIAGNOSIS,
+                objective == Objective.ISSUE_DESCRIPTION,
                 terminals.contains(Terminal.ANSWER),
                 terminals.contains(Terminal.TASK_LIST),
                 terminals.contains(Terminal.WORKSPACE),
                 terminals.contains(Terminal.CODE),
-                terminals.contains(Terminal.ISSUE));
+                terminals.contains(Terminal.DESCRIBE_ISSUE));
 
         String directive;
         try {
@@ -656,6 +657,6 @@ public class SearchPrompts {
         WORKSPACE,
         CODE,
         REVIEW,
-        ISSUE
+        DESCRIBE_ISSUE
     }
 }

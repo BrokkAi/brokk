@@ -180,16 +180,13 @@ public class AnalyzerUtil {
      *         {@link ContextFragments.SummaryFragment}; empty if the file is not part of the project
      */
     public static Optional<ContextFragment> selectFileFragment(IContextManager cm, String input, boolean summarize) {
-        ProjectFile chosen = cm.toFile(input);
-        if (!cm.getProject().getAllFiles().contains(chosen)) {
-            return Optional.empty();
-        }
-
-        ContextFragment frag = summarize
-                ? new ContextFragments.SummaryFragment(
-                        cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS)
-                : new ContextFragments.ProjectPathFragment(chosen, cm);
-        return Optional.of(frag);
+        ProjectFile chosenFromInput = cm.toFile(input);
+        return cm.getProject()
+                .getFileByRelPath(chosenFromInput.getRelPath())
+                .map(chosen -> summarize
+                        ? new ContextFragments.SummaryFragment(
+                                cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS)
+                        : new ContextFragments.ProjectPathFragment(chosen, cm));
     }
 
     /**
