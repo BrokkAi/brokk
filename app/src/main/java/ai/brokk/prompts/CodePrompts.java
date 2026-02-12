@@ -1,7 +1,6 @@
 package ai.brokk.prompts;
 
 import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;

@@ -1111,8 +1111,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 workspaceTokens = Messages.getApproximateMessageTokens(
                         WorkspacePrompts.getMessagesGroupedByMutability(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
                 var meta = BlitzForge.createTaskMeta(model, service);
-                historyTokens =
-                        Messages.getApproximateMessageTokens(WorkspacePrompts.getHistoryMessages(ctx, meta));
+                historyTokens = Messages.getApproximateMessageTokens(WorkspacePrompts.getHistoryMessages(ctx, meta));
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
                 hadError = true;

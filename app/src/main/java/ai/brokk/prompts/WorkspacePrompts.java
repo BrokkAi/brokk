@@ -1,5 +1,7 @@
 package ai.brokk.prompts;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
@@ -31,8 +33,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
-
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * Encapsulates workspace-related prompt construction. Extracted from CodePrompts to centralize workspace rendering.
