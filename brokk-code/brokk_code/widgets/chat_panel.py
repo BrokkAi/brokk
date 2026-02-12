@@ -86,7 +86,7 @@ class ChatPanel(Vertical):
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
         yield Static(id="streaming-response", classes="hidden")
-        with Horizontal(id="chat-spinner-area", classes="hidden"):
+        with Horizontal(id="chat-spinner-area"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
             yield Static(id="chat-token-usage", classes="token-usage hidden")
@@ -221,18 +221,15 @@ class ChatPanel(Vertical):
 
     def _show_spinner(self, show: bool) -> None:
         try:
-            area = self.query_one("#chat-spinner-area", Horizontal)
             spinner = self.query_one("#chat-spinner", LoadingIndicator)
             timer = self.query_one("#chat-timer", Static)
         except Exception:
             return
 
         if show:
-            area.remove_class("hidden")
             spinner.remove_class("hidden")
             timer.remove_class("hidden")
         else:
-            area.add_class("hidden")
             spinner.add_class("hidden")
             timer.add_class("hidden")
 
