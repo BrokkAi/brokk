@@ -219,7 +219,6 @@ class ChatPanel(Vertical):
         # Some backends do not emit an explicit terminal token; flush any buffered text on finish.
         self._flush_message()
 
-
     def _update_spinner_area_visibility(self) -> None:
         try:
             area = self.query_one("#chat-spinner-area", Horizontal)
