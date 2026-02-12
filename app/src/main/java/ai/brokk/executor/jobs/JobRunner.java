@@ -870,7 +870,7 @@ public final class JobRunner {
                                             // 5. Call reviewDiff() to get LLM review with enriched context
                                             var plannerModel = Objects.requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-                                            TaskResult reviewResult = reviewDiffStatic(
+                                            TaskResult reviewResult = reviewDiff(
                                                     cm,
                                                     context,
                                                     plannerModel,
@@ -1489,7 +1489,7 @@ public final class JobRunner {
      * Static helper to perform a diff review using the provided model and context.
      * This is extracted to allow both REVIEW mode and ISSUE mode to share the review logic.
      */
-    static TaskResult reviewDiffStatic(
+    static TaskResult reviewDiff(
             ContextManager cm,
             Context ctx,
             StreamingChatModel model,
@@ -2290,7 +2290,7 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult = reviewDiffStatic(cm, ctx, reviewModel, annotatedDiff, "", "");
+                    TaskResult reviewResult = reviewDiff(cm, ctx, reviewModel, annotatedDiff, "", "");
                     String reviewText = reviewResult.output().text().join();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
