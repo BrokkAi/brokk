@@ -136,8 +136,7 @@ public class CodeAgent {
     }
 
     /**
-     * Executes the coding task against the given context, suppressing the conversation history
-     * for the duration of the task.
+     * Executes the coding task against the given context, suppressing the conversation history.
      */
     @Blocking
     TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
@@ -145,8 +144,7 @@ public class CodeAgent {
             // special case no-history to avoid changing Context identity unnecessarily
             return runTaskInternal(context, List.of(), userInput, options);
         } else {
-            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
-                    .withHistory(context.getTaskHistory());
+            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options);
         }
     }
 
