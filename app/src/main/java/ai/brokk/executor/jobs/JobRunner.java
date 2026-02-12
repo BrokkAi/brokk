@@ -2286,8 +2286,15 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult =
-                            new JobRunner(cm, store).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
+                    TaskResult reviewResult;
+                    try {
+                        try (var reviewScope = cm.beginTaskUngrouped("PR Review")) {
+                            reviewResult = new JobRunner(cm, store).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IssueExecutionException("Interrupted while running PR Review", e);
+                    }
                     String reviewText = reviewResult.output().text().join();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
