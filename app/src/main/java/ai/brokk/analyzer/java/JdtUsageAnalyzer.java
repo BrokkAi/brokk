@@ -25,7 +25,6 @@ import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.jetbrains.annotations.Nullable;
-import org.jspecify.annotations.NullMarked;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -200,7 +199,24 @@ public class JdtUsageAnalyzer {
                         pkg = fqn.substring(0, lastDot);
                         name = fqn.substring(lastDot + 1);
                     }
-                    return new CodeUnit(file, type, pkg, name);
+
+                    // Extract signature for methods
+                    String signature = null;
+                    if (type == CodeUnitType.FUNCTION && binding instanceof IMethodBinding mb) {
+                        signature = extractMethodSignature(mb);
+                    }
+
+                    return new CodeUnit(file, type, pkg, name, signature);
+                }
+
+                private String extractMethodSignature(IMethodBinding mb) {
+                    ITypeBinding[] paramTypes = mb.getParameterTypes();
+                    if (paramTypes.length == 0) {
+                        return "()";
+                    }
+                    return Arrays.stream(paramTypes)
+                            .map(t -> t.getErasure().getName())
+                            .collect(Collectors.joining(", ", "(", ")"));
                 }
 
                 private String getFqn(IBinding binding) {
@@ -222,8 +238,7 @@ public class JdtUsageAnalyzer {
                             String parent = owner != null ? getFqn(owner) : "unknown";
                             return parent + "." + vb.getName();
                         }
-                        default -> {
-                        }
+                        default -> {}
                     }
                     return binding.getName();
                 }
