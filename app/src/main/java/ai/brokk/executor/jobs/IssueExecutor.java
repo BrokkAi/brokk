@@ -8,6 +8,7 @@ import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
+import ai.brokk.issues.Comment;
 import ai.brokk.issues.GitHubIssueService;
 import ai.brokk.issues.IssueDetails;
 import ai.brokk.prompts.SearchPrompts;
@@ -288,7 +289,7 @@ public final class IssueExecutor {
                         continue;
                     }
 
-                    runPerTaskVerification(spec, buildDetailsOverride, plannerModel, codeModel, generatedTask);
+                    runPerTaskVerification(buildDetailsOverride, plannerModel, codeModel, generatedTask);
                 }
 
                 // Review-bot: compute diff vs default branch and generate inline comments
@@ -332,7 +333,6 @@ public final class IssueExecutor {
     }
 
     private void runPerTaskVerification(
-            JobSpec spec,
             BuildAgent.BuildDetails buildDetailsOverride,
             StreamingChatModel plannerModel,
             StreamingChatModel codeModel,
@@ -562,13 +562,12 @@ public final class IssueExecutor {
      */
     static String formatIssueDiagnosePrompt(IssueDetails details, int issueNumber) {
         var header = details.header();
-        String title = header != null ? header.title() : null;
+        String title = header.title();
 
         String body = details.markdownBody();
-        String safeBody = (body != null && !body.isBlank()) ? body : "(No description provided)";
+        String safeBody = body.isBlank() ? "(No description provided)" : body;
 
-        String issueHeader =
-                "# GitHub Issue #" + issueNumber + ((title != null && !title.isBlank()) ? ": " + title : "");
+        String issueHeader = "# GitHub Issue #" + issueNumber + ((!title.isBlank()) ? ": " + title : "");
 
         var out = new StringBuilder();
         out.append(issueHeader).append("\n\n");
@@ -576,20 +575,16 @@ public final class IssueExecutor {
         out.append(safeBody).append("\n\n");
 
         var comments = details.comments();
-        if (comments != null && !comments.isEmpty()) {
+        if (!comments.isEmpty()) {
             out.append("## Comments\n\n");
             for (var comment : comments) {
                 String author = comment.author();
                 var created = comment.created();
                 String timestamp = created != null ? created.toString() : "unknown time";
-                out.append("@")
-                        .append(author != null ? author : "unknown")
-                        .append(" (")
-                        .append(timestamp)
-                        .append("):\n");
+                out.append("@").append(author).append(" (").append(timestamp).append("):\n");
 
                 String commentBody = comment.markdownBody();
-                if (commentBody != null && !commentBody.isBlank()) {
+                if (!commentBody.isBlank()) {
                     out.append(commentBody);
                 }
                 out.append("\n\n");
@@ -597,7 +592,7 @@ public final class IssueExecutor {
         }
 
         var attachments = details.attachmentUrls();
-        if (attachments != null && !attachments.isEmpty()) {
+        if (!attachments.isEmpty()) {
             out.append("## Attached Images\n\n");
             for (var uri : attachments) {
                 out.append("- ").append(uri).append("\n");
@@ -610,12 +605,10 @@ public final class IssueExecutor {
 
     static boolean issueHasDiagnosisMarker(IssueDetails details) {
         var comments = details.comments();
-        if (comments == null || comments.isEmpty()) {
+        if (comments.isEmpty()) {
             return false;
         }
-        return comments.stream()
-                .map(c -> Objects.requireNonNullElse(c.markdownBody(), ""))
-                .anyMatch(body -> body.contains("<!-- brokk:diagnosis:v1"));
+        return comments.stream().map(Comment::markdownBody).anyMatch(body -> body.contains("<!-- brokk:diagnosis:v1"));
     }
 
     private void emitNotification(String message) {
