@@ -59,6 +59,7 @@ public class UsageBenchTypes {
 
     public record CodeUnitDetail(
             @JsonProperty("searchedFqn") String searchedFqn,
+            @JsonProperty("declarationLineNumber") int declarationLineNumber,
             @JsonProperty("searchedFilePath") String searchedFilePath,
             @JsonProperty("project") String project,
             @JsonProperty("projectPath") String projectPath,

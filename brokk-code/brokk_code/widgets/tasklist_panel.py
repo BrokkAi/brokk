@@ -76,11 +76,12 @@ class TaskListPanel(Vertical):
             title = task.get("title", f"Task {i}")
             instruction = task.get("text", "")
 
-            # Use a more descriptive marker
-            marker = " [bold green]DONE[/] " if done else " [bold blue]TODO[/] "
+            checkbox = "[x]" if done else "[ ]"
+            status = "done" if done else "todo"
 
-            text.append(marker)
+            text.append(f" {checkbox} ", style="bold green" if done else "bold blue")
             text.append(title, style="bold strike" if done else "bold")
+            text.append(f" ({status})", style="dim")
 
             if instruction:
                 # Add a short snippet of the instructions
