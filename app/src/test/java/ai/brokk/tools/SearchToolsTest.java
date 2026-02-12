@@ -103,6 +103,11 @@ public class SearchToolsTest {
                             // return the mutable list we populate in individual tests
                             return mockProjectFiles;
                         }
+                        case "isGitignored" -> {
+                            Path path = (Path) args[0];
+                            // Simulate .brokk being gitignored
+                            return path.startsWith(Path.of(AbstractProject.BROKK_DIR));
+                        }
                         default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
                     }
                 });
@@ -243,6 +248,48 @@ public class SearchToolsTest {
 
         // Verify it contains some identifiers from the files
         assertTrue(result.contains("A"), "Should mention identifier A");
+    }
+
+    @Test
+    void testSkimDirectory_dependenciesNotGitignored() throws IOException {
+        // Create a context manager that provides the Java analyzer and the test project
+        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                    return switch (method.getName()) {
+                        case "getAnalyzer" -> javaAnalyzer;
+                        case "getAnalyzerUninterrupted" -> javaAnalyzer;
+                        case "getProject" -> javaTestProject;
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    };
+                });
+
+        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+        // 1. Create a .brokk/dependencies/testrepo directory structure
+        Path depsRepoPath = javaTestProject
+                .getRoot()
+                .resolve(AbstractProject.BROKK_DIR)
+                .resolve(AbstractProject.DEPENDENCIES_DIR)
+                .resolve("testrepo");
+        Files.createDirectories(depsRepoPath);
+        Path testFile = depsRepoPath.resolve("DependencyFile.java");
+        Files.writeString(testFile, "public class DependencyFile {}");
+
+        try {
+            // 2. Call skimDirectory on the dependency path
+            String pathString = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo")
+                    .toString();
+            String result = tools.skimDirectory(pathString, "testing dependencies bypass gitignore");
+
+            // 3. Verify that the file IS returned (not filtered out by the .brokk gitignore simulation)
+            assertTrue(
+                    result.contains("DependencyFile.java"),
+                    "File in dependencies should be found even if .brokk is gitignored");
+        } finally {
+            // Clean up the created directory in the test project
+            Files.deleteIfExists(testFile);
+            Files.deleteIfExists(depsRepoPath);
+        }
     }
 
     @Test

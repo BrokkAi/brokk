@@ -6,6 +6,7 @@ import ai.brokk.SessionManager;
 import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.IStringDiskCache;
@@ -21,7 +22,7 @@ public final class WorktreeProject extends AbstractProject {
     private final MainProject parent;
 
     public WorktreeProject(Path root, MainProject parent) {
-        super(root);
+        super(root, parent.getMasterRootPathForConfig());
         this.parent = parent;
     }
 
@@ -43,6 +44,11 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setAnalyzerLanguages(Set<Language> languages) {
         parent.setAnalyzerLanguages(languages);
+    }
+
+    @Override
+    public void invalidateAutoDetectedLanguages() {
+        parent.invalidateAutoDetectedLanguages();
     }
 
     @Override
@@ -154,7 +160,13 @@ public final class WorktreeProject extends AbstractProject {
             // First access in this worktree: copy parent's current effective active set into this worktree
             var parentDeps = parent.getLiveDependencies(); // effective set from parent
             String names = parentDeps.stream()
-                    .map(d -> d.root().getRelPath().getName(2).toString())
+                    .map(d -> {
+                        Path fileName = d.root().getRelPath().getFileName();
+                        assert fileName != null
+                                : "Dependency path must have a file name: "
+                                        + d.root().getRelPath();
+                        return fileName.toString();
+                    })
                     .collect(Collectors.joining(","));
             // Persist the copied list so future accesses are worktree-local
             workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, names);
@@ -162,7 +174,7 @@ public final class WorktreeProject extends AbstractProject {
             liveDepsNames = names;
         }
 
-        return namesToDependencies(liveDepsNames);
+        return resolveDependencies(liveDepsNames);
     }
 
     @Override
@@ -273,5 +285,10 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setModelConfig(ModelProperties.ModelType modelType, AbstractService.ModelConfig config) {
         parent.setModelConfig(modelType, config);
+    }
+
+    @Override
+    public Set<ProjectFile> getAllOnDiskDependencies() {
+        return parent.getAllOnDiskDependencies();
     }
 }

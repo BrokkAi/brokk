@@ -308,7 +308,7 @@ public final class ThemeBorderManager {
      * Safe to call multiple times; idempotent for the same Window.
      */
     public void registerWindow(Window w) {
-        logger.debug(
+        logger.trace(
                 "ThemeBorderManager.registerWindow: window={}, type={}, enabled={}",
                 w.getName(),
                 w.getClass().getSimpleName(),
@@ -321,23 +321,19 @@ public final class ThemeBorderManager {
         }
 
         // Exclude utility windows and non-opaque windows
-        try {
-            if (w.getType() == Window.Type.UTILITY) {
-                logger.debug("Skipping window registration: UTILITY window type");
-                return;
-            }
-            if (!w.isDisplayable() && !w.isFocusableWindow()) {
-                logger.debug("Window not displayable and not focusable, but allowing registration");
-                // still allow registration (we'll install later when displayable) but we still create decorator
-            }
-            // Exclude translucent windows
-            Color bg = w.getBackground();
-            if (bg != null && bg.getAlpha() < 255) {
-                logger.debug("Skipping window registration: translucent window (alpha={})", bg.getAlpha());
-                return;
-            }
-        } catch (Exception ex) {
-            logger.debug("Error evaluating window properties: {}", ex.getMessage());
+        if (w.getType() == Window.Type.UTILITY) {
+            logger.debug("Skipping window registration: UTILITY window type");
+            return;
+        }
+        if (!w.isDisplayable() && !w.isFocusableWindow()) {
+            logger.debug("Window not displayable and not focusable, but allowing registration");
+            // still allow registration (we'll install later when displayable) but we still create decorator
+        }
+        // Exclude translucent windows
+        Color bg = w.getBackground();
+        if (bg != null && bg.getAlpha() < 255) {
+            logger.debug("Skipping window registration: translucent window (alpha={})", bg.getAlpha());
+            return;
         }
 
         // Create and store decorator if not present

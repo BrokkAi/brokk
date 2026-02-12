@@ -13,6 +13,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -521,11 +522,17 @@ public class SearchTools {
 
     // --- Text search tools
 
-    /**
-     * Helper for searching substrings across all project files.
-     * Maintained for test compatibility.
-     */
-    public String searchSubstrings(List<String> patterns, String reasoning) {
+    @Tool(
+            """
+                    Returns file names (paths relative to the project root) whose text contents match Java regular expression patterns.
+                    This is slower than searchSymbols but can find references to external dependencies and comment strings.
+                    """)
+    public String searchSubstrings(
+            @P(
+                            "Java-style regex patterns to search for within file contents. Unlike searchSymbols this does not automatically include any implicit anchors or case insensitivity.")
+                    List<String> patterns,
+            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
+                    String reasoning) {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search substrings: patterns list is empty");
         }
@@ -533,15 +540,26 @@ public class SearchTools {
             logger.warn("Missing reasoning for searchSubstrings call");
         }
 
-        Set<ProjectFile> allFiles = contextManager.getProject().getAllFiles();
-        Set<ProjectFile> matchingFiles = searchSubstrings(patterns, allFiles);
+        logger.debug("Searching file contents for patterns: {}", patterns);
 
-        if (matchingFiles.isEmpty()) {
-            return "No files found containing substrings: " + String.join(", ", patterns);
+        List<Predicate<String>> predicates = compilePatternsWithFallback(patterns);
+        if (predicates.isEmpty()) {
+            throw new IllegalArgumentException("No valid patterns provided");
         }
 
-        return "Files containing substrings: "
-                + matchingFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
+        var matchingFilenames = searchSubstrings(
+                        patterns, contextManager.getProject().getAllFiles())
+                .stream()
+                .map(ProjectFile::toString)
+                .collect(Collectors.toSet());
+
+        if (matchingFilenames.isEmpty()) {
+            return "No files found with content matching patterns: " + String.join(", ", patterns);
+        }
+
+        var msg = "Files with content matching patterns: " + String.join(", ", matchingFilenames);
+        logger.debug(msg);
+        return msg;
     }
 
     public static Set<ProjectFile> searchSubstrings(List<String> patterns, Set<ProjectFile> filesToSearch) {
@@ -734,6 +752,10 @@ public class SearchTools {
         var analyzer = getAnalyzer();
         var targetDir = Path.of(directoryPath).normalize();
 
+        // Check if we're inside the dependencies directory - don't filter by gitignore there
+        Path dependenciesPath = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR);
+        boolean isInDependencies = targetDir.startsWith(dependenciesPath);
+
         Path absTargetDir = project.getRoot().resolve(targetDir);
         File[] fsItems = absTargetDir.toFile().listFiles();
 
@@ -746,7 +768,7 @@ public class SearchTools {
 
         for (File item : fsItems) {
             String name = item.getName();
-            if (project.isGitignored(targetDir.resolve(name))) {
+            if (!isInDependencies && project.isGitignored(targetDir.resolve(name))) {
                 continue;
             }
             if (item.isDirectory()) {

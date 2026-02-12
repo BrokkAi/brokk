@@ -336,6 +336,142 @@ class ContextTest {
     }
 
     @Test
+    void testBuildRelatedSymbolsRespectsToIgnore() throws Exception {
+        // Create test files
+        var pf1 = new ProjectFile(tempDir, "src/Rel1.java");
+        Files.createDirectories(pf1.absPath().getParent());
+        pf1.write("class Rel1 {}");
+        var pf2 = new ProjectFile(tempDir, "src/Rel2.java");
+        pf2.write("class Rel2 {}");
+        var pf3 = new ProjectFile(tempDir, "src/Rel3.java");
+        pf3.write("class Rel3 {}");
+
+        var orderedCandidates = List.of(pf1, pf2, pf3);
+
+        // Create a Context subclass that returns a deterministic candidate list
+        var ctx = new Context(contextManager) {
+            @Override
+            public List<ProjectFile> getMostRelevantFiles(int topK) {
+                return orderedCandidates.stream().limit(topK).toList();
+            }
+        };
+
+        // Ignore pf2 -> should not appear in results
+        var ignored = Set.of(pf2);
+        var result = ctx.buildRelatedSymbols(10, 20, ignored);
+
+        assertFalse(result.containsKey(pf2), "Ignored file should not appear in related symbols");
+        // pf1 and pf3 may or may not appear depending on whether analyzer returns blank summaries,
+        // but pf2 must never appear
+    }
+
+    @Test
+    void testBuildRelatedSymbolsLimitsToTopN() throws Exception {
+        var pf1 = new ProjectFile(tempDir, "src/TopN1.java");
+        Files.createDirectories(pf1.absPath().getParent());
+        pf1.write("class TopN1 {}");
+        var pf2 = new ProjectFile(tempDir, "src/TopN2.java");
+        pf2.write("class TopN2 {}");
+        var pf3 = new ProjectFile(tempDir, "src/TopN3.java");
+        pf3.write("class TopN3 {}");
+        var pf4 = new ProjectFile(tempDir, "src/TopN4.java");
+        pf4.write("class TopN4 {}");
+
+        var allCandidates = List.of(pf1, pf2, pf3, pf4);
+
+        var ctx = new Context(contextManager) {
+            @Override
+            public List<ProjectFile> getMostRelevantFiles(int topK) {
+                return allCandidates.stream().limit(topK).toList();
+            }
+        };
+
+        // n=2 means only pf1 and pf2 are eligible, even though k=10 wants more
+        var result = ctx.buildRelatedSymbols(10, 2, Set.of());
+
+        // Result keys must be a subset of {pf1, pf2}
+        for (var key : result.keySet()) {
+            assertTrue(
+                    key.equals(pf1) || key.equals(pf2),
+                    "Only files within top-n should be eligible, but found: " + key);
+        }
+        assertFalse(result.containsKey(pf3), "pf3 is outside top-n and must not appear");
+        assertFalse(result.containsKey(pf4), "pf4 is outside top-n and must not appear");
+    }
+
+    @Test
+    void testBuildRelatedSymbolsReturnsExpectedFilesIndependentOfMapOrder() throws Exception {
+        var pf1 = new ProjectFile(tempDir, "src/Order1.java");
+        Files.createDirectories(pf1.absPath().getParent());
+        pf1.write("class Order1 {}");
+        var pf2 = new ProjectFile(tempDir, "src/Order2.java");
+        pf2.write("class Order2 {}");
+        var pf3 = new ProjectFile(tempDir, "src/Order3.java");
+        pf3.write("class Order3 {}");
+
+        var orderedCandidates = List.of(pf1, pf2, pf3);
+
+        // Use a TestAnalyzer that returns non-blank summaries for all files
+        var summaryAnalyzer = new TestAnalyzer(List.of(), Map.of()) {
+            @Override
+            public String summarizeSymbols(ProjectFile pf) {
+                return "summary of " + pf;
+            }
+        };
+        var summaryCm = new TestContextManager(tempDir, new NoOpConsoleIO(), summaryAnalyzer);
+
+        var ctx = new Context(summaryCm) {
+            @Override
+            public List<ProjectFile> getMostRelevantFiles(int topK) {
+                return orderedCandidates.stream().limit(topK).toList();
+            }
+        };
+
+        var result = ctx.buildRelatedSymbols(10, 20, Set.of());
+
+        // buildRelatedSymbols may run in parallel and does not guarantee map iteration order.
+        var keys = result.keySet().stream()
+                .sorted(Comparator.comparing(ProjectFile::toString))
+                .toList();
+        var expected = orderedCandidates.stream()
+                .sorted(Comparator.comparing(ProjectFile::toString))
+                .toList();
+        assertEquals(expected, keys);
+    }
+
+    @Test
+    void testBuildRelatedSymbolsKLimitsReturnedCount() throws Exception {
+        var pf1 = new ProjectFile(tempDir, "src/KLimit1.java");
+        Files.createDirectories(pf1.absPath().getParent());
+        pf1.write("class KLimit1 {}");
+        var pf2 = new ProjectFile(tempDir, "src/KLimit2.java");
+        pf2.write("class KLimit2 {}");
+        var pf3 = new ProjectFile(tempDir, "src/KLimit3.java");
+        pf3.write("class KLimit3 {}");
+
+        var orderedCandidates = List.of(pf1, pf2, pf3);
+
+        var summaryAnalyzer = new TestAnalyzer(List.of(), Map.of()) {
+            @Override
+            public String summarizeSymbols(ProjectFile pf) {
+                return "summary of " + pf;
+            }
+        };
+        var summaryCm = new TestContextManager(tempDir, new NoOpConsoleIO(), summaryAnalyzer);
+
+        var ctx = new Context(summaryCm) {
+            @Override
+            public List<ProjectFile> getMostRelevantFiles(int topK) {
+                return orderedCandidates.stream().limit(topK).toList();
+            }
+        };
+
+        // k=2 should return at most 2 files even though n=20 makes all 3 eligible
+        var result = ctx.buildRelatedSymbols(2, 20, Set.of());
+        assertTrue(result.size() <= 2, "Should return at most k files, got: " + result.size());
+    }
+
+    @Test
     void testIsFileContentEmpty_withEmptyContext() {
         var ctx = new Context(contextManager);
         assertTrue(ctx.isFileContentEmpty(), "Empty context should have no file content");

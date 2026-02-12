@@ -14,7 +14,9 @@ import org.junit.jupiter.api.Test;
 class SearchPromptsTest {
     @Test
     void issueDiagnosisTerminals_isIssueOnly() {
-        assertEquals(EnumSet.of(SearchPrompts.Terminal.ISSUE), SearchPrompts.Objective.ISSUE_DIAGNOSIS.terminals());
+        assertEquals(
+                EnumSet.of(SearchPrompts.Terminal.DESCRIBE_ISSUE),
+                SearchPrompts.Objective.ISSUE_DESCRIPTION.terminals());
     }
 
     @Test
@@ -39,9 +41,9 @@ class SearchPromptsTest {
             assertTrue(workspaceOnly.contains("Deliverable: a curated Workspace ready for the Code Agent"));
 
             var issueDiagnosis = SearchPrompts.instance
-                    .searchSystemPrompt(ctx, SearchPrompts.Objective.ISSUE_DIAGNOSIS)
+                    .searchSystemPrompt(ctx, SearchPrompts.Objective.ISSUE_DESCRIPTION)
                     .text();
-            assertTrue(issueDiagnosis.contains("Objective: ISSUE_DIAGNOSIS"));
+            assertTrue(issueDiagnosis.contains("Objective: ISSUE_DESCRIPTION"));
             assertTrue(issueDiagnosis.contains("Deliverable: a high-quality GitHub issue"));
         } finally {
             ai.brokk.util.FileUtil.deleteRecursively(tempDir);

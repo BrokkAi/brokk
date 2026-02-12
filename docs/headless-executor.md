@@ -12,9 +12,12 @@ The executor requires the following configuration, provided via **environment va
 | Listen Address | `LISTEN_ADDR` | `--listen-addr` | Yes | Host:port to bind (e.g., `0.0.0.0:8080`) |
 | Auth Token | `AUTH_TOKEN` | `--auth-token` | Yes | Bearer token for API authentication |
 | Workspace Dir | `WORKSPACE_DIR` | `--workspace-dir` | Yes | Path to the project workspace |
-| Sessions Dir | `SESSIONS_DIR` | `--sessions-dir` | No | Path to store sessions (defaults to `<workspace>/.brokk/sessions`) |
 | Brokk API Key | `BROKK_API_KEY` | `--brokk-api-key` | No | Per-executor Brokk API key; overrides global config. If not provided, falls back to the globally configured key |
 | LLM Proxy Setting | `PROXY_SETTING` | `--proxy-setting` | No | LLM proxy target: `BROKK` (https://proxy.brokk.ai), `LOCALHOST` (http://localhost:4000), or `STAGING` (https://staging.brokk.ai). If not provided, uses global config |
+
+Notes:
+- Sessions are stored under `<workspace>/.brokk/sessions` and jobs under `<workspace>/.brokk/jobs`.
+- There is currently no `SESSIONS_DIR` / `--sessions-dir` override; the sessions directory is derived from the workspace.
 
 ## Running from Source
 
@@ -45,50 +48,41 @@ curl -sS -X GET "http://localhost:8080/v1/sessions/<session-id>" \
   -o "<session-id>.zip"
 ```
 
-## ASK Mode: Read-Only Codebase Search
+## ASK Mode: Read-Only Answer From Current Workspace Context
 
-ASK mode enables **interactive, read-only exploration** of your repository. It leverages the internal `SearchAgent` to understand your queries and automatically discover relevant code without making any modifications.
+ASK mode returns a single written answer using the current session's Workspace context. It does not modify files, commit changes, or run repository-wide discovery by default.
 
 ### How ASK Works
 
 When you submit an ASK job, the system:
 1. Receives your natural language query
-2. Uses the SearchAgent to intelligently search the codebase
-3. Discovers relevant files, symbols, and code structures
-4. Streams results back as events (no UI prompts needed in headless mode)
-5. Provides findings without making any commits or code changes
+2. Uses the `plannerModel` to produce an answer based on whatever is already in the Workspace context
+3. Streams the answer back as events (no UI prompts needed in headless mode)
+4. Produces no code changes and no commits
 
 ### Optional pre-scan (seed workspace)
 
-ASK supports an optional repository pre-scan that can be used to seed the Workspace with additional context before the ASK reasoning runs. To enable this behavior, include the boolean flag `"preScan": true` in the job payload. When `preScan` is true the executor will run a lightweight repository scan prior to reasoning; this can improve recall for large repos or vague queries.
+ASK supports an optional repository pre-scan that seeds the Workspace with additional context before the ASK answer is generated. To enable this behavior, include the boolean flag `"preScan": true` in the job payload. When `preScan` is true the executor runs the Context Engine (a lightweight repository scan) prior to answering; this can improve recall for large repos or vague queries.
 
 Model selection semantics for the pre-scan:
 - The ASK reasoning always uses `plannerModel` (this remains required).
-- The pre-scan uses the `scanModel` if provided in the job payload (string). If `scanModel` is omitted, the executor falls back to the project's default scan model (Service.getScanModel()).
+- The pre-scan currently uses the project's default scan model (`Service.getScanModel()`).
+- The `scanModel` field is accepted in the job payload, but it is currently only used by SEARCH mode (it is not applied to the ASK pre-scan in the current implementation).
 - `codeModel` is ignored for ASK (ASK is read-only).
 
 Example job fields for pre-scan behavior:
 - `"plannerModel": "gpt-5"`  — required for ASK reasoning
 - `"preScan": true`         — enable repository pre-scan before reasoning
-- `"scanModel": "gpt-5-mini"` — optional override used only for the pre-scan step
+- `"scanModel": "gpt-5-mini"` — optional override used by SEARCH mode (not applied to ASK pre-scan currently)
 
-### Supported Search & Inspection Capabilities
-
-- **Symbol search**: Find class, method, and field definitions by name or pattern
-- **Class inspection**: Get full source code or skeleton views of classes
-- **Method lookup**: Retrieve specific method implementations
-- **File summaries**: Get a quick overview of class structures in files (fields, method signatures)
-- **Usages**: Discover where symbols are used throughout the codebase
-- **File search**: Search for files by name or content patterns
-- **Git history**: Search commit messages for context about changes
-- **Related code**: Automatically find related classes and dependencies
+ASK does not perform tool-driven repository discovery by itself. For read-only repository discovery (symbol search, usages, file search, etc.), use SEARCH mode.
 
 ### Configuration
 
 ASK mode requires:
-- `plannerModel`: The LLM model to use for understanding queries and searching
+- `plannerModel`: The LLM model to use for generating the answer
 - `preScan` (optional): When `true`, run a repository pre-scan that seeds the Workspace before reasoning
-- `scanModel` (optional): Model name to use for the pre-scan; if omitted, the project default scan model is used
+- `scanModel` (optional): Used by SEARCH mode; not applied to ASK pre-scan in the current implementation
 - `autoCompress` (optional): Enable automatic context compression (recommended for large codebases)
 
 ASK mode **ignores** `codeModel` since it does not perform code generation.
@@ -105,7 +99,6 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Idempotency-Key: ask-query-001" \
   --data @- <<'JSON'
 {
-  "sessionId": "<session-id>",
   "taskInput": "Where is the UserService class defined? Show me its public methods and explain what this class does.",
   "autoCommit": false,
   "autoCompress": true,
@@ -117,22 +110,20 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
 JSON
 ```
 
-ASK with pre-scan (use explicit scan model):
+ASK with pre-scan:
 
 ```bash
-# Submit an ASK query and request a repository pre-scan using a chosen scan model.
+# Submit an ASK query and request a repository pre-scan (Context Engine).
 curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Authorization: Bearer my-secret-token" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: ask-prescan-001" \
   --data @- <<'JSON'
 {
-  "sessionId": "<session-id>",
   "taskInput": "Find UserService and summarize its responsibilities and public methods.",
   "autoCommit": false,
   "autoCompress": true,
   "plannerModel": "gpt-5",
-  "scanModel": "gpt-5-mini",
   "preScan": true,
   "tags": {
     "mode": "ASK"
@@ -141,28 +132,7 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
 JSON
 ```
 
-ASK with pre-scan (use project default scan model):
-
-```bash
-# Submit ASK with preScan=true but omit scanModel to use the project's default scan model.
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ask-prescan-002" \
-  --data @- <<'JSON'
-{
-  "sessionId": "<session-id>",
-  "taskInput": "Summarize where AuthenticationManager is used across the repo.",
-  "autoCommit": false,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "preScan": true,
-  "tags": {
-    "mode": "ASK"
-  }
-}
-JSON
-```
+Note: In the current implementation, ASK pre-scan always uses the project's default scan model, regardless of `scanModel`.
 
 #### Streaming results
 
@@ -181,8 +151,19 @@ Key points:
 - Read-only: SEARCH will not write, commit, or modify repository files. No code diffs or git commits are produced.
 - Uses a scan model: When creating a SEARCH job you may optionally supply a `scanModel` in the job payload. If provided, the executor will use that model for scanning and searching the repository. If `scanModel` is not provided, the executor falls back to the project's default scan model (via the Service's `getScanModel()`).
 - `plannerModel` is still required by the API for validation (this is kept for API uniformity), but SEARCH prefers `scanModel` to select the actual scanning LLM. `codeModel` is ignored in SEARCH mode.
-- Behavior vs ASK: ASK also performs read-only searches using the SearchAgent; SEARCH exposes an explicit `scanModel` override and is intended as the canonical "scan-only" mode when callers want to pick the scanning LLM. Functionally the streamed output and read-only guarantees are the same.
+- Behavior vs ASK: ASK produces a single answer from the current Workspace context. SEARCH runs repository discovery using SearchAgent and returns findings (still read-only).
 - Behavior vs LUTZ: LUTZ is a two-phase planning+execution workflow (SearchAgent generates a task list, then Architect executes tasks possibly producing code). SEARCH does not plan or execute — it only discovers and returns information.
+
+### Supported Search & Inspection Capabilities (SEARCH)
+
+- **Symbol search**: Find class, method, and field definitions by name or pattern
+- **Class inspection**: Get full source code or skeleton views of classes
+- **Method lookup**: Retrieve specific method implementations
+- **File summaries**: Get a quick overview of class structures in files (fields, method signatures)
+- **Usages**: Discover where symbols are used throughout the codebase
+- **File search**: Search for files by name or content patterns
+- **Git history**: Search commit messages for context about changes
+- **Related code**: Automatically find related classes and dependencies
 
 ### Example: SEARCH with explicit scan model
 
@@ -193,7 +174,6 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Idempotency-Key: ${IDEMP_KEY}" \
   --data @- <<'JSON'
 {
-  "sessionId": "replace-with-session-id",
   "taskInput": "Find all usages of AuthenticationManager and summarize where it's referenced.",
   "autoCommit": false,
   "autoCompress": false,
@@ -267,7 +247,6 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Idempotency-Key: lutz-job-001" \
   --data @- <<'JSON'
 {
-  "sessionId": "<session-id>",
   "taskInput": "Add comprehensive error handling to the UserService class and ensure all exceptions are properly logged.",
   "autoCommit": true,
   "autoCompress": true,
@@ -355,7 +334,6 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Idempotency-Key: review-002" \
   --data @- <<'JSON'
 {
-  "sessionId": "<session-id>",
   "taskInput": "",
   "autoCommit": false,
   "autoCompress": false,
@@ -405,7 +383,6 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Idempotency-Key: issue-writer-001" \
   --data @- <<'JSON'
 {
-  "sessionId": "<session-id>",
   "taskInput": "Create an issue describing the NPE when AuthenticationProvider receives a null user, including evidence from the codebase.",
   "autoCommit": false,
   "autoCompress": false,
@@ -522,7 +499,6 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Idempotency-Key: issue-quick-002" \
   --data @- <<'JSON'
 {
-  "sessionId": "<session-id>",
   "taskInput": "Ignored for ISSUE mode; issue body drives the work.",
   "plannerModel": "gpt-4",
   "codeModel": "gpt-4",
@@ -570,16 +546,35 @@ Once running, the executor exposes the following endpoints:
   - Content-Type: `application/zip`
   - Returns: `{ "sessionId": "<uuid>" }`
 
+- **`GET /v1/tasklist`** (Authenticated) - Get current task list content
+  - Returns the structured content of the current active task list.
+  - Recommended polling interval: ~15 seconds (suggestion, not a protocol requirement).
+  - Empty state: If no task list is active, returns HTTP 200 with `bigPicture: null` and `tasks: []`.
+  - Schema:
+    ```json
+    {
+      "bigPicture": "Goal or overview of the current task sequence",
+      "tasks": [
+        {
+          "id": "uuid-or-string",
+          "title": "Short task name",
+          "text": "Detailed task instructions",
+          "done": false
+        }
+      ]
+    }
+    ```
+
 ### Job Management (Authenticated)
 
 - **`POST /v1/jobs`** - Create and execute a job
   - Requires `Idempotency-Key` header for safe retries
   - Body: Job JSON accepted by the headless API. Most fields correspond to persisted `JobSpec`, but:
-    - `sessionId` exists in the request body and is used to select the active session; it is not persisted in `JobSpec` (it may be copied into tags as `session_id`).
+    - `sessionId` exists in the request body for compatibility, but it is not currently used to select the active session. Jobs execute against the server's currently active session (set by `POST /v1/sessions` or `PUT /v1/sessions`).
     - `sourceBranch` / `targetBranch` are persisted/reserved `JobSpec` fields but are not currently accepted by `POST /v1/jobs` (they will always be null when jobs are created via this endpoint).
   - Returns: `{ "jobId": "<uuid>", "state": "running", ... }`
   - **SEARCH mode**: Set `"tags": { "mode": "SEARCH" }` to run a read-only repository scan. Optionally include `"scanModel": "<model>"` to override the default scan model used for repository scanning. `plannerModel` is still required by the API for validation.
-  - **ASK mode**: Set `"tags": { "mode": "ASK" }` for ad-hoc read-only searches (uses service default scan model unless otherwise configured).
+  - **ASK mode**: Set `"tags": { "mode": "ASK" }` for a single read-only answer from the current Workspace context (optionally with `preScan: true` to seed context first).
   - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
@@ -629,7 +624,6 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Idempotency-Key: architect-overrides-001" \
   --data @- <<'JSON'
 {
-  "sessionId": "<session-id>",
   "taskInput": "Refactor the auth module to improve logging and error messages.",
   "autoCommit": true,
   "autoCompress": true,
