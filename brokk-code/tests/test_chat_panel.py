@@ -44,9 +44,9 @@ async def test_spinner_and_timer_lifecycle():
                 await asyncio.sleep(0.01)
             assert str(timer_label.render()) == expected
 
-        # Initial state: spinner area reserved, no timer text
+        # Initial state: hidden, no timer text
         await pilot.pause()
-        assert not spinner_area.has_class("hidden")
+        assert spinner_area.has_class("hidden")
         assert str(timer_label.render()) == ""
 
         # Start job
@@ -88,10 +88,10 @@ async def test_spinner_and_timer_lifecycle():
         current_time += 5.0
         await wait_for_timer("Elapsed: 01:01:20")
 
-        # Explicit job finish - keeps token bar row visible and clears timer
+        # Explicit job finish - hides area and clears timer
         panel.set_job_running(False)
         await pilot.pause()
-        assert not spinner_area.has_class("hidden")
+        assert spinner_area.has_class("hidden")
         # Wait for worker to exit and check final state
         await asyncio.sleep(0.1)
         assert str(timer_label.render()) == ""

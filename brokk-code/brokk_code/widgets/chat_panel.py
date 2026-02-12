@@ -86,7 +86,7 @@ class ChatPanel(Vertical):
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
         yield Static(id="streaming-response", classes="hidden")
-        with Horizontal(id="chat-spinner-area"):
+        with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
             yield Static(id="chat-token-usage", classes="token-usage hidden")
@@ -219,6 +219,23 @@ class ChatPanel(Vertical):
         # Some backends do not emit an explicit terminal token; flush any buffered text on finish.
         self._flush_message()
 
+
+    def _update_spinner_area_visibility(self) -> None:
+        try:
+            area = self.query_one("#chat-spinner-area", Horizontal)
+            spinner = self.query_one("#chat-spinner", LoadingIndicator)
+            timer = self.query_one("#chat-timer", Static)
+            usage_label = self.query_one("#chat-token-usage", Static)
+        except Exception:
+            return
+
+        should_show = (
+            not usage_label.has_class("hidden")
+            or not spinner.has_class("hidden")
+            or not timer.has_class("hidden")
+        )
+        area.set_class(not should_show, "hidden")
+
     def _show_spinner(self, show: bool) -> None:
         try:
             spinner = self.query_one("#chat-spinner", LoadingIndicator)
@@ -232,6 +249,8 @@ class ChatPanel(Vertical):
         else:
             spinner.add_class("hidden")
             timer.add_class("hidden")
+
+        self._update_spinner_area_visibility()
 
     def _update_elapsed_time_label(self) -> None:
         """Updates the elapsed time ticker label."""
@@ -414,7 +433,9 @@ class ChatPanel(Vertical):
             usage_label = self.query_one("#chat-token-usage", Static)
             usage_label.set_class(not visible, "hidden")
         except Exception:
-            pass
+            return
+
+        self._update_spinner_area_visibility()
 
     def set_token_usage(self, used: int, max_tokens: Optional[int] = None) -> None:
         """Updates the token usage display in the spinner area."""
