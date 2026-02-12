@@ -63,6 +63,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
+    private static final int MAX_TURNS = 10;
 
     private final IConsoleIO io;
 
@@ -574,8 +575,15 @@ public class ArchitectAgent {
         var llm = cm.getLlm(new Llm.Options(planningModel, goal, TaskResult.Type.ARCHITECT).withEcho());
         var modelsService = cm.getService();
 
-        while (true) {
-            io.showTransientMessage("Brokk Architect is preparing the next actions…");
+        Set<ContextFragment> protectedFromPruning = Set.of();
+        for (int turnNumber = 1; turnNumber <= MAX_TURNS; turnNumber++) {
+            boolean isFinalTurn = (turnNumber == MAX_TURNS);
+
+            if (isFinalTurn) {
+                io.showTransientMessage("Brokk Architect is preparing final turn (turn limit reached)");
+            } else {
+                io.showTransientMessage("Brokk Architect is preparing turn " + turnNumber);
+            }
 
             // Determine active models and their maximum allowed input tokens
             var models = new ArrayList<StreamingChatModel>();
@@ -586,7 +594,8 @@ public class ArchitectAgent {
                     .min()
                     .orElseThrow();
 
-            var outcome = runPlanningTurnWithContextTooLargeRecovery(llm, maxInputTokens);
+            var outcome = runPlanningTurnWithContextTooLargeRecovery(
+                    llm, maxInputTokens, protectedFromPruning, isFinalTurn);
             if (outcome instanceof PlanningTurnOutcome.Terminal terminal) {
                 return terminal.taskResult();
             }
@@ -606,6 +615,17 @@ public class ArchitectAgent {
 
             var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
+
+            // On the final turn, only callCodeAgent and abortProject are allowed;
+            // filter out anything else the LLM may have attempted
+            if (isFinalTurn) {
+                var allowed = Set.of("callCodeAgent", "abortProject");
+                deduplicatedRequests.removeIf(req -> !allowed.contains(req.name()));
+                if (deduplicatedRequests.isEmpty()) {
+                    logger.info("Terminal turn: LLM did not call callCodeAgent or abortProject; ending.");
+                    return resultWithMessages(StopReason.SUCCESS);
+                }
+            }
 
             // carry forward into outer loop
             ToolExecutionRequest answerReq = null, abortReq = null;
@@ -802,6 +822,7 @@ public class ArchitectAgent {
             }
 
             // code agent calls are done serially
+            var initialContext = context;
             for (var req : codeAgentReqs) {
                 ToolExecutionResult toolResult = tr.executeTool(req);
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
@@ -818,11 +839,17 @@ public class ArchitectAgent {
             if (codeAgentJustSucceeded) {
                 return codeAgentSuccessResult();
             }
+            protectedFromPruning =
+                    ContextDelta.between(initialContext, context).join().getChangedFragments();
         }
+
+        // All turns exhausted (including the terminal turn); return what we have
+        return resultWithMessages(StopReason.SUCCESS);
     }
 
     @Blocking
-    private PlanningTurnOutcome runPlanningTurnWithContextTooLargeRecovery(Llm llm, int maxInputTokens)
+    private PlanningTurnOutcome runPlanningTurnWithContextTooLargeRecovery(
+            Llm llm, int maxInputTokens, Set<ContextFragment> protectedFromPruning, boolean isFinalTurn)
             throws InterruptedException {
         var removedFragmentDescriptionsThisTurn = new ArrayList<String>();
 
@@ -837,6 +864,12 @@ public class ArchitectAgent {
             if (!removedFragmentDescriptionsThisTurn.isEmpty()) {
                 harnessNotes.add("Dropped very large fragments " + removedFragmentDescriptionsThisTurn
                         + " to reduce workspace size.");
+            }
+            if (isFinalTurn) {
+                var allowedTools = List.of("callCodeAgent", "abortProject");
+                harnessNotes.add("Turn limit reached. This is your FINAL turn. Tools are restricted to "
+                        + allowedTools
+                        + ". You MUST either call callCodeAgent to commit your plan, or abortProject to cancel.");
             }
             if (emergencyToolMode) {
                 var allowedTools = criticalAllowedTools();
@@ -866,7 +899,12 @@ public class ArchitectAgent {
 
             var toolSpecs = new ArrayList<ToolSpecification>();
             ToolContext toolContext;
-            if (emergencyToolMode) {
+            if (isFinalTurn) {
+                // Terminal turn: only allow committing work or aborting
+                var allowed = List.of("callCodeAgent", "abortProject");
+                toolSpecs.addAll(tr.getTools(allowed));
+                toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
+            } else if (emergencyToolMode) {
                 notifyCriticalWorkspaceRestriction(workspaceTokenSize, maxInputTokens);
                 var allowed = criticalAllowedTools();
                 allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
@@ -911,10 +949,12 @@ public class ArchitectAgent {
             io.showTransientMessage("Brokk Architect is preparing the next actions…");
             var result = llm.sendRequest(messages, toolContext);
 
+            // happy path
             if (result.error() == null) {
                 return new PlanningTurnOutcome.Success(new PlanningTurn(tr, wst, messages, result));
             }
 
+            // llm error
             if (!(result.error() instanceof ContextTooLargeException)) {
                 logger.debug(
                         "Error from LLM while deciding next action: {}",
@@ -925,8 +965,11 @@ public class ArchitectAgent {
                 return new PlanningTurnOutcome.Terminal(resultWithMessages(StopReason.LLM_ERROR));
             }
 
+            // context too large
             int totalPromptTokens = Messages.getApproximateMessageTokens(messages);
             int conversationTokens = Math.max(0, totalPromptTokens - workspaceTokenSize);
+
+            // 1. if history alone is too large, we can't recover
             if (conversationTokens > workspaceTokenSize) {
                 var abortMessage =
                         "Architect aborting: ContextTooLarge while conversation history (" + conversationTokens
@@ -936,15 +979,14 @@ public class ArchitectAgent {
                 return new PlanningTurnOutcome.Terminal(resultWithMessages(StopReason.LLM_ABORTED, abortMessage));
             }
 
-            var maybeLargest = findLargestFragmentToDrop(context);
+            // 2. attempt to recover by removing the largest fragment
+            var maybeLargest = findLargestFragmentToDrop(context, protectedFromPruning);
             if (maybeLargest.isEmpty()) {
                 var abortMessage =
                         "Architect aborting: ContextTooLarge and no further workspace fragments could be dropped.";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, abortMessage);
                 return new PlanningTurnOutcome.Terminal(resultWithMessages(StopReason.LLM_ERROR, abortMessage));
             }
-
-            // remove the largest fragment and try again in emergency mode
             var largest = maybeLargest.get();
             var desc = largest.description().join();
             removedFragmentDescriptionsThisTurn.add(desc);
@@ -954,6 +996,8 @@ public class ArchitectAgent {
             String discardedJson = SpecialTextType.serializeDiscardedContext(mergedDiscarded);
             context = context.removeFragmentsByIds(List.of(largest.id()))
                     .withSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
+
+            // set local emergency mode and global has-entered flags
             emergencyToolMode = true;
             hasEnteredEmergencyMode = true;
         }
@@ -1180,10 +1224,11 @@ public class ArchitectAgent {
     }
 
     @Blocking
-    private Optional<ContextFragment> findLargestFragmentToDrop(Context ctx) {
+    private Optional<ContextFragment> findLargestFragmentToDrop(Context ctx, Set<ContextFragment> protectedFragments) {
         var candidates = ctx.allFragments()
                 .filter(f -> !f.getType().isOutput())
                 .filter(f -> !ctx.isPinned(f))
+                .filter(f -> protectedFragments.stream().noneMatch(p -> p.hasSameSource(f)))
                 .filter(ContextFragment::isText)
                 .toList();
 
