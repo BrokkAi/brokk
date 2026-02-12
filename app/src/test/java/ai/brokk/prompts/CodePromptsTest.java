@@ -412,7 +412,7 @@ class CodePromptsTest {
         ctx = ctx.withHistory(List.of(entry));
 
         var currentMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-A"));
-        var history = CodePrompts.instance.getHistoryMessages(ctx, currentMeta);
+        var history = WorkspacePrompts.getHistoryMessages(ctx, currentMeta);
 
         var toolAiMessages = history.stream()
                 .filter(m -> m instanceof AiMessage ai && ai.hasToolExecutionRequests())
@@ -456,7 +456,7 @@ class CodePromptsTest {
         ctx = ctx.withHistory(List.of(entry));
 
         var currentMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-B"));
-        var history = CodePrompts.instance.getHistoryMessages(ctx, currentMeta);
+        var history = WorkspacePrompts.getHistoryMessages(ctx, currentMeta);
 
         assertFalse(history.stream().anyMatch(m -> m instanceof ToolExecutionResultMessage));
 
