@@ -323,9 +323,6 @@ public class ArchitectAgent {
                     Details are in the Workspace. The Code Agent applied changes but couldn't verify them.
                     If this is a multi-step change that will temporarily break the build, retry callCodeAgent with deferBuild=true and complete the follow-up fixes next.
                     You can also retry with different instructions, or undo with 'undoLastChanges'.
-
-                    If the failure is due to build misconfiguration or an environmental or infrastructure problem (not the code changes),
-                    stop this work and abort the project, documenting the root cause and required environment/setup fixes.
                     """
                         .formatted(explanation);
             case IO_ERROR ->
