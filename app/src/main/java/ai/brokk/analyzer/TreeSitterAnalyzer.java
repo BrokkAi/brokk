@@ -2569,17 +2569,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 localChildren,
                 localCodeUnitsBySymbol);
 
-        // Also call the deprecated version for subclasses that haven't migrated yet
-        createModulesFromImports(
-                file,
-                localImportStatements,
-                rootNode,
-                determinePackageName(file, rootNode, rootNode, sourceContent),
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges);
-
         // Synthetic constructor injection: for each class-like CU, check if it needs an implicit constructor.
         // Implicit constructors are fully integrated into the local state:
         // 1. Attached as a direct child of the enclosing class in localChildren
