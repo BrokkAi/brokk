@@ -85,6 +85,7 @@ class ChatPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
+        yield Static(id="streaming-response", classes="hidden")
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
@@ -308,13 +309,15 @@ class ChatPanel(Vertical):
 
     def _flush_message(self, is_incremental: bool = False) -> None:
         """Renders the accumulated buffer as Markdown or a reasoning Panel."""
+        log = self.query_one("#chat-log", RichLog)
+        streaming_area = self.query_one("#streaming-response", Static)
+
         if not self._current_message_buffer.strip():
             if not is_incremental:
                 self._current_message_buffer = ""
-                self._incremental_line_index = None
+                streaming_area.update("")
+                streaming_area.add_class("hidden")
             return
-
-        log = self.query_one("#chat-log", RichLog)
 
         if self._is_reasoning:
             # Reasoning is flushed only when complete
@@ -331,27 +334,19 @@ class ChatPanel(Vertical):
         else:
             # AI Response
             content = self._current_message_buffer.strip()
-            # If incremental, we replace the previous line we wrote if it exists
             if is_incremental:
-                if self._incremental_line_index is not None:
-                    # Clear the previous incremental line. RichLog doesn't have a direct 'replace'
-                    # so we clear and rewrite if it's the last line, but Textual RichLog
-                    # is append-only. To achieve "incremental" look without excessive growth:
-                    # we write the markdown. Note: Multiple log.write calls for the same
-                    # message will repeat the content.
-                    # Standard RichLog behavior makes it hard to 'update' a line.
-                    # We will append, but only if significant content has changed.
-                    pass
-
-                # For now, append markdown. In a real terminal, we'd ideally use a Static
-                # widget for the "active" message and move it to RichLog when done,
-                # but RichLog is the current architecture.
-                log.write(Markdown(content))
+                # Update the live preview widget instead of the append-only log
+                streaming_area.remove_class("hidden")
+                streaming_area.update(Markdown(content))
+                # Auto-scroll the log to keep the bottom visible while streaming
+                log.scroll_end(animate=False)
             else:
+                # Message is complete, hide preview and commit to log
+                streaming_area.update("")
+                streaming_area.add_class("hidden")
                 log.write(Markdown(content))
                 log.write("")  # Spacer
                 self._current_message_buffer = ""
-                self._incremental_line_index = None
 
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""
