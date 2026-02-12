@@ -221,24 +221,24 @@ public class ImageUtil {
 
         int captured = 0;
         for (URI uri : attachmentUrls) {
-            if (!isImageUri(uri, client)) {
-                logger.debug("Skipping non-image URI: {}", uri);
-                continue;
-            }
-
-            Image image = downloadImage(uri, client);
-            if (image == null) {
-                logger.warn("Failed to download image from URI: {}", uri);
-                continue;
-            }
-
-            String description = "Issue attachment: " + uri.toString();
             try {
+                if (!isImageUri(uri, client)) {
+                    logger.debug("Skipping non-image URI: {}", uri);
+                    continue;
+                }
+
+                Image image = downloadImage(uri, client);
+                if (image == null) {
+                    logger.warn("Failed to download image from URI: {}", uri);
+                    continue;
+                }
+
+                String description = "Issue attachment: " + uri;
                 imageConsumer.accept(image, description);
                 captured++;
                 logger.debug("Captured image from URI: {}", uri);
             } catch (Exception e) {
-                logger.warn("Failed to process captured image from {}: {}", uri, e.getMessage());
+                logger.warn("Failed to process image attachment from {}: {}", uri, e.getMessage());
             }
         }
 
