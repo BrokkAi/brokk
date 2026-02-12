@@ -12,6 +12,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import ai.brokk.testutil.TestProject;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -27,7 +29,8 @@ public class FuzzyUsageFinderJavaTest {
 
     @BeforeAll
     public static void setup() throws IOException {
-        testProject = createTestProject("testcode-java");
+        var testDir = Path.of("./src/test/resources", "testcode-java").toAbsolutePath().normalize();
+        testProject = new TestProject(testDir);
         analyzer = new JavaAnalyzer(testProject);
         logger.debug(
                 "Setting up FuzzyUsageFinder tests with test code from {}",
@@ -41,30 +44,6 @@ public class FuzzyUsageFinderJavaTest {
         } catch (Exception e) {
             logger.error("Exception encountered while closing the test project at the end of testing", e);
         }
-    }
-
-    private static IProject createTestProject(String subDir) {
-        var testDir = Path.of("./src/test/resources", subDir).toAbsolutePath().normalize();
-        assertTrue(Files.exists(testDir), String.format("Test resource dir missing: %s", testDir));
-        assertTrue(Files.isDirectory(testDir), String.format("%s is not a directory", testDir));
-
-        return new IProject() {
-            @Override
-            public Path getRoot() {
-                return testDir.toAbsolutePath();
-            }
-
-            @Override
-            public Set<ProjectFile> getAllFiles() {
-                var files = testDir.toFile().listFiles();
-                if (files == null) {
-                    return Collections.emptySet();
-                }
-                return Arrays.stream(files)
-                        .map(file -> new ProjectFile(testDir, testDir.relativize(file.toPath())))
-                        .collect(Collectors.toSet());
-            }
-        };
     }
 
     @Test
