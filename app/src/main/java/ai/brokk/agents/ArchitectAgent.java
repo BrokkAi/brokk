@@ -47,6 +47,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -447,7 +448,7 @@ public class ArchitectAgent {
         logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
 
         SearchPrompts.Objective objective =
-                switch (mode.toUpperCase()) {
+                switch (mode.toUpperCase(Locale.ROOT)) {
                     case "ANSWER" -> SearchPrompts.Objective.ANSWER_ONLY;
                     default -> SearchPrompts.Objective.WORKSPACE_ONLY;
                 };

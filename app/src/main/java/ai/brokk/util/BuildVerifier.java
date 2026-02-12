@@ -1,5 +1,7 @@
 package ai.brokk.util;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import ai.brokk.gui.dialogs.JdkSelector;
 import ai.brokk.project.IProject;
 import java.nio.file.Path;
@@ -99,7 +101,7 @@ public final class BuildVerifier {
             }
             logger.debug("Test attempt {}/{} failed (exit {})", attempt, effectiveRetries, lastResult.exitCode());
         }
-        return lastResult;
+        return castNonNull(lastResult);
     }
 
     /**
