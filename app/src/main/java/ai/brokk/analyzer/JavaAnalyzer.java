@@ -100,11 +100,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected boolean shouldMergeSignaturesForSameFqn() {
-        return true;
-    }
-
-    @Override
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file,
             String captureName,
