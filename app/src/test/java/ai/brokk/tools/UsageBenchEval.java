@@ -367,6 +367,7 @@ public class UsageBenchEval implements Callable<Integer> {
                         .toList();
                 projectTPs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
+                        unit.declarationLineNumber(),
                         searchedFilePath,
                         projectName,
                         projectPath,
@@ -386,6 +387,7 @@ public class UsageBenchEval implements Callable<Integer> {
                         .toList();
                 projectFPs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
+                        unit.declarationLineNumber(),
                         searchedFilePath,
                         projectName,
                         projectPath,
@@ -404,6 +406,7 @@ public class UsageBenchEval implements Callable<Integer> {
                         .toList();
                 projectFNs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
+                        unit.declarationLineNumber(),
                         searchedFilePath,
                         projectName,
                         projectPath,
