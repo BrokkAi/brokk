@@ -736,7 +736,13 @@ public class Context {
             return removeFragmentsByIds(List.of(existing.get().id()));
         }
 
-        return withSpecial(SpecialTextType.BUILD_RESULTS, processedOutput);
+        String note =
+                """
+        [HARNESS NOTE: The build is currently FAILING. I will update it automatically when Code Agent makes changes.
+        You do not need to attempt an explicit rebuild.]
+
+        """;
+        return withSpecial(SpecialTextType.BUILD_RESULTS, note + processedOutput);
     }
 
     /**
