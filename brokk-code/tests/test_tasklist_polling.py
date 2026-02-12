@@ -86,8 +86,10 @@ async def test_tasklist_polling_updates_ui(tmp_path):
             assert "Update LoginController" in content_text
             assert "Change the authentication endpoint" in content_text
             assert "Add logging" in content_text
-            assert "DONE" in content_text
-            assert "TODO" in content_text
+            assert "[x]" in content_text
+            assert "[ ]" in content_text
+            assert "(done)" in content_text
+            assert "(todo)" in content_text
 
             # Observable outcome: content is present
             assert "Refactor Authentication" in content_text
@@ -166,8 +168,8 @@ async def test_refresh_context_panel_integration_preserves_task_details(tmp_path
             initial_render = panel.query_one("#tasklist-content").render().plain
             assert "Complex Refactoring Goal" in initial_render
             assert "Task One" in initial_render
-            assert "TODO" in initial_render
-            assert "DONE" in initial_render
+            assert "[ ]" in initial_render
+            assert "[x]" in initial_render
 
             # 2. Trigger the app-level context refresh
             await app._refresh_context_panel()
