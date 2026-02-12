@@ -339,33 +339,36 @@ public final class IssueExecutor {
             StreamingChatModel codeModel,
             TaskList.TaskItem generatedTask)
             throws InterruptedException {
-        java.util.function.Supplier<String> verificationRunner = () -> {
-            try {
-                return BuildAgent.runVerification(cm, buildDetailsOverride);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException(ie);
-            }
-        };
 
-        @Nullable
-        String verificationCommand = BuildAgent.determineVerificationCommand(cm.liveContext(), buildDetailsOverride);
+        String output = verify(buildDetailsOverride);
 
-        Consumer<String> fixTaskRunner = prompt -> {
-            String taskLabel = Objects.requireNonNullElse(generatedTask.text(), "(unnamed task)");
-            String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n" + prompt
-                    + "\n\nPlease make a single fix attempt to resolve this verification failure.";
-            var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
-            try {
-                cm.executeTask(fixTask, plannerModel, codeModel);
-            } catch (Exception e) {
-                logger.warn("Fix attempt failed for job {} task {}: {}", jobId, taskLabel, e.getMessage());
-            }
-        };
+        boolean passedFirst = output.isBlank();
+        emitNotification("Verification: " + (passedFirst ? "PASS" : "FAIL"));
+        if (passedFirst) {
+            return;
+        }
 
-        IConsoleIO io = console != null ? console : cm.getIo();
-        JobRunner.runSingleFixVerificationGate(
-                jobId, store, io, verificationCommand, verificationRunner, fixTaskRunner);
+        String taskLabel = Objects.requireNonNullElse(generatedTask.text(), "(unnamed task)");
+        String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n" + output
+                + "\n\nPlease make a single fix attempt to resolve this verification failure.";
+        var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
+        try {
+            cm.executeTask(fixTask, plannerModel, codeModel);
+        } catch (Exception e) {
+            logger.warn("Fix attempt failed for job {} task {}: {}", jobId, taskLabel, e.getMessage());
+        }
+
+        String outputAfterFix = verify(buildDetailsOverride);
+        boolean passedSecond = outputAfterFix.isBlank();
+        emitNotification("Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
+
+        if (!passedSecond) {
+            throw new IssueExecutionException("Verification failed after single fix attempt:\n\n" + outputAfterFix);
+        }
+    }
+
+    private String verify(BuildAgent.BuildDetails buildDetailsOverride) throws InterruptedException {
+        return Objects.requireNonNullElse(BuildAgent.runVerification(cm, buildDetailsOverride), "");
     }
 
     private void runReviewFixTasks(
