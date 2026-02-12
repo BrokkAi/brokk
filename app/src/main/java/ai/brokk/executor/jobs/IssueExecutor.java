@@ -2,19 +2,34 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
+import ai.brokk.IConsoleIO;
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.IssueRewriterAgent;
+import ai.brokk.agents.SearchAgent;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.issues.GitHubIssueService;
 import ai.brokk.issues.IssueDetails;
+import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.StringJoiner;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHRepository;
 
 /**
  * Orchestrates issue-related workflows for the headless executor.
@@ -28,11 +43,24 @@ public final class IssueExecutor {
     private final ContextManager cm;
     private final JobStore store;
     private final String jobId;
+    private final BooleanSupplier isCancelled;
+    private final @Nullable IConsoleIO console;
 
     public IssueExecutor(ContextManager cm, JobStore store, String jobId) {
+        this(cm, store, jobId, () -> false, null);
+    }
+
+    public IssueExecutor(
+            ContextManager cm,
+            JobStore store,
+            String jobId,
+            BooleanSupplier isCancelled,
+            @Nullable IConsoleIO console) {
         this.cm = cm;
         this.store = store;
         this.jobId = jobId;
+        this.isCancelled = isCancelled;
+        this.console = console;
     }
 
     /**
@@ -41,6 +69,7 @@ public final class IssueExecutor {
      */
     public record IssuePreparedContext(
             GitHubAuth auth,
+            GHRepository ghRepo,
             GitHubIssueService issueService,
             IssueDetails details,
             String formattedPrompt,
@@ -61,19 +90,20 @@ public final class IssueExecutor {
         Integer issueNumber = spec.getIssueNumber();
 
         if (githubToken == null || githubToken.isBlank()) {
-            throw new IllegalArgumentException("Issue mode requires github_token in tags");
+            throw new IssueExecutionException("Issue mode requires github_token in tags");
         }
         if (repoOwner == null || repoOwner.isBlank()) {
-            throw new IllegalArgumentException("Issue mode requires repo_owner in tags");
+            throw new IssueExecutionException("Issue mode requires repo_owner in tags");
         }
         if (repoName == null || repoName.isBlank()) {
-            throw new IllegalArgumentException("Issue mode requires repo_name in tags");
+            throw new IssueExecutionException("Issue mode requires repo_name in tags");
         }
         if (issueNumber == null) {
-            throw new IllegalArgumentException("Issue mode requires issue_number in tags");
+            throw new IssueExecutionException("Issue mode requires issue_number in tags");
         }
 
         var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+        var ghRepo = auth.getGhRepository();
         var githubIssueService = new GitHubIssueService(cm.getProject(), auth);
 
         // loadDetails expects issue ID like "#123"
@@ -84,7 +114,8 @@ public final class IssueExecutor {
 
         String diagnosePrompt = formatIssueDiagnosePrompt(issueDetails, issueNumber.intValue());
 
-        return new IssuePreparedContext(auth, githubIssueService, issueDetails, diagnosePrompt, issueNumber.intValue());
+        return new IssuePreparedContext(
+                auth, ghRepo, githubIssueService, issueDetails, diagnosePrompt, issueNumber.intValue());
     }
 
     /**
@@ -121,12 +152,338 @@ public final class IssueExecutor {
                 """
                         .formatted(timestamp, analysisResult.bodyMarkdown());
 
-        var ghRepo = prepared.auth().getGhRepository();
-        IssueService.postIssueComment(ghRepo, prepared.issueNumber(), diagnosisComment);
+        IssueService.postIssueComment(prepared.ghRepo(), prepared.issueNumber(), diagnosisComment);
 
         logger.info("ISSUE_DIAGNOSE job {} posted diagnosis comment to issue #{}", jobId, prepared.issueNumber());
 
         emitNotification("ISSUE_DIAGNOSE: diagnosis posted to issue #" + prepared.issueNumber());
+    }
+
+    /**
+     * Executes the ISSUE (solve) workflow: analyzes issue, creates branch, executes tasks, creates PR.
+     *
+     * @param spec the job specification
+     * @param plannerModel the LLM model for planning
+     * @param codeModel the LLM model for code generation
+     * @throws IOException if GitHub API calls fail
+     * @throws InterruptedException if the operation is interrupted
+     */
+    public void executeSolve(JobSpec spec, StreamingChatModel plannerModel, StreamingChatModel codeModel)
+            throws IOException, InterruptedException {
+        var prepared = prepareIssueContext(spec);
+        String githubToken = Objects.requireNonNull(spec.getGithubToken());
+
+        var buildDetailsOverride = JobRunner.resolveIssueBuildDetails(spec, cm.getProject());
+        var gitRepo = (GitRepo) cm.getProject().getRepo();
+
+        String originalBranch = gitRepo.getCurrentBranch();
+        String issueBranchName;
+        try {
+            issueBranchName = IssueService.generateBranchNameWithRandomSuffix(prepared.issueNumber(), gitRepo);
+        } catch (GitAPIException e) {
+            throw new IssueExecutionException("Failed to generate branch name: " + e.getMessage(), e);
+        }
+
+        try {
+            logger.info("ISSUE job {}: Creating branch {} from {}", jobId, issueBranchName, originalBranch);
+            gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
+            // Use the formatted prompt from prepareIssueContext (includes comments + images)
+            String issueTaskPrompt = prepared.formattedPrompt();
+            var context = cm.liveContext();
+
+            // Check if we should enrich the prompt (brief issue body)
+            String issueBody = prepared.details().markdownBody();
+            if (IssueRewriterAgent.shouldEnrichIssuePrompt(issueBody)) {
+                try {
+                    emitNotification("Issue body is brief; performing prompt enrichment...");
+
+                    var writerService = new IssueRewriterAgent(context, plannerModel, issueTaskPrompt);
+                    var enriched = writerService.execute();
+
+                    issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\n%s"
+                            .formatted(prepared.issueNumber(), enriched.title(), enriched.bodyMarkdown());
+
+                    context = cm.pushContext(ctx -> enriched.context());
+
+                    logger.info("ISSUE job {}: prompt enrichment successful", jobId);
+                } catch (Exception e) {
+                    logger.warn("ISSUE job {}: prompt enrichment failed", jobId, e);
+                }
+            }
+
+            // Execute Lutz-style task planning and iteration
+            String taskDescription = "Issue #" + prepared.issueNumber() + ": "
+                    + prepared.details().header().title();
+            try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
+                var scanConfig = new SearchAgent.ScanConfig(true, null, true, false);
+                var searchAgent = new SearchAgent(
+                        context,
+                        issueTaskPrompt,
+                        plannerModel,
+                        SearchPrompts.Objective.TASKS_ONLY,
+                        scope,
+                        cm.getIo(),
+                        scanConfig);
+                var taskListResult = searchAgent.execute();
+                scope.append(taskListResult);
+
+                var generatedTasks = cm.getTaskList().tasks();
+                var incompleteTasks =
+                        generatedTasks.stream().filter(t -> !t.done()).toList();
+
+                for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                    if (isCancelled.getAsBoolean()) return;
+
+                    cm.executeTask(generatedTask, plannerModel, codeModel);
+
+                    if (spec.skipVerification()) {
+                        emitNotification("Per-task verification skipped due to skipVerification=true");
+                        continue;
+                    }
+
+                    runPerTaskVerification(spec, buildDetailsOverride, plannerModel, codeModel, generatedTask);
+                }
+
+                // Review-bot: compute diff vs default branch and generate inline comments
+                String targetBranch = prepared.auth().getDefaultBranch();
+                var inlineComments = JobRunner.issueModeComputeInlineComments(
+                        jobId, store, gitRepo, context, plannerModel, githubToken, targetBranch, cm);
+                logger.info("ISSUE job {} review-bot produced {} inline comment(s)", jobId, inlineComments.size());
+
+                // Apply review-fix tasks
+                if (inlineComments.isEmpty()) {
+                    emitNotification("Review-bot: no inline comments to fix; skipping review-fix stage.");
+                } else {
+                    runReviewFixTasks(
+                            spec,
+                            buildDetailsOverride,
+                            plannerModel,
+                            codeModel,
+                            inlineComments,
+                            issueBranchName,
+                            githubToken);
+                }
+
+                if (isCancelled.getAsBoolean()) {
+                    logger.info("ISSUE job {} cancelled after final verification; skipping PR creation", jobId);
+                    return;
+                }
+
+                // Create Pull Request (conditional)
+                if (JobRunner.issueDeliveryEnabled(spec)) {
+                    createPullRequest(prepared, issueBranchName, targetBranch, githubToken);
+                } else {
+                    emitNotification("PR creation skipped due to issue_delivery policy");
+                }
+
+                scope.compressTop();
+            }
+        } finally {
+            boolean forceDelete = "always".equalsIgnoreCase(spec.tags().getOrDefault("issue_branch_cleanup", ""));
+            JobRunner.cleanupIssueBranch(jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
+        }
+    }
+
+    private void runPerTaskVerification(
+            JobSpec spec,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            StreamingChatModel plannerModel,
+            StreamingChatModel codeModel,
+            TaskList.TaskItem generatedTask)
+            throws InterruptedException {
+        java.util.function.Supplier<String> verificationRunner = () -> {
+            try {
+                return BuildAgent.runVerification(cm, buildDetailsOverride);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(ie);
+            }
+        };
+
+        @Nullable
+        String verificationCommand = BuildAgent.determineVerificationCommand(cm.liveContext(), buildDetailsOverride);
+
+        Consumer<String> fixTaskRunner = prompt -> {
+            String taskLabel = Objects.requireNonNullElse(generatedTask.text(), "(unnamed task)");
+            String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n" + prompt
+                    + "\n\nPlease make a single fix attempt to resolve this verification failure.";
+            var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
+            try {
+                cm.executeTask(fixTask, plannerModel, codeModel);
+            } catch (Exception e) {
+                logger.warn("Fix attempt failed for job {} task {}: {}", jobId, taskLabel, e.getMessage());
+            }
+        };
+
+        IConsoleIO io = console != null ? console : cm.getIo();
+        JobRunner.runSingleFixVerificationGate(
+                jobId, store, io, verificationCommand, verificationRunner, fixTaskRunner);
+    }
+
+    private void runReviewFixTasks(
+            JobSpec spec,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            StreamingChatModel plannerModel,
+            StreamingChatModel codeModel,
+            List<PrReviewService.InlineComment> inlineComments,
+            String issueBranchName,
+            String githubToken) {
+        var total = inlineComments.size();
+        var taskIndex = new AtomicInteger(0);
+        var lastTaskDescription = new AtomicReference<String>("");
+
+        Consumer<PrReviewService.InlineComment> reviewFixTaskRunner = comment -> {
+            int idx = taskIndex.incrementAndGet();
+
+            String path = Objects.requireNonNullElse(comment.path(), "");
+            int line = comment.line();
+
+            String reviewFixTaskDescription = "Review-fix " + idx + "/" + total + ": " + path + ":" + line;
+            lastTaskDescription.set(reviewFixTaskDescription);
+
+            String prompt = JobRunner.buildInlineCommentFixPrompt(comment);
+
+            try {
+                try (var reviewFixScope = cm.beginTaskUngrouped(reviewFixTaskDescription)) {
+                    var liveCtx = cm.liveContext();
+                    var reviewFixAgent = new SearchAgent(
+                            liveCtx,
+                            reviewFixTaskDescription,
+                            plannerModel,
+                            SearchPrompts.Objective.LUTZ,
+                            reviewFixScope);
+
+                    try {
+                        reviewFixAgent.callCodeAgent(prompt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(ie);
+                    }
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(ie);
+            } catch (RuntimeException re) {
+                if (re.getCause() instanceof InterruptedException) {
+                    throw re;
+                }
+                logger.warn(
+                        "ISSUE job {} review-fix task {}/{} failed for {}:{}: {}",
+                        jobId,
+                        idx,
+                        total,
+                        path,
+                        line,
+                        re.getMessage(),
+                        re);
+                throw re;
+            }
+        };
+
+        Runnable branchUpdateHook = () -> {
+            int idx = taskIndex.get();
+            if (idx <= 0 || isCancelled.getAsBoolean()) {
+                return;
+            }
+
+            String reviewFixTaskDescription = Objects.requireNonNull(lastTaskDescription.get());
+
+            try {
+                new GitWorkflow(cm).performAutoCommit(reviewFixTaskDescription);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(ie);
+            } catch (Exception e) {
+                logger.warn(
+                        "ISSUE job {} review-fix auto-commit fallback failed for task {}/{}: {}",
+                        jobId,
+                        idx,
+                        total,
+                        e.getMessage(),
+                        e);
+            }
+
+            try {
+                String pushMsg = new GitWorkflow(cm).push(issueBranchName, githubToken);
+                emitNotification("Review-fix push succeeded: " + pushMsg);
+            } catch (Exception e) {
+                logger.warn(
+                        "ISSUE job {} review-fix push failed for task {}/{}: {}", jobId, idx, total, e.getMessage(), e);
+                emitNotification("Review-fix push failed (continuing): "
+                        + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            }
+        };
+
+        IConsoleIO io = console != null ? console : cm.getIo();
+        JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+                jobId, store, io, isCancelled, inlineComments, reviewFixTaskRunner, branchUpdateHook);
+
+        if (isCancelled.getAsBoolean()) {
+            logger.info("ISSUE job {} cancelled after review-fix; skipping final verification", jobId);
+            return;
+        }
+
+        // Final verification pass
+        Function<String, String> commandRunner = cmd -> {
+            try {
+                return BuildAgent.runExplicitCommand(cm, cmd, buildDetailsOverride);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(ie);
+            }
+        };
+
+        JobRunner.runIssueModeTestLintRetryLoop(
+                jobId,
+                store,
+                io,
+                isCancelled,
+                (attempt, message) -> emitNotification(message),
+                commandRunner,
+                out -> {
+                    String prompt = "fix this build error:\n" + out;
+                    try {
+                        cm.executeTask(TaskList.TaskItem.createFixTask(prompt), plannerModel, codeModel);
+                    } catch (Exception e) {
+                        logger.warn("Final fix attempt failed for job {}: {}", jobId, e.getMessage());
+                    }
+                },
+                buildDetailsOverride,
+                spec.effectiveMaxIssueFixAttempts());
+    }
+
+    private void createPullRequest(
+            IssuePreparedContext prepared, String issueBranchName, String targetBranch, String githubToken) {
+        try {
+            var workflow = new GitWorkflow(cm);
+
+            workflow.performAutoCommit("Resolves #" + prepared.issueNumber() + ": "
+                    + prepared.details().header().title());
+
+            var suggestion = workflow.suggestPullRequestDetails(issueBranchName, targetBranch, cm.getIo());
+
+            String prBody = IssueService.buildPrDescription(suggestion.description(), prepared.issueNumber());
+
+            var prUri =
+                    workflow.createPullRequest(issueBranchName, targetBranch, suggestion.title(), prBody, githubToken);
+
+            logger.info("ISSUE job {} created PR: {}", jobId, prUri);
+            if (console != null) {
+                console.showNotification(IConsoleIO.NotificationRole.INFO, "Created Pull Request: " + prUri);
+            }
+        } catch (Exception e) {
+            logger.warn("ISSUE job {}: failed to create PR: {}", jobId, e.getMessage(), e);
+            IConsoleIO io = console != null ? console : cm.getIo();
+            try {
+                io.toolError("Failed to create PR: " + e.getMessage(), "PR creation error");
+            } catch (Throwable ignore) {
+                // best-effort
+            }
+            emitNotification("Failed to create PR: " + e.getMessage());
+
+            throw new IssueExecutionException("Failed to create PR: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -151,7 +508,8 @@ public final class IssueExecutor {
     }
 
     /**
-     * Formats issue details into a diagnosis prompt for the LLM.
+     * Formats issue details into a prompt for the LLM.
+     * Used by both ISSUE_DIAGNOSE and ISSUE modes.
      */
     static String formatIssueDiagnosePrompt(IssueDetails details, int issueNumber) {
         var header = details.header();
