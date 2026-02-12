@@ -284,10 +284,17 @@ class ChatPanel(Vertical):
         now = self._get_now()
         self._last_token_time = now
 
-        if is_new_message:
+        # Defensive: Ensure response is marked active if tokens are arriving
+        if not self.response_active:
             self.set_response_active()
             self._monitor_inactivity()
-            # If we were already mid-message, flush it before starting new one
+
+        # Handle transitions: new message flag or switching between reasoning/normal
+        should_start_new = is_new_message or (
+            self._current_message_buffer and self._is_reasoning != is_reasoning
+        )
+
+        if should_start_new:
             if self._current_message_buffer:
                 self._flush_message()
 
