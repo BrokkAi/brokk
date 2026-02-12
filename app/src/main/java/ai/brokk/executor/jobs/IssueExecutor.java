@@ -40,6 +40,15 @@ import org.kohsuke.github.GHRepository;
 public final class IssueExecutor {
     private static final Logger logger = LogManager.getLogger(IssueExecutor.class);
 
+    /** Maximum number of comments to include in the prompt (most recent N) */
+    private static final int MAX_COMMENTS = 50;
+
+    /** Maximum characters per individual comment body before truncation */
+    private static final int MAX_COMMENT_BODY_CHARS = 2_000;
+
+    /** Truncation marker appended when content is cut */
+    private static final String TRUNCATION_MARKER = "\n\n...(truncated)";
+
     private final ContextManager cm;
     private final JobStore store;
     private final String jobId;
@@ -577,7 +586,17 @@ public final class IssueExecutor {
         var comments = details.comments();
         if (!comments.isEmpty()) {
             out.append("## Comments\n\n");
-            for (var comment : comments) {
+
+            int totalComments = comments.size();
+            List<Comment> includedComments;
+            if (totalComments > MAX_COMMENTS) {
+                out.append("*(").append(totalComments - MAX_COMMENTS).append(" earlier comments omitted)*\n\n");
+                includedComments = comments.subList(totalComments - MAX_COMMENTS, totalComments);
+            } else {
+                includedComments = comments;
+            }
+
+            for (var comment : includedComments) {
                 String author = comment.author();
                 var created = comment.created();
                 String timestamp = created != null ? created.toString() : "unknown time";
@@ -585,7 +604,12 @@ public final class IssueExecutor {
 
                 String commentBody = comment.markdownBody();
                 if (!commentBody.isBlank()) {
-                    out.append(commentBody);
+                    if (commentBody.length() > MAX_COMMENT_BODY_CHARS) {
+                        out.append(commentBody, 0, MAX_COMMENT_BODY_CHARS);
+                        out.append(TRUNCATION_MARKER);
+                    } else {
+                        out.append(commentBody);
+                    }
                 }
                 out.append("\n\n");
             }
