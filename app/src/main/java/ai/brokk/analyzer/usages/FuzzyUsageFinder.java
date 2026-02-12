@@ -177,7 +177,7 @@ public final class FuzzyUsageFinder {
 
         // Extract raw usage hits from candidate files using the provided patterns
         var hits = extractUsageHits(candidateFiles, searchPatterns).stream()
-                .filter(h -> !h.enclosing().fqName().equals(target.fqName()))
+                .filter(h -> !h.enclosing().equals(target))
                 .collect(Collectors.toSet());
 
         logger.debug(
