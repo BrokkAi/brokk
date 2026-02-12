@@ -173,11 +173,50 @@ public final class IssueExecutor {
         var prepared = prepareIssueContext(spec);
         String githubToken = Objects.requireNonNull(spec.getGithubToken());
 
+        boolean hasPriorDiagnosis = issueHasDiagnosisMarker(prepared.details());
+
+        emitNotification("ISSUE: analyzing issue #" + prepared.issueNumber());
+
+        var context = cm.liveContext();
+        var writerAgent = new IssueRewriterAgent(context, plannerModel, prepared.formattedPrompt());
+        var analysisResult = writerAgent.execute();
+        context = cm.pushContext(ctx -> analysisResult.context());
+
+        if (!hasPriorDiagnosis) {
+            String timestamp = Instant.now().toString();
+            String diagnosisComment =
+                    """
+                    <!-- brokk:diagnosis:v1 timestamp="%s" -->
+
+                    ## Issue Analysis
+
+                    %s
+
+                    ---
+
+                    **Next steps:** Reply with `@BrokkBot solve` to proceed with the fix, or add comments to provide additional guidance.
+                    """
+                            .formatted(timestamp, analysisResult.bodyMarkdown());
+
+            IssueService.postIssueComment(prepared.ghRepo(), prepared.issueNumber(), diagnosisComment);
+
+            logger.info("ISSUE job {} posted diagnosis comment to issue #{}", jobId, prepared.issueNumber());
+            emitNotification("ISSUE: diagnosis posted to issue #" + prepared.issueNumber());
+        } else {
+            emitNotification("ISSUE: prior diagnosis marker found; skipping diagnosis post");
+        }
+
         var buildDetailsOverride = JobRunner.resolveIssueBuildDetails(spec, cm.getProject());
         var gitRepo = (GitRepo) cm.getProject().getRepo();
 
-        String originalBranch = gitRepo.getCurrentBranch();
-        String issueBranchName;
+        final String originalBranch;
+        try {
+            originalBranch = gitRepo.getCurrentBranch();
+        } catch (GitAPIException e) {
+            throw new IssueExecutionException("Failed to determine current branch: " + e.getMessage(), e);
+        }
+
+        final String issueBranchName;
         try {
             issueBranchName = IssueService.generateBranchNameWithRandomSuffix(prepared.issueNumber(), gitRepo);
         } catch (GitAPIException e) {
@@ -186,11 +225,14 @@ public final class IssueExecutor {
 
         try {
             logger.info("ISSUE job {}: Creating branch {} from {}", jobId, issueBranchName, originalBranch);
-            gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
+            try {
+                gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
+            } catch (GitAPIException e) {
+                throw new IssueExecutionException("Failed to create and checkout branch: " + e.getMessage(), e);
+            }
 
-            // Use the formatted prompt from prepareIssueContext (includes comments + images)
-            String issueTaskPrompt = prepared.formattedPrompt();
-            var context = cm.liveContext();
+            String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\n%s"
+                    .formatted(prepared.issueNumber(), analysisResult.title(), analysisResult.bodyMarkdown());
 
             // Check if we should enrich the prompt (brief issue body)
             String issueBody = prepared.details().markdownBody();
@@ -537,7 +579,7 @@ public final class IssueExecutor {
                 String author = comment.author();
                 var created = comment.created();
                 String timestamp = created != null ? created.toString() : "unknown time";
-                sb.add("### @" + (author != null ? author : "unknown") + " (" + timestamp + "):");
+                sb.add("@" + (author != null ? author : "unknown") + " (" + timestamp + "):");
                 String commentBody = comment.markdownBody();
                 sb.add(commentBody != null ? commentBody : "");
                 sb.add("");
@@ -555,6 +597,16 @@ public final class IssueExecutor {
         }
 
         return sb.toString();
+    }
+
+    static boolean issueHasDiagnosisMarker(IssueDetails details) {
+        var comments = details.comments();
+        if (comments == null || comments.isEmpty()) {
+            return false;
+        }
+        return comments.stream()
+                .map(c -> Objects.requireNonNullElse(c.markdownBody(), ""))
+                .anyMatch(body -> body.contains("<!-- brokk:diagnosis:v1"));
     }
 
     private void emitNotification(String message) {
