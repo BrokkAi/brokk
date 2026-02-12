@@ -1,6 +1,7 @@
 package ai.brokk.tools;
 
 import ai.brokk.*;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -306,12 +307,20 @@ public class UsageBenchEval implements Callable<Integer> {
             // Get the declaration file path for the searched symbol
             var definitions = analyzer.getDefinitions(unit.fullyQualifiedName());
             String searchedFilePath = "";
+            CodeUnit matchedDef = null;
             if (!definitions.isEmpty()) {
-                var def = definitions.iterator().next();
-                searchedFilePath = def.source().absPath().toString();
+                if (definitions.size() > 1 && analyzer instanceof ai.brokk.analyzer.TreeSitterAnalyzer tsAnalyzer) {
+                    matchedDef = definitions.stream()
+                            .filter(d -> tsAnalyzer.getStartLineForCodeUnit(d) == unit.declarationLineNumber() - 1)
+                            .findFirst()
+                            .orElse(definitions.iterator().next());
+                } else {
+                    matchedDef = definitions.iterator().next();
+                }
+                searchedFilePath = matchedDef.source().absPath().toString();
             }
 
-            var result = finder.findUsages(unit.fullyQualifiedName());
+            var result = finder.findUsages(matchedDef != null ? matchedDef.fqName() : unit.fullyQualifiedName());
             var either = result.toEither();
 
             Map<String, UsageLocation> expectedLocations = unit.usages().stream()
@@ -387,9 +396,9 @@ public class UsageBenchEval implements Callable<Integer> {
                 List<UsageDetail> fnDetails = fn.stream()
                         .map(fqn -> {
                             UsageLocation loc = expectedLocations.get(fqn);
-                            String snippet = (loc != null && loc.snippet() != null) ? loc.snippet() : "";
-                            String filePath = (loc != null && loc.filePath() != null) ? loc.filePath() : "";
-                            String syntaxStyle = (loc != null && loc.syntaxStyle() != null) ? loc.syntaxStyle() : "";
+                            String snippet = loc != null ? loc.snippet() : "";
+                            String filePath = loc != null ? loc.filePath() : "";
+                            String syntaxStyle = loc != null ? loc.syntaxStyle() : "";
                             return new UsageDetail(fqn, snippet, filePath, syntaxStyle);
                         })
                         .toList();

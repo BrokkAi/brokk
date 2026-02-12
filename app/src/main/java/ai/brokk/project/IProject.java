@@ -16,6 +16,8 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.IStringDiskCache;
 import java.awt.Rectangle;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.FileSystemLoopException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -346,6 +348,16 @@ public interface IProject extends AutoCloseable {
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
+    /**
+     * Invalidates any cached auto-detected languages. This should be called when project
+     * structure or dependencies change in a way that might affect language detection.
+     *
+     * <p>The next call to {@link #getAnalyzerLanguages()} will re-detect languages from
+     * the filesystem if no explicit user configuration exists. This does not clear
+     * explicit user configuration set via {@link #setAnalyzerLanguages(Set)}.
+     */
+    default void invalidateAutoDetectedLanguages() {}
+
     // Primary build language configuration
     @Blocking
     default Language getBuildLanguage() {
@@ -630,13 +642,37 @@ public interface IProject extends AutoCloseable {
     record Dependency(ProjectFile root, Language language) {
         private static final Logger logger = LogManager.getLogger(Dependency.class);
 
+        public Set<Language> languages() {
+            return files().stream()
+                    .map(pf -> Languages.fromExtension(pf.extension()))
+                    .filter(l -> l != Languages.NONE)
+                    .collect(Collectors.toSet());
+        }
+
         public Set<ProjectFile> files() {
-            try (var pathStream = Files.walk(root.absPath())) {
-                var masterRoot = root.getRoot();
-                return pathStream
-                        .filter(Files::isRegularFile)
-                        .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
-                        .collect(Collectors.toSet());
+            try {
+                try (var pathStream = Files.walk(root.absPath())) {
+                    var masterRoot = root.getRoot();
+                    return pathStream
+                            .filter(Files::isRegularFile)
+                            .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
+                            .collect(Collectors.toSet());
+                }
+            } catch (FileSystemLoopException e) {
+                logger.warn(
+                        "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
+                        root.absPath(),
+                        e.getMessage());
+                return Set.of();
+            } catch (UncheckedIOException uioe) {
+                if (uioe.getCause() instanceof FileSystemLoopException) {
+                    logger.warn(
+                            "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
+                            root.absPath(),
+                            uioe.getCause().getMessage());
+                    return Set.of();
+                }
+                throw uioe;
             } catch (IOException e) {
                 logger.error("Error loading dependency files from {}: {}", root.absPath(), e.getMessage());
                 return Set.of();

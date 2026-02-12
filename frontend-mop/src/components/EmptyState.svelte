@@ -60,10 +60,11 @@
         {$envStore.projectName ?? 'unknown'}
         {#if $envStore.analyzerLanguages && $envStore.analyzerLanguages.length > 0}
           {@const analyzedCount = $envStore.analyzerLanguages.reduce((sum, lang) => sum + lang.fileCount, 0)}
-          {@const unanalyzedCount = ($envStore.totalFileCount ?? 0) - analyzedCount}
-          <span class="env-muted">(analyzed: {analyzedCount}, unanalyzed: {unanalyzedCount})</span>
+          {@const totalRepoFiles = $envStore.totalFileCount ?? 0}
+          {@const unanalyzedCount = Math.max(0, totalRepoFiles - analyzedCount)}
+          <span class="env-muted">(workspace: {analyzedCount} analyzed, {unanalyzedCount} skipped)</span>
         {:else if $envStore.totalFileCount !== undefined}
-          <span class="env-muted">(total files: {$envStore.totalFileCount})</span>
+          <span class="env-muted">(total workspace files: {$envStore.totalFileCount})</span>
         {/if}
       </div>
     </div>
@@ -80,7 +81,10 @@
           <div class="languages-list">
             {#each $envStore.analyzerLanguages as lang}
               <div class="language-item">
-                {lang.name} ({lang.fileCount} {pluralize(lang.fileCount, 'file', 'files')}, {lang.depCount} {pluralize(lang.depCount, 'dep', 'deps')})
+                {lang.name}: {lang.fileCount} {pluralize(lang.fileCount, 'file', 'files')}
+                {#if lang.depCount > 0}
+                  <span class="env-muted"> + {lang.depCount} {pluralize(lang.depCount, 'dep file', 'dep files')}</span>
+                {/if}
               </div>
             {/each}
           </div>

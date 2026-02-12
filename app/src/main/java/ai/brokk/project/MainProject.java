@@ -79,6 +79,9 @@ public final class MainProject extends AbstractProject {
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
+    private volatile Set<Language> autoDetectedLanguagesCache = null;
+
+    @Nullable
     private volatile StringDiskCache diskCache = null;
 
     @Nullable
@@ -724,49 +727,91 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
-    @Override
-    public Set<Language> getAnalyzerLanguages() {
+    /**
+     * Returns the explicitly configured analyzer languages from project properties, if any.
+     *
+     * @return a non-empty set of Languages, or Set.of(Languages.NONE) if the configuration parses
+     *         to an empty set, or null if no explicit configuration is present.
+     */
+    @Nullable
+    private Set<Language> getConfiguredAnalyzerLanguagesOrNull() {
         String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
-        if (langsProp != null && !langsProp.isBlank()) {
-            Set<Language> parsed = Arrays.stream(langsProp.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .map(langName -> {
-                        try {
-                            return Languages.valueOf(langName.toUpperCase(Locale.ROOT));
-                        } catch (IllegalArgumentException e) {
-                            logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
-                            return null;
-                        }
-                    })
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
-
-            if (parsed.isEmpty()) {
-                return Set.of(Languages.NONE);
-            }
-            return parsed;
+        if (langsProp == null || langsProp.isBlank()) {
+            return null;
         }
 
-        Set<Language> detectedLanguages = new HashSet<>();
-        for (ProjectFile pf : repo.getTrackedFiles()) {
-            Language lang = Languages.fromExtension(pf.extension());
-            if (lang != Languages.NONE) {
-                detectedLanguages.add(lang);
-            }
-        }
+        Set<Language> parsed = Arrays.stream(langsProp.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(langName -> {
+                    try {
+                        return Languages.valueOf(langName.toUpperCase(Locale.ROOT));
+                    } catch (IllegalArgumentException e) {
+                        logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
 
-        if (detectedLanguages.isEmpty()) {
-            logger.debug(
-                    "No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
+        if (parsed.isEmpty()) {
             return Set.of(Languages.NONE);
         }
+        return parsed;
+    }
 
-        logger.debug(
-                "Auto-detected languages for {}: {}",
-                root,
-                detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
-        return detectedLanguages;
+    @Override
+    public Set<Language> getAnalyzerLanguages() {
+        Set<Language> configured = getConfiguredAnalyzerLanguagesOrNull();
+        if (configured != null) {
+            return configured;
+        }
+
+        Set<Language> cached = autoDetectedLanguagesCache;
+        if (cached != null) {
+            return cached;
+        }
+
+        synchronized (this) {
+            cached = autoDetectedLanguagesCache;
+            if (cached != null) {
+                return cached;
+            }
+
+            // Auto-detect: consider both tracked repository files and live dependencies.
+            Set<Language> detectedLanguages = new HashSet<>();
+
+            // 1) Repo-tracked files
+            for (ProjectFile pf : repo.getTrackedFiles()) {
+                Language lang = Languages.fromExtension(pf.extension());
+                if (lang != Languages.NONE) {
+                    detectedLanguages.add(lang);
+                }
+            }
+
+            // 2) Live dependencies
+            for (IProject.Dependency dep : getLiveDependencies()) {
+                try {
+                    detectedLanguages.addAll(dep.languages());
+                } catch (Exception e) {
+                    logger.warn("Error detecting languages for dependency {} in {}", dep, root, e);
+                }
+            }
+
+            if (detectedLanguages.isEmpty()) {
+                logger.debug(
+                        "No files with recognized (non-NONE) languages found for {} (repo files and live dependencies checked). Defaulting to Language.NONE.",
+                        root);
+                autoDetectedLanguagesCache = Set.of(Languages.NONE);
+            } else {
+                logger.debug(
+                        "Auto-detected languages for {} (including live dependencies): {}",
+                        root,
+                        detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
+                autoDetectedLanguagesCache = Set.copyOf(detectedLanguages);
+            }
+            return autoDetectedLanguagesCache;
+        }
     }
 
     @Override
@@ -777,7 +822,15 @@ public final class MainProject extends AbstractProject {
             String langsString = languages.stream().map(Language::name).collect(Collectors.joining(","));
             projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
+        autoDetectedLanguagesCache = null;
         saveProjectProperties();
+        invalidateAutoDetectedLanguages();
+    }
+
+    @Override
+    public void invalidateAutoDetectedLanguages() {
+        autoDetectedLanguagesCache = null;
+        logger.debug("Invalidated auto-detected languages cache for {}", root.getFileName());
     }
 
     @Override
@@ -1026,7 +1079,7 @@ public final class MainProject extends AbstractProject {
     public static String getServiceUrl() {
         return switch (getProxySetting()) {
             case BROKK -> BROKK_SERVICE_URL;
-            case LOCALHOST -> "http://localhost:8000";
+            case LOCALHOST -> BROKK_SERVICE_URL;
             case STAGING -> STAGING_SERVICE_URL;
         };
     }

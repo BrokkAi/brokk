@@ -22,6 +22,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.McpPrompts;
 import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
@@ -32,6 +33,7 @@ import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -118,7 +120,7 @@ public class SearchAgent {
 
     private boolean terminalCompletionReported = false;
 
-    private final SearchPrompts.Objective objective;
+    private final Objective objective;
 
     SearchState currentState;
     private SearchState checkpointState;
@@ -133,14 +135,14 @@ public class SearchAgent {
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
-        this(initialContext, goal, model, scope, io, scanConfig, null);
+        this(initialContext, goal, model, Objective.WORKSPACE_ONLY, scope, io, scanConfig);
     }
 
     public SearchAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
-            SearchPrompts.Objective objective,
+            Objective objective,
             ContextManager.TaskScope scope) {
         this(
                 initialContext,
@@ -149,30 +151,17 @@ public class SearchAgent {
                 objective,
                 scope,
                 initialContext.getContextManager().getIo(),
-                ScanConfig.defaults(),
-                null);
+                ScanConfig.defaults());
     }
 
     public SearchAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
+            Objective objective,
             ContextManager.TaskScope scope,
             IConsoleIO io,
-            ScanConfig scanConfig,
-            @Nullable List<String> staticTools) {
-        this(initialContext, goal, model, SearchPrompts.Objective.WORKSPACE_ONLY, scope, io, scanConfig, staticTools);
-    }
-
-    public SearchAgent(
-            Context initialContext,
-            String goal,
-            StreamingChatModel model,
-            SearchPrompts.Objective objective,
-            ContextManager.TaskScope scope,
-            IConsoleIO io,
-            ScanConfig scanConfig,
-            @Nullable List<String> staticTools) {
+            ScanConfig scanConfig) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
@@ -195,7 +184,7 @@ public class SearchAgent {
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.scanConfig = scanConfig;
-        this.staticTools = initStaticTools(staticTools, cm.getProject(), mcpTools);
+        this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.objective = objective;
     }
 
@@ -212,12 +201,7 @@ public class SearchAgent {
         return tools;
     }
 
-    private static List<String> initStaticTools(
-            @Nullable List<String> explicitTools, IProject project, List<McpPrompts.McpTool> mcpTools) {
-        if (explicitTools != null) {
-            return WorkspaceTools.filterByAnalyzerAvailability(explicitTools, project);
-        }
-
+    private static List<String> initStaticTools(IProject project, List<McpPrompts.McpTool> mcpTools) {
         var tools = new ArrayList<String>();
 
         // Search-specific analyzer tools
@@ -380,24 +364,15 @@ public class SearchAgent {
         return builder.build();
     }
 
-    private List<String> calculateTerminalTools(Context context, boolean dropOnlyMode) {
-        if (dropOnlyMode) {
-            assert hasDroppableFragments(context);
-            return List.of();
-        }
-
+    private List<String> calculateTerminalTools() {
         var terminals = new ArrayList<String>();
         var allowed = objective.terminals();
 
-        if (allowed.contains(Terminal.ISSUE)) {
-            terminals.add("issueWriterOutput");
-            terminals.add("abortSearch");
-            return terminals;
+        if (allowed.contains(Terminal.DESCRIBE_ISSUE)) {
+            terminals.add("describeIssue");
         }
-
         if (allowed.contains(Terminal.ANSWER)) {
             terminals.add("answer");
-            terminals.add("askForClarification");
         }
         if (allowed.contains(Terminal.WORKSPACE)) {
             terminals.add("workspaceComplete");
@@ -407,6 +382,13 @@ public class SearchAgent {
         }
         if (allowed.contains(Terminal.CODE)) {
             terminals.add("callCodeAgent");
+        }
+
+        // allow user-invoked SearchAgent to ask for clarification in an interactive Chrome
+        if (io instanceof Chrome
+                && Set.of(Objective.ANSWER_ONLY, Objective.TASKS_ONLY, Objective.LUTZ)
+                        .contains(objective)) {
+            terminals.add("askForClarification");
         }
 
         terminals.add("abortSearch");
@@ -435,15 +417,11 @@ public class SearchAgent {
             return List.of("dropWorkspaceFragments");
         }
 
+        // start with the global search tools
         var names = new ArrayList<>(staticTools);
+
         if (hasDroppableFragments(context)) {
             names.add("dropWorkspaceFragments");
-        }
-
-        if (io instanceof Chrome && objective != SearchPrompts.Objective.TASKS_ONLY) {
-            if (!names.contains("askHuman")) {
-                names.add("askHuman");
-            }
         }
 
         if (DependencyTools.isSupported(cm.getProject())) {
@@ -462,7 +440,7 @@ public class SearchAgent {
     ToolCategory categorizeTool(String toolName) {
         return switch (toolName) {
             case "answer",
-                    "createIssue",
+                    "describeIssue",
                     "askForClarification",
                     "callCodeAgent",
                     "createOrReplaceTaskList",
@@ -485,7 +463,6 @@ public class SearchAgent {
     private int priority(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "askHuman" -> 2;
             case "addFilesToWorkspace" -> 4;
             case "addClassesToWorkspace", "addFileSummariesToWorkspace" -> 5;
             case "addMethodsToWorkspace", "addClassSummariesToWorkspace" -> 6;
@@ -555,7 +532,7 @@ public class SearchAgent {
         scanPerformed = true;
     }
 
-    private SearchPrompts.Objective getObjective() {
+    private Objective getObjective() {
         return objective;
     }
 
@@ -898,7 +875,7 @@ public class SearchAgent {
 
             if (pendingTerminal == null) {
                 allowedToolNames = agent.calculateAllowedToolNames(context, dropOnlyMode);
-                agentTerminalTools = agent.calculateTerminalTools(context, dropOnlyMode);
+                agentTerminalTools = dropOnlyMode ? List.of() : agent.calculateTerminalTools();
             } else {
                 messages = new ArrayList<>(messages);
                 extraUserMessage = new UserMessage(
@@ -909,10 +886,8 @@ public class SearchAgent {
                 agentTerminalTools = List.of();
             }
 
-            var allAllowed = new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size());
-            allAllowed.addAll(allowedToolNames);
-            allAllowed.addAll(agentTerminalTools);
-
+            var allAllowed = Streams.concat(allowedToolNames.stream(), agentTerminalTools.stream())
+                    .toList();
             var toolSpecs = tr.getTools(allAllowed);
             return new TurnPrompt(messages, toolSpecs, extraUserMessage);
         }
@@ -999,9 +974,9 @@ public class SearchAgent {
             return queryForUser;
         }
 
-        @Tool("Issue Writer final output. Create a high-quality GitHub issue.")
+        @Tool("Issue description final output. Create a high-quality issue description.")
         @SuppressWarnings("UnusedMethod")
-        public String createIssue(
+        public String describeIssue(
                 @P("Concise, specific issue title.") String title,
                 @P("GitHub-flavored Markdown describing the problem and impact.") String body) {
             agent.terminalCompletionReported = true;
@@ -1327,7 +1302,7 @@ public class SearchAgent {
                     taskMeta(),
                     context);
         }
-        if ("createIssue".equals(pendingTerminal.toolName())) {
+        if ("describeIssue".equals(pendingTerminal.toolName())) {
             return createResult(
                     pendingTerminal.toolName(),
                     goal,
