@@ -194,7 +194,7 @@ public final class IssueExecutor {
 
                     ---
 
-                    **Next steps:** Reply with `@BrokkBot solve` to proceed with the fix, or add comments to provide additional guidance.
+                    **Status:** Proceeding with automated fix. A pull request will be created shortly.
                     """
                             .formatted(timestamp, analysisResult.bodyMarkdown());
 
@@ -203,7 +203,18 @@ public final class IssueExecutor {
             logger.info("ISSUE job {} posted diagnosis comment to issue #{}", jobId, prepared.issueNumber());
             emitNotification("ISSUE: diagnosis posted to issue #" + prepared.issueNumber());
         } else {
-            emitNotification("ISSUE: prior diagnosis marker found; skipping diagnosis post");
+            String statusComment =
+                    """
+                    **Status:** Starting automated fix based on previous analysis. A pull request will be created shortly.
+                    """;
+
+            IssueService.postIssueComment(prepared.ghRepo(), prepared.issueNumber(), statusComment);
+
+            logger.info(
+                    "ISSUE job {} posted status acknowledgment to issue #{} (prior diagnosis exists)",
+                    jobId,
+                    prepared.issueNumber());
+            emitNotification("ISSUE: status acknowledgment posted to issue #" + prepared.issueNumber());
         }
 
         var buildDetailsOverride = JobRunner.resolveIssueBuildDetails(spec, cm.getProject());
