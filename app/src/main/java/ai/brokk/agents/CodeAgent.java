@@ -1797,13 +1797,13 @@ public class CodeAgent {
 
         var readonlyPaths = ctx.getMarkedReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragments.ProjectPathFragment)
-                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .flatMap(cf -> cf.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
         var editableAll = ctx.getEditableFragments()
-                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .flatMap(cf -> cf.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
         var readonly = ctx.getReadonlyFragments()
-                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .flatMap(cf -> cf.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
         var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
         return files.map(ProjectFile::toString).collect(Collectors.toSet());

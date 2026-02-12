@@ -189,6 +189,14 @@ public interface ContextFragment {
     ComputedValue<Set<ProjectFile>> files();
 
     /**
+     * Returns all repo files referenced by this fragment. This is used when we *just* want to manipulate or show actual
+     * files, rather than the code units themselves.
+     */
+    default ComputedValue<Set<ProjectFile>> sourceFiles() {
+        return sources().map(ss -> ss.stream().map(CodeUnit::source).collect(Collectors.toSet()));
+    }
+
+    /**
      * Syntax highlight style.
      */
     ComputedValue<String> syntaxStyle();
