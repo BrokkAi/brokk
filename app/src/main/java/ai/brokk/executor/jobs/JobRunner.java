@@ -1484,9 +1484,6 @@ public final class JobRunner {
      */
     TaskResult reviewDiff(
             Context ctx, StreamingChatModel model, String annotatedDiff, String prTitle, String prDescription) {
-        var svc = cm.getService();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.REVIEW, Service.ModelConfig.from(model, svc));
-
         String prompt = buildReviewPrompt(
                 annotatedDiff,
                 DEFAULT_REVIEW_SEVERITY_THRESHOLD,
@@ -1500,17 +1497,14 @@ public final class JobRunner {
         var llm = cm.getLlm(new Llm.Options(model, "PR Review", TaskResult.Type.REVIEW).withEcho());
         llm.setOutput(cm.getIo());
 
-        TaskResult.StopDetails stop = null;
-        Llm.StreamingResult response = null;
+        TaskResult.StopDetails stop;
+        Llm.StreamingResult response;
         try {
             response = llm.sendRequest(messages);
+            stop = TaskResult.StopDetails.fromResponse(response);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-        }
-
-        if (response != null) {
-            stop = TaskResult.StopDetails.fromResponse(response);
         }
 
         return new TaskResult(ctx, stop);
@@ -1878,7 +1872,7 @@ public final class JobRunner {
         }
 
         String baseMessage = "Tests/lint failed after " + maxIterations + " iteration(s)";
-        if (!lastFailOutput.isBlank()) {
+        if (!requireNonNull(lastFailOutput).isBlank()) {
             throw new IssueExecutionException(baseMessage + ". Last failure: stage=" + lastFailStage + ", command="
                     + lastFailCommand + "\nOutput:\n" + lastFailOutput);
         }
