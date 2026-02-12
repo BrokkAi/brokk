@@ -1318,7 +1318,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     }
 
     private int processAndCaptureImagesFromDetails(IssueDetails details) {
-        IssueHeader header = Objects.requireNonNull(details.header(), "Issue header required");
+        IssueHeader header = details.header();
 
         List<URI> attachmentUris = details.attachmentUrls();
         if (attachmentUris.isEmpty()) {
