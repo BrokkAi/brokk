@@ -3,6 +3,7 @@ package ai.brokk.gui.dialogs;
 import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -40,7 +41,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.*;
-import java.awt.datatransfer.DataFlavor;
 import java.awt.event.*;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -825,12 +825,9 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         selectedFilesTable.getActionMap().put("paste-files", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                try {
-                    var content = (String)
-                            Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+                var content = chrome.getContextManager().getStringFromClipboard();
+                if (content != null) {
                     addRelPathsFromText(content);
-                } catch (Exception ex) {
-                    logger.debug("Failed to paste files from clipboard", ex);
                 }
             }
         });
@@ -1114,7 +1111,9 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 Context ctx = cm.liveContext();
                 workspaceTokens = Messages.getApproximateMessageTokens(
                         WorkspacePrompts.getMessagesGroupedByMutability(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-                historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
+                var meta = BlitzForge.createTaskMeta(model, service);
+                historyTokens =
+                        Messages.getApproximateMessageTokens(CodePrompts.instance.getHistoryMessages(ctx, meta));
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
                 hadError = true;
@@ -1234,12 +1233,9 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         JPopupMenu popup = new JPopupMenu();
         JMenuItem pasteItem = new JMenuItem("Paste");
         pasteItem.addActionListener(ev -> {
-            try {
-                var content = (String)
-                        Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+            var content = chrome.getContextManager().getStringFromClipboard();
+            if (content != null) {
                 addRelPathsFromText(content);
-            } catch (Exception ex) {
-                logger.debug("Failed to paste files from clipboard via context menu", ex);
             }
         });
         popup.add(pasteItem);
@@ -1431,7 +1427,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var list = new ArrayList<ChatMessage>();
                     list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
-                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
+                    var meta = BlitzForge.createTaskMeta(perFileModel, service);
+                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx, meta));
                     var text = "";
                     for (var m : list) {
                         text += m + "\n";
@@ -1558,6 +1555,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     TaskResult postProcessResult = agent.executeWithScan();
                     scope.append(postProcessResult);
                 }
+                scope.compressTop();
             }
         });
         // Show the progress dialog (modeless)
@@ -1600,7 +1598,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 if (fIncludeWorkspace) {
                     readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             context, EnumSet.of(SpecialTextType.TASK_LIST)));
-                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
+                    var meta = BlitzForge.createTaskMeta(model, service);
+                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context, meta));
                 }
                 if (fRelatedK != null) {
                     var acList = cm.liveContext().buildAutoContext(fRelatedK);
@@ -1661,10 +1660,11 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var ctx = new Context(cm)
                             .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages, instructions)))
                             .addFragments(cm.toPathFragments(List.of(file)));
-                    var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions);
-                    var llm = cm.getLlm(model, "Ask", true);
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
+                    var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions, meta);
+                    var options = new Llm.Options(model, "Ask", TaskResult.Type.ASK).withPartialResponses();
+                    var llm = cm.getLlm(options);
                     llm.setOutput(dialogIo);
                     tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
                 } else {
@@ -1703,7 +1703,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             if (!fContextFilter.isBlank() && !llmOutput.isBlank()) {
                 try {
                     var quickestModel = cm.getService().quickestModel();
-                    var filterLlm = cm.getLlm(quickestModel, "ContextFilter");
+                    var filterLlm = cm.getLlm(quickestModel, "ContextFilter", TaskResult.Type.CLASSIFY);
                     filterLlm.setOutput(dialogIo);
                     boolean keep = RelevanceClassifier.isRelevant(filterLlm, contextFilter, llmOutput);
                     if (!keep) {

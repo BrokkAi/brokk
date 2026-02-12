@@ -1,5 +1,6 @@
 package ai.brokk.gui;
 
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AnalyzerWrapper;
@@ -12,7 +13,6 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.dialogs.AttachContextDialog;
-import ai.brokk.gui.dialogs.CallGraphDialog;
 import ai.brokk.gui.dialogs.SymbolSelectionDialog;
 import ai.brokk.prompts.CopyExternalPrompts;
 import ai.brokk.tools.WorkspaceTools;
@@ -24,8 +24,6 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.Component;
 import java.awt.Image;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.io.File;
 import java.io.IOException;
@@ -33,13 +31,12 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -85,6 +82,9 @@ public class ContextActionsHandler {
         public List<Action> getActions(ContextActionsHandler actions) {
             var list = new ArrayList<Action>();
 
+            list.add(WorkspaceAction.RUN_TESTS.createAction(actions));
+            list.add(null); // Separator
+
             // Always add drop all action but enable/disable based on workspace state
             var dropAllAction = WorkspaceAction.DROP_ALL.createAction(actions);
             if (!actions.isWorkspaceEditable()) {
@@ -120,13 +120,6 @@ public class ContextActionsHandler {
                     list.add(WorkspaceAction.VIEW_HISTORY.createFileAction(actions, repoFile));
                 } else {
                     list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Git not available for this project."));
-                }
-                var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
-                if (ContextManager.isTestFile(repoFile, analyzer)) {
-                    list.add(WorkspaceAction.RUN_TESTS.createFileRefAction(actions, fileRef));
-                } else {
-                    var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("Not a test file");
-                    list.add(disabledAction);
                 }
 
                 list.add(null); // Separator
@@ -182,17 +175,6 @@ public class ContextActionsHandler {
             } else {
                 list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction(
                         "View History is available only for single project files."));
-            }
-
-            // Add Run Tests action if the fragment is associated with a test file
-            var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                    && fragment.files().renderNowOr(Set.of()).stream()
-                            .anyMatch(f -> ContextManager.isTestFile(f, analyzer))) {
-                list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, List.of(fragment)));
-            } else {
-                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
-                list.add(disabledAction);
             }
 
             list.add(null); // Separator
@@ -261,16 +243,6 @@ public class ContextActionsHandler {
             list.add(WorkspaceAction.SHOW_CONTENTS.createDisabledAction(
                     "Cannot view contents of multiple items at once."));
             list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
-            // Add Run Tests action if all selected fragment is associated with a test file
-            var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (fragments.stream()
-                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
-                    .allMatch(f -> ContextManager.isTestFile(f, analyzer))) {
-                list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, fragments));
-            } else {
-                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
-                list.add(disabledAction);
-            }
 
             list.add(null); // Separator
 
@@ -318,7 +290,16 @@ public class ContextActionsHandler {
         }
 
         public AbstractAction createAction(ContextActionsHandler actions) {
-            return new AbstractAction(label) {
+            String finalLabel = label;
+            Optional<Set<ProjectFile>> testFilesOpt = Optional.empty();
+
+            if (this == RUN_TESTS) {
+                testFilesOpt = actions.findTestFiles();
+                int count = testFilesOpt.map(Set::size).orElse(0);
+                finalLabel = "%s (%d)".formatted(label, count);
+            }
+
+            var action = new AbstractAction(finalLabel) {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     switch (WorkspaceAction.this) {
@@ -332,6 +313,18 @@ public class ContextActionsHandler {
                     }
                 }
             };
+
+            if (this == RUN_TESTS) {
+                if (testFilesOpt.isEmpty()) {
+                    action.setEnabled(false);
+                    action.putValue(Action.SHORT_DESCRIPTION, AnalyzerWrapper.ANALYZER_BUSY_MESSAGE);
+                } else if (testFilesOpt.get().isEmpty()) {
+                    action.setEnabled(false);
+                    action.putValue(Action.SHORT_DESCRIPTION, "No test files found in the current context");
+                }
+            }
+
+            return action;
         }
 
         public AbstractAction createDisabledAction(String tooltip) {
@@ -497,10 +490,13 @@ public class ContextActionsHandler {
                     case DROP -> doDropAction(selectedFragments);
                     case SUMMARIZE -> doSummarizeAction(selectedFragments);
                     case PASTE -> doPasteAction();
-                    case RUN_TESTS -> doRunTestsAction(selectedFragments);
+                    case RUN_TESTS -> doRunTestsAction();
                 }
-            } catch (CancellationException | InterruptedException cex) {
+            } catch (CancellationException cex) {
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, action + " canceled.");
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, action + " interrupted.");
             } finally {
                 SwingUtilities.invokeLater(chrome::focusInput);
             }
@@ -520,19 +516,7 @@ public class ContextActionsHandler {
 
         if (fragments == null) return;
 
-        contextManager.submitContextTask(() -> {
-            if (fragments.isEmpty()) {
-                return;
-            }
-
-            for (var fragment : fragments) {
-                if (fragment instanceof ContextFragments.PathFragment pathFrag) {
-                    contextManager.addFragmentAsync(pathFrag);
-                } else {
-                    contextManager.addFragments(fragment);
-                }
-            }
-        });
+        contextManager.submitContextTask(() -> contextManager.addFragments(fragments));
     }
 
     @Blocking
@@ -552,18 +536,8 @@ public class ContextActionsHandler {
     @Blocking
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
         var content = getSelectedContent(selectedFragments);
-        var sel = new StringSelection(content);
-        var cb = Chrome.getSystemClipboardSafe();
-        if (cb == null) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Clipboard temporarily unavailable");
-            return;
-        }
-        try {
-            cb.setContents(sel, sel);
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
-        } catch (IllegalStateException e) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Clipboard temporarily unavailable");
-        }
+        contextManager.copyToClipboard(content);
+        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
     }
 
     @Blocking
@@ -601,52 +575,58 @@ public class ContextActionsHandler {
     private void doPasteAction() {
         assert !SwingUtilities.isEventDispatchThread();
 
-        var clipboard = Chrome.getSystemClipboardSafe();
-        if (clipboard == null) {
-            chrome.toolError("Clipboard temporarily unavailable");
-            return;
-        }
+        var clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+        int maxAttempts = 3;
+        int delayMs = 50;
 
-        var contents = clipboard.getContents(null);
-        if (contents == null) {
-            chrome.toolError("Clipboard is empty or unavailable");
-            return;
-        }
-
-        var flavors = contents.getTransferDataFlavors();
-        logger.debug(
-                "Clipboard flavors available: {}",
-                Arrays.stream(flavors).map(DataFlavor::getMimeType).collect(Collectors.joining(", ")));
-
-        for (var flavor : flavors) {
+        for (int i = 0; i < maxAttempts; i++) {
             try {
-                if (flavor.isFlavorJavaFileListType() || flavor.getMimeType().startsWith("image/")) {
-                    logger.debug("Attempting to process flavor: {}", flavor.getMimeType());
-                    Object data = contents.getTransferData(flavor);
-                    Image image = null;
+                var contents = clipboard.getContents(null);
+                if (contents == null) break;
 
-                    switch (data) {
-                        case Image image1 -> image = image1;
-                        case InputStream inputStream -> {
-                            try (inputStream) {
-                                image = ImageIO.read(inputStream);
-                            }
-                        }
-                        case List<?> fileList
-                        when !fileList.isEmpty() -> {
-                            var file = fileList.getFirst();
-                            if (file instanceof File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
-                                image = ImageIO.read(f);
-                            }
-                        }
-                        default -> {}
-                    }
+                var flavors = contents.getTransferDataFlavors();
+                for (var flavor : flavors) {
+                    if (flavor.isFlavorJavaFileListType()
+                            || flavor.getMimeType().startsWith("image/")) {
+                        Object data = contents.getTransferData(flavor);
+                        @Nullable Image image = null;
 
-                    if (image != null) {
-                        contextManager.addPastedImageFragment(image);
-                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pasted image added to context");
-                        return;
+                        switch (data) {
+                            case Image image1 -> image = image1;
+                            case InputStream inputStream -> {
+                                try (inputStream) {
+                                    image = ImageIO.read(inputStream);
+                                }
+                            }
+                            case List<?> fileList
+                            when !fileList.isEmpty() -> {
+                                var file = fileList.getFirst();
+                                if (file instanceof File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
+                                    image = ImageIO.read(f);
+                                }
+                            }
+                            default -> {}
+                        }
+
+                        if (image != null) {
+                            contextManager.addPastedImageFragment(image);
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pasted image added to context");
+                            return;
+                        }
                     }
+                }
+                break; // Checked flavors, no image found, move to string
+            } catch (IllegalStateException e) {
+                if (i == maxAttempts - 1) {
+                    logger.warn("Failed to read image from clipboard after {} attempts", maxAttempts, e);
+                    chrome.showNotification(IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
+                    break;
+                }
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
                 }
             } catch (Exception e) {
                 if (e.getMessage() != null && e.getMessage().contains("INCR")) {
@@ -654,20 +634,15 @@ public class ContextActionsHandler {
                             "Unable to paste image data from Windows to Brokk running under WSL. This is a limitation of WSL. You can write the image to a file and read it that way instead.");
                     return;
                 }
-                logger.error("Failed to process image flavor: {}", flavor.getMimeType(), e);
+                logger.debug("Non-fatal error checking image flavors: {}", e.getMessage());
+                break;
             }
         }
 
-        if (contents.isDataFlavorSupported(DataFlavor.stringFlavor)) {
-            String clipboardText;
-            try {
-                clipboardText = (String) contents.getTransferData(DataFlavor.stringFlavor);
-                if (clipboardText.isBlank()) {
-                    chrome.toolError("Clipboard text is empty");
-                    return;
-                }
-            } catch (Exception e) {
-                chrome.toolError("Failed to read clipboard text: " + e.getMessage());
+        String clipboardText = contextManager.getStringFromClipboard();
+        if (clipboardText != null) {
+            if (clipboardText.isBlank()) {
+                chrome.toolError("Clipboard text is empty");
                 return;
             }
 
@@ -689,20 +664,20 @@ public class ContextActionsHandler {
                         try {
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO, "Fetching image from " + clipboardText);
-                            Image image = ImageUtil.downloadImage(uri, httpClient);
-                            if (image != null) {
-                                contextManager.addPastedImageFragment(image);
-                                chrome.showNotification(
-                                        IConsoleIO.NotificationRole.INFO, "Pasted image from URL added to context");
-                                chrome.actionComplete();
-                                return;
-                            } else {
+                            @Nullable Image image = ImageUtil.downloadImage(uri, httpClient);
+                            if (image == null) {
                                 logger.warn(
                                         "URL {} identified as image by ImageUtil, but downloadImage returned null. Falling back to text.",
                                         clipboardText);
                                 chrome.showNotification(
                                         IConsoleIO.NotificationRole.INFO,
                                         "Could not load image from URL. Trying to fetch as text.");
+                            } else {
+                                contextManager.addPastedImageFragment(image);
+                                chrome.showNotification(
+                                        IConsoleIO.NotificationRole.INFO, "Pasted image from URL added to context");
+                                chrome.actionComplete();
+                                return;
                             }
                         } catch (Exception e) {
                             logger.warn(
@@ -785,39 +760,36 @@ public class ContextActionsHandler {
     }
 
     @Blocking
-    private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) throws InterruptedException {
-        List<CompletableFuture<Set<ProjectFile>>> fileFutures =
-                selectedFragments.stream().map(f -> f.files().future()).toList();
-
-        Set<ProjectFile> testFiles = new HashSet<>();
-
-        if (!fileFutures.isEmpty()) {
-            CompletableFuture<Void> all = CompletableFuture.allOf(fileFutures.toArray(new CompletableFuture[0]));
-            try {
-                all.get();
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw ie;
-            } catch (Exception ex) {
-                logger.warn("Error awaiting fragment files for test execution", ex);
-            }
-
-            var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-            testFiles.addAll(fileFutures.stream()
-                    .flatMap(cf -> cf.getNow(Set.of()).stream())
-                    .filter(f -> ContextManager.isTestFile(f, analyzer))
-                    .collect(Collectors.toSet()));
+    private Optional<Set<ProjectFile>> findTestFiles() {
+        if (!contextManager.getAnalyzerWrapper().isReady()) {
+            return Optional.empty();
         }
 
-        if (testFiles.isEmpty() && !selectedFragments.isEmpty()) {
-            chrome.toolError("No test files found in the selection to run.");
+        var analyzer = requireNonNull(contextManager.getAnalyzerWrapper().getNonBlocking());
+        return Optional.of(contextManager
+                .liveContext()
+                .allFragments()
+                .filter(cf -> cf.getType().includeInProjectGuide())
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .filter(pf -> ContextManager.isTestFile(pf, analyzer))
+                .collect(Collectors.toSet()));
+    }
+
+    @Blocking
+    private void doRunTestsAction() throws InterruptedException {
+        var testFilesOpt = findTestFiles();
+
+        if (testFilesOpt.isEmpty()) {
+            chrome.showNotification(IConsoleIO.NotificationRole.ERROR, AnalyzerWrapper.ANALYZER_BUSY_MESSAGE);
             return;
         }
 
+        Set<ProjectFile> testFiles = testFilesOpt.get();
         if (testFiles.isEmpty()) {
-            chrome.toolError("No test files specified to run.");
+            chrome.showNotification(IConsoleIO.NotificationRole.ERROR, "No test files found in the current context");
             return;
         }
+
         chrome.runTests(testFiles);
     }
 
@@ -848,70 +820,6 @@ public class ContextActionsHandler {
         });
     }
 
-    public void findMethodCallersAsync() {
-        if (!isAnalyzerReady()) {
-            return;
-        }
-
-        contextManager.submitContextTask(() -> {
-            try {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
-                if (analyzer.isEmpty()) {
-                    chrome.toolError("Code Intelligence is empty; nothing to add");
-                    return;
-                }
-
-                var dialog = showCallGraphDialog("Select Method", true);
-                if (dialog == null || !dialog.isConfirmed()) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No method selected.");
-                } else {
-                    var selectedMethod = dialog.getSelectedMethod();
-                    var callGraph = dialog.getCallGraph();
-                    if (selectedMethod != null && callGraph != null) {
-                        contextManager.addCallersForMethod(selectedMethod, dialog.getDepth(), callGraph);
-                    } else {
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO, "Method selection incomplete or cancelled.");
-                    }
-                }
-            } catch (CancellationException cex) {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Method selection canceled.");
-            }
-        });
-    }
-
-    public void findMethodCalleesAsync() {
-        if (!isAnalyzerReady()) {
-            return;
-        }
-
-        contextManager.submitContextTask(() -> {
-            try {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
-                if (analyzer.isEmpty()) {
-                    chrome.toolError("Code Intelligence is empty; nothing to add");
-                    return;
-                }
-
-                var dialog = showCallGraphDialog("Select Method for Callees", false);
-                if (dialog == null || !dialog.isConfirmed()) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No method selected.");
-                } else {
-                    var selectedMethod = dialog.getSelectedMethod();
-                    var callGraph = dialog.getCallGraph();
-                    if (selectedMethod != null && callGraph != null) {
-                        contextManager.calleesForMethod(selectedMethod, dialog.getDepth(), callGraph);
-                    } else {
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO, "Method selection incomplete or cancelled.");
-                    }
-                }
-            } catch (CancellationException cex) {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Method selection canceled.");
-            }
-        });
-    }
-
     private @Nullable SymbolSelectionDialog.SymbolSelection showSymbolSelectionDialog(
             String title, Set<CodeUnitType> typeFilter) {
         var analyzer = contextManager.getAnalyzerUninterrupted();
@@ -925,21 +833,6 @@ public class ContextActionsHandler {
         });
         var dialog = castNonNull(dialogRef.get());
         return dialog.isConfirmed() ? dialog.getSelection() : null;
-    }
-
-    private @Nullable CallGraphDialog showCallGraphDialog(String title, boolean isCallerGraph) {
-        var analyzer = contextManager.getAnalyzerUninterrupted();
-        var dialogRef = new AtomicReference<CallGraphDialog>();
-        SwingUtil.runOnEdt(() -> {
-            var dialog = new CallGraphDialog(chrome.getFrame(), analyzer, title, isCallerGraph);
-            dialog.setSize((int) (chrome.getFrame().getWidth() * 0.9), dialog.getHeight());
-            dialog.setLocationRelativeTo(chrome.getFrame());
-            dialog.setVisible(true);
-            dialogRef.set(dialog);
-        });
-
-        var dialog = castNonNull(dialogRef.get());
-        return dialog.isConfirmed() ? dialog : null;
     }
 
     private boolean isAnalyzerReady() {

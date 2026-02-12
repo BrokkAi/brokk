@@ -65,6 +65,22 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
   <img src="docs/media/screenshot-bpr-meter.png" alt="In-app BPR meter above the Instructions panel" width="800">
 </p>
 
+## Terminal UI (Python Client)
+
+The `brokk-code/` directory contains the **Python (Textual) terminal UI client**. This is an interactive TUI that launches and manages a **local Java executor** subprocess.
+
+- **Main Product**: The core Brokk engine (executor) is Java-based.
+- **TUI Client**: The Python project is a separate client that communicates with the executor via a local HTTP API.
+- **Documentation**:
+  - See [brokk-code/README.md](brokk-code/README.md) for instructions on running and configuring the TUI.
+  - See [brokk-code/AGENTS.md](brokk-code/AGENTS.md) for Python-specific contributor guidance.
+
+**Common Confusion:**
+- **Builds**: Java components use Gradle; the TUI uses Python (`uv` or `pip`). Build them independently.
+- **Execution**: Run TUI commands (like `uv run brokk-code`) from the `brokk-code/` directory.
+- **Executor JAR**: The TUI automatically downloads the required Java executor JAR to `~/.brokk/` on first run, so you don't need to build the Java project manually just to use the client.
+- **Authentication**: The TUI handles authentication by generating a transient bearer token to secure the local communication with the executor subprocess.
+
 ## How it works (20 seconds)
 
 1. Describe your goal or question in natural language.

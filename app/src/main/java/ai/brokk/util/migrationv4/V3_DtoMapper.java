@@ -27,6 +27,10 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * Mapper for legacy V3 DTOs.
+ *
+ */
 public class V3_DtoMapper {
     private static final Logger logger = LogManager.getLogger(V3_DtoMapper.class);
 
@@ -70,18 +74,14 @@ public class V3_DtoMapper {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(ArrayList::new));
 
-        var parsedOutputFragment = dto.parsedOutputId() != null
-                ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
-                : null;
-
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(
                         Streams.concat(editableFragments.stream(), readonlyFragments.stream()),
-                        virtualFragments.stream().map(v -> (ContextFragment) v))
+                        virtualFragments.stream())
                 .toList();
 
-        return Context.createWithId(ctxId, mgr, combined, taskHistory, parsedOutputFragment, Set.of(), Set.of());
+        return Context.createWithId(ctxId, mgr, combined, taskHistory, Set.of(), Set.of());
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -266,16 +266,8 @@ public class V3_DtoMapper {
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
                         "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
-                    var methodName = meta.get("methodName");
-                    var depthStr = meta.get("depth");
-                    var isCalleeGraphStr = meta.get("isCalleeGraph");
-                    if (methodName == null || depthStr == null || isCalleeGraphStr == null) {
-                        throw new IllegalArgumentException(
-                                "Missing 'methodName', 'depth' or 'isCalleeGraph' for CallGraphFragment");
-                    }
-                    int depth = Integer.parseInt(depthStr);
-                    boolean isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                    return new ContextFragments.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
+                    logger.warn("CallGraph fragments are no longer supported, dropping fragment");
+                    return null;
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {
@@ -342,7 +334,12 @@ public class V3_DtoMapper {
                         summaryDto.id(), mgr, summaryDto.targetIdentifier(), mapSummaryType(summaryDto.summaryType()));
             case V3_FragmentDtos.UsageFragmentDto usageDto ->
                 new ContextFragments.UsageFragment(
-                        usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
+                        usageDto.id(),
+                        mgr,
+                        usageDto.targetIdentifier(),
+                        usageDto.includeTestFiles(),
+                        null,
+                        ContextFragments.UsageMode.FULL);
             case V3_FragmentDtos.PasteTextFragmentDto pasteTextDto ->
                 new ContextFragments.PasteTextFragment(
                         pasteTextDto.id(),
@@ -359,6 +356,10 @@ public class V3_DtoMapper {
                         yield null;
                     }
                     var image = ImageUtil.bytesToImage(imageBytes);
+                    if (image == null) {
+                        logger.error("Image deserialized to null for fragment: {}", pasteImageDto.id());
+                        yield null;
+                    }
                     yield new ContextFragments.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,
@@ -380,13 +381,10 @@ public class V3_DtoMapper {
                         stDto.exception(),
                         reader.readContent(stDto.codeContentId()));
             }
-            case V3_FragmentDtos.CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.CallGraphFragment(
-                        callGraphDto.id(),
-                        mgr,
-                        callGraphDto.methodName(),
-                        callGraphDto.depth(),
-                        callGraphDto.isCalleeGraph());
+            case V3_FragmentDtos.CallGraphFragmentDto ignored -> {
+                logger.warn("CallGraph fragments are no longer supported, dropping fragment");
+                yield null;
+            }
             case V3_FragmentDtos.CodeFragmentDto codeDto -> {
                 // Extract fully qualified name from the V3 CodeUnitDto and preserve the ID
                 String fqName = buildFullyQualifiedName(codeDto.unit());

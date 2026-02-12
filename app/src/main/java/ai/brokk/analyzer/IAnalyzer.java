@@ -4,16 +4,20 @@ import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Core analyzer interface providing code intelligence capabilities.
  *
- * <p><b>API Pattern:</b> Capability providers ({@link SkeletonProvider}, {@link SourceCodeProvider},
- * {@link CallGraphProvider}) accept {@link CodeUnit} parameters. When you have a CodeUnit, call
- * provider methods directly. When you only have a String FQN, use {@link ai.brokk.AnalyzerUtil}
- * convenience methods to convert and delegate.
+ * <p><b>API Pattern:</b> Capability providers (e.g., {@link ImportAnalysisProvider}, {@link TypeHierarchyProvider})
+ * accept {@link CodeUnit} parameters. When you have a CodeUnit, call provider methods directly. When you only have a
+ * String FQN, use {@link ai.brokk.AnalyzerUtil} convenience methods to convert and delegate.
  */
 public interface IAnalyzer {
+    // Common separators across languages to denote hierarchy or member access.
+    // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
+    Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
+
     /**
      * Record representing a code unit relevance result with a code unit and its score.
      */
@@ -126,6 +130,37 @@ public interface IAnalyzer {
     SequencedSet<CodeUnit> getDefinitions(String fqName);
 
     /**
+     * Returns the enclosing class or module for the given CodeUnit.
+     * If cu is already a class or module, returns itself.
+     * If cu is a member (function, field), searches for the parent definition.
+     */
+    default Optional<CodeUnit> parentOf(CodeUnit cu) {
+        if (cu.isClass() || cu.isModule()) {
+            return Optional.of(cu);
+        }
+
+        String fqName = cu.fqName();
+        int lastIdx = -1;
+        // Find the last occurrence among any valid separators
+        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
+            int idx = fqName.lastIndexOf(sep);
+            if (idx > lastIdx) {
+                lastIdx = idx;
+            }
+        }
+
+        // Must find a separator, and it must not be the first character
+        if (lastIdx <= 0) {
+            return Optional.empty();
+        }
+
+        String candidateParent = fqName.substring(0, lastIdx);
+        return getDefinitions(candidateParent).stream()
+                .filter(parent -> parent.isClass() || parent.isModule())
+                .findFirst();
+    }
+
+    /**
      * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
      *
      * <p>This method is used by the default getSymbols(java.util.Set) implementation to traverse the code unit
@@ -168,23 +203,6 @@ public interface IAnalyzer {
     List<String> importStatementsOf(ProjectFile file);
 
     /**
-     * Retrieves the resolved import CodeUnits for a given file.
-     *
-     * @param file the project file
-     * @return an unmodifiable set of resolved CodeUnits from import statements
-     */
-    default Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return Set.of();
-    }
-
-    /**
-     * Returns the set of files that import the given file.
-     */
-    default Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return Set.of();
-    }
-
-    /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      * invalid.
      */
@@ -195,6 +213,65 @@ public interface IAnalyzer {
      */
     Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine);
 
+    /**
+     * Determines whether the code at the given byte range represents an actual access expression
+     * (e.g., method call, type usage, field access) rather than a declaration, parameter name, or comment.
+     *
+     * @param file the file to check
+     * @param startByte start byte offset
+     * @param endByte end byte offset
+     * @return true if the range is considered an access expression (default), false if it is clearly a declaration or comment.
+     */
+    default boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
+        return true;
+    }
+
+    /**
+     * Finds the nearest block-scoped declaration (parameter, local variable, etc.) for an identifier.
+     *
+     * <p>This method performs lexical scope analysis to determine if an identifier at the given
+     * position is shadowed by a local declaration. It searches upward through enclosing blocks,
+     * checking for parameters, local variables, catch parameters, for-loop variables, lambda
+     * parameters, pattern variables, and try-with-resources variables.
+     *
+     * <p><b>Important:</b> This method does NOT resolve class-level field declarations. If no
+     * block-scoped declaration shadows the identifier, this returns {@code Optional.empty()}.
+     * The identifier may still refer to a field, imported symbol, or external reference — callers
+     * must handle the empty case accordingly.
+     *
+     * <p>Primary use case: {@link #isAccessExpression} uses this to filter out local variable
+     * and parameter usages from field/member access detection.
+     *
+     * @param file           the source file
+     * @param startByte      the start byte of the identifier
+     * @param endByte        the end byte of the identifier
+     * @param identifierName the name of the identifier to resolve
+     * @return information about the nearest block-scoped declaration, or empty if none found
+     */
+    default Optional<DeclarationInfo> findNearestDeclaration(
+            ProjectFile file, int startByte, int endByte, String identifierName) {
+        return Optional.empty();
+    }
+
+    /**
+     * Kinds of declarations that can be found by {@link #findNearestDeclaration}.
+     *
+     * <p>Note: Not all kinds are returned by all language implementations.
+     */
+    enum DeclarationKind {
+        PARAMETER,
+        LOCAL_VARIABLE,
+        /** Reserved for future use; not currently returned by any analyzer implementation. */
+        FIELD,
+        CATCH_PARAMETER,
+        FOR_LOOP_VARIABLE,
+        PATTERN_VARIABLE,
+        RESOURCE_VARIABLE,
+        UNKNOWN
+    }
+
+    record DeclarationInfo(DeclarationKind kind, String name, @Nullable CodeUnit enclosingUnit) {}
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
@@ -203,20 +280,6 @@ public interface IAnalyzer {
         public boolean isContainedWithin(Range other) {
             return startByte >= other.startByte && endByte <= other.endByte;
         }
-    }
-
-    /**
-     * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
-     * Implementations should return only the immediate ancestors.
-     */
-    List<CodeUnit> getDirectAncestors(CodeUnit cu);
-
-    /**
-     * Returns the direct subtypes/descendants (non-transitive) for the given CodeUnit.
-     * Implementations should return only the immediate descendants.
-     */
-    default Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
-        return Set.of();
     }
 
     // Things most implementations won't have to override
@@ -404,98 +467,6 @@ public interface IAnalyzer {
     }
 
     /**
-     * Returns the transitive set of supertypes/basetypes for the given CodeUnit.
-     * This is computed via a fixed-point iterative traversal using getDirectAncestors:
-     * - Direct ancestors are listed first, followed by their ancestors in discovery order (BFS).
-     * - Duplicates are removed by fqName.
-     * - Cycles are handled gracefully via a visited set.
-     * <p>
-     * Implementations should override {@link #getDirectAncestors(CodeUnit)} to provide language-specific direct
-     * ancestor resolution. This method composes those results into a transitive closure.
-     */
-    default List<CodeUnit> getAncestors(CodeUnit cu) {
-        // Seed with direct ancestors
-        List<CodeUnit> direct = getDirectAncestors(cu);
-        if (direct.isEmpty()) {
-            return List.of();
-        }
-
-        // Fixed-point traversal: BFS over direct ancestors
-        var result = new ArrayList<CodeUnit>(direct.size());
-        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
-        var queue = new ArrayDeque<CodeUnit>(direct.size());
-
-        for (var d : direct) {
-            if (visited.add(d.fqName())) {
-                result.add(d);
-                queue.add(d);
-            }
-        }
-
-        while (!queue.isEmpty()) {
-            var current = queue.removeFirst();
-            List<CodeUnit> parents = getDirectAncestors(current);
-            if (parents.isEmpty()) continue;
-
-            for (var p : parents) {
-                String key = p.fqName();
-                if (visited.add(key)) {
-                    result.add(p);
-                    queue.addLast(p);
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * Returns the transitive set of subtypes/descendants for the given CodeUnit.
-     * This is computed via a fixed-point iterative traversal using getDirectDescendants:
-     * - Direct descendants are listed first, followed by their descendants in discovery order (BFS).
-     * - Duplicates are removed by fqName.
-     * - Cycles are handled gracefully via a visited set.
-     * <p>
-     * Implementations should override {@link #getDirectDescendants(CodeUnit)} to provide language-specific direct
-     * descendant resolution. This method composes those results into a transitive closure.
-     */
-    default List<CodeUnit> getDescendants(CodeUnit cu) {
-        // Seed with direct descendants
-        Set<CodeUnit> direct = getDirectDescendants(cu);
-        if (direct.isEmpty()) {
-            return List.of();
-        }
-
-        // Fixed-point traversal: BFS over direct descendants
-        var result = new ArrayList<CodeUnit>(direct.size());
-        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
-        var queue = new ArrayDeque<CodeUnit>(direct.size());
-
-        for (var d : direct) {
-            if (visited.add(d.fqName())) {
-                result.add(d);
-                queue.add(d);
-            }
-        }
-
-        while (!queue.isEmpty()) {
-            var current = queue.removeFirst();
-            Set<CodeUnit> children = getDirectDescendants(current);
-            if (children.isEmpty()) continue;
-
-            for (var child : children) {
-                String key = child.fqName();
-                if (visited.add(key)) {
-                    result.add(child);
-                    queue.addLast(child);
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
      * Returns an analyzer that targets the given language if one is available. For single-analyzers, it will be the
      * analyzer instance itself if there is a match. For multi-analyzers, it will be a matching delegate, if any.
      *
@@ -511,15 +482,15 @@ public interface IAnalyzer {
         }
     }
 
-    default String buildRelatedIdentifiers(ProjectFile file) {
-        return buildRelatedIdentifiers(file, CodeUnitType.ALL);
+    default String summarizeSymbols(ProjectFile file) {
+        return summarizeSymbols(file, CodeUnitType.ALL);
     }
 
-    default String buildRelatedIdentifiers(ProjectFile file, Set<CodeUnitType> types) {
-        return buildRelatedIdentifiers(getTopLevelDeclarations(file), types, 0);
+    default String summarizeSymbols(ProjectFile file, Set<CodeUnitType> types) {
+        return summarizeSymbols(getTopLevelDeclarations(file), types, 0);
     }
 
-    default String buildRelatedIdentifiers(List<CodeUnit> units, Set<CodeUnitType> types, int indent) {
+    default String summarizeSymbols(Collection<CodeUnit> units, Set<CodeUnitType> types, int indent) {
         var prefix = "  ".repeat(Math.max(0, indent));
         var sb = new StringBuilder();
         for (var cu : units) {
@@ -537,10 +508,60 @@ public interface IAnalyzer {
                     .toList();
             if (!children.isEmpty()) {
                 sb.append("\n");
-                sb.append(this.buildRelatedIdentifiers(children, types, indent + 1));
+                sb.append(this.summarizeSymbols(children, types, indent + 1));
             }
             sb.append("\n");
         }
         return sb.toString().stripTrailing();
     }
+
+    /**
+     * Return a summary of the given type or method.
+     *
+     * @param cu the code unit to get skeleton for
+     * @return skeleton if available, empty otherwise
+     */
+    Optional<String> getSkeleton(CodeUnit cu);
+
+    /**
+     * Returns just the class signature and field declarations, without method details. Used in symbol usages lookup.
+     * (Show the "header" of the class that uses the referenced symbol in a field declaration.)
+     *
+     * @param classUnit the class code unit to get header for
+     * @return skeleton header if available, empty otherwise
+     */
+    Optional<String> getSkeletonHeader(CodeUnit classUnit);
+
+    /**
+     * Get skeletons for all top-level declarations in a file.
+     *
+     * @param file the file to get skeletons for
+     * @return map of code units to their skeletons
+     */
+    default Map<CodeUnit, String> getSkeletons(ProjectFile file) {
+        final Map<CodeUnit, String> skeletons = new HashMap<>();
+        for (CodeUnit symbol : getTopLevelDeclarations(file)) {
+            getSkeleton(symbol).ifPresent(s -> skeletons.put(symbol, s));
+        }
+        return skeletons;
+    }
+
+    /**
+     * Gets the source code for a given CodeUnit. Currently only supports classes and methods.
+     *
+     * @param codeUnit the code unit to get source for
+     * @param includeComments whether to include preceding comments in the source
+     * @return source code if found, empty otherwise
+     */
+    Optional<String> getSource(CodeUnit codeUnit, boolean includeComments);
+
+    /**
+     * Gets all source code versions for a given CodeUnit. For methods, this includes overloads.
+     * For classes, this typically returns a singleton set.
+     *
+     * @param codeUnit the code unit to get sources for
+     * @param includeComments whether to include preceding comments in the source
+     * @return set of source code snippets, empty set if none found
+     */
+    Set<String> getSources(CodeUnit codeUnit, boolean includeComments);
 }

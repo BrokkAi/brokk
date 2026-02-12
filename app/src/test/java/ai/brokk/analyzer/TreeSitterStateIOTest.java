@@ -94,17 +94,18 @@ public class TreeSitterStateIOTest {
             assertNotNull(analyzer.treeOf(cppFile), "Expected parse tree before save");
 
             // Save analyzer state
-            Path storage = Languages.CPP_TREESITTER.getStoragePath(project);
+            Path storage = Languages.C_CPP.getStoragePath(project);
             TreeSitterStateIO.save(analyzer.snapshotState(), storage);
             assertTrue(Files.exists(storage), "Expected analyzer state file to exist: " + storage);
 
             // Load analyzer; parsed trees are intentionally omitted by TreeSitterStateIO
-            IAnalyzer loaded = Languages.CPP_TREESITTER.loadAnalyzer(project);
+            IAnalyzer loaded = Languages.C_CPP.loadAnalyzer(project);
             assertTrue(loaded instanceof CppAnalyzer, "Loaded analyzer is not CppAnalyzer");
             CppAnalyzer loadedCpp = (CppAnalyzer) loaded;
 
-            // After deserialization, treeOf(...) should be null (not persisted)
-            assertNull(loadedCpp.treeOf(cppFile), "Expected no parse tree after deserialization");
+            // After deserialization, verify file properties are present
+            var loadedProps = loadedCpp.snapshotState().fileState().get(cppFile);
+            assertNotNull(loadedProps);
 
             // Modify the C++ file on disk
             Files.writeString(
@@ -164,11 +165,7 @@ public class TreeSitterStateIOTest {
         var cu = CodeUnit.cls(projectFile, "com.example", "Test");
 
         var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                List.of(),
-                List.of("public class Test"),
-                List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)),
-                List.of("Base"),
-                true);
+                List.of(), List.of("public class Test"), List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
 
         var stateMap = Map.of(cu, props);
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
@@ -190,7 +187,6 @@ public class TreeSitterStateIOTest {
         var loadedProps = loadedState.codeUnitState().get(cu);
 
         assertNotNull(loadedProps);
-        assertEquals(props.rawSupertypes(), loadedProps.rawSupertypes());
         assertEquals(props.ranges(), loadedProps.ranges());
         assertEquals(props.signatures(), loadedProps.signatures());
         assertEquals(props.children(), loadedProps.children());
@@ -310,6 +306,49 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void testImportInfoRoundTrip(@TempDir Path tempDir) throws Exception {
+        var root = tempDir.resolve("root");
+        Files.createDirectories(root);
+        var projectFile = new ProjectFile(root, Path.of("Test.java"));
+
+        var imports = List.of(
+                new ImportInfo("import java.util.List;", false, "List", null),
+                new ImportInfo("import java.util.*;", true, null, null),
+                new ImportInfo("import foo.bar.Baz as B", false, "Baz", "B"));
+
+        var fileProps = new TreeSitterAnalyzer.FileProperties(List.of(), imports, false);
+
+        var originalState = new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.<String, Set<CodeUnit>>empty(),
+                HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
+                HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>from(Map.of(projectFile, fileProps)),
+                ImportGraph.empty(),
+                TypeHierarchyGraph.empty(),
+                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
+                System.nanoTime());
+
+        Path out = tempDir.resolve("imports_roundtrip.smile.gz");
+        TreeSitterStateIO.save(originalState, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent());
+        var loadedState = loadedOpt.get();
+
+        var loadedFileProps = loadedState.fileState().get(projectFile);
+        assertNotNull(loadedFileProps);
+
+        assertEquals(imports.size(), loadedFileProps.importStatements().size());
+        for (int i = 0; i < imports.size(); i++) {
+            var expected = imports.get(i);
+            var actual = loadedFileProps.importStatements().get(i);
+            assertEquals(expected.rawSnippet(), actual.rawSnippet());
+            assertEquals(expected.isWildcard(), actual.isWildcard());
+            assertEquals(expected.identifier(), actual.identifier());
+            assertEquals(expected.alias(), actual.alias());
+        }
+    }
+
+    @Test
     void roundTripPreservesContainsTests(@TempDir Path tempDir) {
         var fileDto = new ProjectFileDto(tempDir.toString(), "Test.java");
         var propsDto = new FilePropertiesDto(List.of(), List.of(), true);
@@ -331,6 +370,53 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void lazyTreeParsingAfterRoundtrip(@TempDir Path tempDir) throws Exception {
+        // 1. Create test project with a Java file
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package com.example;
+
+                        public class Lazy {
+                            public void doSomething() {}
+                        }
+                        """,
+                "src/main/java/com/example/Lazy.java");
+
+        try (IProject project = builder.build()) {
+            // 2. Create JavaAnalyzer and get ProjectFile reference
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            ProjectFile file = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Lazy.java"));
+
+            // Verify the original analyzer has the tree parsed
+            assertNotNull(analyzer.treeOf(file), "Original analyzer should have parsed tree");
+
+            // 3. Save state to temp file
+            Path stateFile = tempDir.resolve("lazy_test.smile.gz");
+            TreeSitterStateIO.save(analyzer.snapshotState(), stateFile);
+            assertTrue(Files.exists(stateFile), "State file should exist after save");
+
+            // 4. Load state from file
+            var loadedStateOpt = TreeSitterStateIO.load(stateFile);
+            assertTrue(loadedStateOpt.isPresent(), "Should successfully load state");
+            var loadedState = loadedStateOpt.get();
+
+            // 5. Create new analyzer from loaded state
+            JavaAnalyzer loadedAnalyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+
+            // 6. Verify that FileProperties exists
+            var initialSnapshot = loadedAnalyzer.snapshotState();
+            var initialFileProps = initialSnapshot.fileState().get(file);
+            assertNotNull(initialFileProps, "File properties should exist in loaded state");
+
+            // 7. Call treeOf to trigger lazy parsing
+            var lazyParsedTree = loadedAnalyzer.treeOf(file);
+
+            // 8. Assert the returned tree is not null
+            assertNotNull(lazyParsedTree, "treeOf should return non-null tree after lazy parsing");
+        }
+    }
+
+    @Test
     void roundTripTypeHierarchy(@TempDir Path tempDir) throws Exception {
         var builder = InlineTestProjectCreator.code(
                 """
@@ -347,7 +433,8 @@ public class TreeSitterStateIOTest {
             CodeUnit derivedCu = analyzer.getDefinitions("com.example.Derived").getFirst();
 
             // Trigger hierarchy computation (lazily populates the internal TypeHierarchyGraph)
-            Set<CodeUnit> descendants = analyzer.getDirectDescendants(baseCu);
+            Set<CodeUnit> descendants =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertTrue(descendants.contains(derivedCu), "Base should have Derived as descendant");
 
             // Save state - this serializes the populated TypeHierarchyGraph
@@ -358,7 +445,8 @@ public class TreeSitterStateIOTest {
             IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
 
             // Verify descendants from loaded state without re-triggering full analysis
-            Set<CodeUnit> loadedDescendants = loaded.getDirectDescendants(baseCu);
+            Set<CodeUnit> loadedDescendants =
+                    loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertTrue(loadedDescendants.contains(derivedCu), "Loaded analyzer should retain descendants");
             assertEquals(descendants.size(), loadedDescendants.size());
         }
@@ -383,7 +471,8 @@ public class TreeSitterStateIOTest {
             CodeUnit bCu = analyzer.getDefinitions("com.example.B").getFirst();
 
             // Trigger lazy computation of subtypes for Base
-            Set<CodeUnit> originalDescendants = analyzer.getDirectDescendants(baseCu);
+            Set<CodeUnit> originalDescendants =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertTrue(originalDescendants.contains(aCu));
             assertTrue(originalDescendants.contains(bCu));
 
@@ -397,7 +486,8 @@ public class TreeSitterStateIOTest {
             // Verify that getDirectDescendants returns the same results
             // In TreeSitterAnalyzer, if the state contains the results in TypeHierarchyGraph,
             // they are returned immediately.
-            Set<CodeUnit> loadedDescendants = loaded.getDirectDescendants(baseCu);
+            Set<CodeUnit> loadedDescendants =
+                    loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertEquals(originalDescendants, loadedDescendants, "Subtypes should match after round-trip");
 
             // Specifically verify that no re-computation happened by checking the loaded state directly
@@ -406,6 +496,55 @@ public class TreeSitterStateIOTest {
             // confirms the DTO contained the subtypes).
             assertTrue(loadedDescendants.contains(aCu));
             assertTrue(loadedDescendants.contains(bCu));
+        }
+    }
+
+    @Test
+    void roundTripAncestorTriggeredSubtypes(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                interface Base {}
+                class Child1 implements Base {}
+                class Child2 implements Base {}
+                """,
+                "src/main/java/com/example/Hierarchy.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            CodeUnit baseCu = analyzer.getDefinitions("com.example.Base").getFirst();
+            CodeUnit child1Cu = analyzer.getDefinitions("com.example.Child1").getFirst();
+            CodeUnit child2Cu = analyzer.getDefinitions("com.example.Child2").getFirst();
+
+            // 1. Trigger lazy supertype computation for the children.
+            // This also populates the reverse subtype index in the transient cache as a side-effect.
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            List<CodeUnit> parents1 = hierarchy.getDirectAncestors(child1Cu);
+            List<CodeUnit> parents2 = hierarchy.getDirectAncestors(child2Cu);
+
+            assertTrue(parents1.contains(baseCu));
+            assertTrue(parents2.contains(baseCu));
+
+            // 2. Snapshot the state and verify the reverse index (subtypes) was merged.
+            TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
+            Set<CodeUnit> subtypesInSnapshot = snapshot.typeHierarchyGraph().subtypesOf(baseCu);
+            assertTrue(subtypesInSnapshot.contains(child1Cu), "Snapshot should contain Child1 as subtype of Base");
+            assertTrue(subtypesInSnapshot.contains(child2Cu), "Snapshot should contain Child2 as subtype of Base");
+
+            // 3. Round-trip serialization
+            Path storage = tempDir.resolve("ancestor_test.smile.gz");
+            TreeSitterStateIO.save(snapshot, storage);
+
+            var loadedStateOpt = TreeSitterStateIO.load(storage);
+            assertTrue(loadedStateOpt.isPresent());
+            var loadedState = loadedStateOpt.get();
+
+            // 4. Verify reloaded state contains the subtype mappings
+            Set<CodeUnit> reloadedSubtypes = loadedState.typeHierarchyGraph().subtypesOf(baseCu);
+            assertTrue(reloadedSubtypes.contains(child1Cu));
+            assertTrue(reloadedSubtypes.contains(child2Cu));
+            assertEquals(2, reloadedSubtypes.size());
         }
     }
 
@@ -446,6 +585,68 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void descendantsRecoveredFromPersistedSupertypesEvenIfSubtypeGraphMissing() throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                interface Base {}
+                class Child1 implements Base {}
+                class Child2 implements Base {}
+                """,
+                "src/main/java/com/example/Hierarchy.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            CodeUnit baseOriginal = analyzer.getDefinitions("com.example.Base").getFirst();
+            CodeUnit child1Original =
+                    analyzer.getDefinitions("com.example.Child1").getFirst();
+            CodeUnit child2Original =
+                    analyzer.getDefinitions("com.example.Child2").getFirst();
+
+            // 1. Trigger ancestor computation for children to ensure state has SuperTypeInfo.Computed
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            hierarchy.getDirectAncestors(child1Original);
+            hierarchy.getDirectAncestors(child2Original);
+
+            // 2. Create a snapshot and convert to DTO
+            var snapshot = analyzer.snapshotState();
+            var dto = TreeSitterStateIO.toDto(snapshot);
+
+            // 3. Create a "legacy" DTO that omits the explicit subtype/supertype graph
+            // This simulates snapshots where hierarchy graphs were not persisted or were empty,
+            // but CodeUnitProperties.superTypes.supertypesComputed is still true.
+            var legacyDto = new TreeSitterStateIO.AnalyzerStateDto(
+                    dto.symbolIndex(),
+                    dto.codeUnitState(),
+                    dto.fileState(),
+                    dto.imports(),
+                    dto.reverseImports(),
+                    null, // supertypes graph omitted
+                    null, // subtypes graph omitted
+                    dto.symbolKeys(),
+                    dto.snapshotEpochNanos());
+
+            var legacyState = TreeSitterStateIO.fromDto(legacyDto);
+
+            // 4. Load analyzer from legacy state
+            JavaAnalyzer loaded = JavaAnalyzer.fromState(project, legacyState, IAnalyzer.ProgressListener.NOOP);
+
+            // 5. Resolve Base from the loaded analyzer
+            CodeUnit baseLoaded = loaded.getDefinitions("com.example.Base").getFirst();
+
+            // 6. Query descendants. Even though the subtypes graph was null/empty in the DTO,
+            // the analyzer should be able to recover them from the computed supertypes in CodeUnitProperties.
+            Set<CodeUnit> descendants =
+                    loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseLoaded);
+
+            assertEquals(2, descendants.size(), "Should find both descendants via supertype back-links");
+            assertTrue(descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child1")), "Missing Child1");
+            assertTrue(descendants.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child2")), "Missing Child2");
+        }
+    }
+
+    @Test
     void deserializeLegacyStateWithComputedSupertypes(@TempDir Path tempDir) throws Exception {
         // Construct DTO components manually to simulate legacy structure
         var root = tempDir.toAbsolutePath().normalize();
@@ -457,15 +658,17 @@ public class TreeSitterStateIOTest {
         legacyProps.put("children", List.of());
         legacyProps.put("signatures", List.of("sig"));
         legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 10, 0, 1, 0)));
-        legacyProps.put("rawSupertypes", List.of("RawBase"));
         legacyProps.put("hasBody", true);
-        legacyProps.put("supertypes", List.of(cuDto)); // Simulated legacy computed list
-        legacyProps.put("supertypesComputed", true); // Simulated legacy flag
+        legacyProps.put("rawSupertypes", List.of("RawBase")); // Field removed from record
+        legacyProps.put("superTypes", Map.of("supertypes", List.of())); // Field removed from record
 
         // Entry as Map to bypass CodeUnitEntryDto's type check
         Map<String, Object> entry = new HashMap<>();
         entry.put("key", cuDto);
         entry.put("value", legacyProps);
+
+        // Simulate a legacy hierarchy graph as well to verify it's still loaded
+        Map<String, Object> supertypeEntry = Map.of("key", cuDto, "value", List.of());
 
         // AnalyzerStateDto as Map
         Map<String, Object> stateDtoMap = new HashMap<>();
@@ -474,6 +677,8 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("fileState", List.of());
         stateDtoMap.put("imports", List.of());
         stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("supertypes", List.of(supertypeEntry));
+        stateDtoMap.put("subtypes", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 12345L);
 
@@ -495,8 +700,128 @@ public class TreeSitterStateIOTest {
         var loadedProps = loadedState.codeUnitState().get(loadedCu);
 
         assertEquals("Test", loadedCu.shortName());
-        assertEquals(List.of("RawBase"), loadedProps.rawSupertypes());
         assertEquals(1, loadedProps.ranges().size());
-        // Implicitly verified that 'supertypes' field was ignored (no crash, no field in domain object)
+
+        // Verify TypeHierarchyGraph data is still present
+        var hierarchy = loadedState.typeHierarchyGraph();
+        assertTrue(hierarchy.supertypes().containsKey(loadedCu), "Hierarchy data should be loaded");
+    }
+
+    @Test
+    void loadLegacyStateWithPerCodeUnitSupertypes(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("legacy_per_cu_supertypes.smile.gz");
+
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        // Simulate removed 'supertypes' and 'supertypesComputed' fields
+        Map<String, Object> legacyProps = new HashMap<>();
+        legacyProps.put("children", List.of());
+        legacyProps.put("signatures", List.of());
+        legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 1, 0, 1, 0)));
+        legacyProps.put("hasBody", false);
+        legacyProps.put("supertypes", List.of(cuDto));
+        legacyProps.put("supertypesComputed", true);
+
+        Map<String, Object> entry = Map.of("key", cuDto, "value", legacyProps);
+
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 1L);
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, stateDtoMap);
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Should successfully load state ignoring legacy supertype fields");
+    }
+
+    @Test
+    void loadStateWithNullListFieldsDoesNotThrowNPE(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("null_lists.smile.gz");
+
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        // Simulate a cache entry where children, signatures, and ranges are null
+        Map<String, Object> propsWithNulls = new HashMap<>();
+        propsWithNulls.put("children", null);
+        propsWithNulls.put("signatures", null);
+        propsWithNulls.put("ranges", null);
+        propsWithNulls.put("hasBody", false);
+
+        Map<String, Object> entry = Map.of("key", cuDto, "value", propsWithNulls);
+
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 1L);
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, stateDtoMap);
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Should load state with null list fields");
+        var loadedState = loadedOpt.get();
+
+        var loadedCu = loadedState.codeUnitState().keySet().iterator().next();
+        var loadedProps = loadedState.codeUnitState().get(loadedCu);
+        assertNotNull(loadedProps);
+        assertTrue(loadedProps.children().isEmpty(), "Null children should become empty list");
+        assertTrue(loadedProps.signatures().isEmpty(), "Null signatures should become empty list");
+        assertTrue(loadedProps.ranges().isEmpty(), "Null ranges should become empty list");
+    }
+
+    @Test
+    void loadIgnoresLegacyRawSupertypesField(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("legacy_raw_supertypes.smile.gz");
+
+        // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        Map<String, Object> legacyProps = new HashMap<>();
+        legacyProps.put("children", List.of());
+        legacyProps.put("signatures", List.of());
+        legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 1, 0, 1, 0)));
+        legacyProps.put("hasBody", false);
+        legacyProps.put("rawSupertypes", List.of("BaseClass", "InterfaceA")); // Field removed from DTO
+        legacyProps.put("supertypes", List.of()); // Field removed from DTO
+        legacyProps.put("supertypesComputed", true); // Field removed from DTO
+
+        Map<String, Object> entry = Map.of("key", cuDto, "value", legacyProps);
+
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 1L);
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, stateDtoMap);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isPresent(), "Should successfully load state even with unknown 'rawSupertypes' field");
     }
 }

@@ -8,10 +8,10 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -26,6 +26,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecifications;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -206,15 +207,31 @@ public class ContextAgent {
     }
 
     /**
-     * Determines the best initial context based on project size and budgets, splitting analyzed vs un-analyzed into
-     * separate LLM context windows and processing them in parallel.
-     *
-     * @return A RecommendationResult containing success status, fragments, and reasoning.
+     * Overload for {@link #getRecommendations(Context, boolean)} with turbo disabled.
      */
     @Blocking
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
-        var workspaceRepresentation =
-                WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST));
+        return getRecommendations(context, false);
+    }
+
+    /**
+     * Determines the best initial context based on project size and budgets, splitting analyzed vs un-analyzed into
+     * separate LLM context windows and processing them in parallel.
+     *
+     * @param turbo if true, uses a symbolic workspace overview instead of full fragment contents
+     * @return A RecommendationResult containing success status, fragments, and reasoning.
+     */
+    @Blocking
+    public RecommendationResult getRecommendations(Context context, boolean turbo) throws InterruptedException {
+        List<ChatMessage> workspaceRepresentation;
+        if (turbo) {
+            workspaceRepresentation = List.of(
+                    UserMessage.from("<workspace_summary>\n" + context.overview() + "\n</workspace_summary>"),
+                    new AiMessage("Thank you for the workspace summary."));
+        } else {
+            workspaceRepresentation =
+                    WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST));
+        }
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
@@ -271,31 +288,40 @@ public class ContextAgent {
                 .collect(Collectors.toSet());
         List<ProjectFile> analyzedFiles =
                 candidates.stream().filter(analyzedFileSet::contains).sorted().toList();
-        List<ProjectFile> unAnalyzedFiles = candidates.stream()
-                .filter(f -> !analyzedFileSet.contains(f))
-                .sorted()
-                .toList();
-        logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
+        boolean skipUnanalyzed = "true".equalsIgnoreCase(System.getenv("BRK_SKIP_UNANALYZED"));
+        List<ProjectFile> unAnalyzedFiles = skipUnanalyzed
+                ? List.of()
+                : candidates.stream()
+                        .filter(f -> !analyzedFileSet.contains(f))
+                        .sorted()
+                        .toList();
+        logger.debug(
+                "Grouped candidates: analyzed={}, unAnalyzed={} (skipped={})",
+                analyzedFiles.size(),
+                unAnalyzedFiles.size(),
+                skipUnanalyzed);
 
         var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
 
         // Create Llm instances - only analyzed group streams to UI
-        var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): " + goal)
+        var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): " + goal, TaskResult.Type.SCAN)
                 .withForceReasoningEcho()
                 .withEcho();
         var filesLlmAnalyzed = cm.getLlm(filesOpts);
         filesLlmAnalyzed.setOutput(io);
 
-        var filesLlmUnanalyzed = cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): " + goal));
+        var filesLlmUnanalyzed = cm.getLlm(
+                new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         filesLlmUnanalyzed.setOutput(io);
 
-        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): " + goal)
+        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): " + goal, TaskResult.Type.SCAN)
                 .withForceReasoningEcho()
                 .withEcho();
         var llmAnalyzed = cm.getLlm(analyzedOpts);
         llmAnalyzed.setOutput(io);
 
-        var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal));
+        var llmUnanalyzed =
+                cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         llmUnanalyzed.setOutput(io);
 
         // Process each group in parallel
@@ -502,8 +528,7 @@ public class ContextAgent {
     private Map<ProjectFile, String> getCachedIdentifiers(Collection<ProjectFile> candidates) {
         return candidates.parallelStream()
                 .distinct()
-                .map(f ->
-                        Map.entry(f, identifiersByFile.computeIfAbsent(f, pf -> analyzer.buildRelatedIdentifiers(pf))))
+                .map(f -> Map.entry(f, identifiersByFile.computeIfAbsent(f, pf -> analyzer.summarizeSymbols(pf))))
                 .filter(entry -> !entry.getValue().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
@@ -598,9 +623,7 @@ public class ContextAgent {
 
         return coalescedClasses.parallelStream()
                 .map(cu -> {
-                    final String skeleton = analyzer.as(SkeletonProvider.class)
-                            .flatMap(skp -> skp.getSkeleton(cu))
-                            .orElse("");
+                    final String skeleton = analyzer.getSkeleton(cu).orElse("");
                     return Map.entry(cu, skeleton);
                 })
                 .filter(entry -> !entry.getValue().isEmpty())
@@ -679,7 +702,7 @@ public class ContextAgent {
         }
         userPrompt.append(filenamePrompt);
 
-        var sys = new SystemMessage(SearchPrompts.instance.searchAgentIdentity());
+        var sys = new SystemMessage(SearchPrompts.Objective.WORKSPACE_ONLY.identity());
         List<ChatMessage> messages = Stream.concat(
                         Stream.of(sys),
                         Stream.concat(
@@ -772,7 +795,10 @@ public class ContextAgent {
         }
 
         Llm filesLlmWithEcho = showBatch1Reasoning
-                ? cm.getLlm(new Llm.Options(cm.getService().quickestModel(), "ContextAgent Files Unanalyzed " + goal)
+                ? cm.getLlm(new Llm.Options(
+                                cm.getService().quickestModel(),
+                                "ContextAgent Files Unanalyzed " + goal,
+                                TaskResult.Type.SCAN)
                         .withForceReasoningEcho())
                 : filesLlm;
         if (showBatch1Reasoning) {
@@ -957,7 +983,7 @@ public class ContextAgent {
     // --- Discarded context helper ---
 
     private String getDiscardedContextNote() {
-        var discardedMap = cm.liveContext().getDiscardedFragmentsNote();
+        var discardedMap = cm.liveContext().getDiscardedFragmentsNotes();
         if (discardedMap.isEmpty()) {
             return "";
         }

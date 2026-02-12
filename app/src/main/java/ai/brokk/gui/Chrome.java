@@ -14,6 +14,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -39,7 +40,6 @@ import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
@@ -48,9 +48,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.*;
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
 import java.util.*;
@@ -58,6 +56,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -85,6 +84,8 @@ public class Chrome
     // Minimum width for the collapsed sidebar icon strip; without this, Swing relayout can compress the
     // left component to 0px, hiding icons and making the sidebar effectively impossible to expand.
     private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
+    /** Gap between collapsed sidebar and main content when side panels are closed. */
+    private static final int COLLAPSED_SIDEBAR_GAP_PX = 6;
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
@@ -97,7 +98,6 @@ public class Chrome
 
     // Dependencies:
     final ContextManager contextManager;
-    private Context activeContext; // Track the currently displayed context
 
     // Global Undo/Redo Actions
     private final GlobalUndoAction globalUndoAction;
@@ -155,7 +155,6 @@ public class Chrome
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.previewManager = new PreviewManager(this);
-        this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI", false);
@@ -341,7 +340,6 @@ public class Chrome
         // Apply Advanced Mode visibility at startup so default (easy mode) hides advanced UI
         try {
             applyAdvancedModeVisibility();
-            rightPanel.getInstructionsPanel().applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
         } catch (Exception ex) {
             logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
         }
@@ -394,41 +392,6 @@ public class Chrome
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean wrapMode = MainProject.getCodeBlockWrapMode();
         switchThemeAndWrapMode(currentTheme, wrapMode);
-    }
-
-    /**
-     * Lightweight method to preview a context without updating history Only updates the LLM text area and context panel
-     * display
-     */
-    public void setContext(Context ctx) {
-        final boolean updateOutput = (!activeContext.equals(ctx) && !contextManager.isTaskScopeInProgress());
-        activeContext = ctx;
-        SwingUtilities.invokeLater(() -> {
-            rightPanel.getTaskListPanel().contextChanged(ctx);
-            // Determine if the current context (ctx) is the latest one in the history
-            boolean isEditable;
-            Context latestContext = contextManager.getContextHistory().liveContext();
-            isEditable = latestContext.equals(ctx);
-            // Toggle read-only state for InstructionsPanel UI (chips + token bar)
-            rightPanel.getInstructionsPanel().setContextReadOnly(!isEditable);
-            // Also update instructions panel (token bar/chips) to reflect the selected context and read-only state
-            rightPanel.getInstructionsPanel().contextChanged(ctx);
-
-            // only update the MOP when no task is in progress
-            // otherwise the TaskScope.append() will take care of it
-            if (updateOutput) {
-                var taskHistory = ctx.getTaskHistory();
-                if (taskHistory.isEmpty()) {
-                    rightPanel.getHistoryOutputPanel().clearLlmOutput();
-                } else {
-                    var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
-                    var mainTask = taskHistory.getLast();
-                    rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(historyTasks, mainTask);
-                }
-            }
-
-            updateCaptureButtons();
-        });
     }
 
     // Theme manager and constants
@@ -490,7 +453,7 @@ public class Chrome
 
     @Override
     public void disableActionButtons() {
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             disableHistoryPanel();
             rightPanel.getInstructionsPanel().disableButtons();
             rightPanel.getTaskListPanel().disablePlay();
@@ -500,7 +463,7 @@ public class Chrome
 
     @Override
     public void enableActionButtons() {
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             rightPanel.getInstructionsPanel().enableButtons();
             rightPanel.getTaskListPanel().enablePlay();
             blitzForgeMenuItem.setEnabled(true);
@@ -656,7 +619,7 @@ public class Chrome
             }
         });
 
-        // Cmd/Ctrl+M => toggle Code/Answer mode (configurable; only in Advanced Mode)
+        // Cmd/Ctrl+M => toggle Code/Ask/Lutz mode (configurable; only in Advanced Mode)
         if (GlobalUiSettings.isAdvancedMode()) {
             KeyStroke toggleModeKeyStroke = GlobalUiSettings.getKeybinding(
                     "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
@@ -672,9 +635,9 @@ public class Chrome
                     }
                     try {
                         ip.toggleCodeAnswerMode();
-                        showNotification(NotificationRole.INFO, "Toggled Code/Ask mode");
+                        showNotification(NotificationRole.INFO, "Toggled Code/Ask/Lutz mode");
                     } catch (Exception ex) {
-                        logger.warn("Error toggling Code/Answer mode via shortcut", ex);
+                        logger.warn("Error toggling Code/Ask/Lutz mode via shortcut", ex);
                     }
                 }
             });
@@ -738,105 +701,57 @@ public class Chrome
             }
         });
 
-        // Alt/Cmd+3 for Log
-        if (toolsPane.getGitLogTab() != null) {
-            KeyStroke switchToLog = GlobalUiSettings.getKeybinding(
-                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-            bindKey(rootPane, switchToLog, "switchToLog");
-            rootPane.getActionMap().put("switchToLog", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getGitLogTab());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Alt/Cmd+4 for Worktrees
-        if (toolsPane.getGitWorktreeTab() != null) {
-            KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
-            bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
-            rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getGitWorktreeTab());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Alt/Cmd+5 for Pull Requests panel (if available)
-        if (toolsPane.getPullRequestsPanel() != null) {
-            KeyStroke switchToPR = GlobalUiSettings.getKeybinding(
-                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
-            bindKey(rootPane, switchToPR, "switchToPullRequests");
-            rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getPullRequestsPanel());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Alt/Cmd+6 for Issues panel (if available)
-        if (toolsPane.getIssuesPanel() != null) {
-            KeyStroke switchToIssues = GlobalUiSettings.getKeybinding(
-                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
-            bindKey(rootPane, switchToIssues, "switchToIssues");
-            rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getIssuesPanel());
-                    if (idx != -1) tools.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Drawer navigation shortcuts
-        // Cmd/Ctrl+Shift+T => toggle terminal drawer
-        KeyStroke toggleTerminalDrawerKeyStroke = GlobalUiSettings.getKeybinding(
-                "drawer.toggleTerminal",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_T,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        bindKey(rootPane, toggleTerminalDrawerKeyStroke, "toggleTerminalDrawer");
-        rootPane.getActionMap().put("toggleTerminalDrawer", new AbstractAction() {
+        // Ctrl/Cmd+K => toggle Instructions/Tasks
+        KeyStroke toggleInstructionsTasks = GlobalUiSettings.getKeybinding(
+                "panel.toggleInstructionsTasks", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_K));
+        bindKey(rootPane, toggleInstructionsTasks, "toggleInstructionsTasks");
+        rootPane.getActionMap().put("toggleInstructionsTasks", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                // Terminal drawer removed; instead, switch to the Terminal tab if present.
-                SwingUtilities.invokeLater(rightPanel::selectTerminalTab);
+                rightPanel.toggleInstructionsTasksTab();
             }
         });
 
-        // Cmd/Ctrl+T => switch to terminal tab
-        KeyStroke switchToTerminalTabKeyStroke = GlobalUiSettings.getKeybinding(
-                "drawer.switchToTerminal",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        bindKey(rootPane, switchToTerminalTabKeyStroke, "switchToTerminalTab");
-        rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
+        // Ctrl/Cmd+F => cycle Build/Review/Preview forward (global scope)
+        KeyStroke cycleBuildReviewPreview = GlobalUiSettings.getKeybinding(
+                "panel.cycleBuildReviewPreview", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_F));
+        bindKey(rootPane, cycleBuildReviewPreview, "cycleBuildReviewPreview");
+        rootPane.getActionMap().put("cycleBuildReviewPreview", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(rightPanel::selectTerminalTab);
+                rightPanel.cycleBuildReviewPreview(true);
             }
         });
 
-        // Cmd/Ctrl+K => switch to tasks tab
-        KeyStroke switchToTasksTabKeyStroke = GlobalUiSettings.getKeybinding(
-                "drawer.switchToTasks",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_K, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        bindKey(rootPane, switchToTasksTabKeyStroke, "switchToTasksTab");
-        rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
+        // Ctrl/Cmd+Shift+F => cycle Build/Review/Preview backward (global scope)
+        KeyStroke cycleBuildReviewPreviewBackward = GlobalUiSettings.getKeybinding(
+                "panel.cycleBuildReviewPreviewBackward",
+                KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_F));
+        bindKey(rootPane, cycleBuildReviewPreviewBackward, "cycleBuildReviewPreviewBackward");
+        rootPane.getActionMap().put("cycleBuildReviewPreviewBackward", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(rightPanel::selectTasksTab);
+                rightPanel.cycleBuildReviewPreview(false);
+            }
+        });
+
+        // Ctrl/Cmd+B => cycle model forward; Ctrl/Cmd+Shift+B => cycle model backward
+        KeyStroke cycleModel = GlobalUiSettings.getKeybinding(
+                "instructions.cycleModel", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_B));
+        bindKey(rootPane, cycleModel, "cycleModel");
+        rootPane.getActionMap().put("cycleModel", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                rightPanel.getInstructionsPanel().cycleModel(true);
+            }
+        });
+        KeyStroke cycleModelBackward = GlobalUiSettings.getKeybinding(
+                "instructions.cycleModelBackward", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_B));
+        bindKey(rootPane, cycleModelBackward, "cycleModelBackward");
+        rootPane.getActionMap().put("cycleModelBackward", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                rightPanel.getInstructionsPanel().cycleModel(false);
             }
         });
 
@@ -1095,6 +1010,8 @@ public class Chrome
 
     @Override
     public void contextChanged(Context newCtx) {
+        final boolean updateOutput = !contextManager.isTaskScopeInProgress();
+
         SwingUtilities.invokeLater(() -> {
             globalUndoAction.updateEnabledState();
             globalRedoAction.updateEnabledState();
@@ -1103,16 +1020,29 @@ public class Chrome
             globalToggleMicAction.updateEnabledState();
 
             rightPanel.getHistoryOutputPanel().updateUndoRedoButtonStates();
-            setContext(newCtx);
+
+            // only update the MOP when no task is in progress
+            // otherwise the TaskScope.append() will take care of it
+            if (updateOutput) {
+                var taskHistory = newCtx.getTaskHistory();
+                if (taskHistory.isEmpty()) {
+                    rightPanel.getHistoryOutputPanel().clearLlmOutput();
+                } else {
+                    var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
+                    var mainTask = taskHistory.getLast();
+                    rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(historyTasks, mainTask);
+                }
+            }
+
+            // Count incomplete tasks and update the badge
+            var taskList = newCtx.getTaskListDataOrEmpty();
+            int incomplete =
+                    (int) taskList.tasks().stream().filter(t -> !t.done()).count();
+            SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
+
+            updateCaptureButtons();
             updateContextHistoryTable(newCtx);
         });
-    }
-
-    @Override
-    public void onTaskListChanged(TaskList.TaskListData data) {
-        // Count incomplete tasks and update the badge
-        int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
-        SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
     }
 
     @Override
@@ -1713,7 +1643,7 @@ public class Chrome
         if (collapsed) {
             leftVerticalSplitPane.setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
             toolsPane.getToolsPane().setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
-            horizontalSplitPane.setDividerSize(0);
+            horizontalSplitPane.setDividerSize(COLLAPSED_SIDEBAR_GAP_PX);
             horizontalSplitPane.setDividerLocation(COLLAPSED_SIDEBAR_WIDTH_PX);
             return;
         }
@@ -2162,46 +2092,6 @@ public class Chrome
         }
     }
 
-    /**
-     * Safely reads string data from the system clipboard, handling potential exceptions
-     * when the clipboard is temporarily unavailable or doesn't contain string data.
-     * <p>
-     * <b>Background:</b> On Windows, clipboard access methods like
-     * {@link Clipboard#isDataFlavorAvailable(DataFlavor)} and {@link Clipboard#getData(DataFlavor)}
-     * can throw {@link IllegalStateException} when the clipboard is locked by another process.
-     * This is particularly problematic during rapid focus change events on the EDT.
-     * <p>
-     * <b>Solution:</b> This wrapper catches all clipboard-related exceptions and returns {@code null}
-     * to indicate unavailability, allowing the UI to gracefully handle temporary clipboard locks
-     * without propagating exceptions to users.
-     * <p>
-     * <b>Related JDK Issue:</b> <a href="https://bugs.openjdk.org/browse/JDK-8353950">JDK-8353950</a>
-     * - Windows clipboard interaction instability
-     *
-     * @return The string data from clipboard, or null if unavailable or not a string
-     */
-    @Nullable
-    private static String readStringFromClipboardSafe() {
-        var clipboard = getSystemClipboardSafe();
-        if (clipboard == null) {
-            return null;
-        }
-
-        try {
-            if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
-                return null;
-            }
-            var data = clipboard.getData(DataFlavor.stringFlavor);
-            return (String) data;
-        } catch (UnsupportedFlavorException | IOException | IllegalStateException e) {
-            logger.warn("Failed to read string from clipboard: {}", e.getMessage());
-            return null;
-        } catch (Exception e) {
-            logger.warn("Unexpected error reading clipboard string data", e);
-            return null;
-        }
-    }
-
     // for paste from menubar -- ctrl-v paste is handled in individual components
     private class GlobalPasteAction extends AbstractAction {
         public GlobalPasteAction(String name) {
@@ -2226,9 +2116,13 @@ public class Chrome
             if (lastRelevantFocusOwner == null) {
                 // leave it false
             } else if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
-                // Use safe wrapper instead of direct isDataFlavorAvailable() to avoid Windows clipboard
-                // lock exceptions during rapid focus changes on EDT. See JDK-8353950.
-                canPasteNow = readStringFromClipboardSafe() != null;
+                // Use the safe retry logic from ICM, but without the retries since we're on the EDT here
+                var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+                try {
+                    canPasteNow = clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor);
+                } catch (IllegalStateException ex) {
+                    logger.debug("Clipboard temporarily unavailable");
+                }
             }
             setEnabled(canPasteNow);
         }
@@ -2359,12 +2253,71 @@ public class Chrome
         updateContextHistoryTable();
     }
 
+    private static final Pattern URL_PATTERN =
+            Pattern.compile("(https?://\\S+?(?=[,.?!:;\"']?(\\s|$)))", Pattern.CASE_INSENSITIVE);
+
     @Override
     public void systemNotify(String message, String title, int messageType) {
         SwingUtilities.invokeLater(() -> {
+            Object dialogContent = buildMessageComponentWithLinks(message);
             //noinspection MagicConstant
-            JOptionPane.showMessageDialog(frame, message, title, messageType);
+            JOptionPane.showMessageDialog(frame, dialogContent, title, messageType);
         });
+    }
+
+    private Object buildMessageComponentWithLinks(String message) {
+        // Check if message contains any URLs
+        if (!URL_PATTERN.matcher(message).find()) {
+            return message;
+        }
+
+        // Split by newlines and build a vertical panel
+        var lines = message.split("\n", -1);
+        var panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setOpaque(false);
+
+        for (String line : lines) {
+            if (line.isEmpty()) {
+                // Empty line = vertical spacing
+                panel.add(Box.createVerticalStrut(10));
+                continue;
+            }
+
+            var matcher = URL_PATTERN.matcher(line);
+            if (!matcher.find()) {
+                // No URL in this line - just a JLabel
+                var label = new JLabel(line);
+                label.setAlignmentX(Component.LEFT_ALIGNMENT);
+                panel.add(label);
+            } else {
+                // Line contains URL(s) - build horizontal panel
+                matcher.reset();
+                var linePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                linePanel.setOpaque(false);
+                linePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+                int lastEnd = 0;
+                while (matcher.find()) {
+                    if (matcher.start() > lastEnd) {
+                        String textBefore = line.substring(lastEnd, matcher.start());
+                        linePanel.add(new JLabel(textBefore));
+                    }
+                    String url = matcher.group(1);
+                    linePanel.add(new BrowserLabel(url));
+                    lastEnd = matcher.end();
+                }
+
+                if (lastEnd < line.length()) {
+                    String textAfter = line.substring(lastEnd);
+                    linePanel.add(new JLabel(textAfter));
+                }
+
+                panel.add(linePanel);
+            }
+        }
+
+        return panel;
     }
 
     @Override
@@ -2373,7 +2326,6 @@ public class Chrome
                 switch (role) {
                     case COST -> GlobalUiSettings.isShowCostNotifications();
                     case ERROR -> GlobalUiSettings.isShowErrorNotifications();
-                    case CONFIRM -> GlobalUiSettings.isShowConfirmNotifications();
                     case INFO -> GlobalUiSettings.isShowInfoNotifications();
                 };
         if (!allowed) return;
@@ -2400,21 +2352,37 @@ public class Chrome
     }
 
     /**
-     * Shared "Rebuilding Code Intelligence" status strip with spinner and text.
+     * Shared "Rebuilding Code Intelligence" status strip with spinner, text, and progress bar.
      * Hidden by default. Other panels can embed this component via getAnalyzerStatusStrip().
      * The spinner icon is refreshed against the current theme whenever it is shown or a theme is applied.
      */
     private class AnalyzerStatusStrip extends JPanel implements ThemeAware {
         private final JLabel label;
+        private final JProgressBar progressBar;
 
         private AnalyzerStatusStrip() {
             super();
             setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
             setBorder(new EmptyBorder(2, 6, 2, 6));
-            label = new JLabel("Rebuilding Code Intelligence...");
+
+            label = new JLabel("Rebuilding Code Intelligence");
             label.setIcon(null); // set on show to ensure theme-correct icon
             label.setAlignmentY(Component.CENTER_ALIGNMENT);
             add(label);
+
+            add(Box.createHorizontalStrut(8));
+
+            // Progress bar - compact size for status strip (half height, centered)
+            progressBar = new JProgressBar(0, 100);
+            progressBar.setPreferredSize(new Dimension(150, 7));
+            progressBar.setMaximumSize(new Dimension(200, 7));
+            progressBar.setMinimumSize(new Dimension(100, 7));
+            progressBar.setStringPainted(false);
+            progressBar.setAlignmentY(Component.CENTER_ALIGNMENT);
+            // Start progress bar hidden until we receive actual progress callbacks
+            progressBar.setVisible(false);
+            add(progressBar);
+
             setOpaque(true);
             // Start hidden by default. Visibility controlled by Chrome methods.
             setVisible(false);
@@ -2427,12 +2395,49 @@ public class Chrome
         }
 
         /**
-         * Updates the tooltip to show progress details. Safe to call from any thread.
+         * Updates the progress bar and label. Safe to call from any thread.
          *
-         * @param tooltip The tooltip text, or null to clear
+         * @param completed number of items completed
+         * @param total total number of items
+         * @param phase description of current phase
          */
-        void setProgressTooltip(String tooltip) {
-            SwingUtil.runOnEdt(() -> label.setToolTipText(tooltip));
+        void setProgress(int completed, int total, String phase) {
+            SwingUtil.runOnEdt(() -> {
+                if (total > 0) {
+                    // Show progress bar only when we have actual progress data
+                    progressBar.setVisible(true);
+                    int percent = (int) ((completed * 100L) / total);
+                    progressBar.setValue(percent);
+                    progressBar.setIndeterminate(false);
+                    label.setText("Rebuilding Code Intelligence");
+                    // Show phase details in tooltip only
+                    String tooltip = String.format("%s (%d/%d - %d%%)", phase, completed, total, percent);
+                    label.setToolTipText(tooltip);
+                    progressBar.setToolTipText(tooltip);
+                } else {
+                    // Indeterminate mode when total is unknown - show progress bar
+                    progressBar.setVisible(true);
+                    progressBar.setIndeterminate(true);
+                    label.setText("Rebuilding Code Intelligence");
+                    label.setToolTipText(phase.isEmpty() ? null : phase);
+                    progressBar.setToolTipText(phase.isEmpty() ? null : phase);
+                }
+            });
+        }
+
+        /**
+         * Resets the progress bar to initial state.
+         */
+        void resetProgress() {
+            SwingUtil.runOnEdt(() -> {
+                progressBar.setValue(0);
+                progressBar.setIndeterminate(false);
+                // Hide progress bar until next progress callback
+                progressBar.setVisible(false);
+                label.setText("Rebuilding Code Intelligence");
+                label.setToolTipText(null);
+                progressBar.setToolTipText(null);
+            });
         }
 
         @Override
@@ -2537,19 +2542,21 @@ public class Chrome
     public void hideAnalyzerRebuildStatus() {
         SwingUtil.runOnEdt(() -> {
             analyzerStatusStrip.setVisible(false);
-            analyzerStatusStrip.setProgressTooltip(""); // Clear tooltip when hiding
+            analyzerStatusStrip.resetProgress();
             analyzerStatusStrip.revalidate();
             analyzerStatusStrip.repaint();
         });
     }
 
     /**
-     * Updates the analyzer rebuild status strip tooltip with progress details. Safe to call from any thread.
+     * Updates the analyzer rebuild status strip with structured progress. Safe to call from any thread.
      *
-     * @param progressMessage The progress message to display as a tooltip
+     * @param completed number of items completed
+     * @param total total number of items
+     * @param phase description of current phase
      */
-    public void updateAnalyzerProgress(String progressMessage) {
-        analyzerStatusStrip.setProgressTooltip(progressMessage);
+    public void updateAnalyzerProgress(int completed, int total, String phase) {
+        analyzerStatusStrip.setProgress(completed, total, phase);
     }
 
     /**
@@ -2728,6 +2735,17 @@ public class Chrome
 
     private void applyFocusHighlight(Component component) {
         if (component instanceof JComponent jcomp) {
+            // ProjectTree: use 2px line border that replaces (not compounds) the tree's 2px empty
+            // so total insets stay 2px and the tree does not shift on click.
+            if (component == projectFilesPanel.getProjectTree()) {
+                if (jcomp.getClientProperty("originalBorder") == null) {
+                    jcomp.putClientProperty("originalBorder", BorderFactory.createEmptyBorder(2, 2, 2, 2));
+                }
+                jcomp.setBorder(BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2));
+                jcomp.repaint();
+                return;
+            }
+
             // Store original border if not already stored
             if (jcomp.getClientProperty("originalBorder") == null) {
                 jcomp.putClientProperty("originalBorder", jcomp.getBorder());

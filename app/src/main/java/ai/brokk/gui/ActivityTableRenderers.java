@@ -35,6 +35,11 @@ public final class ActivityTableRenderers {
 
     public record ActionText(ComputedValue<String> text, int indentLevel) {}
 
+    /**
+     * UI model for a context row in the history table.
+     */
+    public record ContextUiModel(Context context, boolean isAiResult) {}
+
     public static boolean isSeparatorAction(@Nullable Object actionValue) {
         if (actionValue == null) {
             return false;
@@ -117,6 +122,8 @@ public final class ActivityTableRenderers {
      * Icon renderer that mirrors the Action column's indentation for nested rows.
      */
     public static class IndentedIconRenderer extends IconCellRenderer {
+        public IndentedIconRenderer() {}
+
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -141,13 +148,16 @@ public final class ActivityTableRenderers {
             // but only for AI result contexts.
             try {
                 Object ctxVal = table.getModel().getValueAt(row, COL_CONTEXT);
-                if (ctxVal instanceof Context ctx) {
+                if (ctxVal instanceof ContextUiModel uiModel) {
+                    Context ctx = uiModel.context();
                     var meta = lastMetaOf(ctx);
+                    boolean isAi = uiModel.isAiResult();
+
                     if (comp instanceof JLabel lbl) {
-                        if (ctx.isAiResult() && meta != null) {
+                        if (isAi && meta != null) {
                             var chosen = iconFor(meta.type());
                             lbl.setIcon(chosen);
-                        } else if (!ctx.isAiResult()) {
+                        } else if (!isAi) {
                             // Ensure non-AI rows have no type icon override
                             lbl.setIcon(null);
                         }
@@ -162,7 +172,7 @@ public final class ActivityTableRenderers {
                         actionText = (col1 != null) ? col1.toString() : "";
                     }
                     if (comp instanceof JComponent jc) {
-                        if (ctx.isAiResult() && meta != null) {
+                        if (isAi && meta != null) {
                             jc.setToolTipText(buildTooltipWithModel(ctx, actionText));
                         } else {
                             jc.setToolTipText(actionText);
@@ -201,7 +211,7 @@ public final class ActivityTableRenderers {
                 case SEARCH -> {
                     return Icons.SEARCH;
                 }
-                case CONTEXT -> {
+                case SCAN -> {
                     return Icons.CONTEXT;
                 }
                 case MERGE -> {

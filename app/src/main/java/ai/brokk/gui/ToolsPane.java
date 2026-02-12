@@ -196,7 +196,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
             toolsPane.addTab(null, Icons.FLOWSHEET, gitLogTab);
             int idx = toolsPane.indexOfComponent(gitLogTab);
             KeyStroke ks = GlobalUiSettings.getKeybinding(
-                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
             JLabel label =
                     createSquareTabLabel(Icons.FLOWSHEET, "Log (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
@@ -211,7 +211,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
             toolsPane.addTab(null, Icons.FLOWCHART, gitWorktreeTab);
             int idx = toolsPane.indexOfComponent(gitWorktreeTab);
             KeyStroke ks = GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
             JLabel label = createSquareTabLabel(
                     Icons.FLOWCHART, "Worktrees (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
@@ -229,7 +229,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
             toolsPane.addTab(null, Icons.PULL_REQUEST, pullRequestsPanel);
             int idx = toolsPane.indexOfComponent(pullRequestsPanel);
             KeyStroke ks = GlobalUiSettings.getKeybinding(
-                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
+                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
             JLabel label = createSquareTabLabel(
                     Icons.PULL_REQUEST, "Pull Requests (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
@@ -246,7 +246,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
             toolsPane.addTab(null, Icons.ADJUST, issuesPanel);
             int idx = toolsPane.indexOfComponent(issuesPanel);
             KeyStroke ks = GlobalUiSettings.getKeybinding(
-                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
             JLabel label =
                     createSquareTabLabel(Icons.ADJUST, "Issues (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);

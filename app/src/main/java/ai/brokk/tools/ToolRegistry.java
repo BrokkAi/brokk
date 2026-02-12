@@ -1,10 +1,14 @@
 package ai.brokk.tools;
 
 import ai.brokk.exception.GlobalExceptionHandler;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.CoercionAction;
+import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -31,7 +35,21 @@ import org.jetbrains.annotations.Nullable;
  */
 public class ToolRegistry {
     private static final Logger logger = LogManager.getLogger(ToolRegistry.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = createObjectMapper();
+
+    private static ObjectMapper createObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+
+        // Convert missing/empty Collection values to empty collections
+        mapper.coercionConfigFor(Collection.class)
+                .setCoercion(CoercionInputShape.EmptyObject, CoercionAction.AsEmpty)
+                .setCoercion(CoercionInputShape.EmptyString, CoercionAction.AsEmpty);
+
+        // Globally treat explicit nulls as empty values (useful for Collections and Strings)
+        mapper.setDefaultSetterInfo(JsonSetter.Value.forValueNulls(Nulls.AS_EMPTY));
+
+        return mapper;
+    }
 
     // Backing map for tools. Use a synchronized LinkedHashMap for deterministic ordering while remaining thread-safe.
     private final Map<String, ToolInvocationTarget> toolMap;
@@ -61,7 +79,7 @@ public class ToolRegistry {
             Map.entry("searchFilenames", "Searching for filenames"),
             Map.entry("getFileContents", "Getting file contents"),
             Map.entry("getFileSummaries", "Getting file summaries"),
-            Map.entry("getUsages", "Finding usages"),
+            Map.entry("scanUsages", "Finding usages"),
             Map.entry("getRelatedClasses", "Finding related code"),
             Map.entry("getClassSkeletons", "Getting class overview"),
             Map.entry("getClassSources", "Fetching class source"),
@@ -73,8 +91,6 @@ public class ToolRegistry {
             Map.entry("addFilesToWorkspace", "Adding files to workspace"),
             Map.entry("addClassesToWorkspace", "Adding classes to workspace"),
             Map.entry("addUrlContentsToWorkspace", "Adding URL contents to workspace"),
-            Map.entry("appendNote", "Appending note"),
-            Map.entry("addSymbolUsagesToWorkspace", "Adding symbol usages to workspace"),
             Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),
             Map.entry("addFileSummariesToWorkspace", "Adding file summaries to workspace"),
             Map.entry("addMethodsToWorkspace", "Adding method sources to workspace"),
@@ -165,7 +181,7 @@ public class ToolRegistry {
         var present = toolNames.stream().filter(toolMap::containsKey).toList();
         var missing = toolNames.stream().filter(t -> !toolMap.containsKey(t)).toList();
         if (!missing.isEmpty()) {
-            logger.warn("Some requested global tools are not registered and will be skipped: {}", missing);
+            throw new IllegalArgumentException("Requested global tools %s are not registered".formatted(missing));
         }
         return present.stream()
                 .map(toolMap::get)
@@ -205,7 +221,7 @@ public class ToolRegistry {
         } catch (InterruptedException ie) {
             throw ie;
         } catch (Exception e) {
-            GlobalExceptionHandler.handle(e, st -> {});
+            GlobalExceptionHandler.handle(e);
             return ToolExecutionResult.internalError(
                     request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
         }
@@ -460,37 +476,6 @@ public class ToolRegistry {
         return coll.stream()
                 .map(item -> new SignatureUnit(toolName, sliceName, item))
                 .collect(Collectors.toList());
-    }
-
-    /** Rebuild a ToolExecutionRequest from a slice of signature units belonging to the same list parameter. */
-    public ToolExecutionRequest buildRequestFromUnits(ToolExecutionRequest original, List<SignatureUnit> units) {
-        if (units.isEmpty()) return original;
-
-        String toolName = original.name();
-        String paramName = units.getFirst().paramName();
-
-        boolean consistent = units.stream()
-                .allMatch(u -> u.toolName().equals(toolName) && u.paramName().equals(paramName));
-        if (!consistent) {
-            logger.error("Inconsistent SignatureUnits when rebuilding request for {}: {}", toolName, units);
-            return original;
-        }
-
-        try {
-            Map<String, Object> args = OBJECT_MAPPER.readValue(
-                    original.arguments(), new TypeReference<LinkedHashMap<String, Object>>() {});
-            var items = units.stream().map(SignatureUnit::item).collect(Collectors.toList());
-            if (!args.containsKey(paramName)) {
-                logger.error("Parameter '{}' not found in original arguments for tool {}", paramName, toolName);
-                return original;
-            }
-            args.put(paramName, items);
-            String json = OBJECT_MAPPER.writeValueAsString(args);
-            return ToolExecutionRequest.builder().name(toolName).arguments(json).build();
-        } catch (JsonProcessingException e) {
-            logger.error("Error rebuilding request from units for {}: {}", toolName, e.getMessage(), e);
-            return original;
-        }
     }
 
     private static boolean isSimpleScalar(@Nullable Object v) {

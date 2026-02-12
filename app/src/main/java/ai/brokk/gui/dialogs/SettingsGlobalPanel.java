@@ -2,10 +2,12 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil.ThemedIcon;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
@@ -20,7 +22,9 @@ import ai.brokk.mcp.McpConfig;
 import ai.brokk.mcp.McpServer;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.mcp.StdioMcpServer;
+import ai.brokk.openai.OpenAiOAuthService;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -39,6 +43,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -73,8 +78,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JRadioButton localhostProxyRadio;
 
-    @Nullable
-    private JCheckBox forceToolEmulationCheckbox; // dev-only
+    // OpenAI OAuth connection controls
+    private JLabel openAiStatusLabel = new JLabel();
+    private MaterialButton openAiConnectButton = new MaterialButton("Connect");
+    private MaterialButton openAiDisconnectButton = new MaterialButton("Disconnect");
+
+    // Connections section: paid-only components and upgrade link
+    private JPanel connectionsPaidPanel = new JPanel();
+    private BrowserLabel providerKeysLabel = new BrowserLabel("", "");
+    private BrowserLabel upgradeLabel = new BrowserLabel("", "");
 
     // Appearance controls (kept in Global)
     private JComboBox<String> themeCombo = new JComboBox<>();
@@ -138,9 +150,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         }
 
-        if (forceToolEmulationCheckbox != null) {
-            forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
-        }
+        // OpenAI connection UI and subscription gating
+        updateOpenAiConnectionUi();
+        updateConnectionsUiForSubscriptionStatus(data.isPaidSubscriber());
 
         // Appearance
         String currentTheme = MainProject.getTheme();
@@ -249,8 +261,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.anchor = GridBagConstraints.WEST;
         int row = 0;
 
+        // Row: Brokk Key
         gbc.gridx = 0;
         gbc.gridy = row;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
         servicePanel.add(new JLabel("Brokk Key:"), gbc);
 
         brokkKeyField = new JTextField(20);
@@ -259,8 +274,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         servicePanel.add(brokkKeyField, gbc);
 
+        // Row: Balance
         gbc.gridx = 0;
         gbc.gridy = ++row;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
         servicePanel.add(new JLabel("Balance:"), gbc);
 
         this.balanceField = new JTextField("Loading...");
@@ -273,22 +291,27 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         balanceDisplayPanel.add(topUpLabel);
 
         gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         servicePanel.add(balanceDisplayPanel, gbc);
 
+        // Row: Signup label
         var signupUrl = "https://brokk.ai";
         this.signupLabel = new BrowserLabel(signupUrl, "Sign up or get your key at " + signupUrl);
         this.signupLabel.setFont(this.signupLabel.getFont().deriveFont(Font.ITALIC));
         gbc.gridx = 1;
         gbc.gridy = ++row;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(2, 5, 8, 5);
         servicePanel.add(this.signupLabel, gbc);
         gbc.insets = new Insets(2, 5, 2, 5);
 
+        // Row: LLM Proxy
         gbc.gridx = 0;
         gbc.gridy = ++row;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
         servicePanel.add(new JLabel("LLM Proxy:"), gbc);
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.STAGING) {
@@ -296,6 +319,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     "Proxy has been set to STAGING in ~/.brokk/brokk.properties. Changing it back must be done in the same place.");
             proxyInfoLabel.setFont(proxyInfoLabel.getFont().deriveFont(Font.ITALIC));
             gbc.gridx = 1;
+            gbc.weightx = 1.0;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             servicePanel.add(proxyInfoLabel, gbc);
         } else {
@@ -306,6 +330,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             proxyGroup.add(localhostProxyRadio);
 
             gbc.gridx = 1;
+            gbc.weightx = 1.0;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             servicePanel.add(brokkProxyRadio, gbc);
 
@@ -325,18 +350,69 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             gbc.insets = new Insets(2, 5, 2, 5);
         }
 
-        if (Boolean.getBoolean("brokk.devmode")) {
-            forceToolEmulationCheckbox =
-                    new JCheckBox("[Dev Mode] Force tool emulation", MainProject.getForceToolEmulation());
-            forceToolEmulationCheckbox.setToolTipText("Development override: emulate tool calls.");
-            gbc.gridx = 1;
-            gbc.gridy = ++row;
-            gbc.weightx = 1.0;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            servicePanel.add(forceToolEmulationCheckbox, gbc);
-        }
-
+        // Connections section
+        gbc.gridx = 0;
         gbc.gridy = ++row;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        gbc.insets = new Insets(15, 5, 2, 5);
+        var connectionsLabel = new JLabel("Your Subscriptions:");
+        connectionsLabel.setToolTipText(
+                "Connect your own LLM subscriptions to use their credits instead of Brokk credits.");
+        servicePanel.add(connectionsLabel, gbc);
+
+        // Paid-only panel containing OpenAI connection and provider keys
+        connectionsPaidPanel = new JPanel(new GridBagLayout());
+        var paidGbc = new GridBagConstraints();
+        paidGbc.insets = new Insets(0, 0, 2, 0);
+        paidGbc.anchor = GridBagConstraints.WEST;
+        paidGbc.fill = GridBagConstraints.HORIZONTAL;
+        paidGbc.weightx = 1.0;
+        paidGbc.gridx = 0;
+        paidGbc.gridy = 0;
+
+        // OpenAI connection row
+        openAiStatusLabel = new JLabel();
+        openAiStatusLabel.setToolTipText("Link your ChatGPT Plus or Pro subscription to use your own credits.");
+        var openAiPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        openAiPanel.add(openAiStatusLabel);
+
+        openAiConnectButton = new MaterialButton("Connect");
+        openAiConnectButton.addActionListener(e -> OpenAiOAuthService.startAuthorization(openAiConnectButton));
+        openAiPanel.add(openAiConnectButton);
+
+        openAiDisconnectButton = new MaterialButton("Disconnect");
+        openAiDisconnectButton.addActionListener(e -> disconnectOpenAi());
+        openAiPanel.add(openAiDisconnectButton);
+
+        connectionsPaidPanel.add(openAiPanel, paidGbc);
+
+        var providerKeysUrl = joinUrl(MainProject.getFrontendUrl(), "/dashboard/provider-keys");
+        providerKeysLabel = new BrowserLabel(providerKeysUrl, "Set LLM Provider API Keys");
+        providerKeysLabel.setToolTipText(
+                "Configure your own provider API keys for Brokk to use in upstream LLM requests.");
+        paidGbc.gridy = 1;
+        connectionsPaidPanel.add(providerKeysLabel, paidGbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(15, 5, 2, 5);
+        servicePanel.add(connectionsPaidPanel, gbc);
+
+        // Upgrade label for non-paid users
+        var upgradeUrl = joinUrl(MainProject.getFrontendUrl(), "/dashboard/billing");
+        upgradeLabel = new BrowserLabel(upgradeUrl, "Upgrade to access provider connections");
+        upgradeLabel.setVisible(false);
+        gbc.gridy = ++row;
+        gbc.insets = new Insets(2, 5, 2, 5);
+        servicePanel.add(upgradeLabel, gbc);
+
+        // Vertical filler to push content up
+        gbc.gridx = 0;
+        gbc.gridy = ++row;
+        gbc.weightx = 0;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
         servicePanel.add(Box.createVerticalGlue(), gbc);
@@ -759,8 +835,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         RowAdder adder = new RowAdder();
         // A subset of bindings; keep the same IDs for compatibility
-        adder.add("instructions.submit", "Submit");
+        adder.add("instructions.submit", "Submit (Lutz)");
         adder.add("instructions.toggleMode", "Toggle Code/Ask/Lutz");
+        adder.add("instructions.cycleModel", "Cycle Model");
+        adder.add("instructions.cycleModelBackward", "Cycle Model (Reverse)");
         adder.add("global.undo", "Undo");
         adder.add("global.redo", "Redo");
         adder.add("global.copy", "Copy");
@@ -770,16 +848,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("global.closeWindow", "Close Window");
         adder.add("global.closeTab", "Close Tab");
         adder.add("panel.switchToProjectFiles", "Switch to Project Files");
-        adder.add("panel.switchToDependencies", "Switch to Dependencies");
-        adder.add("panel.switchToChanges", "Switch to Changes");
-        adder.add("panel.switchToWorktrees", "Switch to Worktrees");
-        adder.add("panel.switchToLog", "Switch to Log");
-        adder.add("panel.switchToPullRequests", "Switch to Pull Requests");
-        adder.add("panel.switchToIssues", "Switch to Issues");
-        adder.add("drawer.toggleTerminal", "Toggle Terminal Drawer");
-        adder.add("drawer.toggleDependencies", "Toggle Dependencies Drawer");
-        adder.add("drawer.switchToTerminal", "Switch to Terminal Tab");
-        adder.add("drawer.switchToTasks", "Switch to Tasks Tab");
+        adder.add("panel.switchToTests", "Switch to Tests");
+        adder.add("panel.toggleInstructionsTasks", "Toggle Instructions/Tasks");
+        adder.add("panel.cycleBuildReviewPreview", "Cycle Build/Review/Preview");
+        adder.add("panel.cycleBuildReviewPreviewBackward", "Cycle Build/Review/Preview (Reverse)");
+        adder.add("tools.openTerminal", "Open Terminal");
+        adder.add("tools.gitLog", "Git: Log");
+        adder.add("tools.gitWorktrees", "Git: Worktrees");
+        adder.add("tools.gitPullRequests", "Git: Pull Requests");
         adder.add("view.zoomIn", "Zoom In");
         adder.add("view.zoomInAlt", "Zoom In (Alt)");
         adder.add("view.zoomOut", "Zoom Out");
@@ -893,6 +969,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         String[] allKeybindingIds = {
             "instructions.submit",
             "instructions.toggleMode",
+            "instructions.cycleModel",
+            "instructions.cycleModelBackward",
             "global.undo",
             "global.redo",
             "global.copy",
@@ -902,16 +980,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.closeWindow",
             "global.closeTab",
             "panel.switchToProjectFiles",
-            "panel.switchToDependencies",
-            "panel.switchToChanges",
-            "panel.switchToWorktrees",
-            "panel.switchToLog",
-            "panel.switchToPullRequests",
-            "panel.switchToIssues",
-            "drawer.toggleTerminal",
-            "drawer.toggleDependencies",
-            "drawer.switchToTerminal",
-            "drawer.switchToTasks",
+            "panel.switchToTests",
+            "panel.toggleInstructionsTasks",
+            "panel.cycleBuildReviewPreview",
+            "panel.cycleBuildReviewPreviewBackward",
+            "tools.openTerminal",
+            "tools.gitLog",
+            "tools.gitWorktrees",
+            "tools.gitPullRequests",
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
@@ -932,8 +1008,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private static String getKeybindingDisplayName(String id) {
         return switch (id) {
-            case "instructions.submit" -> "Submit";
+            case "instructions.submit" -> "Submit (Lutz)";
             case "instructions.toggleMode" -> "Toggle Code/Ask/Lutz";
+            case "instructions.cycleModel" -> "Cycle Model";
+            case "instructions.cycleModelBackward" -> "Cycle Model (Reverse)";
             case "global.undo" -> "Undo";
             case "global.redo" -> "Redo";
             case "global.copy" -> "Copy";
@@ -943,16 +1021,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "global.closeWindow" -> "Close Window";
             case "global.closeTab" -> "Close Tab";
             case "panel.switchToProjectFiles" -> "Switch to Project Files";
-            case "panel.switchToDependencies" -> "Switch to Dependencies";
-            case "panel.switchToChanges" -> "Switch to Changes";
-            case "panel.switchToWorktrees" -> "Switch to Worktrees";
-            case "panel.switchToLog" -> "Switch to Log";
-            case "panel.switchToPullRequests" -> "Switch to Pull Requests";
-            case "panel.switchToIssues" -> "Switch to Issues";
-            case "drawer.toggleTerminal" -> "Toggle Terminal Drawer";
-            case "drawer.toggleDependencies" -> "Toggle Dependencies Drawer";
-            case "drawer.switchToTerminal" -> "Switch to Terminal Tab";
-            case "drawer.switchToTasks" -> "Switch to Tasks Tab";
+            case "panel.switchToTests" -> "Switch to Tests";
+            case "panel.toggleInstructionsTasks" -> "Toggle Instructions/Tasks";
+            case "panel.cycleBuildReviewPreview" -> "Cycle Build/Review/Preview";
+            case "panel.cycleBuildReviewPreviewBackward" -> "Cycle Build/Review/Preview (Reverse)";
+            case "tools.openTerminal" -> "Open Terminal";
+            case "tools.gitLog" -> "Git: Log";
+            case "tools.gitWorktrees" -> "Git: Worktrees";
+            case "tools.gitPullRequests" -> "Git: Pull Requests";
             case "view.zoomIn" -> "Zoom In";
             case "view.zoomInAlt" -> "Zoom In (Alt)";
             case "view.zoomOut" -> "Zoom Out";
@@ -966,7 +1042,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private static void resetAllKeybindingsToDefaults() {
         String[] allKeybindingIds = {
             "instructions.submit",
-            "instructions.toggleMode",
+            "instructions.cycleModel",
+            "instructions.cycleModelBackward",
             "global.undo",
             "global.redo",
             "global.copy",
@@ -976,16 +1053,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.closeWindow",
             "global.closeTab",
             "panel.switchToProjectFiles",
-            "panel.switchToDependencies",
-            "panel.switchToChanges",
-            "panel.switchToWorktrees",
-            "panel.switchToLog",
-            "panel.switchToPullRequests",
-            "panel.switchToIssues",
-            "drawer.toggleTerminal",
-            "drawer.toggleDependencies",
-            "drawer.switchToTerminal",
-            "drawer.switchToTasks",
+            "panel.switchToTests",
+            "panel.toggleInstructionsTasks",
+            "panel.cycleBuildReviewPreview",
+            "panel.cycleBuildReviewPreviewBackward",
+            "tools.openTerminal",
+            "tools.gitLog",
+            "tools.gitWorktrees",
+            "tools.gitPullRequests",
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
@@ -1071,7 +1146,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     ? MainProject.LlmProxySetting.BROKK
                     : MainProject.LlmProxySetting.LOCALHOST;
         }
-        boolean forceToolEmulation = (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
 
         // Appearance: theme
         String selectedDisplay = (String) themeCombo.getSelectedItem();
@@ -1116,7 +1190,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                         chrome,
                         newBrokkKeyFromField,
                         proxySetting,
-                        forceToolEmulation,
                         newTheme,
                         newWrapMode,
                         uiScaleChanged,
@@ -1492,7 +1565,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 return;
             }
 
-            if (value.equals(JOptionPane.OK_OPTION)) {
+            if (Objects.equals(value, JOptionPane.OK_OPTION)) {
                 String name = nameField.getText().trim();
                 String rawUrl = urlField.getText().trim();
                 boolean useToken = useTokenCheckbox.isSelected();
@@ -1839,7 +1912,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 return;
             }
 
-            if (value.equals(JOptionPane.OK_OPTION)) {
+            if (Objects.equals(value, JOptionPane.OK_OPTION)) {
                 String name = nameField.getText().trim();
                 String command = commandField.getText().trim();
                 if (name.isEmpty()) {
@@ -2190,10 +2263,143 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
     }
 
+    private void updateOpenAiConnectionUi() {
+        boolean connected = MainProject.isOpenAiCodexOauthConnected();
+        if (connected) {
+            openAiStatusLabel.setText("OpenAI: Connected");
+            openAiStatusLabel.setForeground(new Color(0, 128, 0));
+        } else {
+            openAiStatusLabel.setText("Connect my ChatGPT subscription");
+            openAiStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
+        }
+        openAiConnectButton.setVisible(!connected);
+        openAiDisconnectButton.setVisible(connected);
+    }
+
+    /**
+     * Updates the visibility of the connections section based on subscription status.
+     * Paid subscribers see the OpenAI connection controls and provider keys link.
+     * Non-paid users see an upgrade link instead.
+     */
+    private void updateConnectionsUiForSubscriptionStatus(boolean isPaid) {
+        connectionsPaidPanel.setVisible(isPaid);
+        upgradeLabel.setVisible(!isPaid);
+        revalidate();
+        repaint();
+    }
+
+    private void disconnectOpenAi() {
+        String brokkKey = MainProject.getBrokkKey();
+        if (brokkKey.isBlank()) {
+            MaterialOptionPane.showConfirmDialog(
+                    this,
+                    "Brokk API key is not configured. Please set your Brokk key first.",
+                    "Cannot Disconnect",
+                    JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        chrome.getContextManager().submitBackgroundTask("Disconnecting OpenAI", () -> {
+            String error = Service.disconnectCodexOauth();
+            SwingUtilities.invokeLater(() -> {
+                if (error == null) {
+                    MainProject.setOpenAiCodexOauthConnected(false);
+                    MaterialOptionPane.showConfirmDialog(
+                            SettingsGlobalPanel.this,
+                            "Successfully disconnected from OpenAI.",
+                            "OpenAI Disconnected",
+                            JOptionPane.DEFAULT_OPTION,
+                            JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    MaterialOptionPane.showConfirmDialog(
+                            SettingsGlobalPanel.this,
+                            "Failed to disconnect from OpenAI: " + error,
+                            "Disconnect Error",
+                            JOptionPane.DEFAULT_OPTION,
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            });
+        });
+    }
+
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
         gitHubSettingsPanel.gitHubTokenChanged();
+    }
+
+    @Override
+    public void openAiOauthConnectionChanged() {
+        SwingUtilities.invokeLater(() -> {
+            updateOpenAiConnectionUi();
+            chrome.getContextManager().reloadService();
+            maybeRunCodexAutoSetup();
+        });
+    }
+
+    private void maybeRunCodexAutoSetup() {
+        if (MainProject.isOpenAiCodexOauthConnected()) {
+            logger.info("Running first-time Codex auto-setup...");
+
+            MainProject.setOtherModelsVendorPreference("OpenAI - Codex");
+            Map<ModelProperties.ModelType, Service.ModelConfig> vendorModels =
+                    ModelProperties.getVendorModels("OpenAI - Codex");
+            var mainProject = chrome.getProject().getMainProject();
+            if (vendorModels != null) {
+                for (var entry : vendorModels.entrySet()) {
+                    mainProject.setModelConfig(entry.getKey(), entry.getValue());
+                }
+            }
+
+            var codeModelConfig =
+                    new Service.ModelConfig(ModelProperties.GPT_5_2_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW);
+            var architectModelConfig =
+                    new Service.ModelConfig(ModelProperties.GPT_5_2_OAUTH, AbstractService.ReasoningLevel.DISABLE);
+
+            // Add favorites for both models if not already present
+            var favorites = new ArrayList<>(MainProject.loadFavoriteModels());
+            boolean hasCodexFavorite =
+                    favorites.stream().anyMatch(fm -> fm.config().name().equals(ModelProperties.GPT_5_2_CODEX_OAUTH));
+            boolean hasArchitectFavorite =
+                    favorites.stream().anyMatch(fm -> fm.config().name().equals(ModelProperties.GPT_5_2_OAUTH));
+
+            if (!hasCodexFavorite) {
+                favorites.add(new Service.FavoriteModel("Codex", codeModelConfig));
+            }
+            if (!hasArchitectFavorite) {
+                favorites.add(new Service.FavoriteModel("GPT-5.2", architectModelConfig));
+            }
+            if (!hasCodexFavorite || !hasArchitectFavorite) {
+                MainProject.saveFavoriteModels(favorites);
+                logger.info("Added Codex models to favorites list");
+            }
+
+            mainProject.setModelConfig(ModelProperties.ModelType.CODE, codeModelConfig);
+            mainProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, architectModelConfig);
+
+            chrome.getContextManager().reloadService();
+
+            // Show popup and navigate to Model Roles tab
+            SwingUtilities.invokeLater(() -> {
+                String message =
+                        """
+                        "OpenAI - Codex" vendor has been configured automatically.
+                        GPT-5.2 (Architect) and Codex (Coder) models were set.
+                        This can be changed at any time in Settings.
+                        """
+                                .stripIndent();
+
+                MaterialOptionPane.showConfirmDialog(
+                        parentDialog,
+                        message,
+                        "Codex Setup Complete",
+                        JOptionPane.DEFAULT_OPTION,
+                        JOptionPane.INFORMATION_MESSAGE);
+
+                parentDialog.reloadSettingsAndSelectTab(SettingsAdvancedPanel.MODEL_ROLES_TAB_TITLE);
+            });
+        }
     }
 
     @Override
@@ -2203,10 +2409,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     // Default keybinding helpers and defaults
-    private static KeyStroke defaultToggleMode() {
-        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
-    }
-
     private static KeyStroke defaultUndo() {
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_Z);
     }
@@ -2227,6 +2429,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L);
     }
 
+    private static KeyStroke defaultToggleMode() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+    }
+
     private static KeyStroke defaultSwitchToProjectFiles() {
         int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
                 ? KeyEvent.META_DOWN_MASK
@@ -2234,46 +2440,47 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier);
     }
 
-    private static KeyStroke defaultSwitchToDependencies() {
+    private static KeyStroke defaultSwitchToTests() {
         int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
                 ? KeyEvent.META_DOWN_MASK
                 : KeyEvent.ALT_DOWN_MASK;
         return KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier);
     }
 
-    private static KeyStroke defaultSwitchToChanges() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier);
+    private static KeyStroke defaultToggleInstructionsTasks() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_K);
     }
 
-    private static KeyStroke defaultSwitchToWorktrees() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier);
+    private static KeyStroke defaultCycleBuildReviewPreview() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_F);
     }
 
-    private static KeyStroke defaultSwitchToLog() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier);
+    private static KeyStroke defaultCycleBuildReviewPreviewBackward() {
+        return KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_F);
     }
 
-    private static KeyStroke defaultSwitchToPullRequests() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier);
+    private static KeyStroke defaultCycleModel() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_B);
     }
 
-    private static KeyStroke defaultSwitchToIssues() {
-        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
-                ? KeyEvent.META_DOWN_MASK
-                : KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(KeyEvent.VK_7, modifier);
+    private static KeyStroke defaultCycleModelBackward() {
+        return KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_B);
+    }
+
+    private static KeyStroke defaultOpenTerminal() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_T);
+    }
+
+    private static KeyStroke defaultGitLog() {
+        return KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3);
+    }
+
+    private static KeyStroke defaultGitWorktrees() {
+        return KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4);
+    }
+
+    private static KeyStroke defaultGitPullRequests() {
+        return KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5);
     }
 
     private static KeyStroke defaultCloseWindow() {
@@ -2286,24 +2493,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private static KeyStroke defaultOpenSettings() {
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
-    }
-
-    private static KeyStroke defaultToggleTerminalDrawer() {
-        return KeyStroke.getKeyStroke(
-                KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
-    }
-
-    private static KeyStroke defaultToggleDependenciesDrawer() {
-        return KeyStroke.getKeyStroke(
-                KeyEvent.VK_D, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
-    }
-
-    private static KeyStroke defaultSwitchToTerminalTab() {
-        return KeyStroke.getKeyStroke(KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-    }
-
-    private static KeyStroke defaultSwitchToTasksTab() {
-        return KeyStroke.getKeyStroke(KeyEvent.VK_K, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
     }
 
     private static KeyStroke defaultZoomIn() {
@@ -2330,22 +2519,22 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return switch (id) {
             case "instructions.submit" -> KeyboardShortcutUtil.defaultInstructionsSubmit();
             case "instructions.toggleMode" -> defaultToggleMode();
+            case "instructions.cycleModel" -> defaultCycleModel();
+            case "instructions.cycleModelBackward" -> defaultCycleModelBackward();
             case "global.undo" -> defaultUndo();
             case "global.redo" -> defaultRedo();
             case "global.copy" -> defaultCopy();
             case "global.paste" -> defaultPaste();
             case "global.toggleMicrophone" -> defaultToggleMicrophone();
             case "panel.switchToProjectFiles" -> defaultSwitchToProjectFiles();
-            case "panel.switchToDependencies" -> defaultSwitchToDependencies();
-            case "panel.switchToChanges" -> defaultSwitchToChanges();
-            case "panel.switchToWorktrees" -> defaultSwitchToWorktrees();
-            case "panel.switchToLog" -> defaultSwitchToLog();
-            case "panel.switchToPullRequests" -> defaultSwitchToPullRequests();
-            case "panel.switchToIssues" -> defaultSwitchToIssues();
-            case "drawer.toggleTerminal" -> defaultToggleTerminalDrawer();
-            case "drawer.toggleDependencies" -> defaultToggleDependenciesDrawer();
-            case "drawer.switchToTerminal" -> defaultSwitchToTerminalTab();
-            case "drawer.switchToTasks" -> defaultSwitchToTasksTab();
+            case "panel.switchToTests" -> defaultSwitchToTests();
+            case "panel.toggleInstructionsTasks" -> defaultToggleInstructionsTasks();
+            case "panel.cycleBuildReviewPreview" -> defaultCycleBuildReviewPreview();
+            case "panel.cycleBuildReviewPreviewBackward" -> defaultCycleBuildReviewPreviewBackward();
+            case "tools.openTerminal" -> defaultOpenTerminal();
+            case "tools.gitLog" -> defaultGitLog();
+            case "tools.gitWorktrees" -> defaultGitWorktrees();
+            case "tools.gitPullRequests" -> defaultGitPullRequests();
             case "view.zoomIn" -> defaultZoomIn();
             case "view.zoomInAlt" -> defaultZoomInAlt();
             case "view.zoomOut" -> defaultZoomOut();
@@ -2384,6 +2573,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         };
     }
 
+    private static String joinUrl(String base, String path) {
+        if (base.endsWith("/") && path.startsWith("/")) {
+            return base + path.substring(1);
+        } else if (!base.endsWith("/") && !path.startsWith("/")) {
+            return base + "/" + path;
+        } else {
+            return base + path;
+        }
+    }
+
     /**
      * SwingWorker to save global settings to disk on a background thread,
      * then trigger UI updates on EDT after successful save.
@@ -2391,7 +2590,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private class SaveGlobalSettingsWorker extends ExceptionAwareSwingWorker<Void, Void> {
         private final String newBrokkKeyFromField;
         private final MainProject.LlmProxySetting proxySetting;
-        private final boolean forceToolEmulation;
         private final String newTheme;
         private final boolean newWrapMode;
         private final boolean uiScaleChanged;
@@ -2409,7 +2607,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 Chrome chrome,
                 String newBrokkKeyFromField,
                 MainProject.LlmProxySetting proxySetting,
-                boolean forceToolEmulation,
                 String newTheme,
                 boolean newWrapMode,
                 boolean uiScaleChanged,
@@ -2425,7 +2622,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             super(chrome);
             this.newBrokkKeyFromField = newBrokkKeyFromField;
             this.proxySetting = proxySetting;
-            this.forceToolEmulation = forceToolEmulation;
             this.newTheme = newTheme;
             this.newWrapMode = newWrapMode;
             this.uiScaleChanged = uiScaleChanged;
@@ -2444,7 +2640,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         protected Void doInBackground() {
             MainProject.setBrokkKey(newBrokkKeyFromField);
             MainProject.setLlmProxySetting(proxySetting);
-            MainProject.setForceToolEmulation(forceToolEmulation);
             MainProject.setTheme(newTheme);
             MainProject.setCodeBlockWrapMode(newWrapMode);
 

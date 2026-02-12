@@ -26,6 +26,7 @@ import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -123,17 +124,12 @@ public class DtoMapper {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(ArrayList::new));
 
-        var parsedOutputFragment = dto.parsedOutputId() != null
-                ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
-                : null;
-
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(editableFragments.stream(), virtualFragments.stream())
                 .toList();
 
-        return Context.createWithId(
-                ctxId, mgr, combined, taskHistory, parsedOutputFragment, readonlyFragments, pinnedFragments);
+        return Context.createWithId(ctxId, mgr, combined, taskHistory, readonlyFragments, pinnedFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -175,13 +171,7 @@ public class DtoMapper {
                 .toList();
 
         return new CompactContextDto(
-                ctx.id().toString(),
-                pathFragmentIds,
-                readonlyIds,
-                nonPathFragmentIds,
-                pinnedIds,
-                taskEntryRefs,
-                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null);
+                ctx.id().toString(), pathFragmentIds, readonlyIds, nonPathFragmentIds, pinnedIds, taskEntryRefs, null);
     }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
@@ -258,7 +248,8 @@ public class DtoMapper {
         var messages = dto.messages().stream()
                 .map(msgDto -> fromChatMessageDto(msgDto, reader))
                 .toList();
-        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.taskDescription());
+        return new ContextFragments.TaskFragment(
+                dto.id(), mgr, messages, dto.taskDescription() == null ? "" : dto.taskDescription());
     }
 
     private static @Nullable ContextFragment _buildVirtualFragment(
@@ -321,6 +312,10 @@ public class DtoMapper {
                         yield null;
                     }
                     var image = ImageUtil.bytesToImage(imageBytes);
+                    if (image == null) {
+                        logger.error("Failed to decode image for fragment: {}", pasteImageDto.id());
+                        yield null;
+                    }
                     yield new ContextFragments.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,
@@ -342,13 +337,6 @@ public class DtoMapper {
                         stDto.exception(),
                         reader.readContent(stDto.codeContentId()));
             }
-            case CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.CallGraphFragment(
-                        callGraphDto.id(),
-                        mgr,
-                        callGraphDto.methodName(),
-                        callGraphDto.depth(),
-                        callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto -> {
                 String snapshot = codeDto.snapshotText() != null ? reader.readContent(codeDto.snapshotText()) : null;
                 yield new ContextFragments.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);
@@ -487,8 +475,6 @@ public class DtoMapper {
                 yield new StacktraceFragmentDto(
                         stf.id(), sourcesDto, originalContentId, stf.getException(), codeContentId);
             }
-            case ContextFragments.CallGraphFragment cgf ->
-                new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
             case ContextFragments.CodeFragment cf -> {
                 String snapshotId = null;
                 String snapshot = cf.text().tryGet().orElse(null);
@@ -590,7 +576,7 @@ public class DtoMapper {
             }
             case "system" -> SystemMessage.from(content);
             case "custom" -> {
-                Map<String, Object> attrs = new java.util.HashMap<>();
+                Map<String, Object> attrs = new HashMap<>();
                 if (dto.attributes() != null) {
                     attrs.putAll(dto.attributes());
                 }
@@ -743,19 +729,6 @@ public class DtoMapper {
                             ? reader.readContent(ffd.contentId())
                             : null;
                     return new ContextFragments.UsageFragment(mgr, targetIdentifier, true, snapshot);
-                }
-                case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
-                        "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
-                    var methodName = meta.get("methodName");
-                    var depthStr = meta.get("depth");
-                    var isCalleeGraphStr = meta.get("isCalleeGraph");
-                    if (methodName == null || depthStr == null || isCalleeGraphStr == null) {
-                        throw new IllegalArgumentException(
-                                "Missing 'methodName', 'depth' or 'isCalleeGraph' for CallGraphFragment");
-                    }
-                    int depth = Integer.parseInt(depthStr);
-                    boolean isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                    return new ContextFragments.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {

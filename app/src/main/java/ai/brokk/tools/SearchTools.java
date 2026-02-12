@@ -4,19 +4,16 @@ import static ai.brokk.project.FileFilteringService.toUnixPath;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
+import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
-import ai.brokk.analyzer.SourceCodeProvider;
-import ai.brokk.analyzer.usages.FuzzyResult;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
-import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -116,8 +113,6 @@ public class SearchTools {
             @P(
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
                     List<String> filePaths) {
-        assert getAnalyzer().as(SkeletonProvider.class).isPresent()
-                : "Cannot get summaries: Code Intelligence is not available.";
         if (filePaths.isEmpty()) {
             return "Cannot get summaries: file paths list is empty";
         }
@@ -138,7 +133,7 @@ public class SearchTools {
         List<String> allSkeletons = new ArrayList<>();
         List<String> filesProcessed = new ArrayList<>(); // Still useful for the "not found" message
         for (var file : projectFiles) {
-            var skeletonsInFile = ((SkeletonProvider) getAnalyzer()).getSkeletons(file);
+            var skeletonsInFile = getAnalyzer().getSkeletons(file);
             if (!skeletonsInFile.isEmpty()) {
                 // Add all skeleton strings from this file to the list
                 allSkeletons.addAll(skeletonsInFile.values());
@@ -164,30 +159,31 @@ public class SearchTools {
 
     @Tool(
             """
-                    Search for symbols (class/function/field/module definitions) using static analysis.
-                    ONLY returns symbol definitions (declarations).
-                    DO NOT use for usages/call sites/instantiation/access patterns — use addSymbolUsagesToWorkspace or searchSubstrings.
-                    Output is grouped by file, then by symbol kind within each file.
+            Search for symbols (class/function/field/module definitions) using static analysis.
+            ONLY returns symbol definitions (declarations).
+            DO NOT use for usages/call sites/instantiation/access patterns — use scanUsages or searchSubstrings.
+            Output is grouped by file, then by symbol kind within each file.
 
-                    - kinds: CLASS, FUNCTION, FIELD, MODULE
-                    - FUNCTION may represent a member/instance/static method or a free/top-level function (varies by language/analyzer)
-                    - FIELD may represent a class/instance/static field or a top-level/module/global variable (varies by language/analyzer)
-                    - empty kind sections are omitted
+            - kinds: CLASS, FUNCTION, FIELD, MODULE
+            - FUNCTION may represent a member/instance/static method or a free/top-level function (varies by language/analyzer)
+            - FIELD may represent a class/instance/static field or a top-level/module/global variable (varies by language/analyzer)
+            - empty kind sections are omitted
 
-                    Examples:
-                    <file path="src/main/java/com/example/Foo.java">
-                    [CLASS]
-                    - com.example.Foo
-                    [FUNCTION]
-                    - com.example.Foo.bar
-                    </file>
-                    """)
+            Examples:
+            <file path="src/main/java/com/example/Foo.java">
+            [CLASS]
+            - com.example.Foo
+            [FUNCTION]
+            - com.example.Foo.bar
+            </file>
+            """)
     public String searchSymbols(
             @P(
                             "Case-insensitive regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
                     List<String> patterns,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
+                    String reasoning,
+            @P("Include test files in results. Default: false.") boolean includeTests) {
         // Sanitize patterns: LLM might add `()` to symbols, Joern regex usually doesn't want that unless intentional.
         patterns = stripParams(patterns);
         if (patterns.isEmpty()) {
@@ -198,13 +194,20 @@ public class SearchTools {
             logger.warn("Missing reasoning for searchSymbols call");
         }
 
+        var analyzer = getAnalyzer();
         Set<CodeUnit> allDefinitions = new HashSet<>();
         for (String pattern : patterns) {
             if (!pattern.isBlank()) {
-                allDefinitions.addAll(getAnalyzer().searchDefinitions(pattern));
+                allDefinitions.addAll(analyzer.searchDefinitions(pattern));
             }
         }
-        logger.debug("Raw definitions: {}", allDefinitions);
+        logger.trace("Raw definitions: {}", allDefinitions);
+
+        if (!includeTests) {
+            allDefinitions = allDefinitions.stream()
+                    .filter(cu -> !ContextManager.isTestFile(cu.source(), analyzer))
+                    .collect(Collectors.toSet());
+        }
 
         if (allDefinitions.isEmpty()) {
             return "No definitions found for patterns: " + String.join(", ", patterns);
@@ -249,15 +252,16 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
-                    Use this for questions like “how is X used/accessed/obtained/wired”.
-                    If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
-                    """)
-    public String getUsages(
+            Returns the call sites where symbols are used and three examples of full call site source. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
+            Use this for questions like “how is X used/accessed/obtained/wired”.
+            If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
+            """)
+    public String scanUsages(
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")
                     List<String> symbols,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
+                    String reasoning,
+            @P("Include call sites in test files in results.") boolean includeTests) {
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -267,40 +271,32 @@ public class SearchTools {
             logger.warn("Missing reasoning for getUsages call");
         }
 
-        List<CodeUnit> allUses = new ArrayList<>();
-
+        List<String> results = new ArrayList<>();
         for (String symbol : symbols) {
-            if (!symbol.isBlank()) {
-                FuzzyResult usageResult =
-                        FuzzyUsageFinder.create(contextManager).findUsages(symbol, 100, 1000);
-                var either = usageResult.toEither();
-                if (either.hasErrorMessage()) {
-                    return either.getErrorMessage();
-                }
-                allUses.addAll(
-                        either.getUsages().stream().map(UsageHit::enclosing).toList());
+            if (symbol.isBlank()) continue;
+
+            var fragment = new ContextFragments.UsageFragment(
+                    contextManager, symbol, includeTests, ContextFragments.UsageMode.SAMPLE);
+            String text = fragment.text().join();
+            if (!text.isEmpty()) {
+                results.add(text);
             }
         }
 
-        if (allUses.isEmpty()) {
+        if (results.isEmpty()) {
             return "No usages found for: " + String.join(", ", symbols);
         }
 
-        var cwsList = AnalyzerUtil.processUsages(getAnalyzer(), allUses);
-        var processedUsages = AnalyzerUtil.CodeWithSource.text(cwsList);
-        return "Usages of " + String.join(", ", symbols) + ":\n\n" + processedUsages;
+        return String.join("\n\n", results);
     }
 
     @Tool(
             """
-                    Returns an overview of classes' contents, including fields and method signatures.
+                    Returns a summary of classes' contents, including fields and method signatures.
                     Use this to understand class structures and APIs much faster than fetching full source code.
                     """)
     public String getClassSkeletons(
             @P("Fully qualified class names to get the skeleton structures for") List<String> classNames) {
-
-        assert getAnalyzer().as(SkeletonProvider.class).isPresent()
-                : "Cannot get skeletons: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
@@ -328,18 +324,11 @@ public class SearchTools {
                     Use this when you need the complete implementation details, or if you think multiple methods in the classes may be relevant.
                     """)
     public String getClassSources(
-            @P("Fully qualified class names to retrieve the full source code for") List<String> classNames,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
-        assert getAnalyzer().as(SourceCodeProvider.class).isPresent()
-                : "Cannot get class sources: Current Code Intelligence does not have necessary capabilities.";
+            @P("Fully qualified class names to retrieve the full source code for") List<String> classNames) {
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
             throw new IllegalArgumentException("Cannot get class sources: class names list is empty");
-        }
-        if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for getClassSources call");
         }
 
         StringBuilder result = new StringBuilder();
@@ -420,8 +409,6 @@ public class SearchTools {
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
                     List<String> methodNames) {
-        assert getAnalyzer().as(SourceCodeProvider.class).isPresent()
-                : "Cannot get method sources: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize methodNames: remove potential `(params)` suffix from LLM.
         methodNames = stripParams(methodNames);
         if (methodNames.isEmpty()) {
@@ -439,13 +426,12 @@ public class SearchTools {
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
-                    var fragment = new ContextFragments.CodeFragment(contextManager, cu);
-                    var text = fragment.text().join();
-                    if (!text.isEmpty()) {
+                    Set<String> sources = analyzer.getSources(cu, true);
+                    if (!sources.isEmpty()) {
                         if (!result.isEmpty()) {
                             result.append("\n\n");
                         }
-                        result.append(text);
+                        result.append(String.join("\n\n", sources));
                     }
                 }
             }
@@ -579,7 +565,7 @@ public class SearchTools {
     public static Set<ProjectFile> searchSubstrings(List<String> patterns, Set<ProjectFile> filesToSearch) {
         List<Predicate<String>> predicates = compilePatternsWithFallback(patterns);
         if (predicates.isEmpty()) {
-            throw new IllegalArgumentException("No valid patterns provided");
+            return Set.of();
         }
 
         return filesToSearch.parallelStream()
@@ -587,7 +573,7 @@ public class SearchTools {
                     if (!file.isText()) {
                         return null;
                     }
-                    var fileContentsOpt = file.read(); // Optional<String> from ProjectFile.read()
+                    var fileContentsOpt = file.read();
                     if (fileContentsOpt.isEmpty()) {
                         return null;
                     }
@@ -766,6 +752,10 @@ public class SearchTools {
         var analyzer = getAnalyzer();
         var targetDir = Path.of(directoryPath).normalize();
 
+        // Check if we're inside the dependencies directory - don't filter by gitignore there
+        Path dependenciesPath = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR);
+        boolean isInDependencies = targetDir.startsWith(dependenciesPath);
+
         Path absTargetDir = project.getRoot().resolve(targetDir);
         File[] fsItems = absTargetDir.toFile().listFiles();
 
@@ -778,7 +768,7 @@ public class SearchTools {
 
         for (File item : fsItems) {
             String name = item.getName();
-            if (project.isGitignored(targetDir.resolve(name))) {
+            if (!isInDependencies && project.isGitignored(targetDir.resolve(name))) {
                 continue;
             }
             if (item.isDirectory()) {
@@ -802,7 +792,7 @@ public class SearchTools {
         StringBuilder fileSummaries = new StringBuilder();
         children.sort(ProjectFile::compareTo);
         for (var file : children) {
-            String identifiers = analyzer.buildRelatedIdentifiers(file);
+            String identifiers = analyzer.summarizeSymbols(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
             String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\">\n" + content + "\n</file>\n";
 

@@ -11,6 +11,7 @@ public final class CaptureNames {
     public static final String FIELD_DEFINITION = "field.definition";
     public static final String METHOD_DEFINITION = "method.definition";
     public static final String CONSTRUCTOR_DEFINITION = "constructor.definition";
+    public static final String IMPORT_DECLARATION = "import.declaration";
 
     // Type-related captures
     public static final String INTERFACE_DEFINITION = "interface.definition";
@@ -39,6 +40,7 @@ public final class CaptureNames {
     public static final String NAMESPACE_DEFINITION = "namespace.definition";
     public static final String MODULE_DEFINITION = "module.definition";
     public static final String PACKAGE_DEFINITION = "package.definition";
+    public static final String PACKAGE_NAME = "package.name";
 
     // Variable/constant captures
     public static final String VARIABLE_DEFINITION = "variable.definition";

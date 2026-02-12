@@ -8,7 +8,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.project.MainProject;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Cursor;
@@ -193,11 +192,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void updateChips(List<ContextFragment> fragments) {
-        logger.debug(
-                "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
-                fragments.size(),
-                MainProject.getForceToolEmulation(),
-                readOnly);
+        logger.debug("updateChips (incremental) called with {} fragments (readOnly={})", fragments.size(), readOnly);
 
         var summaries = fragments.stream()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
@@ -303,6 +298,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         var chip = new WorkspaceChip(
                 chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, Set.of(fragment), kind);
         chip.setBorder(new EmptyBorder(0, 0, 0, 0));
+        chip.setCloseEnabled(!readOnly);
         return chip;
     }
 

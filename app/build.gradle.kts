@@ -1,6 +1,7 @@
 import net.ltgt.gradle.errorprone.errorprone
 import java.time.Duration
 import org.gradle.process.CommandLineArgumentProvider
+import org.apache.tools.ant.types.Commandline
 
 plugins {
     java
@@ -26,7 +27,6 @@ application {
     mainClass.set("ai.brokk.Brokk")
     applicationDefaultJvmArgs = buildList {
         // enable feature flags; JavaExec baseline supplies other args
-        add("-Dbrokk.servicetiers=true")
         add("-Dbrokk.architectshell=true")
         add("-Dwatch.service.polling=true")
         // JDK 24+ requires explicit flags for unsafe memory access and native access
@@ -458,9 +458,22 @@ tasks.register("analyze") {
     dependsOn("compileJavaErrorProne", "spotlessCheck")
 }
 
-// Make check task run ErrorProne compilation for CI validation
+// Make check task run ErrorProne compilation and Python linting for CI validation
 tasks.named("check") {
     dependsOn("compileJavaErrorProne")
+    // Wire Python verification into lifecycle tasks
+    val skipPythonTasks = project.rootProject.hasProperty("skipPython")
+    if (!skipPythonTasks) {
+        dependsOn(rootProject.tasks.named("brokkCodeRuffCheck"))
+    }
+}
+
+// Wire Python tests into the main app test task
+tasks.named<Test>("test") {
+    val skipPythonTasks = project.rootProject.hasProperty("skipPython")
+    if (!skipPythonTasks) {
+        dependsOn(rootProject.tasks.named("brokkCodePytest"))
+    }
 }
 
 
@@ -568,8 +581,17 @@ tasks.withType<Test> {
     // Test timeout
     timeout.set(Duration.ofMinutes(30))
 
-    // System properties for tests
-    systemProperty("brokk.test.mode", "true")
+    // System properties for tests (must be present at JVM startup)
+    // Compute once outside the provider to ensure stable value for Gradle caching
+    val testSandboxRoot = layout.buildDirectory.dir("test-sandbox").get().asFile.absolutePath
+    jvmArgumentProviders.add(object : CommandLineArgumentProvider {
+        override fun asArguments(): Iterable<String> {
+            return listOf(
+                "-Dbrokk.test.mode=true",
+                "-Dbrokk.test.sandbox.root=$testSandboxRoot"
+            )
+        }
+    })
     systemProperty("java.awt.headless", "true")
 }
 
@@ -579,7 +601,7 @@ tasks.register<JavaExec>("runCli") {
     mainClass.set("ai.brokk.cli.BrokkCli")
     classpath = sourceSets.main.get().runtimeClasspath
     if (project.hasProperty("args")) {
-        args((project.property("args") as String).split(" "))
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
     }
 }
 
@@ -607,7 +629,7 @@ tasks.register<JavaExec>("runSkeletonPrinter") {
     mainClass.set("ai.brokk.tools.SkeletonPrinter")
     classpath = sourceSets.test.get().runtimeClasspath
     if (project.hasProperty("args")) {
-        args((project.property("args") as String).split(" "))
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
     }
 }
 
@@ -640,7 +662,7 @@ tasks.register<JavaExec>("runTreeSitterRepoRunner") {
         }
     })
     if (project.hasProperty("args")) {
-        args((project.property("args") as String).split(" "))
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
     }
 }
 
@@ -653,7 +675,34 @@ tasks.register<JavaExec>("runPageRankBenchmark") {
         override fun asArguments(): Iterable<String> = listOf("-Xmx4g", "-XX:+UseG1GC")
     })
     if (project.hasProperty("args")) {
-        args((project.property("args") as String).split(" "))
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
+}
+
+tasks.register<JavaExec>("runUsageBenchEval") {
+    group = "application"
+    description = "Runs the UsageBenchEval tool for FuzzyUsageFinder evaluation"
+    mainClass.set("ai.brokk.tools.UsageBenchEval")
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgumentProviders.add(object : CommandLineArgumentProvider {
+        override fun asArguments(): Iterable<String> = listOf(
+            "-Xmx4g",
+            "-XX:+UseG1GC",
+            "-Dlog4j.configurationFile=log4j2-usages.xml"
+        )
+    })
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
+}
+
+tasks.register<JavaExec>("runUsageResultsExplorer") {
+    group = "application"
+    description = "Runs the UsageResultsExplorer GUI for browsing UsageBenchEval results"
+    mainClass.set("ai.brokk.tools.UsageResultsExplorer")
+    classpath = sourceSets.test.get().runtimeClasspath
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
     }
 }
 

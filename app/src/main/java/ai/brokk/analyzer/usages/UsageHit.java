@@ -2,12 +2,10 @@ package ai.brokk.analyzer.usages;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import java.util.Objects;
 
 /**
  * Immutable metadata describing a usage occurrence.
- *
- * <p>Equality and hashing are based on the enclosing CodeUnit only. This allows sets/maps of UsageHit to deduplicate by
- * the logical usage context (the enclosing unit), regardless of specific offsets, line numbers, or snippet text.
  *
  * @param file the file containing the usage
  * @param line 1-based line number
@@ -33,11 +31,14 @@ public record UsageHit(
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof UsageHit that)) return false;
-        return enclosing.equals(that.enclosing);
+        return startOffset == that.startOffset
+                && endOffset == that.endOffset
+                && file.equals(that.file)
+                && enclosing.equals(that.enclosing);
     }
 
     @Override
     public int hashCode() {
-        return enclosing.hashCode();
+        return Objects.hash(file, startOffset, endOffset, enclosing);
     }
 }

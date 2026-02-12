@@ -5,7 +5,6 @@ import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.components.SplitButton;
-import ai.brokk.gui.dialogs.AskHumanDialog;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -23,22 +22,16 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
-import javax.swing.Box;
-import javax.swing.JMenuItem;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.JSplitPane;
-import javax.swing.JTextArea;
-import javax.swing.SwingUtilities;
-import javax.swing.Timer;
-import javax.swing.UIManager;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -101,6 +94,47 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         showPlaceholder();
     }
 
+    /**
+     * Shows a simple text editing dialog and returns the result.
+     * Blocks until the user clicks OK or Cancel.
+     */
+    @Blocking
+    public static @Nullable String showEditDialog(Chrome chrome, String title, String initialText) {
+        assert !SwingUtilities.isEventDispatchThread();
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<String> resultRef = new AtomicReference<>(null);
+
+        SwingUtil.runOnEdt(() -> {
+            var textArea = new JTextArea(initialText, 10, 50);
+            textArea.setLineWrap(true);
+            textArea.setWrapStyleWord(true);
+            var scroll = new JScrollPane(textArea);
+
+            int result = MaterialOptionPane.showOptionDialog(
+                    null,
+                    scroll,
+                    title,
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.PLAIN_MESSAGE,
+                    null,
+                    new String[] {"OK", "Cancel"},
+                    "OK");
+
+            if (result == 0) { // OK
+                resultRef.set(textArea.getText().trim());
+            }
+            latch.countDown();
+        });
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return resultRef.get();
+    }
+
     public void showPlaceholder() {
         cardLayout.show(this, CARD_PLACEHOLDER);
     }
@@ -123,15 +157,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             case String text -> {
                 // This is the Overview
                 markdownChunks.add(text);
-
-                if (!isLast) {
-                    buttonPanel.removeAll();
-                    buttonPanel.setVisible(true);
-
-                    var nextBtn = new MaterialButton("Next");
-                    nextBtn.addActionListener(e -> onNext.run());
-                    buttonPanel.add(nextBtn);
-                }
+                addNavigationButtons(isLast);
             }
             case KeyChanges change -> {
                 markdownChunks.add("### " + change.title());
@@ -151,6 +177,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                     markdownChunks.add("**Recommendation:**\n" + design.recommendation());
                     String combinedText = design.description() + "\n\n" + design.recommendation();
                     addRecommendationButtons(design.title(), combinedText, isLast);
+                } else {
+                    addNavigationButtons(isLast);
                 }
             }
             case TacticalFeedback tactical -> {
@@ -163,6 +191,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                     markdownChunks.add("**Recommendation:**\n" + tactical.recommendation());
                     String combinedText = tactical.description() + "\n\n" + tactical.recommendation();
                     addRecommendationButtons(tactical.title(), combinedText, isLast);
+                } else {
+                    addNavigationButtons(isLast);
                 }
             }
             case TestFeedback feedback -> {
@@ -193,14 +223,17 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void addNavigationButtons(boolean isLast) {
-        if (isLast) return;
-
         buttonPanel.removeAll();
         buttonPanel.setVisible(true);
 
-        var nextBtn = new MaterialButton("Next");
-        nextBtn.addActionListener(e -> onNext.run());
-        buttonPanel.add(nextBtn);
+        buttonPanel.add(createCopyButton());
+
+        if (!isLast) {
+            var nextBtn = new MaterialButton("Next");
+            nextBtn.addActionListener(e -> onNext.run());
+            buttonPanel.add(Box.createHorizontalStrut(10));
+            buttonPanel.add(nextBtn);
+        }
     }
 
     private void flushContent() {
@@ -227,8 +260,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             JMenuItem editItem = new JMenuItem("Edit + Enqueue");
             editItem.addActionListener(e -> {
                 contextManager.getBackgroundTasks().submit(() -> {
-                    String edited = AskHumanDialog.showEditDialog(
-                            (Chrome) contextManager.getIo(), "Edit Recommendation", recommendation);
+                    String edited =
+                            showEditDialog((Chrome) contextManager.getIo(), "Edit Recommendation", recommendation);
                     if (edited != null && !edited.isBlank()) {
                         SwingUtilities.invokeLater(() -> {
                             enqueueTask(title, edited);
@@ -242,18 +275,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         });
 
         buttonPanel.add(splitBtn);
-
-        var copyBtn = new MaterialButton("Copy Markdown");
-        copyBtn.addActionListener(e -> {
-            String combined = String.join("\n\n", markdownChunks);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(combined), null);
-            copyBtn.setText("Copied");
-            Timer timer = new Timer(1000, evt -> copyBtn.setText("Copy Markdown"));
-            timer.setRepeats(false);
-            timer.start();
-        });
         buttonPanel.add(Box.createHorizontalStrut(10));
-        buttonPanel.add(copyBtn);
+        buttonPanel.add(createCopyButton());
 
         if (!isLast) {
             var nextBtn = new MaterialButton("Next");
@@ -261,6 +284,19 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             buttonPanel.add(Box.createHorizontalStrut(10));
             buttonPanel.add(nextBtn);
         }
+    }
+
+    private MaterialButton createCopyButton() {
+        var copyBtn = new MaterialButton("Copy Markdown");
+        copyBtn.addActionListener(e -> {
+            String combined = String.join("\n\n", markdownChunks);
+            contextManager.copyToClipboard(combined);
+            copyBtn.setText("Copied");
+            Timer timer = new Timer(1000, evt -> copyBtn.setText("Copy Markdown"));
+            timer.setRepeats(false);
+            timer.start();
+        });
+        return copyBtn;
     }
 
     private void enqueueTask(String title, String text) {

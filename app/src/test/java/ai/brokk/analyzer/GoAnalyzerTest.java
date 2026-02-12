@@ -178,6 +178,12 @@ public class GoAnalyzerTest {
         CodeUnit expectedMethod_GetFieldA = CodeUnit.fn(pf, "declpkg", "MyStruct.GetFieldA");
         CodeUnit expectedStructFieldA = CodeUnit.field(pf, "declpkg", "MyStruct.FieldA");
         CodeUnit expectedInterfaceMethod_DoSomething = CodeUnit.fn(pf, "declpkg", "MyInterface.DoSomething");
+        CodeUnit expectedUint32Map = CodeUnit.cls(pf, "declpkg", "Uint32Map");
+        CodeUnit expectedStringAlias = CodeUnit.field(pf, "declpkg", "_module_.StringAlias");
+        CodeUnit expectedMyInt = CodeUnit.cls(pf, "declpkg", "MyInt");
+        CodeUnit expectedMyIntString = CodeUnit.fn(pf, "declpkg", "MyInt.String");
+        CodeUnit expectedGroupedNamedType = CodeUnit.cls(pf, "declpkg", "GroupedNamedType");
+        CodeUnit expectedGroupedAlias = CodeUnit.field(pf, "declpkg", "_module_.GroupedAlias");
 
         assertTrue(
                 declarations.contains(expectedFunc),
@@ -233,11 +239,71 @@ public class GoAnalyzerTest {
                         + declarations.stream()
                                 .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
                                 .toList());
+        assertTrue(
+                declarations.contains(expectedUint32Map),
+                "Declarations should contain named type Uint32Map as CLASS_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedStringAlias),
+                "Declarations should contain type alias StringAlias as FIELD_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedMyInt),
+                "Declarations should contain named type MyInt as CLASS_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedMyIntString),
+                "Declarations should contain method MyInt.String. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertFalse(
+                declarations.contains(CodeUnit.field(pf, "declpkg", "_module_.Uint32Map")),
+                "Named type Uint32Map should NOT appear as FIELD_LIKE.");
+        assertTrue(
+                declarations.contains(expectedGroupedNamedType),
+                "Declarations should contain grouped named type GroupedNamedType as CLASS_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedGroupedAlias),
+                "Declarations should contain grouped alias GroupedAlias as FIELD_LIKE. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertFalse(
+                declarations.contains(CodeUnit.field(pf, "declpkg", "_module_.GroupedNamedType")),
+                "Grouped named type GroupedNamedType should NOT appear as FIELD_LIKE.");
+
+        // Verify skeleton structure differences
+        String uint32MapSkeleton = analyzer.getSkeleton(expectedUint32Map).orElse("");
+        String myIntSkeleton = analyzer.getSkeleton(expectedMyInt).orElse("");
+        String stringAliasSkeleton = analyzer.getSkeleton(expectedStringAlias).orElse("");
+
+        assertTrue(
+                uint32MapSkeleton.contains("{"), "CLASS_LIKE Uint32Map should have class-like structure (curly brace)");
+        assertTrue(myIntSkeleton.contains("{"), "CLASS_LIKE MyInt should have class-like structure (curly brace)");
+        assertFalse(stringAliasSkeleton.contains("{"), "FIELD_LIKE StringAlias should NOT have curly braces");
+
+        // Verify parenting
+        List<CodeUnit> myIntChildren = analyzer.getDirectChildren(expectedMyInt);
+        assertEquals(1, myIntChildren.size(), "MyInt should have exactly 1 child (String method)");
+        assertTrue(myIntChildren.contains(expectedMyIntString), "MyInt.String should be a child of MyInt");
+
+        List<CodeUnit> uint32MapChildren = analyzer.getDirectChildren(expectedUint32Map);
+        assertTrue(uint32MapChildren.isEmpty(), "Uint32Map (named type with no methods) should have zero children");
 
         assertEquals(
-                9,
+                15,
                 declarations.size(),
-                "Expected 9 declarations in declarations.go. Found: "
+                "Expected 15 declarations in declarations.go. Found: "
                         + declarations.stream().map(CodeUnit::fqName).toList());
     }
 
@@ -454,7 +520,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetClassSource_GoStruct() {
         // MyStruct in declarations.go
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "declpkg.MyStruct", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "declpkg.MyStruct", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         assertNotNull(source, "Source for declpkg.MyStruct should not be null");
@@ -465,7 +531,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetClassSource_GoInterface() {
         // MyInterface in declarations.go
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "declpkg.MyInterface", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "declpkg.MyInterface", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         assertNotNull(source, "Source for declpkg.MyInterface should not be null");
@@ -476,7 +542,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetMethodSource_GoFunction() {
         // MyTopLevelFunction in declarations.go
-        Optional<String> sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "declpkg.MyTopLevelFunction", true);
+        Optional<String> sourceOpt = AnalyzerUtil.getSource(analyzer, "declpkg.MyTopLevelFunction", true);
         assertTrue(sourceOpt.isPresent(), "Source for declpkg.MyTopLevelFunction should be present.");
         String expectedSource = "func MyTopLevelFunction(param int) string {\n\treturn \"hello\"\n}";
         assertEquals(normalizeSource(expectedSource), normalizeSource(sourceOpt.get()));
@@ -486,7 +552,7 @@ public class GoAnalyzerTest {
     void testGetMethodSource_GoMethod() {
         // GetFieldA method of MyStruct in declarations.go
         // FQN is now declpkg.MyStruct.GetFieldA
-        Optional<String> sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "declpkg.MyStruct.GetFieldA", true);
+        Optional<String> sourceOpt = AnalyzerUtil.getSource(analyzer, "declpkg.MyStruct.GetFieldA", true);
         assertTrue(sourceOpt.isPresent(), "Source for declpkg.MyStruct.GetFieldA method should be present.");
         String expectedSource =
                 "// Add this method for MyStruct\nfunc (s MyStruct) GetFieldA() int {\n\treturn s.FieldA\n}";
@@ -495,13 +561,13 @@ public class GoAnalyzerTest {
 
     @Test
     void testGetClassSource_NonExistent() {
-        var srcOpt = AnalyzerUtil.getClassSource(analyzer, "declpkg.NonExistentClass", true);
+        var srcOpt = AnalyzerUtil.getSource(analyzer, "declpkg.NonExistentClass", true);
         assertTrue(srcOpt.isEmpty());
     }
 
     @Test
     void testGetMethodSource_NonExistent() {
-        Optional<String> sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "declpkg.NonExistentFunction", true);
+        Optional<String> sourceOpt = AnalyzerUtil.getSource(analyzer, "declpkg.NonExistentFunction", true);
         assertFalse(sourceOpt.isPresent(), "Source for a non-existent function should be empty.");
     }
 
@@ -552,7 +618,25 @@ public class GoAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    void testPackageNameExtractedCorrectlyInFQNs() {
+        var pf = new ProjectFile(testProject.getRoot(), Path.of("mypkg", "mypkg.go"));
+        var declarations = analyzer.getDeclarations(pf);
+
+        assertFalse(declarations.isEmpty(), "Should find declarations in mypkg.go");
+
+        var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(fqns.contains("mypkg.MyFunc"), "Expected mypkg.MyFunc, got: " + fqns);
+        assertTrue(fqns.contains("mypkg.MyType"), "Expected mypkg.MyType, got: " + fqns);
+
+        assertTrue(
+                declarations.stream()
+                        .noneMatch(
+                                cu -> cu.fqName().equals("mypkg") || cu.fqName().startsWith("package")),
+                "Package clause should not appear as a CodeUnit: " + fqns);
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";
         var either = finder.findUsages(symbol).toEither();

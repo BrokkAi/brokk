@@ -6,18 +6,39 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.SourceContent;
+import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.treesitter.TSNode;
 
 public class JavaTypeHierarchyTest {
+
+    private static class TrackingJavaAnalyzer extends JavaAnalyzer {
+        final AtomicInteger extractionCount = new AtomicInteger(0);
+
+        TrackingJavaAnalyzer(IProject project) {
+            super(project);
+        }
+
+        @Override
+        protected List<String> extractRawSupertypesForClassLike(
+                CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
+            extractionCount.incrementAndGet();
+            return super.extractRawSupertypesForClassLike(cu, classNode, signature, sourceContent);
+        }
+    }
 
     @Test
     public void directExtends_singleFile() throws IOException {
@@ -34,13 +55,14 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeX.isPresent(), "Definition for XExtendsY should be present");
             CodeUnit x = maybeX.get();
 
-            List<String> direct = analyzer.getDirectAncestors(x).stream()
+            List<String> direct = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(x).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("BaseClass"), direct, "XExtendsY should directly extend BaseClass");
 
-            List<String> transitive =
-                    analyzer.getAncestors(x).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            List<String> transitive = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(x).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
             assertEquals(List.of("BaseClass"), transitive, "XExtendsY should have BaseClass as its only ancestor");
 
             // Summary fragment should include a clearly delineated direct ancestors section
@@ -88,13 +110,15 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeImpl.isPresent(), "Definition for ServiceImpl should be present");
             CodeUnit impl = maybeImpl.get();
 
-            List<String> direct = analyzer.getDirectAncestors(impl).stream()
-                    .map(CodeUnit::fqName)
-                    .collect(Collectors.toList());
+            List<String> direct =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(impl).stream()
+                            .map(CodeUnit::fqName)
+                            .collect(Collectors.toList());
             assertEquals(List.of("ServiceInterface"), direct, "ServiceImpl should directly implement ServiceInterface");
 
-            List<String> transitive =
-                    analyzer.getAncestors(impl).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            List<String> transitive = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(impl).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
             assertEquals(List.of("ServiceInterface"), transitive, "No transitive ancestors beyond the interface");
 
             // Summary fragment should include a clearly delineated direct ancestors section
@@ -145,16 +169,18 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeCls.isPresent(), "Definition for ExtendsAndImplements should be present");
             CodeUnit cls = maybeCls.get();
 
-            List<String> direct = analyzer.getDirectAncestors(cls).stream()
-                    .map(CodeUnit::fqName)
-                    .collect(Collectors.toList());
+            List<String> direct =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(cls).stream()
+                            .map(CodeUnit::fqName)
+                            .collect(Collectors.toList());
             assertEquals(
                     List.of("BaseClass", "ServiceInterface", "Interface"),
                     direct,
                     "Order should be [superclass, interfaces...] for Java");
 
-            List<String> transitive =
-                    analyzer.getAncestors(cls).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            List<String> transitive = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(cls).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
             assertEquals(
                     List.of("BaseClass", "ServiceInterface", "Interface"),
                     transitive,
@@ -195,8 +221,18 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybePlain.isPresent(), "Definition for Plain should be present");
             CodeUnit plain = maybePlain.get();
 
-            assertTrue(analyzer.getDirectAncestors(plain).isEmpty(), "Plain should have no direct ancestors");
-            assertTrue(analyzer.getAncestors(plain).isEmpty(), "Plain should have no transitive ancestors");
+            assertTrue(
+                    analyzer.as(TypeHierarchyProvider.class)
+                            .orElseThrow()
+                            .getDirectAncestors(plain)
+                            .isEmpty(),
+                    "Plain should have no direct ancestors");
+            assertTrue(
+                    analyzer.as(TypeHierarchyProvider.class)
+                            .orElseThrow()
+                            .getAncestors(plain)
+                            .isEmpty(),
+                    "Plain should have no transitive ancestors");
 
             // Summary fragment should NOT include a direct ancestors section
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
@@ -237,13 +273,16 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeGrand.isPresent(), "Definition for GrandChild should be present");
             CodeUnit grand = maybeGrand.get();
 
-            List<String> direct = analyzer.getDirectAncestors(grand).stream()
-                    .map(CodeUnit::fqName)
-                    .collect(Collectors.toList());
+            List<String> direct =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(grand).stream()
+                            .map(CodeUnit::fqName)
+                            .collect(Collectors.toList());
             assertEquals(List.of("Child"), direct, "GrandChild should directly extend Child");
 
             List<String> transitive =
-                    analyzer.getAncestors(grand).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(grand).stream()
+                            .map(CodeUnit::fqName)
+                            .collect(Collectors.toList());
             assertEquals(List.of("Child", "Base"), transitive, "Transitive ancestors should be Child then Base");
         }
     }
@@ -270,13 +309,14 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeB.isPresent(), "Definition for p2.B should be present");
             CodeUnit b = maybeB.get();
 
-            List<String> direct = analyzer.getDirectAncestors(b).stream()
+            List<String> direct = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(b).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p1.A"), direct, "p2.B should directly extend p1.A (resolved via direct import)");
 
-            List<String> transitive =
-                    analyzer.getAncestors(b).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            List<String> transitive = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(b).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
             assertEquals(List.of("p1.A"), transitive, "Transitive ancestors should be p1.A");
         }
     }
@@ -303,13 +343,14 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeC.isPresent(), "Definition for p3.C should be present");
             CodeUnit c = maybeC.get();
 
-            List<String> direct = analyzer.getDirectAncestors(c).stream()
+            List<String> direct = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(c).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p1.A"), direct, "p3.C should directly extend p1.A (resolved via wildcard import)");
 
-            List<String> transitive =
-                    analyzer.getAncestors(c).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            List<String> transitive = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(c).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
             assertEquals(List.of("p1.A"), transitive, "Transitive ancestors should be p1.A");
         }
     }
@@ -352,7 +393,7 @@ public class JavaTypeHierarchyTest {
             var maybeB = analyzer.getDefinitions("p2.B").stream().findFirst();
             assertTrue(maybeB.isPresent(), "Definition for p2.B should be present");
             CodeUnit b = maybeB.get();
-            List<String> bDirect = analyzer.getDirectAncestors(b).stream()
+            List<String> bDirect = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(b).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p1.A"), bDirect, "p2.B should extend p1.A");
@@ -361,7 +402,7 @@ public class JavaTypeHierarchyTest {
             var maybeC = analyzer.getDefinitions("p3.C").stream().findFirst();
             assertTrue(maybeC.isPresent(), "Definition for p3.C should be present");
             CodeUnit c = maybeC.get();
-            List<String> cDirect = analyzer.getDirectAncestors(c).stream()
+            List<String> cDirect = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(c).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p1.A"), cDirect, "p3.C should extend p1.A");
@@ -370,26 +411,28 @@ public class JavaTypeHierarchyTest {
             var maybeD = analyzer.getDefinitions("p4.D").stream().findFirst();
             assertTrue(maybeD.isPresent(), "Definition for p4.D should be present");
             CodeUnit d = maybeD.get();
-            List<String> dDirect = analyzer.getDirectAncestors(d).stream()
+            List<String> dDirect = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(d).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p2.B"), dDirect, "p4.D should directly extend p2.B");
 
-            List<String> dTransitive =
-                    analyzer.getAncestors(d).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            List<String> dTransitive = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(d).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
             assertEquals(List.of("p2.B", "p1.A"), dTransitive, "p4.D's transitive ancestors should be p2.B then p1.A");
 
             // Verify E's hierarchy (extends C which extends A)
             var maybeE = analyzer.getDefinitions("p4.E").stream().findFirst();
             assertTrue(maybeE.isPresent(), "Definition for p4.E should be present");
             CodeUnit e = maybeE.get();
-            List<String> eDirect = analyzer.getDirectAncestors(e).stream()
+            List<String> eDirect = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(e).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p3.C"), eDirect, "p4.E should directly extend p3.C");
 
-            List<String> eTransitive =
-                    analyzer.getAncestors(e).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            List<String> eTransitive = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(e).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
             assertEquals(List.of("p3.C", "p1.A"), eTransitive, "p4.E's transitive ancestors should be p3.C then p1.A");
         }
     }
@@ -416,7 +459,7 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeD.isPresent(), "Definition for p2.D should be present");
             CodeUnit d = maybeD.get();
 
-            List<String> direct = analyzer.getDirectAncestors(d).stream()
+            List<String> direct = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(d).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p1.I"), direct, "p2.D should directly implement p1.I (resolved via direct import)");
@@ -445,7 +488,7 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeE.isPresent(), "Definition for p3.E should be present");
             CodeUnit e = maybeE.get();
 
-            List<String> direct = analyzer.getDirectAncestors(e).stream()
+            List<String> direct = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(e).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p1.I"), direct, "p3.E should directly implement p1.I (resolved via wildcard import)");
@@ -476,7 +519,7 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeF.isPresent(), "Definition for p2.F should be present");
             CodeUnit f = maybeF.get();
 
-            List<String> direct = analyzer.getDirectAncestors(f).stream()
+            List<String> direct = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(f).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(
@@ -509,9 +552,10 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeImpl.isPresent(), "Definition for p2.Impl should be present");
             CodeUnit impl = maybeImpl.get();
 
-            List<String> direct = analyzer.getDirectAncestors(impl).stream()
-                    .map(CodeUnit::fqName)
-                    .collect(Collectors.toList());
+            List<String> direct =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(impl).stream()
+                            .map(CodeUnit::fqName)
+                            .collect(Collectors.toList());
             assertEquals(
                     List.of("p1.Base", "p1.Service"),
                     direct,
@@ -545,23 +589,25 @@ public class JavaTypeHierarchyTest {
             CodeUnit b = maybeB.get();
 
             // Direct ancestors
-            List<String> aDirect = analyzer.getDirectAncestors(a).stream()
+            List<String> aDirect = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(a).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p.B"), aDirect, "A should directly extend B");
 
-            List<String> bDirect = analyzer.getDirectAncestors(b).stream()
+            List<String> bDirect = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(b).stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
             assertEquals(List.of("p.A"), bDirect, "B should directly extend A");
 
             // Transitive ancestors must terminate and de-duplicate
-            List<String> aTransitive =
-                    analyzer.getAncestors(a).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            List<String> aTransitive = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(a).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
             assertEquals(List.of("p.B"), aTransitive, "A's ancestors should contain B only once and terminate");
 
-            List<String> bTransitive =
-                    analyzer.getAncestors(b).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            List<String> bTransitive = analyzer.as(TypeHierarchyProvider.class).orElseThrow().getAncestors(b).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
             assertEquals(List.of("p.A"), bTransitive, "B's ancestors should contain A only once and terminate");
         }
     }
@@ -596,9 +642,10 @@ public class JavaTypeHierarchyTest {
             assertTrue(maybeChild.isPresent(), "Definition for p3.Child should be present");
             CodeUnit child = maybeChild.get();
 
-            List<String> direct = analyzer.getDirectAncestors(child).stream()
-                    .map(CodeUnit::fqName)
-                    .collect(Collectors.toList());
+            List<String> direct =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectAncestors(child).stream()
+                            .map(CodeUnit::fqName)
+                            .collect(Collectors.toList());
             assertEquals(
                     List.of("p1.Base"),
                     direct,
@@ -623,10 +670,11 @@ public class JavaTypeHierarchyTest {
             var b = analyzer.getDefinitions("B").iterator().next();
             var c = analyzer.getDefinitions("C").iterator().next();
 
-            assertEquals(Set.of(b), analyzer.getDirectDescendants(a), "A should have B as a direct descendant");
-            assertEquals(List.of(b, c), analyzer.getDescendants(a), "A should have B and C as transitive descendants");
-            assertEquals(Set.of(c), analyzer.getDirectDescendants(b), "B should have C as a direct descendant");
-            assertTrue(analyzer.getDirectDescendants(c).isEmpty(), "C should have no descendants");
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            assertEquals(Set.of(b), hierarchy.getDirectDescendants(a), "A should have B as a direct descendant");
+            assertEquals(List.of(b, c), hierarchy.getDescendants(a), "A should have B and C as transitive descendants");
+            assertEquals(Set.of(c), hierarchy.getDirectDescendants(b), "B should have C as a direct descendant");
+            assertTrue(hierarchy.getDirectDescendants(c).isEmpty(), "C should have no descendants");
         }
     }
 
@@ -648,8 +696,9 @@ public class JavaTypeHierarchyTest {
             var b = analyzer.getDefinitions("B").iterator().next();
             var c = analyzer.getDefinitions("C").iterator().next();
 
-            assertEquals(Set.of(a, b), analyzer.getDirectDescendants(i), "I should be implemented by A and B");
-            var descendants = analyzer.getDescendants(i);
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            assertEquals(Set.of(a, b), hierarchy.getDirectDescendants(i), "I should be implemented by A and B");
+            var descendants = hierarchy.getDescendants(i);
             assertTrue(descendants.containsAll(List.of(a, b, c)), "I should have A, B, and C as descendants");
             assertEquals(3, descendants.size());
         }
@@ -667,8 +716,9 @@ public class JavaTypeHierarchyTest {
 
             var leaf = analyzer.getDefinitions("Leaf").iterator().next();
 
-            assertTrue(analyzer.getDirectDescendants(leaf).isEmpty());
-            assertTrue(analyzer.getDescendants(leaf).isEmpty());
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            assertTrue(hierarchy.getDirectDescendants(leaf).isEmpty());
+            assertTrue(hierarchy.getDescendants(leaf).isEmpty());
         }
     }
 
@@ -686,11 +736,140 @@ public class JavaTypeHierarchyTest {
             var parent = analyzer.getDefinitions("Parent").iterator().next();
             var child = analyzer.getDefinitions("Child").iterator().next();
 
-            var firstCall = analyzer.getDirectDescendants(parent);
-            var secondCall = analyzer.getDirectDescendants(parent);
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            var firstCall = hierarchy.getDirectDescendants(parent);
+            var secondCall = hierarchy.getDirectDescendants(parent);
 
             assertEquals(Set.of(child), firstCall);
             assertEquals(firstCall, secondCall, "Results should be consistent across multiple calls");
+        }
+    }
+
+    @Test
+    public void descendants_preFilterHandlesFullyQualifiedNames() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package p1;
+                        public class Base {}
+                        """,
+                "Base.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                                package p2;
+                                // No import, using FQN in extends
+                                public class Child extends p1.Base {}
+                                """,
+                        "Child.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject).update();
+
+            var base = analyzer.getDefinitions("p1.Base").iterator().next();
+            var child = analyzer.getDefinitions("p2.Child").iterator().next();
+
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+
+            // The pre-filter checks if "Base" (shortName) is contained in "p1.Base" (rawSupertype)
+            var descendants = hierarchy.getDirectDescendants(base);
+            assertEquals(
+                    Set.of(child), descendants, "Base should have Child as descendant even when referenced by FQN");
+        }
+    }
+
+    @Test
+    public void descendants_lazyComputationOnlyProcessesCandidates() throws IOException {
+        // Create a project with several unrelated classes and one inheritance relationship
+        // The test verifies that querying descendants of UnrelatedBase only processes
+        // classes whose rawSupertypes mention "UnrelatedBase", not ALL classes
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package p1;
+                        public class UnrelatedBase {}
+                        """,
+                "UnrelatedBase.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                                package p1;
+                                public class UnrelatedChild extends UnrelatedBase {}
+                                """,
+                        "UnrelatedChild.java")
+                .addFileContents(
+                        """
+                                package p2;
+                                public class CompletelyDifferent {}
+                                """,
+                        "CompletelyDifferent.java")
+                .addFileContents(
+                        """
+                                package p2;
+                                public class AnotherUnrelated {}
+                                """,
+                        "AnotherUnrelated.java")
+                .addFileContents(
+                        """
+                                package p3;
+                                public class YetAnotherClass {}
+                                """,
+                        "YetAnotherClass.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject).update();
+
+            var unrelatedBase =
+                    analyzer.getDefinitions("p1.UnrelatedBase").iterator().next();
+            var unrelatedChild =
+                    analyzer.getDefinitions("p1.UnrelatedChild").iterator().next();
+            var completelyDifferent =
+                    analyzer.getDefinitions("p2.CompletelyDifferent").iterator().next();
+
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+
+            // Query descendants of UnrelatedBase - should find UnrelatedChild
+            // This should only process classes whose rawSupertypes contain "UnrelatedBase"
+            var descendants = hierarchy.getDirectDescendants(unrelatedBase);
+            assertEquals(
+                    Set.of(unrelatedChild),
+                    descendants,
+                    "UnrelatedBase should have UnrelatedChild as its only direct descendant");
+
+            // Query descendants of a leaf class with no subtypes
+            // This should return empty without processing any other classes
+            var leafDescendants = hierarchy.getDirectDescendants(completelyDifferent);
+            assertTrue(leafDescendants.isEmpty(), "CompletelyDifferent has no subtypes and should return empty set");
+
+            // Verify that the optimization works: querying descendants of UnrelatedBase
+            // again should return cached results instantly
+            var cachedDescendants = hierarchy.getDirectDescendants(unrelatedBase);
+            assertEquals(descendants, cachedDescendants, "Cached descendants should match original query");
+        }
+    }
+
+    @Test
+    public void lazyExtraction_notCalledDuringInitialParse() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                        public class A extends B {}
+                        public class B {}
+                        """,
+                        "LazyTest.java")
+                .build()) {
+
+            // Create our tracking analyzer
+            var analyzer = new TrackingJavaAnalyzer(testProject);
+
+            // 1. Verify extraction hasn't happened yet after constructor
+            assertEquals(0, analyzer.extractionCount.get(), "Extraction should not happen during initial parse");
+
+            // 2. Trigger hierarchy computation
+            var maybeA = analyzer.getDefinitions("A").stream().findFirst();
+            assertTrue(maybeA.isPresent());
+            CodeUnit a = maybeA.get();
+
+            var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            List<CodeUnit> ancestors = hierarchy.getDirectAncestors(a);
+
+            // 3. Verify extraction was triggered
+            assertTrue(analyzer.extractionCount.get() > 0, "Extraction should be triggered on-demand");
+            assertEquals(1, ancestors.size());
+            assertEquals("B", ancestors.getFirst().fqName());
         }
     }
 }

@@ -1,5 +1,6 @@
 package ai.brokk.context;
 
+import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IContextManager;
@@ -8,15 +9,11 @@ import ai.brokk.TaskResult;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingFuture;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import ai.brokk.util.StringDiskCache;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import org.jetbrains.annotations.Blocking;
 
 /**
@@ -66,11 +63,7 @@ public record ContextDelta(
      * @return a ContextDelta describing the changes
      */
     public static ComputedValue<ContextDelta> between(Context from, Context to) {
-        var executor = ExecutorsUtil.newVirtualThreadExecutor("delta-between-", 1);
-        return new ComputedValue<>(
-                "delta",
-                LoggingFuture.supplyAsync(() -> betweenInternal(from, to), executor)
-                        .whenComplete((r, e) -> executor.shutdown()));
+        return new ComputedValue<>("delta", LoggingFuture.supplyVirtual(() -> betweenInternal(from, to)));
     }
 
     @Blocking
@@ -92,7 +85,7 @@ public record ContextDelta(
             addedTasks.addAll(to.taskHistory.subList(from.taskHistory.size(), to.taskHistory.size()));
         }
         // Check for compression in the overlapping portion of history
-        int commonSize = Math.min(from.taskHistory.size(), to.taskHistory.size());
+        int commonSize = min(from.taskHistory.size(), to.taskHistory.size());
         for (int i = 0; i < commonSize; i++) {
             if (to.taskHistory.get(i).isCompressed() && !from.taskHistory.get(i).isCompressed()) {
                 compressedHistory = true;
@@ -166,18 +159,18 @@ public record ContextDelta(
         }
 
         var executor = ExecutorsUtil.newVirtualThreadExecutor("delta-desc-", 1);
-        return new ComputedValue<>(LoggingFuture.supplyAsync(() -> descriptionInternal(icm), executor)
+        return new ComputedValue<>(LoggingFuture.supplyCallableAsync(() -> descriptionInternal(icm), executor)
                 .whenComplete((r, e) -> executor.shutdown()));
     }
 
     @Blocking
-    private String descriptionInternal(IContextManager icm) {
+    private String descriptionInternal(IContextManager icm) throws InterruptedException {
         // Prioritize task history (user/AI turn)
         if (!addedTasks.isEmpty()) {
             // If it's just a single CONTEXT task, we ignore it and build description normally.
             // Otherwise, we pick the last non-CONTEXT task to describe the turn.
             var nonContextTasks = addedTasks.stream()
-                    .filter(t -> t.meta() == null || t.meta().type() != TaskResult.Type.CONTEXT)
+                    .filter(t -> t.meta() == null || t.meta().type() != TaskResult.Type.SCAN)
                     .toList();
 
             if (!nonContextTasks.isEmpty()) {
@@ -223,28 +216,19 @@ public record ContextDelta(
     }
 
     @Blocking
-    private String buildTaskDescription(TaskEntry entry, IContextManager icm) {
+    private String buildTaskDescription(TaskEntry entry, IContextManager icm) throws InterruptedException {
         String prefix = (entry.meta() == null) ? "" : entry.meta().type().displayName() + ": ";
 
         String taskText =
                 entry.isCompressed() ? requireNonNull(entry.summary()) : requireNonNull(entry.log()).shortDescription;
 
-        String cacheKey;
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-1").digest(taskText.getBytes(StandardCharsets.UTF_8));
-            cacheKey = "action_" + HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
-
+        String cacheKey = "action_" + StringDiskCache.sha1Hex(taskText);
         var actionText = taskText.split("\\s+").length <= 7
                 ? taskText
-                : icm.getProject().getDiskCache().computeIfAbsent(cacheKey, () -> {
-                    try {
-                        return icm.summarizeTaskForConversation(taskText).get();
-                    } catch (InterruptedException | ExecutionException e) {
-                        throw new RuntimeException(e);
-                    }
+                : icm.getProject().getDiskCache().computeIfAbsentInterruptibly(cacheKey, () -> {
+                    return icm.summarizeTaskForConversation(taskText)
+                            .exceptionally(th -> taskText.substring(0, min(taskText.length(), 30)))
+                            .join();
                 });
 
         return prefix + actionText;

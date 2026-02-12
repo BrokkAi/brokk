@@ -6,7 +6,6 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.util.SourceCaptureUtil;
@@ -14,8 +13,6 @@ import ai.brokk.util.FileManagerUtil;
 import com.google.common.base.Splitter;
 import java.awt.Component;
 import java.awt.Container;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -174,12 +171,15 @@ public class ContextMenuBuilder {
         if (analyzerReady) {
             var fqn = context.fqn() != null ? context.fqn() : context.symbolName();
             var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
-            if (analyzer != null
-                    && !analyzer.getDefinitions(fqn).isEmpty()
-                    && analyzer.as(SourceCodeProvider.class).isPresent()) {
-                var captureSourceItem = new JMenuItem("Capture Class Source");
-                captureSourceItem.addActionListener(e -> captureClassSource(context));
-                parent.add(captureSourceItem);
+            if (analyzer != null) {
+                var matchingCus = analyzer.getDefinitions(fqn);
+                if (!matchingCus.isEmpty()
+                        && matchingCus.stream()
+                                .anyMatch(cu -> SourceCaptureUtil.isSourceCaptureAvailable(cu, analyzer))) {
+                    var captureSourceItem = new JMenuItem("Capture Class Source");
+                    captureSourceItem.addActionListener(e -> captureClassSource(context));
+                    parent.add(captureSourceItem);
+                }
             }
         }
     }
@@ -434,11 +434,9 @@ public class ContextMenuBuilder {
     }
 
     private void copySymbolName(SymbolMenuContext context) {
-        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
         // Use FQN if available, otherwise fall back to simple name
         var nameToClipboard = context.fqn() != null ? context.fqn() : context.symbolName();
-        var selection = new StringSelection(nameToClipboard);
-        clipboard.setContents(selection, null);
+        context.contextManager().copyToClipboard(nameToClipboard);
         logger.debug("Copied symbol name to clipboard: {}", nameToClipboard);
     }
 

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.project.IProject;
@@ -13,6 +14,7 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,6 +82,26 @@ public class AnalyzerUtilSelectionTest {
     void fileNotFound() {
         Optional<ContextFragment> frag = AnalyzerUtil.selectFileFragment(cm, "missing.txt", false);
         assertTrue(frag.isEmpty(), "Expected empty Optional for non-existent file");
+    }
+
+    @Test
+    void fileFound_withDistinctRootPathObject() {
+        // Create a new ContextManager where the project root is a distinct Path object (different instance, same value)
+        Path distinctRoot = Path.of(projectRoot.toString());
+        assertEquals(projectRoot, distinctRoot, "Paths should represent the same location");
+
+        TestContextManager distinctCm = new TestContextManager(distinctRoot, new NoOpConsoleIO(), analyzer);
+
+        Optional<ContextFragment> frag = AnalyzerUtil.selectFileFragment(distinctCm, "src/main/java/A.java", false);
+        assertTrue(frag.isPresent(), "Should find file even if Root Path instances are distinct");
+        assertInstanceOf(ContextFragments.ProjectPathFragment.class, frag.get());
+        assertEquals(
+                "src/main/java/A.java",
+                ((ContextFragments.ProjectPathFragment) frag.get())
+                        .file()
+                        .getRelPath()
+                        .toString()
+                        .replace('\\', '/'));
     }
 
     // (b) Folder selection
@@ -155,20 +177,30 @@ public class AnalyzerUtilSelectionTest {
 
     @Test
     void usages_exactMethod_summarize() {
-        Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "com.acme.Foo.bar", true, true);
+        Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "com.acme.Foo.bar", true);
         assertTrue(frag.isPresent(), "Expected a fragment for usage selection on exact method");
         assertTrue(
-                frag.get() instanceof ContextFragments.CallGraphFragment,
-                "Summarize=true for a method should return a CallGraphFragment");
-        ContextFragments.CallGraphFragment cg = (ContextFragments.CallGraphFragment) frag.get();
-        assertEquals("com.acme.Foo.bar", cg.getMethodName(), "Method name should match input");
-        assertEquals(1, cg.getDepth(), "Depth should be 1");
-        assertFalse(cg.isCalleeGraph(), "Expected caller graph (isCalleeGraph=false)");
+                frag.get() instanceof ContextFragments.UsageFragment,
+                "Summarize=true for a method should return a UsageFragment");
+        ContextFragments.UsageFragment uf = (ContextFragments.UsageFragment) frag.get();
+        assertEquals("com.acme.Foo.bar", uf.targetIdentifier(), "Target identifier should match input");
+        assertTrue(uf.includeTestFiles(), "includeTestFiles should be true");
+        assertEquals(ContextFragments.UsageMode.FULL, uf.mode(), "Default mode should be FULL");
+    }
+
+    @Test
+    void usages_sampleMode() {
+        Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(
+                analyzer, cm, "com.acme.Foo.bar", false, ContextFragments.UsageMode.SAMPLE);
+        assertTrue(frag.isPresent(), "Expected a fragment for usage selection with SAMPLE mode");
+        ContextFragments.UsageFragment uf = (ContextFragments.UsageFragment) frag.get();
+        assertEquals(ContextFragments.UsageMode.SAMPLE, uf.mode(), "Mode should be SAMPLE");
+        assertFalse(uf.includeTestFiles(), "includeTestFiles should be false");
     }
 
     @Test
     void usages_classOrUnknown() {
-        Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "com.acme.Foo", false, true);
+        Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "com.acme.Foo", false);
         assertTrue(frag.isPresent(), "Expected a fragment for class/unknown usage selection");
         assertTrue(
                 frag.get() instanceof ContextFragments.UsageFragment,
@@ -193,8 +225,7 @@ public class AnalyzerUtilSelectionTest {
                 AnalyzerUtil.selectMethodFragment(analyzer, cm, "   ", false).isEmpty(),
                 "Method selection should be empty");
         assertTrue(
-                AnalyzerUtil.selectUsageFragment(analyzer, cm, "   ", false, false)
-                        .isEmpty(),
+                AnalyzerUtil.selectUsageFragment(analyzer, cm, "   ", false).isEmpty(),
                 "Usage selection should be empty");
     }
 
@@ -231,10 +262,34 @@ public class AnalyzerUtilSelectionTest {
 
     @Test
     void usage_noMatch_returnsUsageFragmentWithRawInput() {
-        var frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "noSuchSymbol", false, false);
+        var frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "noSuchSymbol", false);
         assertTrue(frag.isPresent(), "Expected UsageFragment to be returned even when no symbol was found");
         assertTrue(frag.get() instanceof ContextFragments.UsageFragment, "Expected UsageFragment");
         ContextFragments.UsageFragment u = (ContextFragments.UsageFragment) frag.get();
         assertEquals("noSuchSymbol", u.targetIdentifier(), "Target identifier should be the raw input");
+    }
+
+    @Test
+    void testSampleUsageHitsSelection() {
+        var hits = new HashSet<UsageHit>();
+        for (int i = 0; i < 5; i++) {
+            var enclosing = CodeUnit.fn(pfA, "com.acme.Foo", "method" + i);
+            hits.add(new UsageHit(pfA, i + 1, i * 10, i * 10 + 5, enclosing, 1.0, "snippet" + i));
+        }
+        // All 5 hits should be distinct
+        assertEquals(5, hits.size(), "All hits should be distinct when using different offsets");
+
+        // Two hits with same enclosing but different offsets should NOT be equal
+        var enclosing = CodeUnit.fn(pfA, "com.acme.Foo", "sharedMethod");
+        var hit1 = new UsageHit(pfA, 1, 0, 5, enclosing, 1.0, "a");
+        var hit2 = new UsageHit(pfA, 2, 10, 15, enclosing, 1.0, "b");
+        assertNotEquals(hit1, hit2, "Hits with different offsets should not be equal even with same enclosing");
+
+        // Two hits with same file, offsets, and enclosing should be equal
+        var hit3 = new UsageHit(pfA, 1, 0, 5, enclosing, 0.5, "c");
+        assertEquals(
+                hit1,
+                hit3,
+                "Hits with same file, offsets, and enclosing should be equal regardless of confidence/snippet");
     }
 }

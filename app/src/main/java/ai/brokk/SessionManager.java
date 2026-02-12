@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -75,15 +76,7 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public record MinimalSessionInfo(UUID id, long created, long modified) {
-        public Instant createdAt() {
-            return Instant.ofEpochMilli(created);
-        }
-
-        public Instant lastModified() {
-            return Instant.ofEpochMilli(modified);
-        }
-    }
+    public record MinimalSessionInfo(UUID id, Instant createdAt, Instant lastModified) {}
 
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
 
@@ -130,7 +123,7 @@ public class SessionManager implements AutoCloseable {
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
         int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
         var delegateExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
-        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
+        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th);
         sessionExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
@@ -181,21 +174,20 @@ public class SessionManager implements AutoCloseable {
 
     public List<MinimalSessionInfo> filterForeignSessions(Instant minBound, Instant maxBound) {
         Path foreignDir = foreignSessionsPath();
-        long minBoundMs = minBound.toEpochMilli();
-        long maxBoundMs = maxBound.toEpochMilli();
-        long ctimeGracePeriodMs = TimeUnit.DAYS.toMillis(7);
 
-        record Candidate(Path zipPath, UUID sessionId, long created) {}
+        record Candidate(Path zipPath, UUID sessionId, Instant createdAt) {}
 
         try (var stream = Files.list(foreignDir)) {
             return stream.filter(p -> p.getFileName().toString().endsWith(".zip"))
-                    .flatMap(p -> parseUuidFromFilename(p).stream()
-                            .map(id -> new Candidate(p, id, UuidUtil.getTimestamp(id))))
-                    .filter(c -> c.created() > (minBoundMs - ctimeGracePeriodMs) && c.created() < maxBoundMs)
+                    .flatMap(p ->
+                            parseUuidFromFilename(p).stream().map(id -> new Candidate(p, id, UuidUtil.getInstant(id))))
+                    .filter(c -> c.createdAt().isAfter(minBound.minus(Duration.ofDays(7)))
+                            && c.createdAt().isBefore(maxBound))
                     .flatMap(c -> {
-                        long modified;
+                        Instant modified;
                         try {
-                            modified = Files.getLastModifiedTime(c.zipPath()).toMillis();
+                            modified = Instant.ofEpochMilli(
+                                    Files.getLastModifiedTime(c.zipPath()).toMillis());
                         } catch (IOException e) {
                             logger.warn(
                                     "Error reading mtime for foreign session {}: {}",
@@ -204,7 +196,7 @@ public class SessionManager implements AutoCloseable {
                             return Stream.empty();
                         }
 
-                        return Stream.of(new MinimalSessionInfo(c.sessionId(), c.created(), modified));
+                        return Stream.of(new MinimalSessionInfo(c.sessionId(), c.createdAt(), modified));
                     })
                     .filter(s ->
                             s.lastModified().isAfter(minBound) && s.createdAt().isBefore(maxBound))
@@ -613,6 +605,37 @@ public class SessionManager implements AutoCloseable {
         } catch (IOException e) {
             logger.warn("Failed to count AI responses for session {}", sessionId, e);
             return 0;
+        }
+    }
+
+    /**
+     * Counts incomplete tasks for a session without loading full history.
+     * Returns TaskCounts with total and incomplete counts.
+     */
+    @Blocking
+    public HistoryIo.TaskCounts countIncompleteTasks(UUID sessionId) {
+        try {
+            Path zipPath = resolveSessionHistoryZipPath(sessionId);
+            return HistoryIo.countIncompleteTasks(zipPath);
+        } catch (IOException e) {
+            logger.warn("Failed to count incomplete tasks for session {}", sessionId, e);
+            return new HistoryIo.TaskCounts(0, 0);
+        }
+    }
+
+    /**
+     * Counts both AI responses and tasks for a session in a single pass.
+     * More efficient than calling countAiResponses() and countIncompleteTasks() separately.
+     * Returns SessionCounts with both AI response count and task counts.
+     */
+    @Blocking
+    public HistoryIo.SessionCounts countSessionStats(UUID sessionId) {
+        try {
+            Path zipPath = resolveSessionHistoryZipPath(sessionId);
+            return HistoryIo.countSessionStats(zipPath);
+        } catch (IOException e) {
+            logger.warn("Failed to count session stats for session {}", sessionId, e);
+            return new HistoryIo.SessionCounts(0, new HistoryIo.TaskCounts(0, 0));
         }
     }
 

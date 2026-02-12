@@ -8,14 +8,12 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.analyzer.CallGraphProvider;
-import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
-import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
@@ -39,6 +37,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -56,6 +55,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -86,7 +86,12 @@ public class ContextFragments {
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         return units.stream()
                 .filter(CodeUnit::isClass)
-                .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                .flatMap(cu ->
+                        analyzer
+                                .as(TypeHierarchyProvider.class)
+                                .map(p -> p.getDirectAncestors(cu))
+                                .orElse(List.of())
+                                .stream())
                 .filter(anc -> !anc.isAnonymous())
                 .distinct()
                 .map(anc -> new SummaryFragment(
@@ -183,6 +188,9 @@ public class ContextFragments {
     abstract static class AbstractComputedFragment implements ContextFragment.ComputedFragment {
         protected final String id;
         protected final IContextManager contextManager;
+        // desc and shortDesc are broken out so that DiffService only has to block for the very few
+        // fragments that don't know their description right away, instead of the many fragments that don't know their
+        // text()
         protected final ComputedValue<String> descriptionCv;
         protected final ComputedValue<String> shortDescriptionCv;
         protected final ComputedValue<String> syntaxStyleCv;
@@ -232,14 +240,18 @@ public class ContextFragments {
                     : ComputedValue.completed("snap-" + id, initialSnapshot);
         }
 
+        private ComputedValue<Void> allReadyCv() {
+            return ComputedValue.allOf(descriptionCv, shortDescriptionCv, syntaxStyleCv, snapshotCv);
+        }
+
         @Override
         public boolean await(Duration timeout) throws InterruptedException {
-            return snapshotCv.await(timeout).isPresent();
+            return allReadyCv().await(timeout).isPresent();
         }
 
         @Override
         public ComputedValue.Subscription onComplete(Runnable runnable) {
-            return snapshotCv.onComplete((v, ex) -> runnable.run());
+            return allReadyCv().onComplete((v, ex) -> runnable.run());
         }
 
         @Override
@@ -442,6 +454,10 @@ public class ContextFragments {
                             ? null
                             : decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file, contextManager) : null);
+            if (file.getRelPath().normalize().getFileName() == null) {
+                throw new IllegalArgumentException("ProjectPathFragment relPath must not be empty");
+            }
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
         }
 
@@ -512,6 +528,10 @@ public class ContextFragments {
                     "%s @%s".formatted(file.getFileName(), revision),
                     FileTypeUtil.get().guessContentType(file.absPath().toFile()),
                     ContentSnapshot.textSnapshot(content, Set.of(), Set.of(file)));
+            if (file.getRelPath().normalize().getFileName() == null) {
+                throw new IllegalArgumentException("ProjectPathFragment relPath must not be empty");
+            }
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
             this.revision = revision;
             this.content = content;
@@ -598,6 +618,7 @@ public class ContextFragments {
                     FileTypeUtil.get().guessContentType(file.absPath().toFile()),
                     snapshotText == null ? null : decodeFrozen(snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file) : null);
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
         }
 
@@ -639,6 +660,7 @@ public class ContextFragments {
                     SyntaxConstants.SYNTAX_STYLE_NONE,
                     null,
                     () -> computeSnapshotFor(file));
+            assert !file.isDirectory() : file; // assert so we don't do i/o here in prod
             this.file = file;
         }
 
@@ -1133,16 +1155,27 @@ public class ContextFragments {
         }
     }
 
+    public enum UsageMode {
+        FULL, // Show all usages with full method sources
+        SAMPLE // Show shortest calling method per overload, capped at 50
+    }
+
     public static class UsageFragment extends AbstractComputedFragment {
         private final String targetIdentifier;
         private final boolean includeTestFiles;
+        private final UsageMode mode;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
-            this(contextManager, targetIdentifier, true, null);
+            this(contextManager, targetIdentifier, true, null, UsageMode.FULL);
         }
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-            this(contextManager, targetIdentifier, includeTestFiles, null);
+            this(contextManager, targetIdentifier, includeTestFiles, null, UsageMode.FULL);
+        }
+
+        public UsageFragment(
+                IContextManager contextManager, String targetIdentifier, boolean includeTestFiles, UsageMode mode) {
+            this(contextManager, targetIdentifier, includeTestFiles, null, mode);
         }
 
         public UsageFragment(
@@ -1150,16 +1183,22 @@ public class ContextFragments {
                 String targetIdentifier,
                 boolean includeTestFiles,
                 @Nullable String snapshotText) {
-            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, snapshotText);
-        }
-
-        public UsageFragment(String id, IContextManager contextManager, String targetIdentifier) {
-            this(id, contextManager, targetIdentifier, true, null);
+            this(
+                    UUID.randomUUID().toString(),
+                    contextManager,
+                    targetIdentifier,
+                    includeTestFiles,
+                    snapshotText,
+                    snapshotText == null ? UsageMode.FULL : inferUsageModeFromFrozenText(snapshotText));
         }
 
         public UsageFragment(
-                String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-            this(id, contextManager, targetIdentifier, includeTestFiles, null);
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText,
+                UsageMode mode) {
+            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, snapshotText, mode);
         }
 
         public UsageFragment(
@@ -1168,20 +1207,41 @@ public class ContextFragments {
                 String targetIdentifier,
                 boolean includeTestFiles,
                 @Nullable String snapshotText) {
+            this(
+                    id,
+                    contextManager,
+                    targetIdentifier,
+                    includeTestFiles,
+                    snapshotText,
+                    snapshotText == null ? UsageMode.FULL : inferUsageModeFromFrozenText(snapshotText));
+        }
+
+        public UsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText,
+                UsageMode mode) {
             super(
                     id,
                     contextManager,
                     "Uses of " + targetIdentifier,
                     "Uses of " + targetIdentifier,
-                    SyntaxConstants.SYNTAX_STYLE_NONE, // Will be updated if we find files/units
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
                     snapshotText == null
                             ? null
                             : decodeFrozen(contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null
-                            ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager)
+                            ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, mode, contextManager)
                             : null);
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
+            this.mode = mode;
+        }
+
+        private static UsageMode inferUsageModeFromFrozenText(String snapshotText) {
+            return snapshotText.contains("Call sites (") ? UsageMode.SAMPLE : UsageMode.FULL;
         }
 
         private static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
@@ -1253,10 +1313,53 @@ public class ContextFragments {
                 }
             }
 
-            // If no files were decoded explicitly, derive from resolved units
-            if (files.isEmpty() && !units.isEmpty()) {
-                files.addAll(units.stream().map(CodeUnit::source).collect(Collectors.toCollection(LinkedHashSet::new)));
+            // SAMPLE-mode frozen text also contains a call-site list. Rebuild sources/files from that list as well.
+            var callSiteMatcher = Pattern.compile("(?m)^-\\s*`([^`]+)`(?:\\s*\\(([^)]*)\\))?\\s*$")
+                    .matcher(text);
+            while (callSiteMatcher.find()) {
+                String fqName = callSiteMatcher.group(1).trim();
+                if (fqName.isEmpty()) {
+                    continue;
+                }
+
+                try {
+                    units.addAll(analyzer.getDefinitions(fqName));
+                } catch (Exception e) {
+                    logger.warn("Unable to resolve call site CodeUnit for '{}'", fqName, e);
+                }
+
+                String meta = callSiteMatcher.group(2);
+                if (meta != null) {
+                    String metaTrimmed = meta.trim();
+
+                    String pathCandidate = null;
+                    if (metaTrimmed.startsWith("path=")) {
+                        int comma = metaTrimmed.indexOf(',');
+                        pathCandidate = (comma >= 0
+                                ? metaTrimmed.substring("path=".length(), comma)
+                                : metaTrimmed.substring("path=".length()));
+                    } else {
+                        int lastColon = metaTrimmed.lastIndexOf(':');
+                        if (lastColon > 0) {
+                            pathCandidate = metaTrimmed.substring(0, lastColon);
+                        }
+                    }
+
+                    if (pathCandidate != null) {
+                        String normalized = pathCandidate.trim().replace('\\', '/');
+                        if (normalized.contains("/")) {
+                            try {
+                                files.add(contextManager.toFile(normalized));
+                            } catch (Exception t) {
+                                logger.warn("Unable to resolve ProjectFile for call site path '{}'", normalized, t);
+                            }
+                        }
+                    }
+                }
             }
+
+            // Derive files from resolved units (call-site lines may not carry file paths).
+            files.addAll(units.stream().map(CodeUnit::source).collect(Collectors.toCollection(LinkedHashSet::new)));
 
             return ContentSnapshot.textSnapshot(text, units, files);
         }
@@ -1268,7 +1371,11 @@ public class ContextFragments {
 
         @Override
         public String repr() {
-            return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
+            if (mode == UsageMode.FULL) {
+                return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
+            }
+            return "SymbolUsages('%s', includeTestFiles=%s, mode=%s)"
+                    .formatted(targetIdentifier, includeTestFiles, mode);
         }
 
         public String targetIdentifier() {
@@ -1279,49 +1386,150 @@ public class ContextFragments {
             return includeTestFiles;
         }
 
+        public UsageMode mode() {
+            return mode;
+        }
+
         private static ContentSnapshot computeSnapshotFor(
-                String targetIdentifier, boolean includeTestFiles, IContextManager contextManager) {
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
+                String targetIdentifier, boolean includeTestFiles, UsageMode mode, IContextManager contextManager)
+                throws InterruptedException {
+            IAnalyzer analyzer = contextManager.getAnalyzer();
+            Predicate<ProjectFile> fileFilter =
+                    includeTestFiles ? null : file -> !ContextManager.isTestFile(file, analyzer);
+
+            FuzzyResult usageResult =
+                    FuzzyUsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
             var either = usageResult.toEither();
 
-            String text;
-            Set<CodeUnit> sources = Collections.emptySet();
+            var definitions = analyzer.getDefinitions(targetIdentifier);
+            boolean valid = !definitions.isEmpty();
+            Optional<CodeUnit> definingOwner = definitions.stream().findFirst().map(def -> analyzer.parentOf(def)
+                    .orElse(def));
 
             if (either.hasErrorMessage()) {
-                text = either.getErrorMessage();
-            } else {
-                List<UsageHit> uses = either.getUsages().stream()
-                        .sorted(Comparator.comparingDouble(UsageHit::confidence).reversed())
-                        .toList();
-                if (!includeTestFiles) {
-                    uses = uses.stream()
-                            .filter(cu -> !ContextManager.isTestFile(cu.file(), analyzer))
-                            .toList();
-                }
-                List<AnalyzerUtil.CodeWithSource> parts = AnalyzerUtil.processUsages(
-                        analyzer, uses.stream().map(UsageHit::enclosing).toList());
-                String formatted = AnalyzerUtil.CodeWithSource.text(parts);
-                text = formatted.isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : formatted;
-                sources =
-                        parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
+                return new ContentSnapshot(either.getErrorMessage(), Set.of(), Set.of(), (List<Byte>) null, valid);
             }
 
+            List<UsageHit> externalHits = externalUsages(analyzer, definingOwner, either.getUsages());
+
+            if (mode == UsageMode.SAMPLE) {
+                return computeSampleSnapshot(targetIdentifier, analyzer, externalHits, valid);
+            }
+
+            return computeFullSnapshot(targetIdentifier, analyzer, externalHits, valid);
+        }
+
+        private static List<UsageHit> externalUsages(
+                IAnalyzer analyzer, Optional<CodeUnit> definingOwner, java.util.Collection<UsageHit> hits) {
+            java.util.Comparator<UsageHit> stableOrder = Comparator.comparing(
+                            (UsageHit h) -> h.file().toString())
+                    .thenComparingInt(UsageHit::line)
+                    .thenComparingInt(UsageHit::startOffset);
+
+            return hits.stream()
+                    .filter(hit -> isExternalUsage(analyzer, definingOwner, hit))
+                    .sorted(stableOrder)
+                    .toList();
+        }
+
+        private static boolean isExternalUsage(IAnalyzer analyzer, Optional<CodeUnit> definingOwner, UsageHit hit) {
+            if (definingOwner.isEmpty()) {
+                return true;
+            }
+
+            CodeUnit hitOwner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
+            return !hitOwner.equals(definingOwner.get());
+        }
+
+        private static ContentSnapshot computeFullSnapshot(
+                String targetIdentifier, IAnalyzer analyzer, List<UsageHit> externalHits, boolean valid) {
+            if (externalHits.isEmpty()) {
+                return new ContentSnapshot(
+                        "No relevant usages found for symbol: " + targetIdentifier,
+                        Set.of(),
+                        Set.of(),
+                        (List<Byte>) null,
+                        valid);
+            }
+
+            List<CodeUnit> enclosingMethods =
+                    externalHits.stream().map(UsageHit::enclosing).distinct().toList();
+
+            List<AnalyzerUtil.CodeWithSource> parts = enclosingMethods.stream()
+                    .map(cu -> analyzer.getSource(cu, true).map(src -> new AnalyzerUtil.CodeWithSource(src, cu)))
+                    .flatMap(Optional::stream)
+                    .toList();
+
+            String header = "# Usages of " + targetIdentifier + "\n\nFound " + externalHits.size() + " call sites.\n\n";
+            String body = AnalyzerUtil.CodeWithSource.text(analyzer, parts);
+            String text = (header + body).trim();
+
+            Set<CodeUnit> sources = new LinkedHashSet<>(enclosingMethods);
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-            if (!includeTestFiles) {
-                files = files.stream()
-                        .filter(f -> !ContextManager.isTestFile(f, analyzer))
-                        .collect(Collectors.toSet());
+            return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
+        }
+
+        private static ContentSnapshot computeSampleSnapshot(
+                String targetIdentifier, IAnalyzer analyzer, List<UsageHit> externalHits, boolean valid) {
+            if (externalHits.isEmpty()) {
+                return new ContentSnapshot(
+                        "No relevant usages found for symbol: " + targetIdentifier,
+                        Set.of(),
+                        Set.of(),
+                        (List<Byte>) null,
+                        valid);
             }
 
-            // Validity based on whether definitions exist
-            boolean valid = !analyzer.getDefinitions(targetIdentifier).isEmpty();
-            return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
+            List<UsageHit> hitsLimited = externalHits.stream().limit(50).toList();
+
+            StringBuilder sb =
+                    new StringBuilder("# Usages of ").append(targetIdentifier).append("\n\n");
+
+            sb.append("Call sites (")
+                    .append(externalHits.size())
+                    .append(externalHits.size() > 50 ? ", showing first 50" : "")
+                    .append("):\n");
+
+            hitsLimited.forEach(hit -> sb.append("- `")
+                    .append(hit.enclosing().fqName())
+                    .append("` (")
+                    .append(hit.file().getFileName())
+                    .append(":")
+                    .append(hit.line())
+                    .append(")\n"));
+
+            List<CodeUnit> distinctEnclosing =
+                    hitsLimited.stream().map(UsageHit::enclosing).distinct().toList();
+
+            sb.append("\nExamples:\n\n");
+
+            List<AnalyzerUtil.CodeWithSource> processed =
+                    AnalyzerUtil.processUsages(analyzer, distinctEnclosing).stream()
+                            .filter(p -> !p.code().isBlank())
+                            .toList();
+
+            List<AnalyzerUtil.CodeWithSource> shortestExamples = processed.stream()
+                    .sorted(Comparator.comparingInt(p -> p.code().length()))
+                    .limit(3)
+                    .toList();
+
+            if (shortestExamples.isEmpty()) {
+                sb.append("(source unavailable)\n");
+            } else {
+                sb.append(AnalyzerUtil.CodeWithSource.text(analyzer, shortestExamples))
+                        .append("\n");
+            }
+
+            String text = sb.toString().trim();
+
+            Set<CodeUnit> allSources = new LinkedHashSet<>(distinctEnclosing);
+            Set<ProjectFile> files = allSources.stream().map(CodeUnit::source).collect(Collectors.toSet());
+            return new ContentSnapshot(text, allSources, files, (List<Byte>) null, valid);
         }
 
         @Override
         public ContextFragment refreshCopy() {
-            return new UsageFragment(id, contextManager, targetIdentifier, includeTestFiles, null);
+            return new UsageFragment(id, contextManager, targetIdentifier, includeTestFiles, null, mode);
         }
     }
 
@@ -1407,39 +1615,37 @@ public class ContextFragments {
 
         private static ContentSnapshot computeSnapshotFor(
                 String fqName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
-            CodeUnit unit = preResolvedUnit;
-            if (unit == null) {
-                unit = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
-                        .findFirst()
-                        .orElseThrow(
-                                () -> new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
+            CodeUnit unitOrNull = preResolvedUnit;
+            if (unitOrNull == null) {
+                var unitOpt = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
+                        .findFirst();
+                if (unitOpt.isEmpty()) {
+                    return new ContentSnapshot("", Set.of(), Set.of(), (byte[]) null, false);
+                }
+                unitOrNull = unitOpt.get();
             }
 
+            final CodeUnit unit = unitOrNull;
             String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            var scpOpt = analyzer.as(SourceCodeProvider.class);
             boolean hasSourceCode = false;
-            if (scpOpt.isEmpty()) {
-                text = "Code Intelligence cannot extract source for: " + fqName;
-            } else {
-                var scp = scpOpt.get();
-                if (unit.isFunction()) {
-                    var codeOpt = scp.getMethodSource(unit, true);
-                    if (codeOpt.isPresent()) {
-                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                        hasSourceCode = true;
-                    } else {
-                        text = "No source found for method: " + fqName;
-                    }
-                } else {
-                    var codeOpt = scp.getClassSource(unit, true);
-                    if (codeOpt.isPresent()) {
-                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
-                        hasSourceCode = true;
-                    } else {
-                        text = "No source found for class: " + fqName;
-                    }
+
+            var codeOpt = analyzer.getSource(unit, true);
+            if (codeOpt.isPresent()) {
+                text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text(analyzer);
+                hasSourceCode = true;
+
+                Collection<String> imports = analyzer.as(ImportAnalysisProvider.class)
+                        .map(p -> (Collection<String>) p.relevantImportsFor(unit))
+                        .orElseGet(() -> analyzer.importStatementsOf(unit.source()));
+
+                if (!imports.isEmpty()) {
+                    List<String> orderedImports = new ArrayList<>(imports);
+                    Collections.sort(orderedImports);
+                    text = "<imports>\n" + String.join("\n", orderedImports) + "\n</imports>\n\n" + text;
                 }
+            } else {
+                text = "No source found for %s: %s".formatted(unit.isFunction() ? "method" : "class", fqName);
             }
 
             return new ContentSnapshot(text, Set.of(unit), Set.of(unit.source()), (List<Byte>) null, hasSourceCode);
@@ -1455,92 +1661,6 @@ public class ContextFragments {
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
             return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager);
-        }
-    }
-
-    public static class CallGraphFragment extends AbstractComputedFragment {
-        private final String methodName;
-        private final int depth;
-        private final boolean isCalleeGraph;
-
-        public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
-            this(UUID.randomUUID().toString(), contextManager, methodName, depth, isCalleeGraph);
-        }
-
-        public CallGraphFragment(
-                String id, IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
-            super(
-                    id,
-                    contextManager,
-                    "%s of %s (depth %d)".formatted(isCalleeGraph ? "Callees" : "Callers", methodName, depth),
-                    "%s of %s (depth %d)".formatted(isCalleeGraph ? "Callees" : "Callers", methodName, depth),
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    null,
-                    () -> computeSnapshotFor(methodName, depth, isCalleeGraph, contextManager));
-            this.methodName = methodName;
-            this.depth = depth;
-            this.isCalleeGraph = isCalleeGraph;
-        }
-
-        @Override
-        public FragmentType getType() {
-            return FragmentType.CALL_GRAPH;
-        }
-
-        public String getMethodName() {
-            return methodName;
-        }
-
-        public int getDepth() {
-            return depth;
-        }
-
-        public boolean isCalleeGraph() {
-            return isCalleeGraph;
-        }
-
-        @Override
-        public String repr() {
-            return "CallGraph('%s', depth=%d, direction=%s)".formatted(methodName, depth, isCalleeGraph ? "OUT" : "IN");
-        }
-
-        private static ContentSnapshot computeSnapshotFor(
-                String methodName, int depth, boolean isCalleeGraph, IContextManager contextManager) {
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-            var methodCodeUnit = analyzer.getDefinitions(methodName).stream()
-                    .filter(CodeUnit::isFunction)
-                    .findFirst();
-
-            String text;
-            Set<CodeUnit> sources = Set.of();
-            if (methodCodeUnit.isPresent()) {
-                sources = Set.of(methodCodeUnit.get());
-                var cpgOpt = analyzer.as(CallGraphProvider.class);
-                if (cpgOpt.isPresent()) {
-                    var cpg = cpgOpt.get();
-                    Map<String, List<CallSite>> graphData = isCalleeGraph
-                            ? cpg.getCallgraphFrom(methodCodeUnit.get(), depth)
-                            : cpg.getCallgraphTo(methodCodeUnit.get(), depth);
-
-                    text = graphData.isEmpty()
-                            ? "No call graph available for " + methodName
-                            : AnalyzerUtil.formatCallGraph(graphData, methodName, !isCalleeGraph);
-                } else {
-                    text = "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
-                }
-            } else {
-                text = "Method not found: " + methodName;
-            }
-
-            Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-
-            boolean valid = analyzer.getDefinitions(methodName).stream().anyMatch(CodeUnit::isFunction);
-            return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
-        }
-
-        @Override
-        public ContextFragment refreshCopy() {
-            return new CallGraphFragment(id, contextManager, methodName, depth, isCalleeGraph);
         }
     }
 
@@ -1704,15 +1824,11 @@ public class ContextFragments {
                 String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
-            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
             Set<CodeUnit> primaryTargets =
                     resolvePrimaryTargets(targetIdentifier, summaryType, analyzer, contextManager);
 
-            if (skeletonProviderOpt.isPresent()) {
-                var skeletonProvider = skeletonProviderOpt.get();
-                for (CodeUnit cu : primaryTargets) {
-                    skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
-                }
+            for (CodeUnit cu : primaryTargets) {
+                analyzer.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
             }
 
             String text;
@@ -1736,19 +1852,12 @@ public class ContextFragments {
         @Blocking
         private Map<String, CodeUnitSkeleton> skeletonsByFqName() {
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
-            if (skeletonProviderOpt.isEmpty()) {
-                return Map.of();
-            }
-            SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
-
             Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
             for (CodeUnit cu : sources().join()) {
                 if (cu.isAnonymous()) {
                     continue;
                 }
-                skeletonProvider
-                        .getSkeleton(cu)
+                analyzer.getSkeleton(cu)
                         .filter(s -> !s.isBlank())
                         .ifPresent(skeleton -> out.putIfAbsent(cu.fqName(), new CodeUnitSkeleton(cu, skeleton)));
             }
@@ -1762,7 +1871,7 @@ public class ContextFragments {
          * - Union CodeUnits across fragments via sources()
          * - Deduplicate by CodeUnit.fqName() (stable first-seen)
          * - Exclude anonymous units
-         * - Use each fragment's own analyzer via SkeletonProvider to obtain skeleton text
+         * - Use each fragment's own analyzer to obtain skeleton text
          * - Format via SkeletonFragmentFormatter in by-package mode
          */
         @Blocking

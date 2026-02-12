@@ -8,7 +8,6 @@ import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
-import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Language;
@@ -40,7 +39,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -139,10 +137,10 @@ public class ReviewAgent {
         long startTime = System.currentTimeMillis();
 
         // Prepare the initial context with the diff pinned
-        String diff = changes.toDiff();
+        String diff = changes.toReviewDiff(cm.getAnalyzer());
         var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
 
-        try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {
+        try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm)
                     .addFragments(diffFragment)
@@ -162,7 +160,7 @@ public class ReviewAgent {
                     ? cm.getProject().getModelConfig(ModelType.SCAN)
                     : modelConfig;
             var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
-            var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
+            var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review", TaskResult.Type.REVIEW).withEcho());
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
             long turn1Start = System.currentTimeMillis();
@@ -272,7 +270,7 @@ public class ReviewAgent {
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
         var model = requireNonNull(cm.getService()
                 .getModel(optimizeForLatency ? cm.getProject().getModelConfig(ModelType.SCAN) : modelConfig));
-        var llm = cm.getLlm(model, "Review Context Selection");
+        var llm = cm.getLlm(model, "Review Context Selection", TaskResult.Type.REVIEW);
 
         Set<Language> analyzerLanguages = cm.getProject().getAnalyzerLanguages();
         boolean hasAnalyzedLanguage = !analyzerLanguages.equals(Set.of(Languages.NONE));
@@ -371,7 +369,7 @@ public class ReviewAgent {
                 })
                 .filter(fd -> !fd.oldText().isEmpty() && !fd.newText().isEmpty())
                 .filter(fd -> {
-                    var diffRes = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
+                    var diffRes = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new", 1);
                     return diffRes.diff().split("@@").length > 3; // > 2 hunks
                 })
                 .map(fd -> {
@@ -722,7 +720,7 @@ public class ReviewAgent {
                         title,
                         LoggingFuture.supplyAsync(
                                 () -> {
-                                    Llm correctionLlm = cm.getLlm(llm.getModel(), "Note Correction");
+                                    Llm correctionLlm = llm.copy("Note Correction");
                                     String currentNote = noteSection;
                                     List<String> currentIssues = initialIssues;
 
@@ -895,8 +893,12 @@ public class ReviewAgent {
                 - Key changes: highlight the most important changes, especially to data structures.
                 - Design notes: Higher level concerns (architectural issues, coupling, abstraction problems).
                 - Tactical notes: Simple issues localized to a single method or file.
-                - Each design note MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant
+                - Each design note MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant.
                 - Each Tactical note must include EXACTLY ONE excerpt block.
+
+                IMPORTANT: Each Design Note and Tactical Note MUST be self-contained enough to enqueue as an engineering task.
+                That means each note must include the fully qualified class and method names it refers to, and must not rely on
+                the reader having seen the rest of the review.
 
                 All titles should be 3-6 words.
 
@@ -907,6 +909,16 @@ public class ReviewAgent {
 
                 Every section except Overview is optional; omit them if there is nothing important to say.
                 </instructions>
+                <review_content>
+                Unless there is strong evidence to the contrary, you should assume that the code compiles and runs.
+                You should be especially cautious about drawing conclusions of compile errors from diffs alone.
+
+                If you have Patch Instructions available, call out important incomplete or unimplemented functionality that
+                was asked for but not delivered, but be aware that instructions may be neither complete nor authoritative;
+                the instructions may include false starts, and the patch may include external changes.
+
+                You should NOT assume that more tests exist besides what you see.
+                </review_content>
                 <excerpt_format>
                 When referencing code, use the following format with the file path and line number on a separate line before the code block:
 
@@ -927,16 +939,16 @@ public class ReviewAgent {
 
                 ## Design Notes
                 ### [Title of first design note]
-                [Description text. Include code blocks as needed.]
-                **Recommendation:** [Detailed instructions for fixing the design issue. Must be actionable by a developer without reference to your review outside of this note's description.]
+                [Description text. Include code blocks as needed. The description must stand alone without requiring the reader to reference other review sections.]
+                **Recommendation:** [Actionable, step-by-step instructions for fixing the issue.]
 
                 ### [Title of second design note, etc.]
                 ...
 
                 ## Tactical Notes
                 ### [Title of first tactical note]
-                [Description text. Include exactly one code block.]
-                **Recommendation:** [Detailed instructions for the fix.]
+                [Description text. Include exactly one code block. The description must stand alone without requiring the reader to reference other review sections.]
+                **Recommendation:** [Actionable, step-by-step instructions instructions for fixing the issue.]
 
                 ## Additional Tests [Omit this if no additional tests are needed]
                 ### [Title of first test suggestion]
@@ -979,60 +991,39 @@ public class ReviewAgent {
 
     @Blocking
     private List<ContextFragments.StringFragment> extractSessionContext(List<UUID> sessionIds) {
-        if (sessionIds.isEmpty()) {
-            return List.of();
-        }
-
-        var sessionManager = cm.getProject().getSessionManager();
-        var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.ARCHITECT, TaskResult.Type.BLITZFORGE);
-        var contexts = sessionIds.stream()
-                .parallel()
-                .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
-                .filter(Objects::nonNull)
-                .flatMap(h -> h.getHistory().stream())
-                .toList();
-
-        // Extract instructions
-        List<String> instructions = contexts.stream() // Stream<Context>
-                .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
-                .filter(te ->
-                        te.meta() != null && relevantTypes.contains(te.meta().type()))
-                .map(TaskEntry::log)
-                .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(log -> log.id()))
-                .map(log -> log.description().join())
-                .filter(Objects::nonNull) // legacy entries can be null here
-                .filter(desc -> !desc.isBlank())
-                .distinct()
-                .toList();
-
-        // Extract context hints
         Set<ProjectFile> editedFiles = changes.perFileChanges().stream()
                 .flatMap(fd -> Stream.of(fd.oldFile(), fd.newFile()))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        List<String> fragmentHints = contexts.stream()
-                .flatMap(Context::allFragments)
-                .filter(cf ->
-                        !(cf instanceof ContextFragments.ProjectPathFragment ppf && editedFiles.contains(ppf.file())))
-                .map(cf -> cf.description().join())
-                .distinct()
-                .toList();
 
-        List<ContextFragments.StringFragment> results = new ArrayList<>();
-        if (!instructions.isEmpty()) {
-            String mergedInstructions =
-                    instructions.stream().map(desc -> "- " + desc).collect(Collectors.joining("\n"));
-            results.add(new ContextFragments.StringFragment(
-                    cm, mergedInstructions, "User Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
+        var sessionContext = ReviewScope.extractSessionContext(cm, sessionIds, editedFiles);
+        if (sessionContext.isEmpty()) {
+            return List.of();
         }
 
-        if (!fragmentHints.isEmpty()) {
-            String mergedHints = fragmentHints.stream().map(hint -> "- " + hint).collect(Collectors.joining("\n"));
+        var results = new ArrayList<ContextFragments.StringFragment>();
+
+        if (!sessionContext.patchInstructions().isEmpty()) {
+            String mergedInstructions =
+                    """
+                    These are the instructions given to the Code Agent to generate this patch, separated by `-----`.
+
+                    -----
+                    %s
+                    """
+                            .formatted(String.join("\n-----\n", sessionContext.patchInstructions()));
+            results.add(new ContextFragments.StringFragment(
+                    cm, mergedInstructions, "Patch Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
+        }
+
+        if (!sessionContext.sourceHints().isEmpty()) {
+            String mergedHints = sessionContext.sourceHints().stream()
+                    .map(hint -> "- " + hint)
+                    .collect(Collectors.joining("\n"));
             results.add(new ContextFragments.StringFragment(
                     cm, mergedHints, "Sources Used During Patch Creation", SyntaxConstants.SYNTAX_STYLE_NONE));
         }
 
-        return results;
+        return List.copyOf(results);
     }
 }

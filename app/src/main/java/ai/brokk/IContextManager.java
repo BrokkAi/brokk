@@ -12,12 +12,13 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.prompts.CodePrompts;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import java.awt.*;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.util.Collection;
 import java.util.List;
@@ -44,6 +45,83 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    @Blocking
+    default void copyToClipboard(String textToCopy) {
+        var selection = new StringSelection(textToCopy);
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        int maxAttempts = 3;
+        int delayMs = 50;
+
+        for (int i = 0; i < maxAttempts; i++) {
+            try {
+                clipboard.setContents(selection, selection);
+                return;
+            } catch (IllegalStateException e) {
+                if (i == maxAttempts - 1) {
+                    logger.warn("Failed to copy to clipboard after {} attempts", maxAttempts, e);
+                    getIo().showNotification(IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
+                    break;
+                }
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * Safely reads string data from the system clipboard, handling potential exceptions
+     * when the clipboard is temporarily unavailable or doesn't contain string data.
+     * <p>
+     * <b>Background:</b> On Windows, clipboard access methods like
+     * {@link Clipboard#isDataFlavorAvailable(DataFlavor)} and {@link Clipboard#getData(DataFlavor)}
+     * can throw {@link IllegalStateException} when the clipboard is locked by another process.
+     * This is particularly problematic during rapid focus change events on the EDT.
+     * <p>
+     * <b>Solution:</b> This wrapper catches all clipboard-related exceptions and returns {@code null}
+     * to indicate unavailability, allowing the UI to gracefully handle temporary clipboard locks
+     * without propagating exceptions to users.
+     * <p>
+     * <b>Related JDK Issue:</b> <a href="https://bugs.openjdk.org/browse/JDK-8353950">JDK-8353950</a>
+     * - Windows clipboard interaction instability
+     *
+     * @return The string data from clipboard, or null if unavailable or not a string
+     */
+    @Blocking
+    default @Nullable String getStringFromClipboard() {
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        int maxAttempts = 3;
+        int delayMs = 50;
+
+        for (int i = 0; i < maxAttempts; i++) {
+            try {
+                if (!clipboard.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+                    return null;
+                }
+                return (String) clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+            } catch (IllegalStateException e) {
+                if (i == maxAttempts - 1) {
+                    logger.warn("Failed to read from clipboard after {} attempts", maxAttempts, e);
+                    getIo().showNotification(IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
+                    break;
+                }
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            } catch (java.awt.datatransfer.UnsupportedFlavorException | java.io.IOException e) {
+                logger.debug("Clipboard does not contain string data", e);
+                return null;
+            }
+        }
+        return null;
+    }
+
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
         /** Called before each analyzer build begins. */
@@ -64,14 +142,13 @@ public interface IContextManager {
 
         /** Called when tracked files change in the working tree. */
         default void onTrackedFileChange() {}
+
+        /** Called when live dependencies are added or removed. */
+        default void onLiveDependenciesChanged() {}
     }
 
     default ExecutorService getBackgroundTasks() {
         throw new UnsupportedOperationException();
-    }
-
-    default Collection<ChatMessage> getHistoryMessages() {
-        return CodePrompts.instance.getHistoryMessages(liveContext());
     }
 
     /**
@@ -91,9 +168,6 @@ public interface IContextManager {
          * @param newCtx The new context state.
          */
         void contextChanged(Context newCtx);
-
-        /** Called when the task list data has been modified. */
-        default void onTaskListChanged(TaskList.TaskListData data) {}
     }
 
     /**
@@ -154,7 +228,8 @@ public interface IContextManager {
     }
 
     @Blocking
-    default Context createOrReplaceTaskList(Context context, List<String> tasks) {
+    default Context createOrReplaceTaskList(
+            Context context, @Nullable String bigPicture, List<ai.brokk.tasks.TaskList.TaskItem> tasks) {
         throw new UnsupportedOperationException();
     }
 
@@ -218,6 +293,9 @@ public interface IContextManager {
 
     default void requestRebuild() {}
 
+    /** Notifies all registered analyzer callbacks that live dependencies have changed. */
+    default void notifyLiveDependenciesChanged() {}
+
     default IGitRepo getRepo() {
         return getProject().getRepo();
     }
@@ -241,19 +319,13 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default ContextManager.TaskScope beginTask(
-            String input, boolean group, boolean compress, @Nullable String taskDescription) {
+    default ContextManager.TaskScope beginTask(String input, boolean group, @Nullable String taskDescription) {
         throw new UnsupportedOperationException();
-    }
-
-    default ContextManager.TaskScope beginTask(
-            String input, boolean groupAndCompress, @Nullable String taskDescription) {
-        return beginTask(input, groupAndCompress, groupAndCompress, taskDescription);
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
     default ContextManager.TaskScope beginTaskUngrouped(String input) {
-        return beginTask(input, false, false, null);
+        return beginTask(input, false, null);
     }
 
     default ContextManager.TaskScope anonymousScope() {
@@ -281,17 +353,8 @@ public interface IContextManager {
         addFragments(List.of(fragment));
     }
 
-    /** Create a new LLM instance for the given model and description */
-    default Llm getLlm(StreamingChatModel model, String taskDescription) {
-        return getLlm(new Llm.Options(model, taskDescription));
-    }
-
-    /** Create a new LLM instance for the given model and description */
-    default Llm getLlm(StreamingChatModel model, String taskDescription, boolean allowPartialResponses) {
-        var options = new Llm.Options(model, taskDescription);
-        if (allowPartialResponses) {
-            options.withPartialResponses();
-        }
+    default Llm getLlm(StreamingChatModel model, String taskDescription, TaskResult.Type type) {
+        var options = new Llm.Options(model, taskDescription, type);
         return getLlm(options);
     }
 
@@ -345,5 +408,18 @@ public interface IContextManager {
 
     default CompletableFuture<Void> createSessionAsync(String name) {
         throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Returns true if a task (such as an LLM action or an aggregating task scope) is currently in progress.
+     * <p>
+     * The default implementation is conservative and returns {@code true} to prevent concurrent mutations
+     * by unknown implementations. Implementations that can safely accept context mutations concurrently
+     * should override this method appropriately.
+     *
+     * @return true if a task is in progress, false otherwise.
+     */
+    default boolean isTaskInProgress() {
+        return true;
     }
 }

@@ -170,26 +170,23 @@ public class ContextHistory {
     }
 
     /**
-     * Returns {@code true} iff {@code ctx} is present in history.
-     *
      * @param ctx the context to check
-     * @return {@code true} iff {@code ctx} is present in history.
+     * @return {@code true} if the new selection differs from the old
      */
-    public synchronized boolean setSelectedContext(@Nullable Context ctx) {
-        if (ctx != null && getContextIds().contains(ctx.id())) {
-            selected = ctx;
-            // Ensure diffs for the selected context start computing
-            diffService.diff(selected);
-            return true;
+    public synchronized boolean setSelectedContext(Context ctx) {
+        if (!getContextIds().contains(ctx.id())) {
+            logger.error("Attempted to select context not present in history: " + ctx.id());
+            return false;
         }
-        if (logger.isWarnEnabled()) {
-            logger.warn(
-                    "Attempted to select context {} not present in history (history size: {}, available contexts: {})",
-                    ctx == null ? "null" : ctx,
-                    history.size(),
-                    history.stream().map(ac -> ac.context.toString()).collect(Collectors.joining(", ")));
+
+        if (Objects.equals(selected, ctx)) {
+            return false;
         }
-        return false;
+
+        selected = ctx;
+        // Ensure diffs for the selected context start computing
+        diffService.diff(selected);
+        return true;
     }
 
     public Context push(Function<Context, Context> contextGenerator) {
@@ -254,16 +251,13 @@ public class ContextHistory {
         // Maintain continuation semantics for rapid external changes.
         boolean isContinuation = Objects.equals(base.id(), lastExternalChangeId);
 
-        // parsedOutput == null indicates no AI result (render no icon in activity)
-        var updatedLive = merged.withParsedOutput(null);
-
         if (isContinuation) {
-            replaceTopInternal(updatedLive);
+            replaceTopInternal(merged);
         } else {
-            pushContextInternal(updatedLive);
+            pushContextInternal(merged);
         }
-        lastExternalChangeId = updatedLive.id();
-        return updatedLive;
+        lastExternalChangeId = merged.id();
+        return merged;
     }
 
     /**
@@ -278,6 +272,35 @@ public class ContextHistory {
             prev = ac.context;
         }
         return null;
+    }
+
+    /**
+     * Returns {@code true} if {@code context} is best classified as an AI result.
+     *
+     * This is derived from the transition between {@code previousOf(context)} and {@code context}:
+     * - It must add at least one task entry (i.e., represent substantive task progression).
+     * - It must not be a structural session-management action (copy/branch/reference), which we
+     *   currently identify by the presence of a reset-edge targeting this context, or by delta
+     *   flags indicating session reset / history manipulation.
+     *
+     * This method is designed to be safe to call on the EDT: it does not block. If the async delta
+     * is not yet available, it falls back to a cheap non-blocking task-history size comparison.
+     */
+    public boolean isAiResult(Context context) {
+        var prev = previousOf(context);
+        if (prev == null) {
+            return false;
+        }
+
+        if (isResetTargetId(context.id())) {
+            return false;
+        }
+
+        return context.getTaskHistory().size() > prev.getTaskHistory().size();
+    }
+
+    private boolean isResetTargetId(UUID contextId) {
+        return resetEdges.stream().anyMatch(e -> e.targetId().equals(contextId));
     }
 
     /**
@@ -486,12 +509,12 @@ public class ContextHistory {
      */
     public synchronized void addContextToGroup(UUID contextId, UUID groupId, String groupLabel) {
         var ac = findAnnotatedContext(contextId);
-        if (ac != null) {
-            ac.groupId = groupId;
-            ac.groupLabel = groupLabel;
-        } else {
-            throw new IllegalStateException("Context not found: " + contextId);
+        if (ac == null) {
+            logger.error("Context not found: " + contextId);
+            return;
         }
+        ac.groupId = groupId;
+        ac.groupLabel = groupLabel;
     }
 
     /**
@@ -523,11 +546,11 @@ public class ContextHistory {
 
     public synchronized void addGitState(UUID contextId, GitState gitState) {
         var ac = findAnnotatedContext(contextId);
-        if (ac != null) {
-            ac.gitState = gitState;
-        } else {
-            throw new IllegalStateException("Context not found: " + contextId);
+        if (ac == null) {
+            logger.error("Context not found: " + contextId);
+            return;
         }
+        ac.gitState = gitState;
     }
 
     public synchronized Optional<GitState> getGitState(UUID contextId) {
@@ -554,11 +577,11 @@ public class ContextHistory {
 
     public synchronized void addEntryInfo(UUID contextId, ContextHistoryEntryInfo info) {
         var ac = findAnnotatedContext(contextId);
-        if (ac != null) {
-            ac.entryInfo = info;
-        } else {
-            throw new IllegalStateException("Context not found: " + contextId);
+        if (ac == null) {
+            logger.error("Context not found: " + contextId);
+            return;
         }
+        ac.entryInfo = info;
     }
 
     public synchronized Optional<ContextHistoryEntryInfo> getEntryInfo(UUID contextId) {

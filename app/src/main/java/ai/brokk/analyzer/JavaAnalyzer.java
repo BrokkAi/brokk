@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import ai.brokk.project.IProject;
 import java.util.*;
@@ -18,10 +19,9 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJava;
 
-public class JavaAnalyzer extends TreeSitterAnalyzer {
+public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
-    private static final String LAMBDA_EXPRESSION = "lambda_expression";
 
     public JavaAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
@@ -31,17 +31,19 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.JAVA, listener);
     }
 
-    private JavaAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.JAVA, state, listener);
+    private JavaAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.JAVA, state, listener, cache);
     }
 
     public static JavaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new JavaAnalyzer(project, state, listener);
+        return new JavaAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new JavaAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new JavaAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -67,7 +69,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     RECORD_DECLARATION,
                     ANNOTATION_TYPE_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
-            Set.of(FIELD_DECLARATION, ENUM_CONSTANT),
+            Set.of(FIELD_DECLARATION, ENUM_CONSTANT, CONSTANT_DECLARATION),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of(ANNOTATION, MARKER_ANNOTATION),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -75,17 +78,18 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             "parameters", // parameters field name
             "type", // return type field name
             "type_parameters", // type parameters field name
-            Map.of( // capture configuration
-                    CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
-                    CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE,
-                    CaptureNames.ENUM_DEFINITION, SkeletonType.CLASS_LIKE,
-                    CaptureNames.RECORD_DEFINITION, SkeletonType.CLASS_LIKE,
-                    CaptureNames.ANNOTATION_DEFINITION, SkeletonType.CLASS_LIKE, // for @interface
-                    CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE,
-                    CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
-                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
-                    CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE,
-                    CaptureNames.PACKAGE_DEFINITION, SkeletonType.MODULE_STATEMENT),
+            Map.ofEntries( // capture configuration
+                    Map.entry(CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE),
+                    Map.entry(CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE),
+                    Map.entry(CaptureNames.ENUM_DEFINITION, SkeletonType.CLASS_LIKE),
+                    Map.entry(CaptureNames.RECORD_DEFINITION, SkeletonType.CLASS_LIKE),
+                    Map.entry(CaptureNames.ANNOTATION_DEFINITION, SkeletonType.CLASS_LIKE), // for @interface
+                    Map.entry(CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE),
+                    Map.entry(CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE),
+                    Map.entry(CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
+                    Map.entry(CaptureNames.CONSTANT_DEFINITION, SkeletonType.FIELD_LIKE),
+                    Map.entry(CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE),
+                    Map.entry(CaptureNames.PACKAGE_DEFINITION, SkeletonType.MODULE_STATEMENT)),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );
@@ -338,6 +342,69 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        Set<ProjectFile> result = new HashSet<>(performReferencingFilesOf(file));
+
+        // Java-specific: add same-package files that actually use the target file.
+        // Files in the same package have implicit visibility, but we only consider them
+        // "referencing" if they contain identifiers matching the target's declarations.
+        List<CodeUnit> targetDecls = getTopLevelDeclarations(file);
+        if (targetDecls.isEmpty()) {
+            return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
+        }
+
+        String targetPackage = targetDecls.stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                .findFirst()
+                .orElse("");
+
+        if (!targetPackage.isEmpty()) {
+            Set<String> targetIdentifiers =
+                    targetDecls.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
+
+            withFileProperties(fileState -> {
+                for (ProjectFile candidate : fileState.keySet()) {
+                    if (candidate.equals(file) || result.contains(candidate)) continue;
+
+                    String candidatePackage = getTopLevelDeclarations(candidate).stream()
+                            .filter(cu -> cu.isClass() || cu.isModule())
+                            .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                            .findFirst()
+                            .orElse("");
+
+                    if (targetPackage.equals(candidatePackage)) {
+                        // Check if the candidate actually uses any of target's identifiers
+                        Set<String> candidateSymbols =
+                                extractTypeIdentifiers(candidate.read().orElse(""));
+                        if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
+                            result.add(candidate);
+                        }
+                    }
+                }
+                return null;
+            });
+        }
+
+        return result.isEmpty() ? Set.of() : Collections.unmodifiableSet(result);
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return performGetDirectAncestors(cu);
+    }
+
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return performGetDirectDescendants(cu);
+    }
+
+    @Override
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         // Normalize generics/anon/location suffixes for both class and method lookups
         var normalized = normalizeFullName(fqName);
@@ -455,6 +522,55 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         return matcher.find();
     }
 
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        if (importNode != null && !importNode.isNull()) {
+            String importText = sourceContent.substringFrom(importNode).strip();
+            if (!importText.isEmpty()) {
+                localImportInfos.add(parseJavaImport(importText));
+            }
+        }
+    }
+
+    /**
+     * Parses a Java import statement into structured ImportInfo.
+     * Detects wildcard imports and extracts simple identifiers for non-wildcards.
+     */
+    private ImportInfo parseJavaImport(String rawSnippet) {
+        // Determine if it's a wildcard import
+        boolean isWildcard = rawSnippet.contains(".*");
+
+        // Extract identifier for non-wildcard imports
+        String identifier = null;
+        if (!isWildcard) {
+            // Remove "import " prefix and ";" suffix, handle static imports
+            String normalized = rawSnippet.strip();
+            if (normalized.startsWith("import ")) {
+                normalized = normalized.substring("import ".length());
+            }
+            boolean isStatic = normalized.startsWith("static ");
+            if (isStatic) {
+                normalized = normalized.substring("static ".length());
+            }
+            if (normalized.endsWith(";")) {
+                normalized = normalized.substring(0, normalized.length() - 1).strip();
+            }
+
+            // Extract the simple name (last segment)
+            // For 'import com.foo.Outer.Inner;', identifier is 'Inner'.
+            // For 'import static com.foo.Bar.METHOD;', identifier is 'METHOD'.
+            int lastDot = normalized.lastIndexOf('.');
+            identifier = (lastDot >= 0 && lastDot < normalized.length() - 1)
+                    ? normalized.substring(lastDot + 1)
+                    : normalized;
+        }
+
+        // Java doesn't have import aliases
+        return new ImportInfo(rawSnippet, isWildcard, identifier, null);
+    }
+
     /**
      * Resolves import statements into a set of {@link CodeUnit}s, respecting Java's import precedence rules.
      * Explicit imports (e.g., {@code import com.example.MyClass;}) take priority over wildcard imports
@@ -469,32 +585,42 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         Set<CodeUnit> explicitImports = new LinkedHashSet<>();
         List<String> wildcardImportPackages = new ArrayList<>();
 
-        // 1. First pass: parse all import statements, separating explicit from wildcard.
-        for (String importLine : importStatements) {
-            if (importLine.isBlank()) continue;
-
-            String normalized = importLine.strip();
-            if (!normalized.startsWith("import ") || normalized.startsWith("import static ")) {
+        // 1. First pass: use structured ImportInfo to separate explicit from wildcard.
+        // Static imports are excluded by checking the raw snippet or lack of identifier/wildcard status.
+        for (ImportInfo info : importInfoOf(file)) {
+            if (info.rawSnippet().startsWith("import static ")) {
                 continue;
             }
 
-            if (normalized.endsWith(";")) {
-                normalized = normalized.substring(0, normalized.length() - 1).trim();
-            }
-            normalized = normalized.substring("import ".length()).trim();
-
-            if (normalized.endsWith(".*")) {
-                String packageName =
-                        normalized.substring(0, normalized.length() - 2).trim();
+            if (info.isWildcard()) {
+                String snippet = info.rawSnippet().strip();
+                if (snippet.endsWith(";")) {
+                    snippet = snippet.substring(0, snippet.length() - 1).strip();
+                }
+                if (snippet.startsWith("import ")) {
+                    snippet = snippet.substring("import ".length()).strip();
+                }
+                String packageName = snippet.endsWith(".*") ? snippet.substring(0, snippet.length() - 2) : snippet;
                 if (!packageName.isEmpty()) {
                     wildcardImportPackages.add(packageName);
                 }
-            } else if (!normalized.isEmpty()) {
-                // Explicit import: find the exact class and add it.
-                getDefinitions(normalized).stream()
-                        .filter(CodeUnit::isClass)
-                        .findFirst()
-                        .ifPresent(explicitImports::add);
+            } else {
+                String identifier = info.identifier();
+                if (identifier != null) {
+                    // Extract the FQN from the raw snippet for definition lookup
+                    String snippet = info.rawSnippet().strip();
+                    if (snippet.endsWith(";")) {
+                        snippet = snippet.substring(0, snippet.length() - 1).strip();
+                    }
+                    if (snippet.startsWith("import ")) {
+                        snippet = snippet.substring("import ".length()).strip();
+                    }
+                    // Explicit import: find the exact class and add it.
+                    getDefinitions(snippet).stream()
+                            .filter(CodeUnit::isClass)
+                            .findFirst()
+                            .ifPresent(explicitImports::add);
+                }
             }
         }
 
@@ -529,9 +655,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
-        // Pull cached raw supertypes from CodeUnitProperties
-        var rawNames = withCodeUnitProperties(
-                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).rawSupertypes());
+        // Pull raw supertypes lazily. This extracts the names from the AST on-demand.
+        var rawNames = getRawSupertypesLazily(cu);
 
         if (rawNames.isEmpty()) {
             return List.of();
@@ -585,6 +710,109 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    public boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
+        TSTree tree = treeOf(file);
+        if (tree == null) return true;
+
+        TSNode root = tree.getRootNode();
+        if (root.isNull()) return true;
+
+        TSNode node = root.getDescendantForByteRange(startByte, endByte);
+        if (node == null || node.isNull()) return true;
+
+        // 1. Check if the node itself or any parent is a comment
+        TSNode walk = node;
+        while (walk != null && !walk.isNull()) {
+            if (isCommentNode(walk)) return false;
+            walk = walk.getParent();
+        }
+
+        // 2. Check if we are in a declaration context (name of a method, field, param, etc.)
+        TSNode current = node;
+        while (current != null && !current.isNull()) {
+            String type = current.getType();
+
+            // If we hit a known reference/usage node type, it's likely a reference
+            if (type.equals(METHOD_INVOCATION)
+                    || type.equals(FIELD_ACCESS)
+                    || type.equals(OBJECT_CREATION_EXPRESSION)
+                    || type.equals(TYPE_IDENTIFIER)
+                    || type.equals(SCOPED_TYPE_IDENTIFIER)
+                    || type.equals(MARKER_ANNOTATION)
+                    || type.equals(ANNOTATION)
+                    || type.equals(CLASS_LITERAL)
+                    || type.equals(IMPORT_DECLARATION)) {
+                break; // Continue to nearest declaration check
+            }
+
+            // If we are the 'name' child of a declaration, it's not a reference
+            TSNode parent = current.getParent();
+            if (parent != null && !parent.isNull()) {
+                String pType = parent.getType();
+                if (pType.equals(METHOD_DECLARATION)
+                        || pType.equals(FIELD_DECLARATION)
+                        || pType.equals(CLASS_DECLARATION)
+                        || pType.equals(INTERFACE_DECLARATION)
+                        || pType.equals(ENUM_DECLARATION)
+                        || pType.equals(RECORD_DECLARATION)
+                        || pType.equals(VARIABLE_DECLARATOR)
+                        || pType.equals(FORMAL_PARAMETER)) {
+
+                    TSNode nameNode = parent.getChildByFieldName("name");
+                    if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == startByte) {
+                        return false;
+                    }
+                }
+            }
+            current = current.getParent();
+        }
+
+        // 3. Perform lexical scope analysis to filter out local variables and parameters
+        // Skip this if the current node is explicitly part of a member access (e.g., this.field or obj.field)
+        TSNode parent = node.getParent();
+        if (parent != null && !parent.isNull()) {
+            String pType = parent.getType();
+            if (pType.equals(FIELD_ACCESS)) {
+                // In tree-sitter-java, field_access has a "field" child for the member name
+                TSNode fieldNode = parent.getChildByFieldName("field");
+                if (fieldNode != null && !fieldNode.isNull() && fieldNode.getStartByte() == node.getStartByte()) {
+                    return true;
+                }
+            }
+            if (pType.equals(METHOD_INVOCATION)) {
+                // In tree-sitter-java, method_invocation has a "name" child for the method name
+                TSNode nameNode = parent.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == node.getStartByte()) {
+                    return true;
+                }
+            }
+        }
+
+        var sourceContentOpt = SourceContent.read(file);
+        if (sourceContentOpt.isPresent()) {
+            SourceContent sourceContent = sourceContentOpt.get();
+            String identifierName = sourceContent.substringFrom(node).strip();
+            if (!identifierName.isEmpty()) {
+                var declOpt = findNearestDeclaration(node, identifierName, sourceContent);
+                if (declOpt.isPresent()) {
+                    var kind = declOpt.get().kind();
+                    return switch (kind) {
+                        case PARAMETER,
+                                LOCAL_VARIABLE,
+                                CATCH_PARAMETER,
+                                FOR_LOOP_VARIABLE,
+                                RESOURCE_VARIABLE,
+                                PATTERN_VARIABLE -> false;
+                        default -> true;
+                    };
+                }
+            }
+        }
+
+        return true;
+    }
+
+    @Override
     protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
@@ -614,6 +842,511 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         // Always record the module's children (even if empty) so callers can distinguish
         // "known module with no children" from "no relationship recorded".
         localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
+    }
+
+    /**
+     * Extracts type identifiers using Tree-Sitter.
+     * <p>
+     * Trade-off: High Precision. By targeting only {@code type_identifier} nodes, we minimize false positives
+     * from local variables or method names, ensuring that only relevant type-related imports are pulled in.
+     */
+    @Override
+    public Set<String> extractTypeIdentifiers(String source) {
+        try {
+            TSTree tree = getTSParser().parseString(null, source);
+            TSNode root = tree.getRootNode();
+            if (root.isNull()) {
+                return Set.of();
+            }
+
+            org.treesitter.TSQuery identifierQuery =
+                    new org.treesitter.TSQuery(getTSLanguage(), "[(type_identifier) (scoped_type_identifier)] @type");
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(identifierQuery, root);
+
+            SourceContent sourceContent = SourceContent.of(source);
+            Set<String> identifiers = new HashSet<>();
+            TSQueryMatch match = new TSQueryMatch();
+
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    if (node != null && !node.isNull()) {
+                        String text = sourceContent.substringFrom(node);
+                        if (!text.isEmpty()) {
+                            identifiers.add(text);
+                        }
+                    }
+                }
+            }
+            return identifiers;
+        } catch (Exception e) {
+            log.warn("Failed to extract type identifiers using Tree-Sitter query", e);
+            return Set.of();
+        }
+    }
+
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        // Get the source text for this CodeUnit
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+        String source = sourceOpt.get();
+
+        // Get all imports for the file
+        List<ImportInfo> allImports = importInfoOf(cu.source());
+        if (allImports.isEmpty()) {
+            return Set.of();
+        }
+
+        // Extract type identifiers from source
+        Set<String> typeIdentifiers = extractTypeIdentifiers(source);
+        if (typeIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        // Separate explicit imports from wildcard imports
+        List<ImportInfo> explicitImports = allImports.stream()
+                .filter(imp -> !imp.isWildcard() && imp.identifier() != null)
+                .toList();
+        List<ImportInfo> wildcardImports =
+                allImports.stream().filter(ImportInfo::isWildcard).toList();
+
+        // Match type identifiers against explicit imports
+        Set<String> matchedImports = new HashSet<>();
+        Set<String> resolvedIdentifiers = new HashSet<>();
+
+        for (ImportInfo imp : explicitImports) {
+            String identifier = imp.identifier();
+            if (identifier != null && typeIdentifiers.contains(identifier)) {
+                matchedImports.add(imp.rawSnippet());
+                resolvedIdentifiers.add(identifier);
+            }
+        }
+
+        // Collect identifiers still unresolved after explicit import matching
+        Set<String> unresolvedIdentifiers = typeIdentifiers.stream()
+                .filter(id -> !resolvedIdentifiers.contains(id))
+                .collect(Collectors.toCollection(HashSet::new));
+
+        if (unresolvedIdentifiers.isEmpty()) {
+            return Collections.unmodifiableSet(matchedImports);
+        }
+
+        // Handle qualified types (e.g. java.util.List). If they don't match any import's package,
+        // assume they are fully qualified and already resolved.
+        Set<String> qualifiedNames =
+                unresolvedIdentifiers.stream().filter(id -> id.contains(".")).collect(Collectors.toSet());
+
+        Set<String> importPackages = allImports.stream()
+                .map(i -> extractPackageFromWildcard(i.rawSnippet()))
+                .filter(p -> !p.isEmpty())
+                .collect(Collectors.toSet());
+
+        for (String qn : qualifiedNames) {
+            boolean matchesImport = false;
+            for (String pkg : importPackages) {
+                if (qn.startsWith(pkg + ".")) {
+                    matchesImport = true;
+                    break;
+                }
+            }
+            // If it doesn't match any import prefix, treat as already resolved
+            if (!matchesImport) {
+                unresolvedIdentifiers.remove(qn);
+            }
+        }
+
+        if (unresolvedIdentifiers.isEmpty()) {
+            return Collections.unmodifiableSet(matchedImports);
+        }
+
+        Set<String> resolvedViaWildcard = new HashSet<>();
+
+        // Match unresolved identifiers against wildcard imports using known project symbols
+        for (String id : unresolvedIdentifiers) {
+            for (ImportInfo wildcardImp : wildcardImports) {
+                String pkg = extractPackageFromWildcard(wildcardImp.rawSnippet());
+
+                if (!pkg.isEmpty()) {
+                    String lookupName = pkg + "." + id;
+                    if (!getDefinitions(lookupName).isEmpty()) {
+                        matchedImports.add(wildcardImp.rawSnippet());
+                        resolvedViaWildcard.add(id);
+                    }
+                }
+            }
+        }
+
+        // After checking all wildcards, if any identifiers are still unresolved
+        // (not in explicit imports AND not resolved via wildcards to known types),
+        // include ALL remaining wildcards as a conservative fallback for external dependencies.
+        boolean stillUnresolved = unresolvedIdentifiers.stream()
+                .filter(id -> !resolvedViaWildcard.contains(id))
+                // Only simple names (no dots) trigger the conservative wildcard fallback
+                .anyMatch(id -> !id.contains("."));
+
+        if (stillUnresolved) {
+            for (ImportInfo wildcardImp : wildcardImports) {
+                matchedImports.add(wildcardImp.rawSnippet());
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    @Override
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        // Determine target package from its top-level declarations
+        String targetPackage = getTopLevelDeclarations(target).stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                .findFirst()
+                .orElse("");
+
+        // Check for explicit or wildcard imports
+        String targetName = target.getFileName();
+        if (targetName.endsWith(".java")) {
+            targetName = targetName.substring(0, targetName.length() - 5);
+        }
+        final String targetClassName = targetName;
+
+        for (ImportInfo imp : imports) {
+            // Case 1: Explicit import (e.g. import com.example.Foo; or import static com.example.Foo.METHOD;)
+            if (!imp.isWildcard() && imp.identifier() != null) {
+                // Direct match on simple name (e.g. Foo or METHOD)
+                if (targetClassName.equals(imp.identifier())) return true;
+
+                // For static imports or nested classes, the target class might be the parent segment
+                // e.g. import static com.example.Foo.METHOD; should match Foo.java
+                // e.g. import com.example.Foo.Inner; should match Foo.java
+                if (imp.rawSnippet().contains("." + targetClassName + ".")) return true;
+            }
+
+            // Case 2: Wildcard import (e.g. import com.example.*;)
+            // Matches if the wildcard package is exactly the target's package,
+            // or if it's a static wildcard import of the target class.
+            if (imp.isWildcard()) {
+                String importPkg = extractPackageFromWildcard(imp.rawSnippet());
+                if (importPkg.equals(targetPackage) || importPkg.equals(targetPackage + "." + targetClassName)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Overloaded version that takes the source file to check for same-package visibility.
+     */
+    @Override
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        if (sourceFile.equals(target)) {
+            return false;
+        }
+
+        String sourcePackage = getTopLevelDeclarations(sourceFile).stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                .findFirst()
+                .orElse("");
+
+        String targetPackage = getTopLevelDeclarations(target).stream()
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .map(cu -> cu.isModule() ? cu.fqName() : cu.packageName())
+                .findFirst()
+                .orElse("");
+
+        // In Java, files in the same package (including the default package) see each other.
+        if (sourcePackage.equals(targetPackage)) {
+            return true;
+        }
+
+        return couldImportFile(imports, target);
+    }
+
+    @Override
+    public Optional<DeclarationInfo> findNearestDeclaration(
+            ProjectFile file, int startByte, int endByte, String identifierName) {
+        TSTree tree = treeOf(file);
+        if (tree == null) return Optional.empty();
+
+        TSNode root = tree.getRootNode();
+        if (root.isNull()) return Optional.empty();
+
+        TSNode node = root.getDescendantForByteRange(startByte, endByte);
+        if (node == null || node.isNull()) return Optional.empty();
+
+        var sourceContentOpt = SourceContent.read(file);
+        return sourceContentOpt.flatMap(sourceContent -> findNearestDeclaration(node, identifierName, sourceContent));
+    }
+
+    private Optional<DeclarationInfo> findNearestDeclaration(
+            TSNode node, String identifierName, SourceContent sourceContent) {
+        return findNearestDeclarationFromNode(node, identifierName, sourceContent);
+    }
+
+    /**
+     * Walks upward from startNode through enclosing scopes, checking for declarations
+     * with a matching identifier name. Returns the first match found.
+     */
+    private Optional<DeclarationInfo> findNearestDeclarationFromNode(
+            TSNode startNode, String identifierName, SourceContent sourceContent) {
+        TSNode current = startNode;
+
+        while (current != null && !current.isNull()) {
+            String nodeType = current.getType();
+
+            // Check method/constructor parameters
+            if (nodeType.equals(METHOD_DECLARATION) || nodeType.equals(CONSTRUCTOR_DECLARATION)) {
+                var paramResult = checkFormalParameters(current, identifierName, sourceContent);
+                if (paramResult.isPresent()) return paramResult;
+            }
+
+            // Check local variable declarations among preceding siblings
+            var localResult = checkPrecedingLocalVariables(current, identifierName, sourceContent);
+            if (localResult.isPresent()) return localResult;
+
+            // Check enhanced for loop variable
+            if (nodeType.equals(ENHANCED_FOR_STATEMENT)) {
+                var forResult = checkEnhancedForStatement(current, identifierName, sourceContent);
+                if (forResult.isPresent()) return forResult;
+            }
+
+            // Check catch formal parameter
+            if ("catch_clause".equals(nodeType)) {
+                // catch_formal_parameter is a direct named child, not accessed via field name
+                for (int i = 0; i < current.getNamedChildCount(); i++) {
+                    TSNode child = current.getNamedChild(i);
+                    if (child != null && !child.isNull() && CATCH_FORMAL_PARAMETER.equals(child.getType())) {
+                        var catchResult = checkCatchFormalParameter(child, identifierName, sourceContent);
+                        if (catchResult.isPresent()) return catchResult;
+                        break;
+                    }
+                }
+            }
+
+            // Check try-with-resources
+            if (nodeType.equals("try_with_resources_statement")) {
+                TSNode resourceSpec = current.getChildByFieldName("resources");
+                if (resourceSpec != null && !resourceSpec.isNull()) {
+                    var resourceResult = checkResourceSpecification(resourceSpec, identifierName, sourceContent);
+                    if (resourceResult.isPresent()) return resourceResult;
+                }
+            }
+
+            // Check lambda parameters
+            if (nodeType.equals(LAMBDA_EXPRESSION)) {
+                var lambdaResult = checkLambdaParameters(current, identifierName, sourceContent);
+                if (lambdaResult.isPresent()) return lambdaResult;
+            }
+
+            // Check instanceof pattern variable (Java 16+)
+            if (nodeType.equals(INSTANCEOF_EXPRESSION)) {
+                var patternResult = checkInstanceofPattern(current, identifierName, sourceContent);
+                if (patternResult.isPresent()) return patternResult;
+            }
+
+            current = current.getParent();
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkFormalParameters(
+            TSNode methodOrConstructor, String identifierName, SourceContent sourceContent) {
+        TSNode params = methodOrConstructor.getChildByFieldName("parameters");
+        if (params == null || params.isNull()) return Optional.empty();
+
+        for (int i = 0; i < params.getNamedChildCount(); i++) {
+            TSNode param = params.getNamedChild(i);
+            if (param != null && !param.isNull() && FORMAL_PARAMETER.equals(param.getType())) {
+                TSNode nameNode = param.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String name = sourceContent.substringFrom(nameNode).strip();
+                    if (identifierName.equals(name)) {
+                        return Optional.of(new DeclarationInfo(DeclarationKind.PARAMETER, name, null));
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkPrecedingLocalVariables(
+            TSNode current, String identifierName, SourceContent sourceContent) {
+        TSNode parent = current.getParent();
+        if (parent == null || parent.isNull()) return Optional.empty();
+
+        // Local variables are declared in local_variable_declaration nodes that are siblings
+        // to the current node's path.
+        for (int i = 0; i < parent.getNamedChildCount(); i++) {
+            TSNode sibling = parent.getNamedChild(i);
+            if (sibling == null || sibling.isNull()) {
+                continue;
+            }
+            if (sibling.getEndByte() > current.getStartByte()) break;
+
+            if (LOCAL_VARIABLE_DECLARATION.equals(sibling.getType())) {
+                for (int j = 0; j < sibling.getNamedChildCount(); j++) {
+                    TSNode child = sibling.getNamedChild(j);
+                    if (child == null || child.isNull()) {
+                        continue;
+                    }
+                    if (VARIABLE_DECLARATOR.equals(child.getType())) {
+                        TSNode nameNode = child.getChildByFieldName("name");
+                        if (nameNode != null && !nameNode.isNull()) {
+                            String name = sourceContent.substringFrom(nameNode).strip();
+                            if (identifierName.equals(name)) {
+                                return Optional.of(new DeclarationInfo(DeclarationKind.LOCAL_VARIABLE, name, null));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkEnhancedForStatement(
+            TSNode enhancedFor, String identifierName, SourceContent sourceContent) {
+        // enhanced_for_statement has a "name" field for the loop variable
+        TSNode nameNode = enhancedFor.getChildByFieldName("name");
+        if (nameNode != null && !nameNode.isNull()) {
+            String name = sourceContent.substringFrom(nameNode).strip();
+            if (identifierName.equals(name)) {
+                return Optional.of(new DeclarationInfo(DeclarationKind.FOR_LOOP_VARIABLE, name, null));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkCatchFormalParameter(
+            TSNode catchParam, String identifierName, SourceContent sourceContent) {
+        TSNode nameNode = catchParam.getChildByFieldName("name");
+        if (nameNode != null && !nameNode.isNull()) {
+            String name = sourceContent.substringFrom(nameNode).strip();
+            if (identifierName.equals(name)) {
+                return Optional.of(new DeclarationInfo(DeclarationKind.CATCH_PARAMETER, name, null));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkResourceSpecification(
+            TSNode resourceSpec, String identifierName, SourceContent sourceContent) {
+        // resource_specification contains resource children
+        for (int i = 0; i < resourceSpec.getNamedChildCount(); i++) {
+            TSNode resource = resourceSpec.getNamedChild(i);
+            if (resource != null && !resource.isNull() && RESOURCE.equals(resource.getType())) {
+                TSNode nameNode = resource.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String name = sourceContent.substringFrom(nameNode).strip();
+                    if (identifierName.equals(name)) {
+                        return Optional.of(new DeclarationInfo(DeclarationKind.RESOURCE_VARIABLE, name, null));
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkLambdaParameters(
+            TSNode lambda, String identifierName, SourceContent sourceContent) {
+        TSNode params = lambda.getChildByFieldName("parameters");
+        if (params == null || params.isNull()) return Optional.empty();
+
+        String paramsType = params.getType();
+
+        // formal_parameters case (typed lambda: (String x) -> ...)
+        if (FORMAL_PARAMETERS.equals(paramsType)) {
+            for (int i = 0; i < params.getNamedChildCount(); i++) {
+                TSNode param = params.getNamedChild(i);
+                if (param != null && !param.isNull() && FORMAL_PARAMETER.equals(param.getType())) {
+                    TSNode nameNode = param.getChildByFieldName("name");
+                    if (nameNode != null && !nameNode.isNull()) {
+                        String name = sourceContent.substringFrom(nameNode).strip();
+                        if (identifierName.equals(name)) {
+                            return Optional.of(new DeclarationInfo(DeclarationKind.PARAMETER, name, null));
+                        }
+                    }
+                }
+            }
+        }
+
+        // inferred_parameters case (untyped lambda: (x, y) -> ...)
+        if (INFERRED_PARAMETERS.equals(paramsType)) {
+            for (int i = 0; i < params.getNamedChildCount(); i++) {
+                TSNode param = params.getNamedChild(i);
+                if (param != null && !param.isNull()) {
+                    String name = sourceContent.substringFrom(param).strip();
+                    if (identifierName.equals(name)) {
+                        return Optional.of(new DeclarationInfo(DeclarationKind.PARAMETER, name, null));
+                    }
+                }
+            }
+        }
+
+        // Single identifier parameter case (lambda: x -> ...)
+        if ("identifier".equals(paramsType)) {
+            String name = sourceContent.substringFrom(params).strip();
+            if (identifierName.equals(name)) {
+                return Optional.of(new DeclarationInfo(DeclarationKind.PARAMETER, name, null));
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<DeclarationInfo> checkInstanceofPattern(
+            TSNode instanceofExpr, String identifierName, SourceContent sourceContent) {
+        // instanceof_expression may have a pattern child with a name field (Java 16+)
+        TSNode pattern = instanceofExpr.getChildByFieldName("pattern");
+        if (pattern != null && !pattern.isNull()) {
+            TSNode nameNode = pattern.getChildByFieldName("name");
+            if (nameNode != null && !nameNode.isNull()) {
+                String name = sourceContent.substringFrom(nameNode).strip();
+                if (identifierName.equals(name)) {
+                    return Optional.of(new DeclarationInfo(DeclarationKind.PATTERN_VARIABLE, name, null));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        // e.g., "import internal.*;" -> "internal"
+        // e.g., "import static org.junit.Assert.*;" -> "org.junit.Assert"
+        return rawSnippet
+                .replaceFirst("^import\\s+", "")
+                .replaceFirst("^static\\s+", "")
+                .replaceFirst("\\.\\*;$", "")
+                .replaceFirst(";$", "")
+                .trim();
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
+    }
+
+    @Override
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
+        if (!CaptureNames.CLASS_DEFINITION.equals(classCaptureName)) {
+            return null;
+        }
+
+        // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
+        // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)
+        String constructorName = enclosingClass.identifier();
+        String shortName = enclosingClass.shortName() + "." + constructorName;
+
+        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
     }
 
     @Override

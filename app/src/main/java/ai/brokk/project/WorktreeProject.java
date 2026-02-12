@@ -6,22 +6,23 @@ import ai.brokk.SessionManager;
 import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
-import ai.brokk.util.ShellConfig;
-import ai.brokk.util.StringDiskCache;
+import ai.brokk.util.IStringDiskCache;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Blocking;
 
 public final class WorktreeProject extends AbstractProject {
     private final MainProject parent;
 
     public WorktreeProject(Path root, MainProject parent) {
-        super(root);
+        super(root, parent.getMasterRootPathForConfig());
         this.parent = parent;
     }
 
@@ -46,7 +47,12 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public BuildAgent.BuildDetails loadBuildDetails() {
+    public void invalidateAutoDetectedLanguages() {
+        parent.invalidateAutoDetectedLanguages();
+    }
+
+    @Override
+    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
         return parent.loadBuildDetails();
     }
 
@@ -61,6 +67,7 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    @Blocking
     public BuildAgent.BuildDetails awaitBuildDetails() {
         return parent.awaitBuildDetails();
     }
@@ -88,16 +95,6 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void saveStyleGuide(String styleGuide) {
         parent.saveStyleGuide(styleGuide);
-    }
-
-    @Override
-    public String getReviewGuide() {
-        return parent.getReviewGuide();
-    }
-
-    @Override
-    public void saveReviewGuide(String reviewGuide) {
-        parent.saveReviewGuide(reviewGuide);
     }
 
     @Override
@@ -151,17 +148,7 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public ShellConfig getShellConfig() {
-        return parent.getShellConfig();
-    }
-
-    @Override
-    public void setShellConfig(@Nullable ShellConfig config) {
-        parent.setShellConfig(config);
-    }
-
-    @Override
-    public StringDiskCache getDiskCache() {
+    public IStringDiskCache getDiskCache() {
         return parent.getDiskCache();
     }
 
@@ -173,7 +160,13 @@ public final class WorktreeProject extends AbstractProject {
             // First access in this worktree: copy parent's current effective active set into this worktree
             var parentDeps = parent.getLiveDependencies(); // effective set from parent
             String names = parentDeps.stream()
-                    .map(d -> d.root().getRelPath().getName(2).toString())
+                    .map(d -> {
+                        Path fileName = d.root().getRelPath().getFileName();
+                        assert fileName != null
+                                : "Dependency path must have a file name: "
+                                        + d.root().getRelPath();
+                        return fileName.toString();
+                    })
                     .collect(Collectors.joining(","));
             // Persist the copied list so future accesses are worktree-local
             workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, names);
@@ -181,7 +174,7 @@ public final class WorktreeProject extends AbstractProject {
             liveDepsNames = names;
         }
 
-        return namesToDependencies(liveDepsNames);
+        return resolveDependencies(liveDepsNames);
     }
 
     @Override
@@ -292,5 +285,10 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setModelConfig(ModelProperties.ModelType modelType, AbstractService.ModelConfig config) {
         parent.setModelConfig(modelType, config);
+    }
+
+    @Override
+    public Set<ProjectFile> getAllOnDiskDependencies() {
+        return parent.getAllOnDiskDependencies();
     }
 }

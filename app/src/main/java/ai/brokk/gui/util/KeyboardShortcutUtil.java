@@ -46,6 +46,11 @@ public class KeyboardShortcutUtil {
         return KeyStroke.getKeyStroke(keyCode, safeMenuShortcutMaskEx() | InputEvent.SHIFT_DOWN_MASK);
     }
 
+    /** Creates a shortcut with only the Shift modifier. */
+    public static KeyStroke createShiftShortcut(int keyCode) {
+        return KeyStroke.getKeyStroke(keyCode, InputEvent.SHIFT_DOWN_MASK);
+    }
+
     /** Creates an Alt (Windows/Linux) or Cmd (Mac) shortcut for panel navigation. */
     public static KeyStroke createAltShortcut(int keyCode) {
         int modifier = SystemInfo.isMacOS ? KeyEvent.META_DOWN_MASK : KeyEvent.ALT_DOWN_MASK;

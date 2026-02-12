@@ -76,7 +76,9 @@ public class MutedConsoleIO implements IConsoleIO {
 
     @Override
     public void showNotification(NotificationRole role, String message) {
-        delegate.showNotification(role, message);
+        if (role == NotificationRole.ERROR) {
+            delegate.showNotification(role, message);
+        }
     }
 
     @Override

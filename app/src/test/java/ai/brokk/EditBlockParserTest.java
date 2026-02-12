@@ -649,7 +649,7 @@ class EditBlockParserTest {
                 ```
                 """;
 
-        String expected = "[HARNESS NOTE: redundant block skipped; REPLACE text is identical to SEARCH text]\n";
+        String expected = "";
 
         String actual = EditBlockParser.instance.tagBlocks(input);
         AssertionHelperUtil.assertCodeEquals(expected, actual);
@@ -692,7 +692,6 @@ class EditBlockParserTest {
                 >>>>>>> REPLACE
                 ```
                 Some text.
-                [HARNESS NOTE: reundunant block skipped; duplidate of BRK_BLOCK_1]
                 """;
 
         String actual = EditBlockParser.instance.tagBlocks(input);

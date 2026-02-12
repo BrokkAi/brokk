@@ -12,12 +12,15 @@ import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
-import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
+import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -40,11 +43,14 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -72,6 +78,18 @@ public class ArchitectAgent {
     // Result of executing a single search request: both the tool execution result and the SearchAgent result
     private record SearchTaskResult(ToolExecutionResult toolResult, TaskResult taskResult) {}
 
+    private record PlanningTurn(
+            ToolRegistry toolRegistry,
+            WorkspaceTools workspaceTools,
+            List<ChatMessage> messages,
+            Llm.StreamingResult result) {}
+
+    private sealed interface PlanningTurnOutcome permits PlanningTurnOutcome.Success, PlanningTurnOutcome.Terminal {
+        record Success(PlanningTurn turn) implements PlanningTurnOutcome {}
+
+        record Terminal(TaskResult taskResult) implements PlanningTurnOutcome {}
+    }
+
     private final IContextManager cm;
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
@@ -83,11 +101,18 @@ public class ArchitectAgent {
     // History of this agent's interactions
     private final List<ChatMessage> architectMessages = new ArrayList<>();
 
+    // Tracks if we have ever entered emergency mode (restricted tools due to context size)
+    private boolean hasEnteredEmergencyMode = false;
+
+    private final Set<ProjectFile> presentedRelatedFiles = new HashSet<>();
+
     private TokenUsage totalUsage = new TokenUsage(0, 0);
     private boolean offerUndoToolNext = false;
 
     @Nullable
     private StopReason lastFatalReason = null;
+
+    private boolean terminalCompletionReported = false;
 
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
@@ -120,11 +145,25 @@ public class ArchitectAgent {
             String goal,
             ContextManager.TaskScope scope,
             Context initialContext) {
+        this(contextManager, planningModel, codeModel, goal, scope, initialContext, contextManager.getIo());
+    }
+
+    /**
+     * Constructs a BrokkAgent with an explicit IConsoleIO.
+     */
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            IConsoleIO io) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
         this.goal = goal;
-        this.io = contextManager.getIo();
+        this.io = io;
         this.scope = scope;
         this.context = initialContext;
     }
@@ -137,10 +176,8 @@ public class ArchitectAgent {
     public String projectFinished(
             @P("A final explanation or summary addressing all tasks. Format it in Markdown if desired.")
                     String finalExplanation) {
-        var msg = "# Architect complete\n\n%s".formatted(finalExplanation);
-        logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.newMessage());
-
+        terminalCompletionReported = true;
+        reportComplete(StopReason.SUCCESS, "Architect complete", finalExplanation);
         return finalExplanation;
     }
 
@@ -150,10 +187,8 @@ public class ArchitectAgent {
     @Tool(
             "Abort the entire project. Use this if the tasks are impossible or out of scope. Do not combine with other tools.")
     public String abortProject(@P("Explain why the project must be aborted.") String reason) {
-        var msg = "# Architect aborted\n\n%s".formatted(reason);
-        logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.newMessage());
-
+        terminalCompletionReported = true;
+        reportComplete(StopReason.LLM_ABORTED, "Architect aborted", reason);
         return reason;
     }
 
@@ -176,7 +211,7 @@ public class ArchitectAgent {
         // Record planning history before invoking CodeAgent
         addPlanningToHistory();
 
-        io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
         var agent = new CodeAgent(cm, codeModel);
         var opts = new HashSet<CodeAgent.Option>();
         if (deferBuild) {
@@ -351,7 +386,7 @@ public class ArchitectAgent {
             @P("Command to run all tests.") String testAllCommand,
             @P("Command to run a subset of tests (e.g., a single module/file/class).") String testSomeCommand,
             @P("Directories to exclude from analysis/build context.") List<String> excludedDirectories) {
-        var existingDetails = cm.getProject().loadBuildDetails();
+        var existingDetails = cm.getProject().awaitBuildDetails();
         var details = new BuildAgent.BuildDetails(
                 buildLintCommand,
                 testAllCommand,
@@ -371,7 +406,7 @@ public class ArchitectAgent {
             "Verify the currently configured build/lint command by executing it and returning bounded output. Uses the project's saved build details and environment variables.")
     public String verifyBuildCommand() {
         var project = cm.getProject();
-        var details = project.loadBuildDetails();
+        var details = project.awaitBuildDetails();
         var buildLintCommand = details.buildLintCommand();
         if (buildLintCommand.trim().isEmpty()) {
             return "No build/lint command is configured.";
@@ -414,7 +449,7 @@ public class ArchitectAgent {
 
             // Only the winner prints the "engaged" message
             if (shouldEcho) {
-                io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.AI, LlmOutputMeta.newMessage());
+                io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
             }
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
@@ -460,11 +495,26 @@ public class ArchitectAgent {
             throw new IllegalArgumentException(); // Architect should only be invoked by Task List harness
         }
 
+        TaskResult tr;
         try {
-            return executeInternal();
+            tr = executeInternal();
         } catch (InterruptedException e) {
-            return resultWithMessages(StopReason.INTERRUPTED);
+            tr = resultWithMessages(StopReason.INTERRUPTED);
         }
+
+        if (!terminalCompletionReported) {
+            var details = tr.stopDetails();
+            var message =
+                    switch (details.reason()) {
+                        case SUCCESS -> goal;
+                        case INTERRUPTED -> "Cancelled by user.";
+                        default ->
+                            details.explanation().isBlank() ? details.reason().name() : details.explanation();
+                    };
+            reportComplete(details.reason(), "Architect finished", message);
+        }
+
+        return tr;
     }
 
     /**
@@ -472,10 +522,15 @@ public class ArchitectAgent {
      * results are appended to the provided scope.
      */
     public TaskResult executeWithScan() throws InterruptedException {
+        return executeWithScan(
+                Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2);
+    }
+
+    public TaskResult executeWithScan(boolean pruneFirst) throws InterruptedException {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(context, goal, scanModel, this.scope);
-        if (Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2) {
+        if (pruneFirst) {
             searchAgent.pruneContext();
         }
         // (appends prune + scan results to scope)
@@ -494,8 +549,9 @@ public class ArchitectAgent {
      * Strategy:
      * 1) Try CodeAgent first with the goal.
      * 2) Enter planning loop. If the workspace is critical, restrict tools to workspace-trimming set.
-     * 3) If the planning LLM returns ContextTooLarge, switch to ARCHITECT_FALLBACK and run a single
-     * critical-turn (restricted tools) to shrink the workspace, then proceed with the result.
+     * 3) If the planning LLM returns ContextTooLarge, attempt to recover by throwing out the largest fragment(s),
+     *    appending a harness note to the final user message describing what was removed. If at any point we get
+     *    CTL while the non-workspace conversation history is larger than the workspace itself, abort.
      */
     private TaskResult executeInternal() throws InterruptedException {
         // run code agent first
@@ -515,7 +571,7 @@ public class ArchitectAgent {
             return codeAgentSuccessResult();
         }
 
-        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal).withEcho());
+        var llm = cm.getLlm(new Llm.Options(planningModel, goal, TaskResult.Type.ARCHITECT).withEcho());
         var modelsService = cm.getService();
 
         while (true) {
@@ -530,116 +586,16 @@ public class ArchitectAgent {
                     .min()
                     .orElseThrow();
 
-            // Calculate current workspace token size
-            var suppressed = EnumSet.noneOf(SpecialTextType.class);
-            var workspaceContentMessages =
-                    new ArrayList<>(WorkspacePrompts.getMessagesGroupedByMutability(context, suppressed));
-            int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
-
-            // Build the prompt messages, including history and conditional warnings
-            var messages = buildPrompt(workspaceTokenSize, maxInputTokens, workspaceContentMessages);
-
-            // Create a local registry for this planning turn
-            var wst = new WorkspaceTools(this.context);
-            var tr = cm.getToolRegistry().builder().register(this).register(wst).build();
-
-            // Decide tool availability for this step
-            var toolSpecs = new ArrayList<ToolSpecification>();
-            var criticalWorkspaceSize =
-                    workspaceTokenSize > (ArchitectPrompts.WORKSPACE_CRITICAL_THRESHOLD * maxInputTokens);
-
-            ToolContext toolContext;
-            if (criticalWorkspaceSize) {
-                notifyCriticalWorkspaceRestriction(workspaceTokenSize, maxInputTokens);
-                var allowed = criticalAllowedTools();
-                allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
-                toolSpecs.addAll(tr.getTools(allowed));
-                toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
-            } else {
-                // Default tool population logic
-                List<String> allowed = new ArrayList<>();
-                allowed.add("addFilesToWorkspace");
-                allowed.add("addFileSummariesToWorkspace");
-                allowed.add("addClassesToWorkspace");
-                allowed.add("addClassSummariesToWorkspace");
-                allowed.add("addMethodsToWorkspace");
-                allowed.add("addSymbolUsagesToWorkspace");
-                allowed.add("addUrlContentsToWorkspace");
-                allowed.add("appendNote");
-                allowed.add("dropWorkspaceFragments");
-                allowed.add("explainCommit");
-
-                // Agent tools
-                allowed.add("callCodeAgent");
-                allowed.add("setBuildDetails");
-                allowed.add("verifyBuildCommand");
-
-                if (this.offerUndoToolNext) {
-                    allowed.add("undoLastChanges");
-                    allowed.add("callSearchAgent");
-                }
-
-                // Terminals
-                allowed.add("projectFinished");
-                allowed.add("abortProject");
-
-                // Filter out analyzer-required tools at the very end
-                allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
-
-                toolSpecs.addAll(tr.getTools(allowed));
-                toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
+            var outcome = runPlanningTurnWithContextTooLargeRecovery(llm, maxInputTokens);
+            if (outcome instanceof PlanningTurnOutcome.Terminal terminal) {
+                return terminal.taskResult();
             }
+            var turn = ((PlanningTurnOutcome.Success) outcome).turn();
 
-            // Ask the LLM for the next step
-            io.showTransientMessage("Brokk Architect is preparing the next actions…");
-            var result = llm.sendRequest(messages, toolContext);
-
-            // Handle errors, with special recovery for ContextTooLarge
-            if (result.error() != null) {
-                if (!(result.error() instanceof ContextTooLargeException)) {
-                    logger.debug(
-                            "Error from LLM while deciding next action: {}",
-                            result.error().getMessage());
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Error from LLM while deciding next action (see debug log for details)");
-                    return resultWithMessages(StopReason.LLM_ERROR);
-                }
-
-                // we know workspace is too large; we don't know by how much so we'll guess 0.8 as the threshold
-                messages = buildPrompt(workspaceTokenSize, (int) (workspaceTokenSize * 0.8), workspaceContentMessages);
-                var currentModelTokens = modelsService.getMaxInputTokens(this.planningModel);
-                var fallbackModel = modelsService.getModel(ModelType.ARCHITECT_FALLBACK);
-                var fallbackModelTokens = modelsService.getMaxInputTokens(fallbackModel);
-                if (fallbackModelTokens < currentModelTokens * 1.2) {
-                    return resultWithMessages(StopReason.LLM_ERROR);
-                }
-                logger.warn(
-                        "Context too large for current model; attempting emergency retry with {} (tokens: {} vs {})",
-                        modelsService.nameOf(fallbackModel),
-                        fallbackModelTokens,
-                        currentModelTokens);
-
-                // Emergency LLM restricted to critical workspace tools
-                var emergencyLlm = cm.getLlm(
-                        new Llm.Options(fallbackModel, "Architect emergency (context too large): " + goal).withEcho());
-                notifyCriticalWorkspaceRestriction(workspaceTokenSize, fallbackModelTokens);
-                var emergencyAllowed = criticalAllowedTools();
-                emergencyAllowed = WorkspaceTools.filterByAnalyzerAvailability(emergencyAllowed, cm.getProject());
-                var emergencyToolContext = new ToolContext(tr.getTools(emergencyAllowed), ToolChoice.REQUIRED, tr);
-
-                var emergencyResult = emergencyLlm.sendRequest(messages, emergencyToolContext);
-                if (emergencyResult.error() != null) {
-                    logger.debug(
-                            "Error from LLM during emergency reduced-context turn: {}",
-                            emergencyResult.error().getMessage());
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Error from LLM during emergency reduced-context turn (see debug log for details)");
-                    return resultWithMessages(StopReason.LLM_ERROR);
-                }
-                result = emergencyResult; // proceed with emergency result
-            }
+            var tr = turn.toolRegistry();
+            var wst = turn.workspaceTools();
+            var messages = turn.messages();
+            var result = turn.result();
 
             totalUsage = TokenUsage.sum(
                     totalUsage, castNonNull(result.originalResponse()).tokenUsage());
@@ -651,12 +607,7 @@ public class ArchitectAgent {
             var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
 
-            // execute tool calls in the following order:
-            // 1. projectFinished
-            // 2. abortProject
-            // 3. (workspace and other tools)
-            // 4. searchAgent (background)
-            // 5. codeAgent (serially)
+            // carry forward into outer loop
             ToolExecutionRequest answerReq = null, abortReq = null;
             var searchAgentReqs = new ArrayList<ToolExecutionRequest>();
             var codeAgentReqs = new ArrayList<ToolExecutionRequest>();
@@ -681,7 +632,8 @@ public class ArchitectAgent {
                     var ignoredMsg =
                             "Ignored 'projectFinished' because other tool calls were present in the same turn.";
                     var toolResult = ToolExecutionResult.requestError(answerReq, ignoredMsg);
-                    // Record the ignored result in the architect message history so planning history reflects this.
+                    // Record the ignored result in the architect message history so planning history reflects
+                    // this.
                     architectMessages.add(toolResult.toExecutionResultMessage());
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
@@ -738,11 +690,12 @@ public class ArchitectAgent {
 
                 // Submit search agent tasks to run in the background
                 var searchAgentTasks = new ArrayList<SearchTask>();
+                final var trForSearchBatch = tr;
                 for (var req : searchAgentReqs) {
                     Callable<SearchTaskResult> task = () -> {
                         // Ensure a clean slate for this thread before invoking the tool
                         threadlocalSearchResult.remove();
-                        var toolResult = tr.executeTool(req);
+                        var toolResult = trForSearchBatch.executeTool(req);
                         var saResult = requireNonNull(threadlocalSearchResult.get());
                         logger.debug("Finished SearchAgent task for request: {}", req.name());
                         return new SearchTaskResult(toolResult, saResult);
@@ -770,29 +723,29 @@ public class ArchitectAgent {
                             failedCount++;
                             continue;
                         }
-                        var outcome = future.get();
+                        var searchOutcome = future.get();
 
                         // Record tool result into the conversational transcript
-                        architectMessages.add(outcome.toolResult().toExecutionResultMessage());
+                        architectMessages.add(searchOutcome.toolResult().toExecutionResultMessage());
 
                         // Set base result from the first SearchAgent
                         if (baseSaResult == null) {
-                            baseSaResult = outcome.taskResult();
+                            baseSaResult = searchOutcome.taskResult();
                         }
 
                         // Merge contexts deterministically
                         combinedContext =
-                                combinedContext.union(outcome.taskResult().context());
+                                combinedContext.union(searchOutcome.taskResult().context());
 
                         // Count failures by SearchAgent stop reason
-                        if (outcome.taskResult().stopDetails().reason() != StopReason.SUCCESS) {
+                        if (searchOutcome.taskResult().stopDetails().reason() != StopReason.SUCCESS) {
                             failedCount++;
                         }
 
                         logger.debug(
                                 "Collected result for tool '{}' => result: {}",
                                 request.name(),
-                                outcome.toolResult().resultText());
+                                searchOutcome.toolResult().resultText());
                     } catch (InterruptedException e) {
                         logger.warn("SearchAgent task for request '{}' was interrupted", request.name());
                         interrupted = true;
@@ -868,6 +821,144 @@ public class ArchitectAgent {
         }
     }
 
+    @Blocking
+    private PlanningTurnOutcome runPlanningTurnWithContextTooLargeRecovery(Llm llm, int maxInputTokens)
+            throws InterruptedException {
+        var removedFragmentDescriptionsThisTurn = new ArrayList<String>();
+
+        boolean emergencyToolMode = false;
+
+        while (true) {
+            var workspaceContentMessages =
+                    new ArrayList<>(WorkspacePrompts.getMessagesGroupedByMutability(context, Set.of()));
+            int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
+
+            var harnessNotes = new ArrayList<String>();
+            if (!removedFragmentDescriptionsThisTurn.isEmpty()) {
+                harnessNotes.add("Dropped very large fragments " + removedFragmentDescriptionsThisTurn
+                        + " to reduce workspace size.");
+            }
+            if (emergencyToolMode) {
+                var allowedTools = criticalAllowedTools();
+                harnessNotes.add("ContextTooLarge occurred; tools are restricted to " + allowedTools
+                        + ". Use them to reduce Workspace size substantially before proceeding.");
+            }
+
+            @Nullable
+            String harnessNote =
+                    harnessNotes.isEmpty() ? null : "[HARNESS NOTE: " + String.join(" ", harnessNotes) + "]";
+
+            int maxInputTokensForPrompt =
+                    emergencyToolMode ? Math.max(1, (int) (workspaceTokenSize * 0.8)) : maxInputTokens;
+
+            List<ChatMessage> messages =
+                    buildPrompt(workspaceTokenSize, maxInputTokensForPrompt, workspaceContentMessages, harnessNote);
+
+            WorkspaceTools wst = new WorkspaceTools(this.context);
+
+            var depTools = DependencyTools.isSupported(cm.getProject())
+                    ? Optional.of(new DependencyTools(cm))
+                    : Optional.<DependencyTools>empty();
+
+            var builder = cm.getToolRegistry().builder().register(this).register(wst);
+            depTools.ifPresent(builder::register);
+            ToolRegistry tr = builder.build();
+
+            var toolSpecs = new ArrayList<ToolSpecification>();
+            ToolContext toolContext;
+            if (emergencyToolMode) {
+                notifyCriticalWorkspaceRestriction(workspaceTokenSize, maxInputTokens);
+                var allowed = criticalAllowedTools();
+                allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
+                toolSpecs.addAll(tr.getTools(allowed));
+                toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
+            } else {
+                List<String> allowed = new ArrayList<>();
+                allowed.add("addFilesToWorkspace");
+                allowed.add("addFileSummariesToWorkspace");
+                allowed.add("addClassesToWorkspace");
+                allowed.add("addClassSummariesToWorkspace");
+                allowed.add("addMethodsToWorkspace");
+                allowed.add("addUrlContentsToWorkspace");
+                allowed.add("dropWorkspaceFragments");
+                allowed.add("explainCommit");
+
+                allowed.add("callCodeAgent");
+
+                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
+                    allowed.add("setBuildDetails");
+                    allowed.add("verifyBuildCommand");
+                }
+
+                if (depTools.isPresent()) {
+                    allowed.add("importDependency");
+                }
+
+                if (this.offerUndoToolNext) {
+                    allowed.add("undoLastChanges");
+                    allowed.add("callSearchAgent");
+                }
+
+                allowed.add("projectFinished");
+                allowed.add("abortProject");
+
+                allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
+
+                toolSpecs.addAll(tr.getTools(allowed));
+                toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
+            }
+
+            io.showTransientMessage("Brokk Architect is preparing the next actions…");
+            var result = llm.sendRequest(messages, toolContext);
+
+            if (result.error() == null) {
+                return new PlanningTurnOutcome.Success(new PlanningTurn(tr, wst, messages, result));
+            }
+
+            if (!(result.error() instanceof ContextTooLargeException)) {
+                logger.debug(
+                        "Error from LLM while deciding next action: {}",
+                        result.error().getMessage());
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Error from LLM while deciding next action (see debug log for details)");
+                return new PlanningTurnOutcome.Terminal(resultWithMessages(StopReason.LLM_ERROR));
+            }
+
+            int totalPromptTokens = Messages.getApproximateMessageTokens(messages);
+            int conversationTokens = Math.max(0, totalPromptTokens - workspaceTokenSize);
+            if (conversationTokens > workspaceTokenSize) {
+                var abortMessage =
+                        "Architect aborting: ContextTooLarge while conversation history (" + conversationTokens
+                                + " tokens) exceeds workspace (" + workspaceTokenSize
+                                + " tokens). Please start a new session or reduce history.";
+                io.showNotification(IConsoleIO.NotificationRole.INFO, abortMessage);
+                return new PlanningTurnOutcome.Terminal(resultWithMessages(StopReason.LLM_ABORTED, abortMessage));
+            }
+
+            var maybeLargest = findLargestFragmentToDrop(context);
+            if (maybeLargest.isEmpty()) {
+                var abortMessage =
+                        "Architect aborting: ContextTooLarge and no further workspace fragments could be dropped.";
+                io.showNotification(IConsoleIO.NotificationRole.INFO, abortMessage);
+                return new PlanningTurnOutcome.Terminal(resultWithMessages(StopReason.LLM_ERROR, abortMessage));
+            }
+
+            // remove the largest fragment and try again in emergency mode
+            var largest = maybeLargest.get();
+            var desc = largest.description().join();
+            removedFragmentDescriptionsThisTurn.add(desc);
+            var existingDiscardedMap = context.getDiscardedFragmentsNotes();
+            Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
+            mergedDiscarded.put(desc, "Dropped by Brokk Harness to reduce context size");
+            String discardedJson = SpecialTextType.serializeDiscardedContext(mergedDiscarded);
+            context = context.removeFragmentsByIds(List.of(largest.id()))
+                    .withSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
+            emergencyToolMode = true;
+            hasEnteredEmergencyMode = true;
+        }
+    }
+
     /**
      * Notifies the user that tool usage is being restricted due to large workspace size.
      */
@@ -891,7 +982,6 @@ public class ArchitectAgent {
         allowed.add("abortProject");
         allowed.add("dropWorkspaceFragments");
         allowed.add("addFileSummariesToWorkspace");
-        allowed.add("appendNote");
         return allowed;
     }
 
@@ -903,7 +993,11 @@ public class ArchitectAgent {
                 io.getLlmRawMessages(),
                 context,
                 new TaskResult.StopDetails(StopReason.SUCCESS),
-                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
+                taskMeta());
+    }
+
+    private TaskResult.TaskMeta taskMeta() {
+        return new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService()));
     }
 
     private TaskResult resultWithMessages(StopReason reason, String message) {
@@ -922,13 +1016,19 @@ public class ArchitectAgent {
         return resultWithMessages(reason, "Architect: " + goal);
     }
 
+    void reportComplete(StopReason reason, String heading, String message) {
+        logger.debug("ArchitectAgent completed: {}: {}", reason, message);
+        var badge = StatusBadge.badgeFor(reason);
+        io.llmOutput(
+                "\n# " + heading + "\n\n" + badge + "\n\n" + message, ChatMessageType.AI, LlmOutputMeta.newMessage());
+    }
+
     /**
      * Helper method to get priority rank for tool names. Lower number means higher priority.
      */
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "appendNote" -> 2;
             case "addFilesToWorkspace" -> 3;
             case "addFileSummariesToWorkspace" -> 4;
             case "addUrlContentsToWorkspace" -> 5;
@@ -982,7 +1082,10 @@ public class ArchitectAgent {
      * history, agent's session messages, and the final user message with the goal and conditional workspace warnings.
      */
     private List<ChatMessage> buildPrompt(
-            int workspaceTokenSize, int maxInputTokens, List<ChatMessage> precomputedWorkspaceMessages)
+            int workspaceTokenSize,
+            int maxInputTokens,
+            List<ChatMessage> precomputedWorkspaceMessages,
+            @Nullable String appendedHarnessNote)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
@@ -1003,7 +1106,7 @@ public class ArchitectAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // History from previous tasks/sessions
-        messages.addAll(cm.getHistoryMessages());
+        messages.addAll(CodePrompts.instance.getHistoryMessages(context, taskMeta()));
 
         // This agent's own conversational history for the current goal, with the instructionsMarker
         // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)
@@ -1020,8 +1123,11 @@ public class ArchitectAgent {
                 })
                 .toList());
 
-        // Add related identifiers as a separate message/ack pair
-        var related = context.buildRelatedIdentifiers(10);
+        // Add related identifiers as a separate message/ack pair, unless we are/were in emergency mode
+        var related = hasEnteredEmergencyMode
+                ? Map.<ProjectFile, String>of()
+                : context.buildRelatedSymbols(10, 20, presentedRelatedFiles);
+        presentedRelatedFiles.addAll(related.keySet());
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             var topFilesText =
@@ -1053,7 +1159,7 @@ public class ArchitectAgent {
                     """;
         }
 
-        if (cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+        if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
             finalInstructions +=
                     """
 
@@ -1064,8 +1170,32 @@ public class ArchitectAgent {
                     """;
         }
 
+        if (appendedHarnessNote != null && !appendedHarnessNote.isBlank()) {
+            finalInstructions += "\n\n" + appendedHarnessNote;
+        }
+
         messages.add(new UserMessage(finalInstructions));
 
         return messages;
+    }
+
+    @Blocking
+    private Optional<ContextFragment> findLargestFragmentToDrop(Context ctx) {
+        var candidates = ctx.allFragments()
+                .filter(f -> !f.getType().isOutput())
+                .filter(f -> !ctx.isPinned(f))
+                .filter(ContextFragment::isText)
+                .toList();
+
+        if (candidates.isEmpty()) {
+            return Optional.empty();
+        }
+
+        record Scored(ContextFragment fragment, int tokens) {}
+
+        return candidates.stream()
+                .map(f -> new Scored(f, Messages.getApproximateTokens(f.text().join())))
+                .max(Comparator.comparingInt(Scored::tokens))
+                .map(Scored::fragment);
     }
 }

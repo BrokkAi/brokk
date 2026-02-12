@@ -60,13 +60,11 @@ public interface ContextFragment {
         SKELETON,
         USAGE,
         CODE,
-        CALL_GRAPH,
         HISTORY,
         TASK,
         PASTE_TEXT,
         PASTE_IMAGE,
-        STACKTRACE,
-        BUILD_LOG;
+        STACKTRACE;
 
         private static final EnumSet<FragmentType> PATH_TYPES =
                 EnumSet.of(PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE);

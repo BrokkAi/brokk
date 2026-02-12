@@ -616,27 +616,27 @@ public class TypescriptAnalyzerTest {
     @Test
     void testGetMethodSource() throws IOException {
         // From Hello.ts
-        Optional<String> greetSource = AnalyzerUtil.getMethodSource(analyzer, "Greeter.greet", true);
+        Optional<String> greetSource = AnalyzerUtil.getSource(analyzer, "Greeter.greet", true);
         assertTrue(greetSource.isPresent());
         assertEquals(
                 normalize.apply("greet(): string {\n    return \"Hello, \" + this.greeting;\n}"),
                 normalize.apply(greetSource.get()));
 
-        Optional<String> constructorSource = AnalyzerUtil.getMethodSource(analyzer, "Greeter.constructor", true);
+        Optional<String> constructorSource = AnalyzerUtil.getSource(analyzer, "Greeter.constructor", true);
         assertTrue(constructorSource.isPresent());
         assertEquals(
                 normalize.apply("constructor(message: string) {\n    this.greeting = message;\n}"),
                 normalize.apply(constructorSource.get()));
 
         // From Vars.ts (arrow function)
-        Optional<String> arrowSource = AnalyzerUtil.getMethodSource(analyzer, "anArrowFunc", true);
+        Optional<String> arrowSource = AnalyzerUtil.getSource(analyzer, "anArrowFunc", true);
         assertTrue(arrowSource.isPresent());
         assertEquals(
                 normalize.apply("const anArrowFunc = (msg: string): void => {\n    console.log(msg);\n};"),
                 normalize.apply(arrowSource.get()));
 
         // From Advanced.ts (async named function)
-        Optional<String> asyncNamedSource = AnalyzerUtil.getMethodSource(analyzer, "asyncNamedFunc", true);
+        Optional<String> asyncNamedSource = AnalyzerUtil.getSource(analyzer, "asyncNamedFunc", true);
         assertTrue(asyncNamedSource.isPresent());
         assertEquals(
                 normalize.apply(
@@ -645,7 +645,7 @@ public class TypescriptAnalyzerTest {
 
         // Test getMethodSource for overloaded function (processInput from Advanced.ts)
         // It should return all signatures and the implementation concatenated.
-        Optional<String> overloadedSource = AnalyzerUtil.getMethodSource(analyzer, "processInput", true);
+        Optional<String> overloadedSource = AnalyzerUtil.getSource(analyzer, "processInput", true);
         assertTrue(overloadedSource.isPresent(), "Source for overloaded function processInput should be present.");
 
         // Check the actual format returned by TreeSitterAnalyzer
@@ -721,7 +721,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testGetClassSource() throws IOException {
         String greeterSource = normalize.apply(
-                AnalyzerUtil.getClassSource(analyzer, "Greeter", true).get());
+                AnalyzerUtil.getSource(analyzer, "Greeter", true).get());
         assertNotNull(greeterSource);
         assertTrue(greeterSource.startsWith("export class Greeter"));
         assertTrue(greeterSource.contains("greeting: string;"));
@@ -729,8 +729,8 @@ public class TypescriptAnalyzerTest {
         assertTrue(greeterSource.endsWith("}"));
 
         // Test with Point interface - could be from Hello.ts or Advanced.ts
-        String pointSource = normalize.apply(
-                AnalyzerUtil.getClassSource(analyzer, "Point", true).get());
+        String pointSource =
+                normalize.apply(AnalyzerUtil.getSource(analyzer, "Point", true).get());
         assertNotNull(pointSource);
         assertTrue(
                 pointSource.contains("x: number") && pointSource.contains("y: number"),
@@ -791,8 +791,7 @@ public class TypescriptAnalyzerTest {
                 helloPoint.hashCode(), advancedPoint.hashCode(), "Distinct CodeUnits should have different hashCodes");
 
         // With distinct CodeUnits, getClassSource should work correctly without corruption
-        String pointSource =
-                AnalyzerUtil.getClassSource(analyzer, "Point", true).get();
+        String pointSource = AnalyzerUtil.getSource(analyzer, "Point", true).get();
 
         // The source should be a valid Point interface, not corrupted
         assertFalse(pointSource.contains("MyParameterDecorator"), "Should not contain decorator function text");
@@ -1191,7 +1190,7 @@ public class TypescriptAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class with JSDoc annotations
-        Optional<String> userServiceSource = AnalyzerUtil.getClassSource(analyzer, "UserService", true);
+        Optional<String> userServiceSource = AnalyzerUtil.getSource(analyzer, "UserService", true);
         assertTrue(userServiceSource.isPresent(), "UserService class should be found");
 
         String normalizedService = normalize.apply(userServiceSource.get());
@@ -1202,7 +1201,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(normalizedService.contains("class UserService"), "Class source should include class definition");
 
         // Test method with comprehensive JSDoc annotations
-        Optional<String> getUserByIdSource = AnalyzerUtil.getMethodSource(analyzer, "UserService.getUserById", true);
+        Optional<String> getUserByIdSource = AnalyzerUtil.getSource(analyzer, "UserService.getUserById", true);
         assertTrue(getUserByIdSource.isPresent(), "getUserById method should be found");
 
         String normalizedGetUserById = normalize.apply(getUserByIdSource.get());
@@ -1215,7 +1214,7 @@ public class TypescriptAnalyzerTest {
                 normalizedGetUserById.contains("async getUserById"), "Method source should include method definition");
 
         // Test deprecated method with @deprecated annotation
-        Optional<String> getUserDeprecatedSource = AnalyzerUtil.getMethodSource(analyzer, "UserService.getUser", true);
+        Optional<String> getUserDeprecatedSource = AnalyzerUtil.getSource(analyzer, "UserService.getUser", true);
         assertTrue(getUserDeprecatedSource.isPresent(), "getUser deprecated method should be found");
 
         String normalizedDeprecated = normalize.apply(getUserDeprecatedSource.get());
@@ -1227,7 +1226,7 @@ public class TypescriptAnalyzerTest {
         // Test static method with annotations
         // Note: Static methods now have $static suffix to distinguish from instance methods with same name
         Optional<String> validateConfigSource =
-                AnalyzerUtil.getMethodSource(analyzer, "UserService.validateConfig$static", true);
+                AnalyzerUtil.getSource(analyzer, "UserService.validateConfig$static", true);
         assertTrue(validateConfigSource.isPresent(), "validateConfig static method should be found");
 
         String normalizedStatic = normalize.apply(validateConfigSource.get());
@@ -1248,7 +1247,7 @@ public class TypescriptAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test generic class with template annotations
-        Optional<String> repositorySource = AnalyzerUtil.getClassSource(analyzer, "Repository", true);
+        Optional<String> repositorySource = AnalyzerUtil.getSource(analyzer, "Repository", true);
         assertTrue(repositorySource.isPresent(), "Repository generic class should be found");
 
         String normalizedRepo = normalize.apply(repositorySource.get());
@@ -1258,7 +1257,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(normalizedRepo.contains("class Repository"), "Class source should include class definition");
 
         // Test method with experimental annotation
-        Optional<String> batchProcessSource = AnalyzerUtil.getMethodSource(analyzer, "Repository.batchProcess", true);
+        Optional<String> batchProcessSource = AnalyzerUtil.getSource(analyzer, "Repository.batchProcess", true);
         assertTrue(batchProcessSource.isPresent(), "batchProcess method should be found");
 
         String normalizedBatch = normalize.apply(batchProcessSource.get());
@@ -1279,7 +1278,7 @@ public class TypescriptAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test function overloads with individual JSDoc annotations
-        Optional<String> processDataSource = AnalyzerUtil.getMethodSource(analyzer, "processData", true);
+        Optional<String> processDataSource = AnalyzerUtil.getSource(analyzer, "processData", true);
         assertTrue(processDataSource.isPresent(), "processData overloaded function should be found");
 
         String normalizedProcessData = normalize.apply(processDataSource.get());
@@ -1293,7 +1292,7 @@ public class TypescriptAnalyzerTest {
                 "Function source should include function definitions");
 
         // Test async function with comprehensive annotations
-        Optional<String> fetchWithRetrySource = AnalyzerUtil.getMethodSource(analyzer, "fetchWithRetry", true);
+        Optional<String> fetchWithRetrySource = AnalyzerUtil.getSource(analyzer, "fetchWithRetry", true);
         assertTrue(fetchWithRetrySource.isPresent(), "fetchWithRetry function should be found");
 
         String normalizedFetch = normalize.apply(fetchWithRetrySource.get());
@@ -1318,7 +1317,7 @@ public class TypescriptAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test interface with JSDoc annotations
-        Optional<String> userConfigSource = AnalyzerUtil.getClassSource(analyzer, "UserConfig", true);
+        Optional<String> userConfigSource = AnalyzerUtil.getSource(analyzer, "UserConfig", true);
         if (userConfigSource.isPresent()) {
             String normalizedConfig = normalize.apply(userConfigSource.get());
             assertTrue(
@@ -1329,7 +1328,7 @@ public class TypescriptAnalyzerTest {
         }
 
         // Test enum with annotations
-        Optional<String> userRoleSource = AnalyzerUtil.getClassSource(analyzer, "UserRole", true);
+        Optional<String> userRoleSource = AnalyzerUtil.getSource(analyzer, "UserRole", true);
         if (userRoleSource.isPresent()) {
             String normalizedRole = normalize.apply(userRoleSource.get());
             assertTrue(
@@ -3300,7 +3299,7 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(project, analyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();

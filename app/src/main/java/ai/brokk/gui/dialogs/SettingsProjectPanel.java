@@ -7,7 +7,6 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -19,9 +18,7 @@ import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssuesProviderConfig;
 import ai.brokk.issues.JiraFilterOptions;
 import ai.brokk.issues.JiraIssueService;
-import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
@@ -52,11 +49,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // General UI Components
-    private final JTextArea styleGuideArea = new JTextArea(5, 40);
     private final JTextArea commitFormatArea = new JTextArea(5, 40);
-
-    @Nullable
-    private JTextArea reviewGuideArea;
 
     // Unified exclusion patterns (directories and file patterns combined)
     private final DefaultListModel<String> exclusionPatternsListModel = new DefaultListModel<>();
@@ -149,14 +142,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     private void populateGeneralTab(SettingsDialog.SettingsData data) {
-        styleGuideArea.setText(data.styleGuide() != null ? data.styleGuide() : "");
-        styleGuideArea.setCaretPosition(0); // Reset scroll position to top
         commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
         commitFormatArea.setCaretPosition(0); // Reset scroll position to top
-        if (reviewGuideArea != null) {
-            reviewGuideArea.setText(data.reviewGuide() != null ? data.reviewGuide() : "");
-            reviewGuideArea.setCaretPosition(0); // Reset scroll position to top
-        }
     }
 
     private void populateIssuesTab() {
@@ -302,97 +289,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         int row = 0;
 
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        gbc.fill = GridBagConstraints.NONE;
-        generalPanel.add(new JLabel("AGENTS.md:"), gbc);
-        styleGuideArea.setWrapStyleWord(true);
-        styleGuideArea.setLineWrap(true);
-        var styleScrollPane = new JScrollPane(styleGuideArea);
-        styleScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        styleScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.weighty = 0.5;
-        gbc.fill = GridBagConstraints.BOTH;
-        generalPanel.add(styleScrollPane, gbc);
-
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.weighty = 0.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        var styleGuideInfo = new JLabel(
-                "<html>The Style Guide is used by the Code Agent to help it conform to your project's style.</html>");
-        styleGuideInfo.setFont(styleGuideInfo
-                .getFont()
-                .deriveFont(Font.ITALIC, styleGuideInfo.getFont().getSize() * 0.9f));
-        gbc.insets = new Insets(0, 2, 8, 2);
-        generalPanel.add(styleGuideInfo, gbc);
-
-        gbc.insets = new Insets(2, 2, 2, 2);
-
-        // Migration button (visible only if migration is pending)
-        var migrateButton = new MaterialButton("Migrate style.md to AGENTS.md");
-        migrateButton.addActionListener(e -> {
-            var mp = chrome.getProject();
-            if (mp instanceof MainProject mainProject) {
-                migrateButton.setEnabled(false);
-                new ExceptionAwareSwingWorker<Boolean, Void>(chrome) {
-                    @Override
-                    protected Boolean doInBackground() throws Exception {
-                        return mainProject.performStyleMdToAgentsMdMigration(io());
-                    }
-
-                    @Override
-                    protected void done() {
-                        super.done(); // handles exceptions via GlobalExceptionHandler
-                        try {
-                            boolean success = get();
-                            if (success) {
-                                // Migration succeeded - hide button and reload settings from parent dialog
-                                migrateButton.setVisible(false);
-                                parentDialog.loadSettingsInBackground();
-                            } else {
-                                // Migration failed - re-enable button
-                                migrateButton.setEnabled(true);
-                            }
-                        } catch (Exception ex) {
-                            // Exception already handled by super.done(), just re-enable button
-                            migrateButton.setEnabled(true);
-                        }
-                    }
-                }.execute();
-            }
-        });
-
-        // Check if migration button should be visible
-        try {
-            var projectRoot = chrome.getProject().getMasterRootPathForConfig();
-            var brokkDir = projectRoot.resolve(AbstractProject.BROKK_DIR);
-            boolean styleExists = java.nio.file.Files.exists(brokkDir.resolve("style.md"));
-            boolean agentsExists = java.nio.file.Files.exists(projectRoot.resolve("AGENTS.md"));
-            migrateButton.setVisible(styleExists && !agentsExists);
-            if (migrateButton.isVisible()) {
-                migrateButton.setToolTipText("Migrate .brokk/style.md to AGENTS.md at project root");
-            }
-        } catch (Exception ex) {
-            migrateButton.setVisible(false);
-        }
-
-        gbc.gridx = 0;
-        gbc.gridy = row++;
-        gbc.gridwidth = 2;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.insets = new Insets(5, 2, 15, 2); // Extra bottom padding to separate from next section
-        generalPanel.add(migrateButton, gbc);
-
         // Reset for next components
         gbc.gridwidth = 1;
         gbc.insets = new Insets(2, 2, 2, 2);
@@ -429,46 +325,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 .deriveFont(Font.ITALIC, commitFormatInfo.getFont().getSize() * 0.9f));
         gbc.insets = new Insets(0, 2, 8, 2); // Increased bottom inset
         generalPanel.add(commitFormatInfo, gbc);
-
-        gbc.insets = new Insets(2, 2, 2, 2);
-
-        var project = chrome.getProject();
-        boolean showReviewGuide = project.isGitHubRepo();
-
-        if (showReviewGuide) {
-            gbc.gridx = 0;
-            gbc.gridy = row;
-            gbc.weightx = 0.0;
-            gbc.anchor = GridBagConstraints.NORTHWEST;
-            gbc.fill = GridBagConstraints.NONE;
-            generalPanel.add(new JLabel("Review Guide:"), gbc);
-            reviewGuideArea = new JTextArea(5, 40);
-            reviewGuideArea.setWrapStyleWord(true);
-            reviewGuideArea.setLineWrap(true);
-            var reviewGuideScrollPane = new JScrollPane(reviewGuideArea);
-            reviewGuideScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-            reviewGuideScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-            gbc.gridx = 1;
-            gbc.gridy = row++;
-            gbc.weightx = 1.0;
-            gbc.weighty = 0.5;
-            gbc.fill = GridBagConstraints.BOTH;
-            generalPanel.add(reviewGuideScrollPane, gbc);
-
-            gbc.gridx = 1;
-            gbc.gridy = row++;
-            gbc.weightx = 1.0;
-            gbc.weighty = 0.0;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.anchor = GridBagConstraints.NORTHWEST;
-            var reviewGuideInfo = new JLabel(
-                    "<html>The Review Guide is used to auto-populate the Instructions when capturing a pull request.</html>");
-            reviewGuideInfo.setFont(reviewGuideInfo
-                    .getFont()
-                    .deriveFont(Font.ITALIC, reviewGuideInfo.getFont().getSize() * 0.9f));
-            gbc.insets = new Insets(0, 2, 8, 2);
-            generalPanel.add(reviewGuideInfo, gbc);
-        }
 
         gbc.weighty = 0.0; // Reset for any future components
         gbc.gridy = row; // Use current row for glue
@@ -1265,11 +1121,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var project = chrome.getProject();
 
         // General Tab
-        project.saveStyleGuide(styleGuideArea.getText());
         project.setCommitMessageFormat(commitFormatArea.getText());
-        if (reviewGuideArea != null) {
-            project.saveReviewGuide(reviewGuideArea.getText());
-        }
 
         // Issues Tab
         IssueProviderType selectedType = (IssueProviderType) issueProviderTypeComboBox.getSelectedItem();
@@ -1353,7 +1205,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private void saveCiExclusions() {
         var project = chrome.getProject();
         try {
-            var currentDetails = project.loadBuildDetails();
+            var currentDetails = project.awaitBuildDetails();
 
             // Get all patterns from the unified list
             var rawPatterns = Collections.list(exclusionPatternsListModel.elements());

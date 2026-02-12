@@ -13,12 +13,13 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
-import ai.brokk.agents.LutzAgent;
+import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.gui.components.ActionGroupPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
@@ -97,7 +98,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_PLAN = "Plan";
 
     private static final String PLACEHOLDER_PREFIX = "Type your prompt here. ";
-    private static final String PLACEHOLDER_NEWLINE_HINT = "Shift+Enter = newline.";
 
     private boolean placeholderActive = false;
     private String currentPlaceholderText = "";
@@ -136,6 +136,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
+    private final ActionGroupPanel modeTogglePanel;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -453,6 +454,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
 
+        this.modeTogglePanel = createModeTogglePanel();
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -486,10 +488,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         refreshModeIndicator();
 
         // Apply initial Advanced Mode state to ensure ModelSelector visibility is correct
-        applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
+        applyAdvancedMode(GlobalUiSettings.isAdvancedMode());
 
-        // Subscribe to service reload events to update button states
-        contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
+        // Subscribe to events
+        contextManager.addServiceReloadListener(() -> LoggingFuture.runVirtual(this::updateButtonStates));
+        contextManager.addContextListener(this);
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -652,6 +655,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.addFocusListener(new FocusAdapter() {
             @Override
             public void focusLost(FocusEvent e) {
+                if (e.isTemporary()) return;
                 // Restore placeholder state if text is empty
                 SwingUtilities.invokeLater(() -> deactivateCommandInput());
             }
@@ -694,37 +698,49 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             @Override
             public void actionPerformed(ActionEvent e) {
                 var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-                var contents = clipboard.getContents(null);
-                boolean imageHandled = false;
+                int maxAttempts = 3;
+                int delayMs = 50;
+                boolean imageFound = false;
 
-                if (contents == null) {
-                    return;
-                }
-
-                for (var flavor : contents.getTransferDataFlavors()) {
+                for (int i = 0; i < maxAttempts; i++) {
                     try {
-                        if (flavor.equals(DataFlavor.imageFlavor)
-                                || flavor.getMimeType().startsWith("image/")) {
-                            // Re-use existing ContextActions logic
-                            chrome.getContextActionsHandler()
-                                    .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
-                            imageHandled = true;
+                        var contents = clipboard.getContents(null);
+                        if (contents != null) {
+                            for (var flavor : contents.getTransferDataFlavors()) {
+                                if (flavor.equals(DataFlavor.imageFlavor)
+                                        || flavor.getMimeType().startsWith("image/")) {
+                                    imageFound = true;
+                                    break;
+                                }
+                            }
+                        }
+                        break;
+                    } catch (IllegalStateException ex) {
+                        if (i == maxAttempts - 1) {
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
                             break;
                         }
-                    } catch (Exception ex) {
-                        // Log at trace to avoid noise; proceed with default paste handling
-                        logger.trace("Clipboard flavor probe failed during smartPaste; falling back to default", ex);
+                        try {
+                            Thread.sleep(delayMs);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
                     }
                 }
 
-                if (!imageHandled) {
+                if (imageFound) {
+                    chrome.getContextActionsHandler()
+                            .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
+                } else {
                     area.paste(); // Default text paste
                 }
             }
         });
 
         // Add Shift+Enter shortcut to insert a newline
-        var shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+        var shiftEnter = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
         area.getInputMap().put(shiftEnter, "insertNewline");
         area.getActionMap().put("insertNewline", new AbstractAction() {
             @Override
@@ -870,12 +886,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                        if (rows >= maxRows) break;
+                        if (rows >= 7) break;
                     }
                 }
-                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
-                return Math.max(1, Math.min(maxRows, rows));
+                return Math.max(1, Math.min(7, rows));
             }
 
             @Override
@@ -1103,7 +1117,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         LoggingFuture.supplyAsync(() -> {
                     var service = chrome.getContextManager().getService();
                     var model = service.getModel(config);
-                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                    if (model == null || model instanceof AbstractService.OfflineStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
                                         "Unavailable",
@@ -1322,30 +1336,64 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private String buildPlaceholderTextFromCurrentKeybindings() {
-        KeyStroke submitKs =
-                GlobalUiSettings.getKeybinding("instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
-        String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-        String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
+        String placeholder;
+        try {
+            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
+                    "instructions.submit", KeyboardShortcutUtil.defaultInstructionsSubmit());
+            String submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
+            String submitHint = submitStr.isBlank() ? "" : submitStr + " = submit.";
 
-        String base = PLACEHOLDER_PREFIX + PLACEHOLDER_NEWLINE_HINT;
-        if (submitHint.isBlank()) {
-            return (base + "\n").stripIndent();
+            KeyStroke newlineKs = KeyboardShortcutUtil.createShiftShortcut(KeyEvent.VK_ENTER);
+            String newlineStr = KeyboardShortcutUtil.formatKeyStroke(newlineKs);
+            String newlineHint = newlineStr.isBlank() ? "" : newlineStr + " = newline.";
+
+            String base = PLACEHOLDER_PREFIX + newlineHint;
+            if (submitHint.isBlank()) {
+                placeholder = (base + "\n").stripIndent();
+            } else {
+                placeholder = (base + " " + submitHint + "\n").stripIndent();
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to build placeholder text from keybindings, falling back to default prefix.", e);
+            placeholder = PLACEHOLDER_PREFIX;
         }
-        return (base + " " + submitHint + "\n").stripIndent();
+
+        if (placeholder == null || placeholder.trim().isEmpty()) {
+            logger.warn(
+                    "Computed placeholder text was blank; falling back to default prefix. Raw placeholder='{}'",
+                    placeholder);
+            placeholder = PLACEHOLDER_PREFIX;
+        }
+
+        return placeholder;
     }
 
     private void showPlaceholder(JTextArea area) {
         assert SwingUtilities.isEventDispatchThread();
-        currentPlaceholderText = buildPlaceholderTextFromCurrentKeybindings();
+        String computed = buildPlaceholderTextFromCurrentKeybindings();
+        if (computed == null || computed.trim().isEmpty()) {
+            logger.warn(
+                    "showPlaceholder received blank placeholder text; using default prefix instead. Text='{}'",
+                    computed);
+            computed = PLACEHOLDER_PREFIX;
+        }
+        currentPlaceholderText = computed;
         placeholderActive = true;
         area.setText(currentPlaceholderText);
     }
 
-    private boolean isPlaceholderText(String text) {
-        if (!placeholderActive) {
+    static boolean isPlaceholderMatch(@Nullable String text, @Nullable String placeholder) {
+        if (text == null || placeholder == null) {
             return false;
         }
-        return Objects.equals(text, currentPlaceholderText);
+        String normalizedText = text.replace("\r\n", "\n");
+        String normalizedPlaceholder = placeholder.replace("\r\n", "\n");
+        return normalizedText.equals(normalizedPlaceholder);
+    }
+
+    private boolean isPlaceholderText(String text) {
+        if (!placeholderActive) return false;
+        return isPlaceholderMatch(text, currentPlaceholderText);
     }
 
     /**
@@ -1376,11 +1424,46 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.refreshBranchUi(branchName);
     }
 
+    private ActionGroupPanel createModeTogglePanel() {
+        var coreFocusLabel = new JLabel("Core Focus");
+        var fullPowerLabel = new JLabel("Full Power");
+
+        var modeTogglePanel = new ActionGroupPanel(coreFocusLabel, fullPowerLabel);
+        boolean initialAdvancedMode = GlobalUiSettings.isAdvancedMode();
+        modeTogglePanel.setSelected(initialAdvancedMode);
+
+        final boolean[] programmaticToggleChange = {false};
+        modeTogglePanel.addItemListener(e -> {
+            assert SwingUtilities.isEventDispatchThread();
+
+            if (programmaticToggleChange[0]) {
+                programmaticToggleChange[0] = false;
+                return;
+            }
+
+            boolean newMode = modeTogglePanel.isSelected();
+            boolean currentMode = GlobalUiSettings.isAdvancedMode();
+            if (newMode == currentMode) {
+                return;
+            }
+
+            GlobalUiSettings.saveAdvancedMode(newMode);
+            chrome.applyAdvancedModeVisibility();
+            applyAdvancedMode(newMode);
+        });
+
+        modeTogglePanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        return modeTogglePanel;
+    }
+
     private JPanel buildBottomPanel() {
         JPanel bottomPanel = new JPanel();
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         this.bottomToolbarPanel = bottomPanel;
+
+        // Mode toggle (Core Focus / Full Power) - left aligned
+        bottomPanel.add(modeTogglePanel);
 
         // Flexible space before right-side controls (model selector + optional status strip + action button)
         bottomPanel.add(Box.createHorizontalGlue());
@@ -1565,7 +1648,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var models = contextManager.getService();
             // If we have an UnavailableStreamingModel, the service failed to initialize
-            if (models.quickestModel() instanceof Service.UnavailableStreamingModel) {
+            if (models.quickestModel() instanceof AbstractService.OfflineStreamingModel) {
                 return "Service contains unavailable model stub (initialization may have failed)";
             }
             return "Service appears initialized; check network connectivity and API key validity";
@@ -1704,9 +1787,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         List<ChatMessage> messages;
         Context ctx = cm.liveContext();
-        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question, meta);
 
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
+        var llm = cm.getLlm(new Llm.Options(model, question, TaskResult.Type.ASK).withEcho());
         return executeAskCommand(llm, messages, cm, question, meta);
     }
 
@@ -1784,9 +1867,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
+        assert SwingUtilities.isEventDispatchThread();
         final var modelToUse = selectDropdownModelOrShowError("Ask");
         if (modelToUse == null) {
-            updateButtonStates();
+            LoggingFuture.runVirtual(this::updateButtonStates);
             return;
         }
         prepareAndRunAskCommand(modelToUse, input);
@@ -1834,10 +1918,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query, String action) {
+        assert SwingUtilities.isEventDispatchThread();
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
-            updateButtonStates();
+            LoggingFuture.runVirtual(this::updateButtonStates);
             return;
         }
 
@@ -1858,7 +1943,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     boolean hadIncomplete = hasIncomplete(beforeTasks);
 
                     // SearchAgent now handles scanning internally via execute()
-                    LutzAgent agent = new LutzAgent(context, query, modelToUse, objective, scope);
+                    var agent = new SearchAgent(context, query, modelToUse, objective, scope);
 
                     var result = agent.execute();
                     // Apply results to context
@@ -1966,7 +2051,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 chrome.showOutputSpinner(spinnerText);
                 var title = input.length() > 50 ? input.substring(0, 47) + "..." : input;
-                try (var scope = cm.beginTask(input, false, "Lutz Mode: " + title)) {
+                try (var scope = cm.beginTask(input, true, "Lutz Mode: " + title)) {
                     var result = task.apply(scope);
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
@@ -2021,11 +2106,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Called when actions complete.
      */
     private void updateButtonStates() {
-        SwingUtilities.invokeLater(() -> {
-            // Check if service is online
-            var service = contextManager.getService();
-            boolean serviceIsOnline = service.isOnline();
+        assert !SwingUtilities.isEventDispatchThread();
+        // Check if service is online
+        var service = contextManager.getService();
+        boolean serviceIsOnline = service.isOnline();
 
+        SwingUtilities.invokeLater(() -> {
             if (!serviceIsOnline) {
                 // Service is offline: show offline state
                 actionButton.showOfflineMode();
@@ -2089,20 +2175,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         updateTokenCostIndicator();
     }
 
-    /**
-     * Sets read-only UI state for the context widgets (chips + token bar). Safe to call from any thread.
-     */
-    public void setContextReadOnly(boolean readOnly) {
-        SwingUtilities.invokeLater(() -> {
-            workspaceItemsChipPanel.setReadOnly(readOnly);
-            tokenUsageBar.setReadOnly(readOnly);
-            contextAreaContainer.setReadOnly(readOnly);
-        });
-    }
-
     void enableButtons() {
         // Called when an action completes. Reset buttons based on current CM/project state.
-        updateButtonStates();
+        LoggingFuture.runVirtual(this::updateButtonStates);
     }
 
     private String loadActionMode() {
@@ -2141,6 +2216,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void onActionButtonPressed() {
+        assert SwingUtilities.isEventDispatchThread();
         if (isActionRunning()) {
             // Stop action
             chrome.getContextManager().interruptLlmAction();
@@ -2149,10 +2225,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             switch (storedAction) {
                 case ACTION_CODE -> {
                     var model = selectDropdownModelOrShowError("Code");
-                    if (model != null) {
-                        prepareAndRunCodeCommand(model);
+                    if (model == null) {
+                        LoggingFuture.runVirtual(this::updateButtonStates);
                     } else {
-                        updateButtonStates();
+                        prepareAndRunCodeCommand(model);
                     }
                 }
                 case ACTION_LUTZ -> runSearchCommand();
@@ -2203,9 +2279,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param oldText the original text to restore on undo (must be captured before any clearing)
      */
     private void setTextWithUndo(String newText, String oldText) {
-        // Skip no-op edits (e.g., when wand fails and restores original)
-        if (newText.equals(oldText)) {
-            // Still need to ensure undo listener is enabled (WandButton may have disabled it)
+        // Only skip if the current text matches what we are trying to set
+        if (newText.equals(instructionsArea.getText())) {
+            // Ensure undo listener is enabled (e.g. if WandButton disabled it before streaming)
             enableUndoListener();
             return;
         }
@@ -2217,6 +2293,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Re-enable undo listener for future user typing
         enableUndoListener();
+
+        // If the new text matches the original captured text (restoration case),
+        // we don't need to add an undoable edit as there is no semantic change.
+        if (newText.equals(oldText)) {
+            return;
+        }
 
         // Add a single edit representing the entire text replacement
         commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
@@ -2378,6 +2460,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Cycles the model dropdown selection forward or backward in the favorites list.
+     * No-op in Core Focus (EZ) mode (dropdown is hidden), or if the manage dialog is open
+     * or there are no favorites.
+     */
+    public void cycleModel(boolean forward) {
+        if (!GlobalUiSettings.isAdvancedMode()) return;
+        modelSelector.cycleModel(forward);
+    }
+
+    /**
      * Accepts an externally provided status strip and places it immediately next to the ModelSelector
      * in the bottom toolbar. Safe to call from any thread.
      * <p>
@@ -2438,6 +2530,43 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             } catch (Exception ex) {
                 logger.debug("setStatusStrip: non-fatal error while installing status strip", ex);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeLater(r);
+    }
+
+    /**
+     * Returns the mode toggle panel component so it can be moved between panels
+     * (Instructions <-> Tasks) as a single shared component.
+     */
+    public ActionGroupPanel getModeToggleComponent() {
+        return modeTogglePanel;
+    }
+
+    /**
+     * Ensures the mode toggle component is attached to the Instructions bottom bar,
+     * at the left side of the toolbar. Safe to call from any thread.
+     */
+    public void restoreModeToggleToBottom() {
+        Runnable r = () -> {
+            try {
+                // Detach from any previous parent
+                Container currentParent = modeTogglePanel.getParent();
+                if (currentParent != null) {
+                    currentParent.remove(modeTogglePanel);
+                    currentParent.revalidate();
+                    currentParent.repaint();
+                }
+
+                if (bottomToolbarPanel != null) {
+                    // Insert at the beginning (left side)
+                    bottomToolbarPanel.add(modeTogglePanel, 0);
+                    bottomToolbarPanel.revalidate();
+                    bottomToolbarPanel.repaint();
+                }
+            } catch (Exception ex) {
+                logger.debug("restoreModeToggleToBottom: non-fatal error repositioning mode toggle", ex);
             }
         };
         if (SwingUtilities.isEventDispatchThread()) r.run();
@@ -2542,7 +2671,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Also switches placeholder text if currently showing a placeholder (never overwrites user text).
      * Safe to call from any thread.
      */
-    public void applyAdvancedModeForInstructions(boolean advanced) {
+    public void applyAdvancedMode(boolean advanced) {
         SwingUtilities.invokeLater(() -> {
             modeBadge.setVisible(advanced);
             actionButton.setDropdownEnabled(advanced);

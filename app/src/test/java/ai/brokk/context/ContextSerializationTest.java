@@ -13,6 +13,9 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
+import ai.brokk.util.migrationv4.V3_DtoMapper;
+import ai.brokk.util.migrationv4.V3_FragmentDtos;
+import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
@@ -118,11 +121,6 @@ public class ContextSerializationTest {
         ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
 
         assertEquals(1, loadedHistory.getHistory().size());
-        // Further assertions can be added to compare context details if necessary,
-        // focusing on serializable aspects.
-        // For a "no fragments" context, primarily the task history (welcome message) is relevant.
-        Context loadedCtx = loadedHistory.getHistory().get(0);
-        assertNull(loadedCtx.getParsedOutput());
     }
 
     @Test
@@ -147,7 +145,7 @@ public class ContextSerializationTest {
 
         List<ChatMessage> taskMessages = List.of(UserMessage.from("User query"), AiMessage.from("AI response"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, taskMessages, "Test Task");
-        context2 = context2.addHistoryEntry(new TaskEntry(1, taskFragment, null), taskFragment);
+        context2 = context2.addHistoryEntry(new TaskEntry(1, taskFragment, null));
 
         originalHistory.pushContext(context2);
 
@@ -481,7 +479,7 @@ public class ContextSerializationTest {
         var messages = List.<ChatMessage>of(UserMessage.from("Hello"), AiMessage.from("World"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, messages, "Task 1");
         var taskEntry = new TaskEntry(1, taskFragment, "Summary 1");
-        var context3 = context2.addHistoryEntry(taskEntry, taskFragment);
+        var context3 = context2.addHistoryEntry(taskEntry);
         history.pushContext(context3);
 
         // Serialize to ZIP
@@ -612,10 +610,10 @@ public class ContextSerializationTest {
         var ctxWithTask1 = new Context(mockContextManager);
         var taskEntry = new TaskEntry(1, sharedTaskFragment, null);
 
-        var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntry(taskEntry, sharedTaskFragment);
+        var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntry(taskEntry);
         var origHistoryWithTask = new ContextHistory(updatedCtxWithTask1);
 
-        var ctxWithTask2 = new Context(mockContextManager).addHistoryEntry(taskEntry, sharedTaskFragment);
+        var ctxWithTask2 = new Context(mockContextManager).addHistoryEntry(taskEntry);
         origHistoryWithTask.pushContext(ctxWithTask2);
 
         Path taskZipFile = tempDir.resolve("interning_task_history.zip");
@@ -805,36 +803,6 @@ public class ContextSerializationTest {
             assertEquals("com.example.MyClass.myMethod", loadedFragment.targetIdentifier());
         } else {
             fail("Expected UsageFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
-        }
-    }
-
-    @Test
-    void testRoundTripCallGraphFragment() throws Exception {
-        var fragment =
-                new ContextFragments.CallGraphFragment(mockContextManager, "com.example.MyClass.doStuff", 3, true);
-
-        var context = new Context(mockContextManager).addFragments(fragment);
-        ContextHistory originalHistory = new ContextHistory(context);
-
-        Path zipFile = tempDir.resolve("test_callgraph_history.zip");
-        HistoryIo.writeZip(originalHistory, zipFile);
-        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
-
-        assertContextsEqual(
-                originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
-        Context loadedCtx = loadedHistory.getHistory().get(0);
-        var loadedRawFragment = loadedCtx
-                .allFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.CALL_GRAPH)
-                .findFirst()
-                .orElseThrow();
-
-        if (loadedRawFragment instanceof ContextFragments.CallGraphFragment loadedFragment) {
-            assertEquals("com.example.MyClass.doStuff", loadedFragment.getMethodName());
-            assertEquals(3, loadedFragment.getDepth());
-            assertTrue(loadedFragment.isCalleeGraph());
-        } else {
-            fail("Expected CallGraphFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
         }
     }
 
@@ -1152,7 +1120,7 @@ public class ContextSerializationTest {
                 new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
         var taskEntry = new TaskEntry(42, taskFragment, null, meta);
 
-        var ctx = new Context(mockContextManager).addHistoryEntry(taskEntry, taskFragment);
+        var ctx = new Context(mockContextManager).addHistoryEntry(taskEntry);
         ContextHistory ch = new ContextHistory(ctx);
 
         Path zipFile = tempDir.resolve("meta_roundtrip.zip");
@@ -1594,17 +1562,17 @@ public class ContextSerializationTest {
         var msg1 = List.<ChatMessage>of(UserMessage.from("Query 1"), AiMessage.from("Response 1"));
         var tf1 = new ContextFragments.TaskFragment(mockContextManager, msg1, "Task 1");
         var entry1 = new TaskEntry(1, tf1, null);
-        ctx = ctx.addHistoryEntry(entry1, tf1);
+        ctx = ctx.addHistoryEntry(entry1);
 
         // Entry 2: Both log and summary
         var msg2 = List.<ChatMessage>of(UserMessage.from("Query 2"), AiMessage.from("Response 2"));
         var tf2 = new ContextFragments.TaskFragment(mockContextManager, msg2, "Task 2");
         var entry2 = new TaskEntry(2, tf2, "Summary of task 2");
-        ctx = ctx.addHistoryEntry(entry2, tf2);
+        ctx = ctx.addHistoryEntry(entry2);
 
         // Entry 3: Summary only (legacy compressed)
         var entry3 = new TaskEntry(3, null, "Summary of task 3 only");
-        ctx = ctx.addHistoryEntry(entry3, null);
+        ctx = ctx.addHistoryEntry(entry3);
 
         ContextHistory original = new ContextHistory(ctx);
 
@@ -2124,7 +2092,7 @@ public class ContextSerializationTest {
         var taskEntry = new TaskEntry(1, taskFragment, null);
 
         var ctx1 = new Context(mockContextManager);
-        var ctx2 = ctx1.addHistoryEntry(taskEntry, taskFragment);
+        var ctx2 = ctx1.addHistoryEntry(taskEntry);
 
         var history = new ContextHistory(List.of(ctx1, ctx2));
 
@@ -2149,6 +2117,20 @@ public class ContextSerializationTest {
     }
 
     @Test
+    void testCallGraphFragmentDtoDeserializationReturnsNull() {
+        // CallGraph fragments are no longer supported and should be dropped (return null) during V3 migration
+        var dto = new V3_FragmentDtos.CallGraphFragmentDto("test-id", "com.example.MyClass.myMethod", 1, true);
+
+        var virtualDtos = Map.of(dto.id(), (V3_FragmentDtos.VirtualFragmentDto) dto);
+        var contentReader = new V3_HistoryIo.ContentReader(Map.of());
+
+        ContextFragment result = V3_DtoMapper.resolveAndBuildFragment(
+                dto.id(), Map.of(), virtualDtos, Map.of(), mockContextManager, new HashMap<>(), contentReader);
+
+        assertNull(result, "CallGraphFragmentDto should resolve to null (dropped)");
+    }
+
+    @Test
     void testRoundTripMultipleGroupsWithMixedFragments() throws Exception {
         // Setup various fragment types
         var projectFile = new ProjectFile(tempDir, "src/MultiGroup.java");
@@ -2168,7 +2150,7 @@ public class ContextSerializationTest {
         var messages = List.<ChatMessage>of(UserMessage.from("Query"), AiMessage.from("Response"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, messages, "Task");
         var taskEntry = new TaskEntry(1, taskFragment, null);
-        var ctx3 = new Context(mockContextManager).addHistoryEntry(taskEntry, taskFragment);
+        var ctx3 = new Context(mockContextManager).addHistoryEntry(taskEntry);
 
         // Context 4: No group
         var ctx4 = new Context(mockContextManager);

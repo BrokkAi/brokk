@@ -1,6 +1,7 @@
 package ai.brokk.context;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -142,6 +143,116 @@ public class CodeFragmentTest {
 
         assertTrue(hasOuterBase, "Should include ancestor of targeted class");
         assertFalse(hasInnerBase, "Should NOT include ancestor of non-targeted inner class");
+    }
+
+    @Test
+    void testCodeFragmentIncludesImportStatements() {
+        ProjectFile file = new ProjectFile(tempDir, "Example.java");
+        CodeUnit cls = CodeUnit.cls(file, "com.example", "Example");
+
+        analyzer.addDeclaration(cls);
+        analyzer.setSource(cls, "class Example {}");
+        List<String> imports = List.of("import java.util.List;", "import java.util.Map;");
+        analyzer.setImportStatements(file, imports);
+        // TestAnalyzer doesn't implement ImportAnalysisProvider by default, so it falls back to all imports
+        analyzer.setRelevantImports(cls, new java.util.LinkedHashSet<>(imports));
+
+        var fragment = new ContextFragments.CodeFragment(contextManager, cls);
+        String text = fragment.text().join();
+
+        assertCodeContains(
+                """
+                <imports>
+                import java.util.List;
+                import java.util.Map;
+                </imports>
+
+                <class file="Example.java">
+                class Example {}
+                </class>
+                """,
+                text);
+    }
+
+    @Test
+    void testCodeFragmentFiltersIrrelevantImports() {
+        ProjectFile file = new ProjectFile(tempDir, "Example.java");
+        CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
+
+        analyzer.addDeclaration(method);
+        analyzer.addDeclaration(CodeUnit.cls(file, "com.example", "Example"));
+        analyzer.setSource(method, "void run(List list) {}");
+
+        List<String> allImports = List.of("import java.util.List;", "import java.util.Map;");
+        analyzer.setImportStatements(file, allImports);
+
+        // Simulate ImportAnalysisProvider returning only relevant imports
+        analyzer.setRelevantImports(method, Set.of("import java.util.List;"));
+
+        var fragment = new ContextFragments.CodeFragment(contextManager, method);
+        String text = fragment.text().join();
+
+        assertCodeEquals(
+                """
+                <imports>
+                import java.util.List;
+                </imports>
+
+                <methods class="com.example.Example" file="Example.java">
+                void run(List list) {}
+                </methods>
+                """,
+                text);
+    }
+
+    @Test
+    void testCodeFragmentWithNoImportsHasNoLeadingWhitespace() {
+        ProjectFile file = new ProjectFile(tempDir, "NoImports.java");
+        CodeUnit cls = CodeUnit.cls(file, "com.example", "NoImports");
+
+        analyzer.addDeclaration(cls);
+        String code = "class NoImports {}";
+        analyzer.setSource(cls, code);
+        analyzer.setImportStatements(file, List.of());
+
+        var fragment = new ContextFragments.CodeFragment(contextManager, cls);
+        String text = fragment.text().join();
+
+        assertCodeContains(
+                """
+                <class file="NoImports.java">
+                class NoImports {}
+                </class>
+                """,
+                text);
+    }
+
+    @Test
+    void testCodeFragmentIncludesImportStatementsForMethod() {
+        ProjectFile file = new ProjectFile(tempDir, "Example.java");
+        CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
+
+        analyzer.addDeclaration(method);
+        analyzer.addDeclaration(CodeUnit.cls(file, "com.example", "Example"));
+        analyzer.setSource(method, "void run() {}");
+        List<String> imports = List.of("import java.util.List;");
+        analyzer.setImportStatements(file, imports);
+        analyzer.setRelevantImports(method, Set.copyOf(imports));
+
+        var fragment = new ContextFragments.CodeFragment(contextManager, method);
+        String text = fragment.text().join();
+
+        assertCodeEquals(
+                """
+                <imports>
+                import java.util.List;
+                </imports>
+
+                <methods class="com.example.Example" file="Example.java">
+                void run() {}
+                </methods>
+                """,
+                text);
     }
 
     @Test

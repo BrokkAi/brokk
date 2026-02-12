@@ -1,6 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -622,7 +623,9 @@ public class SettingsProjectBuildPanel extends JPanel {
             try {
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting Build Agent...");
                 var agent = new BuildAgent(
-                        proj, cm.getLlm(cm.getService().getScanModel(), "Infer build details"), cm.getToolRegistry());
+                        proj,
+                        cm.getLlm(cm.getService().getScanModel(), "Infer build details", TaskResult.Type.NONE),
+                        cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
                 // Check if task was cancelled during execution
@@ -725,7 +728,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     public void loadBuildPanelSettings() {
         BuildAgent.BuildDetails details;
         try {
-            details = project.loadBuildDetails();
+            details = project.awaitBuildDetails();
         } catch (Exception e) {
             logger.warn("Could not load build details for settings panel, using EMPTY. Error: {}", e.getMessage(), e);
             details = BuildAgent.BuildDetails.EMPTY; // Fallback to EMPTY
@@ -780,7 +783,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         // Persist build-related settings to project.
         // Use pendingBuildDetails for build commands if available (from recent BuildAgent run),
         // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
-        var diskDetails = project.loadBuildDetails();
+        var diskDetails = project.awaitBuildDetails();
         var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
@@ -803,7 +806,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
 
         // Compare against what's currently saved on disk
-        var currentDetails = project.loadBuildDetails();
+        var currentDetails = project.awaitBuildDetails();
         if (!newDetails.equals(currentDetails)) {
             project.saveBuildDetails(newDetails);
             logger.debug("Applied Build Details changes.");

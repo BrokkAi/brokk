@@ -45,6 +45,9 @@ public class ArchitectPrompts {
           key functions, classes, or variables related to the goal.
         - Identify the root cause of the problem.
         - Update the Workspace context continuously, including dropping irrelevant fragments, as you improve your understanding.
+        - When the goal involves using an external library, FIRST search for its key classes/modules in Code Intelligence.
+          If not found, use `importDependency` to import the library, then examine its API to understand how to use it.
+          Supported: Java (Maven coordinates), Python (pip packages), Rust (crates), Node.js (npm packages).
 
         Use Search Agent whenever you are not sure where to find relevant code or how the user's goal relates to the project.
         Once Search Agent gives you the code location, you can add it (or derivatives like usages or call graphs)
@@ -130,8 +133,7 @@ public class ArchitectPrompts {
 
                     IMMEDIATE ACTION REQUIRED: Reduce the workspace size. Strategies:
                     1. Replace full files/fragments with concise summaries (e.g., using `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`), then `dropWorkspaceFragments` on the originals.
-                    2. Add your own commentary on essential information in fragments that are not immediately necessary using `appendNote`, then `dropWorkspaceFragments` on the originals.
-                    3. Critically evaluate if every item in the workspace is essential for the *current* step. Drop irrelevant items using `dropWorkspaceFragments`.
+                    2. Critically evaluate if every item in the workspace is essential for the *current* step. Drop irrelevant items using `dropWorkspaceFragments`.
                     4. Operations like replacing a fragment (e.g., a file with its summary) involve an 'add' and a 'drop', which can be performed in parallel.
 
                     A lean, focused workspace is essential for complex tasks.
@@ -146,8 +148,7 @@ public class ArchitectPrompts {
 
                     To maintain optimal performance and avoid errors, consider reducing the workspace size. Strategies:
                     1. Replace full files/fragments with concise summaries (e.g., using `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`), then `dropWorkspaceFragments` on the originals.
-                    2. Add your own commentary on essential information in fragments that are not immediately necessary using `appendNote`, then `dropWorkspaceFragments` on the originals.
-                    3. Critically evaluate if every item in the workspace is essential for the *current* step. Drop irrelevant items using `dropWorkspaceFragments`.
+                    2. Critically evaluate if every item in the workspace is essential for the *current* step. Drop irrelevant items using `dropWorkspaceFragments`.
                     4. Operations like replacing a fragment (e.g., a file with its summary) involve an 'add' and a 'drop', which can be performed in parallel.
 
                     A lean, focused workspace is crucial for complex tasks.

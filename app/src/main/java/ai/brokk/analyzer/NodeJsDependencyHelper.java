@@ -13,11 +13,8 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
-import java.nio.file.FileSystemLoopException;
-import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -136,7 +133,7 @@ public final class NodeJsDependencyHelper {
 
         var meta = readPackageJson(sourceRoot.resolve("package.json"));
         var folderName = (meta != null && !meta.name.isEmpty())
-                ? toSafeFolderName(meta.name, meta.version)
+                ? DependencyCopyUtil.toSafeFolderName(meta.name, meta.version)
                 : pkg.displayName().replace("/", "__");
         var targetRoot = chrome.getProject()
                 .getRoot()
@@ -157,7 +154,7 @@ public final class NodeJsDependencyHelper {
                         throw new IOException("Failed to delete existing destination: " + targetRoot);
                     }
                 }
-                copyNodePackage(sourceRoot, targetRoot);
+                DependencyCopyUtil.copyNodePackage(sourceRoot, targetRoot);
                 SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
@@ -184,7 +181,7 @@ public final class NodeJsDependencyHelper {
     }
 
     private static long countNodeFiles(Path root) {
-        try (var stream = Files.walk(root, Integer.MAX_VALUE, FileVisitOption.FOLLOW_LINKS)) {
+        try (var stream = Files.walk(root, Integer.MAX_VALUE, java.nio.file.FileVisitOption.FOLLOW_LINKS)) {
             // do not skip build/dist, that's where you find usually the lib code
             var skipDirs = Set.of("node_modules", ".pnpm", ".git", "coverage", "test", "tests", ".nyc_output");
             return stream.filter(Files::isRegularFile)
@@ -209,52 +206,6 @@ public final class NodeJsDependencyHelper {
                     .count();
         } catch (IOException e) {
             return 0L;
-        }
-    }
-
-    private static void copyNodePackage(Path source, Path destination) throws IOException {
-        // do not skip build/dist, that's where you find usually the lib code
-        var skipDirs = Set.of("node_modules", ".pnpm", ".git", "coverage", "test", "tests", ".nyc_output");
-        // pnpm is based on symlinks, we need to follow it to find deps
-        try (var stream = Files.walk(source, FileVisitOption.FOLLOW_LINKS)) {
-            stream.forEach(src -> {
-                try {
-                    var rel = source.relativize(src);
-                    var relStr = rel.toString().replace('\\', '/');
-                    if (!relStr.isEmpty()) {
-                        for (var d : skipDirs) {
-                            if (relStr.equals(d) || relStr.startsWith(d + "/")) {
-                                return; // skip unwanted directories
-                            }
-                        }
-                    }
-                    var dst = destination.resolve(rel);
-                    if (Files.isDirectory(src)) {
-                        Files.createDirectories(dst);
-                    } else {
-                        var name = src.getFileName().toString().toLowerCase(Locale.ROOT);
-                        boolean isAllowed = name.equals("package.json")
-                                || name.startsWith("readme")
-                                || name.startsWith("license")
-                                || name.startsWith("copying")
-                                || name.endsWith(".js")
-                                || name.endsWith(".mjs")
-                                || name.endsWith(".cjs")
-                                || name.endsWith(".jsx")
-                                || name.endsWith(".ts")
-                                || name.endsWith(".tsx")
-                                || name.endsWith(".d.ts");
-                        if (isAllowed) {
-                            Files.createDirectories(requireNonNull(dst.getParent()));
-                            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
-                        }
-                    }
-                } catch (FileSystemLoopException e) {
-                    logger.warn("Circular symlink detected at {}, skipping", src);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
         }
     }
 
@@ -285,11 +236,6 @@ public final class NodeJsDependencyHelper {
     }
 
     // ---- helpers ----
-
-    private static String toSafeFolderName(String name, String version) {
-        var base = version.isEmpty() ? name : name + "@" + version;
-        return base.replace("/", "__");
-    }
 
     /**
      * Reads a package.json located inside the given directory.

@@ -84,11 +84,7 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
                 tableModel.addRow(new Object[] {stub, ""});
             }
 
-            List<CommitInfo> sortedCommits = commits.stream()
-                    .sorted((a, b) -> b.date().compareTo(a.date()))
-                    .toList();
-
-            for (CommitInfo commit : sortedCommits) {
+            for (CommitInfo commit : commits.reversed()) {
                 currentCommits.add(commit);
                 tableModel.addRow(new Object[] {commit, commit});
             }

@@ -54,8 +54,20 @@ public class Environment {
         return Duration.ofMinutes(2);
     }
 
-    /** Timeout for fast git commands (status, branch, etc.). */
-    public static final Duration GIT_TIMEOUT = Duration.ofSeconds(10);
+    /** Timeout for fast git commands (status, branch, etc.). Configurable via BRK_GIT_TIMEOUT_SECONDS env var. */
+    public static final Duration GIT_TIMEOUT = parseGitTimeout();
+
+    private static Duration parseGitTimeout() {
+        String override = System.getenv("BRK_GIT_TIMEOUT_SECONDS");
+        if (override != null) {
+            try {
+                return Duration.ofSeconds(Long.parseLong(override));
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid BRK_GIT_TIMEOUT_SECONDS value: '{}'. Using fallback.", override);
+            }
+        }
+        return Duration.ofSeconds(10);
+    }
 
     /** Timeout for network-heavy git operations (fetch, clone, push, pull). */
     public static final Duration GIT_NETWORK_TIMEOUT = Duration.ofMinutes(5);
@@ -573,6 +585,16 @@ public class Environment {
         String version = System.getProperty("java.runtime.version", System.getProperty("java.version", "unknown"));
         String vendor = System.getProperty("java.vendor", "unknown");
         return "%s %s (%s)".formatted(runtimeName, version, vendor);
+    }
+
+    private static volatile String activeWatchServiceImpl = "(unknown)";
+
+    public static String getActiveWatchServiceImpl() {
+        return activeWatchServiceImpl;
+    }
+
+    public static void setActiveWatchServiceImpl(String impl) {
+        activeWatchServiceImpl = impl;
     }
 
     /** Returns the current user's home directory as a Path. */

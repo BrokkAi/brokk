@@ -67,6 +67,7 @@ public class ContextCompressionTest {
                 return new Llm(
                         new StreamingChatModel() {},
                         "test",
+                        TaskResult.Type.SUMMARIZE,
                         this,
                         false, // allowPartialResponses
                         false, // forceReasoningEcho

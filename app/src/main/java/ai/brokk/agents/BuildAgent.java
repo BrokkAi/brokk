@@ -58,7 +58,6 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -818,11 +817,17 @@ public class BuildAgent {
                 ? System.getenv("BRK_TESTSOME_CMD")
                 : details.testSomeCommand();
 
+        // No test-some command configured - silently fall back to build/lint
+        if (testSomeTemplate.isBlank()) {
+            return details.buildLintCommand();
+        }
+
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
         boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
 
+        // Template is defined but misconfigured - warn the user
         if (!isFilesBased && !isClassesBased && !isModulesBased) {
             cm.getIo()
                     .systemNotify(
@@ -1278,14 +1283,11 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = cm.getProject().getShellConfig();
 
-            long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
-            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
-
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    timeout,
+                    Environment.UNLIMITED_TIMEOUT,
                     execCfg,
                     envVars);
 
@@ -1315,14 +1317,11 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = cm.getProject().getShellConfig();
 
-            long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
-            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
-
             var output = Environment.instance.runShellCommand(
                     command,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    timeout,
+                    Environment.UNLIMITED_TIMEOUT,
                     execCfg,
                     envVars);
             io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);

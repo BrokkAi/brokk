@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
@@ -638,6 +640,175 @@ public class PythonImportTest {
     }
 
     @Test
+    public void testRelevantImportsForFunction() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class Foo:
+                            pass
+                        """,
+                        "pkg/foo.py")
+                .addFileContents(
+                        """
+                        from pkg.foo import Foo
+
+                        def use_foo():
+                            f = Foo()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var useFoo = analyzer.getDeclarations(consumerFile).stream()
+                    .filter(cu -> cu.identifier().equals("use_foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(useFoo))
+                    .orElse(Set.of());
+
+            assertTrue(relevantImports.contains("from pkg.foo import Foo"), "Should include Foo import");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsExcludesUnused() throws IOException {
+        var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
+                .addFileContents("class Bar: pass", "pkg/bar.py")
+                .addFileContents(
+                        """
+                        from pkg.foo import Foo
+                        from pkg.bar import Bar
+
+                        def use_only_foo():
+                            f = Foo()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var useOnlyFoo = analyzer.getDeclarations(consumerFile).stream()
+                    .filter(cu -> cu.identifier().equals("use_only_foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(useOnlyFoo))
+                    .orElse(Set.of());
+
+            assertTrue(relevantImports.contains("from pkg.foo import Foo"), "Should include Foo import");
+            assertFalse(relevantImports.contains("from pkg.bar import Bar"), "Should NOT include unused Bar import");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsWildcard() throws IOException {
+        var builder = InlineTestProjectCreator.code("class Foo: pass", "pkg/foo.py")
+                .addFileContents(
+                        """
+                        from pkg.foo import *
+
+                        def use_foo():
+                            f = Foo()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var useFoo = analyzer.getDeclarations(consumerFile).stream()
+                    .filter(cu -> cu.identifier().equals("use_foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(useFoo))
+                    .orElse(Set.of());
+
+            assertTrue(
+                    relevantImports.contains("from pkg.foo import *"), "Should include wildcard import providing Foo");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsForDirectFunctionImport() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        def my_function():
+                            pass
+                        def other_function():
+                            pass
+                        """,
+                        "pkg/utils.py")
+                .addFileContents(
+                        """
+                        from pkg.utils import my_function
+                        from pkg.utils import other_function
+
+                        def consumer():
+                            my_function()
+                        """,
+                        "main.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var mainFile = AnalyzerUtil.getFileFor(analyzer, "main").get();
+            var consumer = analyzer.getDeclarations(mainFile).stream()
+                    .filter(cu -> cu.identifier().equals("consumer"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(consumer))
+                    .orElse(Set.of());
+
+            assertTrue(
+                    relevantImports.contains("from pkg.utils import my_function"),
+                    "Should include used function import");
+            assertFalse(
+                    relevantImports.contains("from pkg.utils import other_function"),
+                    "Should exclude unused function import");
+        }
+    }
+
+    @Test
+    public void testRelevantImportsForAliasedFunctionImport() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        def my_function():
+                            pass
+                        """,
+                        "pkg/utils.py")
+                .addFileContents(
+                        """
+                        from pkg.utils import my_function as mf
+
+                        def consumer():
+                            mf()
+                        """,
+                        "main.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var mainFile = AnalyzerUtil.getFileFor(analyzer, "main").get();
+            var consumer = analyzer.getDeclarations(mainFile).stream()
+                    .filter(cu -> cu.identifier().equals("consumer"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var relevantImports = analyzer.as(ImportAnalysisProvider.class)
+                    .map(p -> p.relevantImportsFor(consumer))
+                    .orElse(Set.of());
+
+            assertTrue(
+                    relevantImports.contains("from pkg.utils import my_function as mf"),
+                    "Should include used aliased function import");
+        }
+    }
+
+    @Test
     public void testSamePackageModuleCollisionWithImports() throws IOException {
         // Test: Two modules in the same package both define class 'C'
         // Validates that "last import wins" correctly resolves ambiguity
@@ -756,6 +927,261 @@ public class PythonImportTest {
             assertTrue(
                     resolvedImports.stream().anyMatch(cu -> cu.identifier().equals("OnlyInB")),
                     "OnlyInB should be imported via wildcard from b");
+        }
+    }
+
+    @Test
+    public void testCouldImportFile_fromPackageModuleImport() throws Exception {
+        // Test: "from mypackage.utils import helper" should match mypackage/utils.py
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents(
+                        """
+                        def helper():
+                            pass
+                        """,
+                        "mypackage/utils.py")
+                .addFileContents(
+                        """
+                        from mypackage.utils import helper
+
+                        def consumer():
+                            helper()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "consumer").get();
+            var targetFile =
+                    AnalyzerUtil.getFileFor(analyzer, "mypackage.utils.helper").get();
+            var imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+            assertTrue(result, "from mypackage.utils import helper should match mypackage/utils.py");
+        }
+    }
+
+    @Test
+    public void testCouldImportFile_relativeImportSibling() throws Exception {
+        // Test: "from . import sibling" should match sibling module in same package
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents(
+                        """
+                        def sibling_func():
+                            pass
+                        """,
+                        "mypackage/sibling.py")
+                .addFileContents(
+                        """
+                        from . import sibling
+
+                        def consumer():
+                            sibling.sibling_func()
+                        """,
+                        "mypackage/consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var sourceFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.consumer.consumer")
+                    .get();
+            var targetFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling.sibling_func")
+                    .get();
+            var imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+            assertTrue(result, "from . import sibling should match sibling module in same package");
+        }
+    }
+
+    @Test
+    public void testCouldImportFile_standardLibraryImport() throws Exception {
+        // Test: "import os" should NOT match any project files
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class MyClass:
+                            pass
+                        """,
+                        "mymodule.py")
+                .addFileContents(
+                        """
+                        import os
+
+                        def consumer():
+                            os.path.exists("test")
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var sourceFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.consumer").get();
+            var targetFile =
+                    AnalyzerUtil.getFileFor(analyzer, "mymodule.MyClass").get();
+            var imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+            assertFalse(result, "import os should not match any project file");
+        }
+    }
+
+    @Test
+    public void testCouldImportFile_wildcardImport() throws Exception {
+        // Test: "from mypackage import *" should match files in mypackage
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class PackageClass:
+                            pass
+                        """,
+                        "mypackage/__init__.py")
+                .addFileContents(
+                        """
+                        from mypackage import *
+
+                        def consumer():
+                            obj = PackageClass()
+                        """,
+                        "consumer.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var sourceFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.consumer").get();
+            var targetFile =
+                    AnalyzerUtil.getFileFor(analyzer, "mypackage.PackageClass").get();
+            var imports = analyzer.importInfoOf(sourceFile);
+
+            boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
+            assertTrue(result, "from mypackage import * should match files in mypackage");
+        }
+    }
+
+    @Test
+    public void testTripleDotRelativeImport() throws IOException {
+        // Test: from ...grandparent import GrandparentClass (3 dots = grandparent)
+        var builder = InlineTestProjectCreator.code("# root", "root/__init__.py")
+                .addFileContents("# level1", "root/level1/__init__.py")
+                .addFileContents(
+                        """
+                        class GrandparentClass:
+                            pass
+                        """,
+                        "root/level1/grandparent.py")
+                .addFileContents("# level2", "root/level1/level2/__init__.py")
+                .addFileContents("# level3", "root/level1/level2/level3/__init__.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from ...grandparent import GrandparentClass
+
+                        class Consumer:
+                            pass
+                        """,
+                        "root/level1/level2/level3/consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "root.level1.level2.level3.consumer.Consumer")
+                    .get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            assertTrue(
+                    resolvedImports.stream()
+                            .anyMatch(cu -> cu.fqName().equals("root.level1.grandparent.GrandparentClass")),
+                    "Should resolve GrandparentClass from 3-dot relative import");
+        }
+    }
+
+    @Test
+    public void testQuadrupleDotRelativeImport() throws IOException {
+        // Test: from .... import ClassName (4 dots = great-grandparent)
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class GreatGrandparentClass:
+                            pass
+                        """,
+                        "a/__init__.py")
+                .addFileContents("# b", "a/b/__init__.py")
+                .addFileContents("# c", "a/b/c/__init__.py")
+                .addFileContents("# d", "a/b/c/d/__init__.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from .... import GreatGrandparentClass
+
+                        class Consumer:
+                            pass
+                        """,
+                        "a/b/c/d/consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "a.b.c.d.consumer.Consumer")
+                    .get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            assertTrue(
+                    resolvedImports.stream().anyMatch(cu -> cu.fqName().equals("a.GreatGrandparentClass")),
+                    "Should resolve GreatGrandparentClass from 4-dot relative import");
+        }
+    }
+
+    @Test
+    public void testRelativeImportAboveProjectRoot() throws IOException {
+        // Test: from ... import something (3 dots when only 1 level deep)
+        // This is invalid as it goes above the project root.
+        var builder = InlineTestProjectCreator.code("# Package", "pkg/__init__.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from ... import something
+
+                        class Consumer:
+                            pass
+                        """,
+                        "pkg/consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "pkg.consumer.Consumer").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            assertTrue(
+                    resolvedImports.isEmpty(), "Should resolve no imports when relative path goes above project root");
+        }
+    }
+
+    @Test
+    public void testTripleDotRelativeWildcardImport() throws IOException {
+        // Test: from ... import * (3 dots = grandparent)
+        var builder = InlineTestProjectCreator.code("# root", "root/__init__.py")
+                .addFileContents(
+                        """
+                        class GrandparentClass:
+                            pass
+                        def grandparent_func():
+                            pass
+                        """,
+                        "root/level1/__init__.py")
+                .addFileContents("# level2", "root/level1/level2/__init__.py")
+                .addFileContents("# level3", "root/level1/level2/level3/__init__.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from ... import *
+
+                        class Consumer:
+                            pass
+                        """,
+                        "root/level1/level2/level3/consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "root.level1.level2.level3.consumer.Consumer")
+                    .get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var importedNames =
+                    resolvedImports.stream().map(cu -> cu.identifier()).collect(Collectors.toSet());
+
+            assertTrue(importedNames.contains("GrandparentClass"), "Should import GrandparentClass via 3-dot wildcard");
+            assertTrue(importedNames.contains("grandparent_func"), "Should import grandparent_func via 3-dot wildcard");
         }
     }
 }

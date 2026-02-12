@@ -57,7 +57,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jdt.core.JavaCore;
@@ -100,8 +99,18 @@ public class CodeAgent {
         this.contextManager = contextManager;
         this.model = model;
         this.io = io;
-        // free tier models are dumber; cut them off sooner
-        MAX_BUILD_FAILURES = contextManager.getService().isFreeTier(model) ? 3 : 5;
+
+        @Nullable String rawAttempts = System.getenv("BRK_CODE_BUILD_ATTEMPTS");
+        int attempts = 3;
+        if (rawAttempts != null && !rawAttempts.isBlank()) {
+            try {
+                attempts = Integer.parseInt(rawAttempts.trim());
+            } catch (NumberFormatException e) {
+                // ignore
+            }
+        }
+        this.MAX_BUILD_FAILURES = Math.max(1, attempts);
+
         // placeholder to make Null Away happy; initialized in runTaskInternal
         this.context = new Context(contextManager);
     }
@@ -159,8 +168,10 @@ public class CodeAgent {
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
-        var coder = contextManager.getLlm(
-                new Llm.Options(model, userInput).withEcho().withPartialResponses());
+        var coder = contextManager.getLlm(new Llm.Options(model, userInput, TaskResult.Type.CODE)
+                .withEcho()
+                .withPartialResponses());
+
         coder.setOutput(io);
 
         // Track changed files
@@ -213,6 +224,7 @@ public class CodeAgent {
         }
 
         logger.debug("Starting task: {} with options {}", userInput, options);
+        TaskResult.TaskMeta meta = null;
         while (true) {
             if (Thread.interrupted()) {
                 logger.debug("CodeAgent interrupted");
@@ -230,6 +242,10 @@ public class CodeAgent {
 
             // Make the LLM request
             StreamingResult streamingResult;
+            // Populate TaskMeta because this task engaged an LLM
+            meta = new TaskResult.TaskMeta(
+                    TaskResult.Type.CODE, Service.ModelConfig.from(coder.getModel(), contextManager.getService()));
+
             try {
                 var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
                 if (!es.showBuildError()) {
@@ -237,6 +253,7 @@ public class CodeAgent {
                 }
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
+                        meta,
                         context,
                         prologue,
                         cs.taskMessages(),
@@ -326,7 +343,7 @@ public class CodeAgent {
             } catch (ExecutionException e) {
                 throw new RuntimeException(e);
             }
-            context = context.copyAndRefresh(es.changedFiles(), "CodeAgent Changes");
+            context = context.copyAndRefresh(es.changedFiles());
 
             if (applyOutcome instanceof Step.Retry retryApply) {
                 cs = retryApply.cs();
@@ -447,15 +464,7 @@ public class CodeAgent {
         String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
                 ? userInput
                 : userInput + " [" + stopDetails.reason().name() + "]";
-        // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
-        // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
-        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
-
-        // Populate TaskMeta because this task engaged an LLM
-        var meta = new TaskResult.TaskMeta(
-                TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
-
-        var tr = new TaskResult(contextManager, finalActionDescription, finalMessages, context, stopDetails, meta);
+        var tr = new TaskResult(contextManager, finalActionDescription, cs.taskMessages, context, stopDetails, meta);
         logger.debug("Task result: {}", tr);
         return tr;
     }
@@ -534,37 +543,13 @@ public class CodeAgent {
     }
 
     /**
-     * Prepares messages for storage in a TaskEntry. This involves filtering raw LLM I/O to keep USER, CUSTOM, and AI
-     * messages. AI messages containing SEARCH/REPLACE blocks will have their raw text preserved, rather than converting
-     * blocks to HTML placeholders or summarizing block-only messages.
-     */
-    private static List<ChatMessage> prepareMessagesForTaskEntryLog(List<ChatMessage> rawMessages) {
-        return rawMessages.stream()
-                .flatMap(message -> {
-                    return switch (message.type()) {
-                        case USER, CUSTOM -> Stream.of(message);
-                        case AI -> {
-                            var aiMessage = (AiMessage) message;
-                            // Pass through AI messages with their original text.
-                            // Raw S/R blocks are preserved.
-                            // If the text is blank, effectively filter out the message.
-                            yield aiMessage.text().isBlank() ? Stream.empty() : Stream.of(aiMessage);
-                        }
-                        // Ignore SYSTEM/TOOL messages for TaskEntry log purposes
-                        default -> Stream.empty();
-                    };
-                })
-                .toList();
-    }
-
-    /**
      * Runs a quick-edit task where we: 1) Gather the entire file content plus related context (buildAutoContext) 2) Use
      * QuickEditPrompts to ask for a single fenced code snippet 3) Replace the old text with the new snippet in the file
      *
      * @return A TaskResult containing the conversation and original content.
      */
     public TaskResult runQuickTask(ProjectFile file, String oldText, String instructions) throws InterruptedException {
-        var llm = contextManager.getLlm(model, "QuickEdit: " + instructions);
+        var llm = contextManager.getLlm(model, "QuickEdit: " + instructions, TaskResult.Type.CODE);
         llm.setOutput(io);
 
         // Use up to 5 related classes as context (format as combined summaries)
@@ -775,9 +760,16 @@ public class CodeAgent {
                         new JavaPreLintFalsePositiveException(message), Map.of("sourcefile", pf.getFileName()));
             }
             logger.debug("Build verification succeeded");
+            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
+            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
+        } else {
+            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
+            if (metrics != null) {
+                metrics.buildFailures++;
+            }
 
-            var lastAiText = cs.taskMessages().isEmpty()
-                    ? ""
+            var lastAiText = cs.taskMessages.isEmpty()
+                    ? "" // taskMessages is never empty in prod, but our test code is lazy
                     : Messages.getText(cs.taskMessages().getLast());
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
             var filesInContext = context.allFragments()
@@ -788,7 +780,7 @@ public class CodeAgent {
             var notInContext = Sets.difference(mentionedFiles, filesInContext);
             if (!notInContext.isEmpty()) {
                 var quickModel = contextManager.getService().quickestModel();
-                var llm = contextManager.getLlm(quickModel, "Check if asking for files");
+                var llm = contextManager.getLlm(quickModel, "Check if asking for files", TaskResult.Type.CLASSIFY);
 
                 var filterDescription =
                         "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";
@@ -803,20 +795,11 @@ public class CodeAgent {
                 if (isAskingForFiles) {
                     var fileNames =
                             notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
-                    reportComplete(
-                            TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + fileNames);
+                    reportComplete(TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files");
                     return new Step.Fatal(new TaskResult.StopDetails(
                             TaskResult.StopReason.LLM_ABORTED,
                             "Agent requested additional files not in context: " + fileNames));
                 }
-            }
-
-            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
-            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
-        } else {
-            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
-            if (metrics != null) {
-                metrics.buildFailures++;
             }
 
             int newBuildFailures = es.consecutiveBuildFailures() + 1;
@@ -832,8 +815,10 @@ public class CodeAgent {
                     """
                     The build failed.
                     Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
-                    You should use the conversation history to understand what has been done so far, but
-                    only use the Workspace to generate SEARCH/REPLACE blocks.
+                    You should use the conversation history to understand your earlier thinking; since your changes
+                    have been incorporated into the Workspace, look at the current state of those files before
+                    generate SEARCH/REPLACE blocks. You have already made changes, but you made mistakes;
+                    that is why the build is failing!
 
                     IMPORTANT: If solving the build or failure requires editing files or using APIs you do not have
                     in your Workspace, do your best to explain the problem but DO NOT provide any edits.
@@ -957,17 +942,32 @@ public class CodeAgent {
                         cs.taskMessages().add(retryMessages.taggedAiMessage());
                     }
 
-                    csForStep = cs.withNextRequest(retryMessages.retryRequest());
+                    UserMessage retryRequest = retryMessages.retryRequest();
+                    if (!es.lastBuildError().isBlank()) {
+                        String harnessNote =
+                                """
+                                [HARNESS NOTE: Apply did not fully succeed. I applied %d of %d of your SEARCH/REPLACE blocks, but I have NOT rerun the build yet.
+                                I will rerun the build once all of your proposed edits apply cleanly.
+                                If you believe no further edits are required and I should run the build now, simply explain why and do NOT provide any further SEARCH/REPLACE blocks.]
+                                """
+                                        .formatted(succeededCount, attemptedBlockCount)
+                                        .stripIndent()
+                                        .trim();
+                        retryRequest = new UserMessage(Messages.getText(retryRequest) + "\n\n" + harnessNote);
+                    }
+
+                    csForStep = cs.withNextRequest(retryRequest);
                     esForStep = es.afterApply(
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
                             editResult.originalContents());
-                    report("Failed to apply %s block(s), asking LLM to retry".formatted(failedResults.size()));
+                    report("Applied %d of %d unique block(s) successfully; asking LLM to retry"
+                            .formatted(succeededCount, attemptedBlockCount));
                     return new Step.Retry(csForStep, esForStep);
                 }
             } else { // All blocks applied successfully
                 if (succeededCount > 0) {
-                    report(succeededCount + " SEARCH/REPLACE blocks applied.");
+                    report("Applied %d unique SEARCH/REPLACE block(s).".formatted(succeededCount));
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
                 esForStep = es.afterApply(
@@ -1398,18 +1398,24 @@ public class CodeAgent {
             var explanations = rawMessages.stream()
                     .filter(AiMessage.class::isInstance)
                     .map(AiMessage.class::cast)
-                    .map(ai -> CodePrompts.redactAiMessage(ai, false)
+                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
                             .map(AiMessage::text)
                             .orElse(""))
                     .filter(seg -> !seg.isBlank())
                     .collect(Collectors.joining("\n\n"));
+            var changedFilesCdl =
+                    es.changedFiles().stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
             var summaryText =
                     """
                     [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
-                     All changes have been merged into the Workspace files you see above.]
+                     You made changes to %s. These changes are reflected in the Workspace contents above.
+                     Review the current contents carefully before proposing additional changes to fix the build.]
+
                     %s
                     """
-                            .formatted(explanations.isBlank() ? "No explanations provided." : explanations);
+                            .formatted(
+                                    changedFilesCdl,
+                                    explanations.isBlank() ? "No explanations provided." : explanations);
 
             var compactedMessages = new ArrayList<ChatMessage>();
             compactedMessages.add(new UserMessage(originalGoal));

@@ -5,11 +5,14 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -25,6 +28,7 @@ import org.jetbrains.annotations.Blocking;
  */
 public class ExceptionReporter {
     private static final Logger logger = LogManager.getLogger(ExceptionReporter.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final Supplier<ReportingService> serviceSupplier;
 
@@ -65,6 +69,9 @@ public class ExceptionReporter {
      */
     @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
+        // Enrich with standard telemetry (preserve caller values if provided)
+        var enriched = enrichFields(optionalFields);
+
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
 
@@ -85,20 +92,19 @@ public class ExceptionReporter {
         reportedExceptions.put(signature, currentTime);
 
         // Also write to local log file for debugging
-        writeLocalErrorReport(throwable, optionalFields);
+        writeLocalErrorReport(throwable, enriched);
 
         // Clean up old entries from the deduplication map (keep it bounded)
         if (reportedExceptions.size() > 1000) {
             cleanupOldEntries();
         }
 
-        // Format the stacktrace
-        String stacktrace = formatStackTrace(throwable);
+        // Build complete exception report JSON
+        JsonNode exceptionReport = buildExceptionReport(throwable, enriched);
 
         try {
-            String clientVersion = BuildInfo.version;
             ReportingService service = serviceSupplier.get();
-            service.reportClientException(stacktrace, clientVersion, optionalFields);
+            service.reportClientException(exceptionReport);
             logger.debug(
                     "Successfully reported exception: {} - {}",
                     throwable.getClass().getSimpleName(),
@@ -244,6 +250,108 @@ public class ExceptionReporter {
     }
 
     /**
+     * Builds the complete exception report JSON body with all telemetry data.
+     *
+     * @param throwable The exception to report
+     * @param enrichedFields The enriched optional fields
+     * @return Complete JSON body ready for HTTP submission
+     */
+    private static JsonNode buildExceptionReport(Throwable throwable, Map<String, String> enrichedFields) {
+        var body = objectMapper.createObjectNode();
+        body.put("stacktrace", formatStackTrace(throwable));
+        body.put("client_version", BuildInfo.version);
+
+        // Build context node with all telemetry
+        var context = objectMapper.createObjectNode();
+
+        // Add enriched fields (activeWatchServiceImpl, launchMode, etc.)
+        enrichedFields.forEach(context::put);
+
+        // Add OS information
+        context.set("os", createOsNode());
+
+        // Add JVM information
+        context.set("jvm", createJvmNode());
+
+        body.set("context", context);
+        return body;
+    }
+
+    /**
+     * Creates the OS information node.
+     */
+    private static JsonNode createOsNode() {
+        var osNode = objectMapper.createObjectNode();
+        osNode.put("name", System.getProperty("os.name"));
+        osNode.put("version", System.getProperty("os.version"));
+        osNode.put("arch", System.getProperty("os.arch"));
+        return osNode;
+    }
+
+    /**
+     * Creates the JVM information node.
+     */
+    private static JsonNode createJvmNode() {
+        Runtime runtime = Runtime.getRuntime();
+        var jvmNode = objectMapper.createObjectNode();
+        jvmNode.put("availableProcessors", runtime.availableProcessors());
+        jvmNode.put("maxMemory", runtime.maxMemory());
+        jvmNode.put("freeMemory", runtime.freeMemory());
+        jvmNode.put("version", System.getProperty("java.version", "unknown"));
+        jvmNode.put(
+                "fullVersion",
+                String.format(
+                        "%s %s (%s)",
+                        System.getProperty("java.runtime.name", "unknown"),
+                        System.getProperty("java.runtime.version", System.getProperty("java.version", "unknown")),
+                        System.getProperty("java.vendor", "unknown")));
+        jvmNode.put("isJdk", isJdk());
+        return jvmNode;
+    }
+
+    /**
+     * Detects whether the current runtime is a JDK (has compiler) or JRE (runtime only).
+     * Uses reflection to check for javax.tools.ToolProvider because:
+     * - We build with JDK but support running on either JDK or JRE
+     * - Direct import would cause NoClassDefFoundError when ExceptionReporter loads on JRE
+     * - Reflection delays class loading until runtime check, returning false on JRE
+     */
+    private static boolean isJdk() {
+        try {
+            Class<?> toolProvider = Class.forName("javax.tools.ToolProvider");
+            var method = toolProvider.getMethod("getSystemJavaCompiler");
+            return method.invoke(null) != null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Enriches the provided fields with standard telemetry data.
+     * Uses putIfAbsent to preserve any caller-provided values.
+     *
+     * @param originalFields The original fields from the caller
+     * @return A new map with enriched telemetry fields
+     */
+    private static Map<String, String> enrichFields(Map<String, String> originalFields) {
+        var enriched = new HashMap<>(originalFields);
+
+        // Add watch service telemetry (but don't overwrite caller-provided values)
+        enriched.putIfAbsent("watchService", Environment.getActiveWatchServiceImpl());
+
+        // Launch mode detection
+        String jdeployLauncher = System.getProperty("jdeploy.launcher.path");
+        if (jdeployLauncher != null) {
+            enriched.putIfAbsent("launchMode", "jdeploy");
+            enriched.putIfAbsent("jdeployLauncherPath", jdeployLauncher);
+        } else {
+            enriched.putIfAbsent("launchMode", "other");
+        }
+
+        return enriched;
+    }
+
+    /**
      * Interface for services that can report client exceptions.
      * This interface allows for testing without requiring full Service initialization.
      */
@@ -251,25 +359,10 @@ public class ExceptionReporter {
         /**
          * Reports a client exception to the server.
          *
-         * @param stacktrace The formatted stack trace of the exception
-         * @param clientVersion The version of the client application
+         * @param exceptionReport Complete exception report JSON with stacktrace, client_version, and context
          * @return JsonNode response from the server
          * @throws IOException if the HTTP request fails
          */
-        default JsonNode reportClientException(String stacktrace, String clientVersion) throws IOException {
-            return reportClientException(stacktrace, clientVersion, Map.of());
-        }
-
-        /**
-         * Reports a client exception to the server with optional context fields.
-         *
-         * @param stacktrace The formatted stack trace of the exception
-         * @param clientVersion The version of the client application
-         * @param optionalFields Optional context fields to include in the report
-         * @return JsonNode response from the server
-         * @throws IOException if the HTTP request fails
-         */
-        JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
-                throws IOException;
+        JsonNode reportClientException(JsonNode exceptionReport) throws IOException;
     }
 }

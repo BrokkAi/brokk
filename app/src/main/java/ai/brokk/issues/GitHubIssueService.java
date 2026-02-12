@@ -46,19 +46,59 @@ public class GitHubIssueService implements IssueService {
 
     private final IProject project;
     private final GfmRenderer gfmRenderer;
+    private final @Nullable GitHubAuth injectedAuth;
 
     public GitHubIssueService(IProject project) {
+        this(project, null);
+    }
+
+    public GitHubIssueService(IProject project, @Nullable GitHubAuth auth) {
         this.project = project;
         this.gfmRenderer = new GfmRenderer();
+        this.injectedAuth = auth;
     }
 
     protected GitHubAuth getAuth() throws IOException {
+        GitHubAuth auth = injectedAuth;
+        if (auth != null) {
+            return auth;
+        }
         return GitHubAuth.getOrCreateInstance(this.project);
     }
 
     @Override
     public OkHttpClient httpClient() throws IOException {
         return getAuth().authenticatedClient();
+    }
+
+    @Override
+    public IssueHeader createIssue(String title, String bodyMarkdown) throws IOException {
+        if (title.isBlank()) {
+            throw new IllegalArgumentException("title must not be blank");
+        }
+
+        var repo = getAuth().getGhRepository();
+        var builder = repo.createIssue(title.strip());
+
+        if (!bodyMarkdown.isBlank()) {
+            builder.body(bodyMarkdown);
+        }
+
+        GHIssue created = builder.create();
+
+        // Inform operators that an issue was successfully created, including repo and issue number/url.
+        logger.info(
+                "GitHubIssueService created issue #{} in {} (url={})",
+                created.getNumber(),
+                repo.getFullName(),
+                created.getHtmlUrl());
+
+        IssueHeader header = mapToIssueHeader(created);
+        if (header == null) {
+            throw new IOException(
+                    "Failed to map created GitHub issue to IssueHeader (issue #" + created.getNumber() + ")");
+        }
+        return header;
     }
 
     @Override

@@ -18,7 +18,9 @@ import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -36,6 +38,7 @@ class HeadlessExecutorMainIssueJobTest {
     private HttpClient httpClient;
     private String baseUrl;
     private Path workspaceDir;
+    private final List<String> createdJobIds = new ArrayList<>();
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws IOException {
@@ -51,6 +54,7 @@ class HeadlessExecutorMainIssueJobTest {
     @AfterEach
     void tearDown() {
         if (executor != null) {
+            waitForCreatedJobsToSettle();
             executor.stop(0);
         }
     }
@@ -186,7 +190,79 @@ class HeadlessExecutorMainIssueJobTest {
         var responseJson = MAPPER.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
         Object jobIdObj = responseJson.get("jobId");
         assertTrue(jobIdObj instanceof String, "Expected jobId in response: " + response.body());
-        return (String) jobIdObj;
+        var jobId = (String) jobIdObj;
+        createdJobIds.add(jobId);
+        return jobId;
+    }
+
+    @Test
+    void testPostIssueJob_SkipVerification_DefaultFalseWhenMissing() throws Exception {
+        var payload = basePayload();
+        String jobId = postIssueJobAndGetJobId(payload);
+        var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertFalse(persisted.skipVerification());
+    }
+
+    @Test
+    void testPostIssueJob_SkipVerification_TrueWhenProvided() throws Exception {
+        var payload = basePayload();
+        payload.put("skipVerification", true);
+        String jobId = postIssueJobAndGetJobId(payload);
+        var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertTrue(persisted.skipVerification());
+    }
+
+    // Helpers for testing generic /v1/jobs ISSUE-mode path
+    private String postGenericIssueJobAndGetJobId(Map<String, Object> body) throws Exception {
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/v1/jobs"))
+                .header("Authorization", "Bearer " + AUTH_TOKEN)
+                .header("Idempotency-Key", "gen-" + System.nanoTime())
+                .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body)))
+                .build();
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertTrue(response.statusCode() == 200 || response.statusCode() == 201, "Unexpected status: " + response);
+        var responseJson = MAPPER.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
+        Object jobIdObj = responseJson.get("jobId");
+        assertTrue(jobIdObj instanceof String, "Expected jobId in response: " + response.body());
+        var jobId = (String) jobIdObj;
+        createdJobIds.add(jobId);
+        return jobId;
+    }
+
+    private Map<String, Object> baseGenericIssueJobPayload() {
+        var tags = new HashMap<String, Object>();
+        tags.put("mode", "ISSUE");
+        tags.put("github_token", "ghp_tok");
+        tags.put("repo_owner", "some-owner");
+        tags.put("repo_name", "some-repo");
+        tags.put("issue_number", "42");
+
+        var body = new HashMap<String, Object>();
+        body.put("sessionId", UUID.randomUUID().toString());
+        body.put("taskInput", "Issue via /v1/jobs");
+        body.put("autoCommit", false);
+        body.put("autoCompress", false);
+        body.put("plannerModel", "gpt-5-mini");
+        body.put("tags", tags);
+        return body;
+    }
+
+    @Test
+    void testGenericIssueJob_SkipVerification_DefaultFalseWhenMissing() throws Exception {
+        var payload = baseGenericIssueJobPayload();
+        String jobId = postGenericIssueJobAndGetJobId(payload);
+        var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertFalse(persisted.skipVerification());
+    }
+
+    @Test
+    void testGenericIssueJob_SkipVerification_TrueWhenProvided() throws Exception {
+        var payload = baseGenericIssueJobPayload();
+        payload.put("skipVerification", true);
+        String jobId = postGenericIssueJobAndGetJobId(payload);
+        var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertTrue(persisted.skipVerification());
     }
 
     private JobSpec loadPersistedJobSpec(String jobId) throws Exception {
@@ -209,5 +285,74 @@ class HeadlessExecutorMainIssueJobTest {
 
         Assertions.fail("Expected persisted JobSpec for jobId=" + jobId + " in JobStore at " + storeDir);
         throw new IllegalStateException("unreachable");
+    }
+
+    private void waitForCreatedJobsToSettle() {
+        // Bound teardown time per job so a large number of created jobs doesn't lead to a very long
+        // cumulative teardown. Use a small, fixed per-job timeout (2.5s) which keeps the behavior
+        // best-effort while giving CI-visible time to cancel and observe terminal states.
+        final long perJobMillis = 2500L;
+        for (var jobId : createdJobIds) {
+            cancelJobBestEffort(jobId);
+            Instant perJobDeadline = Instant.now().plusMillis(perJobMillis);
+            awaitTerminalStateBestEffort(jobId, perJobDeadline);
+        }
+    }
+
+    private void cancelJobBestEffort(String jobId) {
+        try {
+            var request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/v1/jobs/" + jobId + "/cancel"))
+                    .header("Authorization", "Bearer " + AUTH_TOKEN)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception e) {
+            // Best-effort: log the exception so failures during teardown are visible in CI,
+            // but do not fail the test.
+            System.err.println("Warning: failed to send cancel for jobId=" + jobId + ": " + e);
+            e.printStackTrace(System.err);
+        }
+    }
+
+    private void awaitTerminalStateBestEffort(String jobId, Instant overallDeadline) {
+        while (Instant.now().isBefore(overallDeadline)) {
+            try {
+                var request = HttpRequest.newBuilder()
+                        .uri(URI.create(baseUrl + "/v1/jobs/" + jobId))
+                        .header("Authorization", "Bearer " + AUTH_TOKEN)
+                        .GET()
+                        .build();
+                var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) {
+                    var statusJson = MAPPER.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
+                    Object state = statusJson.get("state");
+                    if (state instanceof String stateStr
+                            && ("COMPLETED".equals(stateStr)
+                                    || "FAILED".equals(stateStr)
+                                    || "CANCELLED".equals(stateStr))) {
+                        return;
+                    }
+                }
+            } catch (InterruptedException e) {
+                // Preserve interrupt status and stop waiting for this job.
+                Thread.currentThread().interrupt();
+                System.err.println("Interrupted while waiting for job " + jobId + " to reach terminal state");
+                return;
+            } catch (Exception e) {
+                // Best-effort: surface unexpected exceptions to logs so CI can diagnose issues,
+                // but do not fail the test.
+                System.err.println("Warning: exception while polling status for jobId=" + jobId + ": " + e);
+                e.printStackTrace(System.err);
+            }
+
+            try {
+                Thread.sleep(25);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.err.println("Interrupted while sleeping between polls for job " + jobId);
+                return;
+            }
+        }
     }
 }

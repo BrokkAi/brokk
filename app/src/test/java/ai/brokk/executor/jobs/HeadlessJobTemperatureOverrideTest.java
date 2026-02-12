@@ -77,7 +77,7 @@ class HeadlessJobTemperatureOverrideTest {
     void temperatureOverride_isNotPassedForUnsupportedModel() throws Exception {
         // Configure: modelA does NOT support temperature
         spyService.setExposedModelLocations(Map.of("modelA", "locA"));
-        spyService.setExposedModelInfoMap(Map.of("locA", Map.of("supported_openai_params", List.of("top_p"))));
+        spyService.setExposedModelInfoMap(Map.of("modelA", Map.of("supported_openai_params", List.of("top_p"))));
 
         JobSpec spec = new JobSpec(
                 "test task",
@@ -94,6 +94,7 @@ class HeadlessJobTemperatureOverrideTest {
                 null,
                 0.7,
                 null,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         runner.runAsync("job-unsupported", spec).get(5, TimeUnit.SECONDS);
@@ -105,7 +106,7 @@ class HeadlessJobTemperatureOverrideTest {
     void temperatureOverride_isPassedForSupportedModel() throws Exception {
         // Configure: modelA supports temperature
         spyService.setExposedModelLocations(Map.of("modelA", "locA"));
-        spyService.setExposedModelInfoMap(Map.of("locA", Map.of("supported_openai_params", List.of("temperature"))));
+        spyService.setExposedModelInfoMap(Map.of("modelA", Map.of("supported_openai_params", List.of("temperature"))));
 
         JobSpec spec = new JobSpec(
                 "test task",
@@ -122,6 +123,7 @@ class HeadlessJobTemperatureOverrideTest {
                 null,
                 0.7,
                 null,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         runner.runAsync("job-supported", spec).get(5, TimeUnit.SECONDS);
@@ -134,8 +136,8 @@ class HeadlessJobTemperatureOverrideTest {
     void reasoningLevelOverrides_applySeparately_forPlannerVsCodeModels() throws Exception {
         spyService.setExposedModelLocations(Map.of("plannerA", "locPlannerA", "codeA", "locCodeA"));
         spyService.setExposedModelInfoMap(Map.of(
-                "locPlannerA", Map.of("supported_openai_params", List.of()),
-                "locCodeA", Map.of("supported_openai_params", List.of())));
+                "plannerA", Map.of("supported_openai_params", List.of()),
+                "codeA", Map.of("supported_openai_params", List.of())));
 
         JobSpec spec = new JobSpec(
                 "test task",
@@ -152,6 +154,7 @@ class HeadlessJobTemperatureOverrideTest {
                 "HIGH",
                 null,
                 null,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         runner.runAsync("job-reasoning-split", spec).get(5, TimeUnit.SECONDS);
@@ -173,8 +176,8 @@ class HeadlessJobTemperatureOverrideTest {
     void temperatureOverrides_applySeparately_forPlannerVsCodeModels() throws Exception {
         spyService.setExposedModelLocations(Map.of("plannerA", "locPlannerA", "codeA", "locCodeA"));
         spyService.setExposedModelInfoMap(Map.of(
-                "locPlannerA", Map.of("supported_openai_params", List.of("temperature")),
-                "locCodeA", Map.of("supported_openai_params", List.of("temperature"))));
+                "plannerA", Map.of("supported_openai_params", List.of("temperature")),
+                "codeA", Map.of("supported_openai_params", List.of("temperature"))));
 
         JobSpec spec = new JobSpec(
                 "test task",
@@ -191,6 +194,7 @@ class HeadlessJobTemperatureOverrideTest {
                 null,
                 0.11,
                 0.88,
+                false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         runner.runAsync("job-temp-split", spec).get(5, TimeUnit.SECONDS);

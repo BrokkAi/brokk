@@ -2,17 +2,27 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.base.Splitter;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSParser;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
@@ -20,16 +30,25 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
 
-public final class GoAnalyzer extends TreeSitterAnalyzer {
+public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
-    // GO_LANGUAGE field removed, createTSLanguage will provide new instances.
+    private final Cache<String, String> importPathToPackageNameCache =
+            Caffeine.newBuilder().maximumSize(10_000).build();
+
+    // Pattern to match both double-quoted and backtick-quoted import paths
+    private static final Pattern IMPORT_PATH_PATTERN = Pattern.compile("\"([^\"]+)\"|`([^`]+)`");
+
+    // Pattern to strip Go comments (line comments // and block comments /* */)
+    private static final Pattern GO_COMMENT_PATTERN = Pattern.compile("//[^\r\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/");
+
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(TYPE_SPEC), // classLikeNodeTypes
+            Set.of(TYPE_SPEC, TYPE_ALIAS), // classLikeNodeTypes
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
+            Set.of(), // constructorNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
-            IMPORT_DECLARATION,
+            CaptureNames.IMPORT_DECLARATION, // importNodeType - matches @import.declaration capture in go.scm
             "name", // identifierFieldName (used as fallback if specific .name capture is missing)
             "body", // bodyFieldName (e.g. function_declaration.body -> block)
             "parameters", // parametersFieldName
@@ -55,38 +74,27 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             Set.of() // modifierNodeTypes (Go visibility is by capitalization)
             );
 
-    @Nullable
-    private final ThreadLocal<TSQuery> packageQuery;
-
-    private ThreadLocal<TSQuery> createGoNamespaceQuery() {
-        // Initialize the ThreadLocal for the package query.
-        // getTSLanguage() is safe to call here and will provide a thread-specific TSLanguage.
-        return ThreadLocal.withInitial(() -> {
-            return new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
-        });
-    }
-
     public GoAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
     }
 
     public GoAnalyzer(IProject project, ProgressListener listener) {
         super(project, Languages.GO, listener);
-        this.packageQuery = createGoNamespaceQuery();
     }
 
-    private GoAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.GO, state, listener);
-        this.packageQuery = createGoNamespaceQuery();
+    private GoAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.GO, state, listener, cache);
     }
 
     public static GoAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new GoAnalyzer(project, state, listener);
+        return new GoAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new GoAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new GoAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -107,46 +115,25 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
-        TSQuery currentPackageQuery;
-        if (this.packageQuery != null) { // Check if GoAnalyzer constructor has initialized the ThreadLocal field
-            currentPackageQuery = this.packageQuery.get();
-        } else {
-            // This block executes if determinePackageName is called during TreeSitterAnalyzer's constructor,
-            // before this.packageQuery (ThreadLocal) is initialized in GoAnalyzer's constructor.
-            log.trace(
-                    "GoAnalyzer.determinePackageName: packageQuery ThreadLocal is null, creating temporary query for file {}",
-                    file);
-            try {
-                currentPackageQuery = new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
-            } catch (RuntimeException e) {
-                log.error(
-                        "Failed to compile temporary package query for GoAnalyzer in determinePackageName for file {}: {}",
-                        file,
-                        e.getMessage(),
-                        e);
-                return ""; // Cannot proceed without the query
-            }
-        }
-
+        TSQuery query = getThreadLocalQuery();
         TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(currentPackageQuery, rootNode);
-        TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+        cursor.exec(query, rootNode);
+        TSQueryMatch match = new TSQueryMatch();
 
-        if (cursor.nextMatch(match)) { // Assuming only one package declaration per Go file
+        while (cursor.nextMatch(match)) {
             for (TSQueryCapture capture : match.getCaptures()) {
-                // The query "(package_clause (package_identifier) @name)" captures the package_identifier node with
-                // name "name"
-                if ("name".equals(currentPackageQuery.getCaptureNameForId(capture.getIndex()))) {
-                    TSNode nameNode = capture.getNode();
-                    if (nameNode != null && !nameNode.isNull()) {
-                        return sourceContent.substringFrom(nameNode).trim();
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                if (CaptureNames.PACKAGE_NAME.equals(captureName)) {
+                    TSNode node = capture.getNode();
+                    if (node != null && !node.isNull()) {
+                        return sourceContent.substringFrom(node).trim();
                     }
                 }
             }
-        } else {
-            log.warn("No package declaration found in Go file: {}", file);
         }
-        return ""; // Default if no package name found or an error occurs
+
+        log.warn("No package declaration found in Go file: {}", file);
+        return "";
     }
 
     @Override
@@ -176,13 +163,22 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                         simpleName);
                 yield CodeUnit.fn(file, packageName, simpleName);
             }
-            case CaptureNames.TYPE_DEFINITION -> { // Covers struct_type and interface_type
-                log.trace(
-                        "Creating CLS CodeUnit for Go type: File='{}', Pkg='{}', Name='{}'",
-                        file.getFileName(),
-                        packageName,
-                        simpleName);
-                yield CodeUnit.cls(file, packageName, simpleName);
+            case CaptureNames.TYPE_DEFINITION -> {
+                if (skeletonType == SkeletonType.FIELD_LIKE) {
+                    log.trace(
+                            "Creating FIELD CodeUnit for Go type alias: File='{}', Pkg='{}', Name='{}'",
+                            file.getFileName(),
+                            packageName,
+                            simpleName);
+                    yield CodeUnit.field(file, packageName, "_module_." + simpleName);
+                } else {
+                    log.trace(
+                            "Creating CLS CodeUnit for Go type: File='{}', Pkg='{}', Name='{}'",
+                            file.getFileName(),
+                            packageName,
+                            simpleName);
+                    yield CodeUnit.cls(file, packageName, simpleName);
+                }
             }
             case CaptureNames.VARIABLE_DEFINITION, CaptureNames.CONSTANT_DEFINITION -> {
                 // For package-level variables/constants, classChain should be empty.
@@ -298,73 +294,55 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected TSNode adjustSourceRangeNode(TSNode definitionNode, String captureName) {
+        if (CaptureNames.TYPE_DEFINITION.equals(captureName)) {
+            TSNode parent = definitionNode.getParent();
+            if (parent != null && !parent.isNull() && TYPE_DECLARATION.equals(parent.getType())) {
+                return parent;
+            }
+        }
+        return definitionNode;
+    }
+
+    @Override
+    protected SkeletonType refineSkeletonType(
+            String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
+        if (CaptureNames.TYPE_DEFINITION.equals(captureName) && !definitionNode.isNull()) {
+            if (TYPE_ALIAS.equals(definitionNode.getType())) {
+                return SkeletonType.FIELD_LIKE;
+            }
+        }
+        return super.refineSkeletonType(captureName, definitionNode, profile);
+    }
+
+    @Override
     protected String renderClassHeader(
             TSNode classNode,
             SourceContent sourceContent,
             String exportPrefix,
             String signatureTextParam,
             String baseIndent) {
-        // classNode is the type_declaration node.
-        // We need to extract "type Name kind" (e.g., "type MyStruct struct").
-        // The signatureTextParam passed from TreeSitterAnalyzer might be too broad (containing the whole body).
-        TSNode typeSpecNode = null;
-        for (int i = 0; i < classNode.getNamedChildCount(); i++) {
-            TSNode child = classNode.getNamedChild(i);
-            if (TYPE_SPEC.equals(child.getType())) {
-                typeSpecNode = child;
-                break;
-            }
-        }
-
-        if (typeSpecNode == null || typeSpecNode.isNull()) {
-            log.warn(
-                    "renderClassHeader for Go: type_spec child not found in classNode (type_declaration {}). Falling back to potentially incorrect signatureTextParam.",
-                    sourceContent.substringFrom(classNode).lines().findFirst().orElse(""));
-            return signatureTextParam + " {";
-        }
-
-        TSNode nameNode = typeSpecNode.getChildByFieldName("name");
-        TSNode kindNode = typeSpecNode.getChildByFieldName("type"); // This is the struct_type or interface_type node
+        TSNode nameNode = classNode.getChildByFieldName("name");
+        TSNode kindNode = classNode.getChildByFieldName("type");
 
         if (nameNode == null || nameNode.isNull() || kindNode == null || kindNode.isNull()) {
             log.warn(
-                    "renderClassHeader for Go: name or kind node not found in type_spec for classNode {}. Falling back.",
+                    "renderClassHeader for Go: name or kind node not found in type_spec {}. Falling back.",
                     sourceContent.substringFrom(classNode).lines().findFirst().orElse(""));
             return signatureTextParam + " {";
         }
 
         String nameText = sourceContent.substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte());
-        String kindText;
         String kindNodeType = kindNode.getType();
 
         if (STRUCT_TYPE.equals(kindNodeType)) {
-            kindText = "struct";
+            return String.format("type %s struct {", nameText).strip();
         } else if (INTERFACE_TYPE.equals(kindNodeType)) {
-            kindText = "interface";
+            return String.format("type %s interface {", nameText).strip();
         } else {
-            log.warn(
-                    "renderClassHeader for Go: Unhandled kind node type '{}' for classNode {}. Falling back.",
-                    kindNodeType,
-                    sourceContent
-                            .substringFromBytes(classNode.getStartByte(), classNode.getEndByte())
-                            .lines()
-                            .findFirst()
-                            .orElse(""));
-            return signatureTextParam + " {";
+            String kindSource = sourceContent.substringFromBytes(kindNode.getStartByte(), kindNode.getEndByte());
+            return String.format("type %s %s {", nameText, kindSource).strip();
         }
-
-        // Go visibility is by capitalization, exportPrefix is not used here.
-        String actualSignatureText =
-                String.format("type %s %s", nameText, kindText).strip();
-        log.trace(
-                "GoAnalyzer.renderClassHeader for node {}. Constructed signature: '{}'",
-                sourceContent
-                        .substringFromBytes(classNode.getStartByte(), classNode.getEndByte())
-                        .lines()
-                        .findFirst()
-                        .orElse(""),
-                actualSignatureText);
-        return actualSignatureText + " {";
     }
 
     @Override
@@ -422,12 +400,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected Set<String> getIgnoredCaptures() {
-        log.trace("Stage 0: getIgnoredCaptures called. Returning empty set.");
-        return Set.of();
-    }
-
-    @Override
     protected boolean requiresSemicolons() {
         return false;
     }
@@ -435,6 +407,318 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForGo(reference);
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        if (imports.isEmpty()) {
+            return false;
+        }
+
+        // Normalize target path for comparison (use forward slashes)
+        String targetPath = target.getRelPath().toString().replace('\\', '/');
+        int lastSlash = targetPath.lastIndexOf('/');
+        String targetDir = lastSlash == -1 ? "" : targetPath.substring(0, lastSlash);
+
+        for (ImportInfo info : imports) {
+            Matcher m = IMPORT_PATH_PATTERN.matcher(info.rawSnippet());
+            if (m.find()) {
+                // group(1) is double-quoted, group(2) is backtick-quoted
+                String importPath = m.group(1) != null ? m.group(1) : m.group(2);
+
+                // Go imports match based on the package path (directory).
+                // If target is in root, targetDir is "".
+                if (targetDir.isEmpty()) {
+                    // If target is in root, it is importable if the import path is "."
+                    // or if it matches the module name (which we don't know here, so we check
+                    // if the import path doesn't look like a standard library path).
+                    if (importPath.equals(".") || importPath.contains("/")) {
+                        return true;
+                    }
+                    continue;
+                }
+
+                // We use conservative segment-based matching for non-root files:
+                // 1. Exact match: "pkg/utils" matches "pkg/utils/file.go"
+                // 2. Vanity/Module match: "github.com/org/repo/pkg/utils" matches "pkg/utils/file.go"
+                // 3. Sub-package match: "pkg/utils" matches "src/pkg/utils/file.go"
+                if (importPath.equals(targetDir)
+                        || importPath.endsWith("/" + targetDir)
+                        || targetDir.endsWith("/" + importPath)
+                        || targetPath.contains("/" + importPath + "/")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> extractedIdentifiers = extractTypeIdentifiers(sourceOpt.get());
+        if (extractedIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        List<ImportInfo> imports = importInfoOf(cu.source());
+        if (imports.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> matchedImports = new LinkedHashSet<>();
+
+        for (ImportInfo info : imports) {
+            String identifier = info.identifier();
+            String alias = info.alias();
+
+            // Match by identifier (package name) or alias
+            if (identifier != null && extractedIdentifiers.contains(identifier)) {
+                matchedImports.add(info.rawSnippet());
+            } else if (alias != null && extractedIdentifiers.contains(alias)) {
+                matchedImports.add(info.rawSnippet());
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(GO_SYNTAX_PROFILE.importNodeType());
+        if (importNode == null || importNode.isNull()) {
+            return;
+        }
+
+        String fullSnippet = sourceContent.substringFrom(importNode).trim();
+        if (fullSnippet.isEmpty()) {
+            return;
+        }
+
+        // Go imports can be single: import "fmt"
+        // Or grouped: import ( "fmt"\n "os" )
+        // The import_declaration node in go.scm captures the whole block or single line.
+        // We need to create one ImportInfo per import path, each with its own line as rawSnippet.
+        String withoutComments = GO_COMMENT_PATTERN.matcher(fullSnippet).replaceAll("");
+
+        // Split into lines to handle grouped imports - each import path gets its own ImportInfo
+        for (String line : Splitter.on('\n').split(withoutComments)) {
+            String trimmedLine = line.trim();
+            if (trimmedLine.isEmpty()
+                    || trimmedLine.equals("import")
+                    || trimmedLine.equals("(")
+                    || trimmedLine.equals(")")) {
+                continue;
+            }
+
+            Matcher pathMatcher = IMPORT_PATH_PATTERN.matcher(trimmedLine);
+            if (!pathMatcher.find()) {
+                continue;
+            }
+
+            String path = pathMatcher.group(1) != null ? pathMatcher.group(1) : pathMatcher.group(2);
+            int pathStart = pathMatcher.start();
+
+            // Look for alias or blank import prefix in this line
+            String prefix = trimmedLine.substring(0, pathStart).trim();
+            if (prefix.startsWith("import")) {
+                prefix = prefix.substring("import".length()).trim();
+            }
+
+            String identifier;
+            String alias = null;
+
+            if ("_".equals(prefix)) {
+                identifier = "_"; // Blank import
+            } else if (".".equals(prefix)) {
+                identifier = "."; // Dot import
+            } else if (!prefix.isEmpty()) {
+                alias = prefix;
+                identifier = alias;
+            } else {
+                // Use simple heuristic during extractImports (last segment of path)
+                // Full resolution happens later in resolveImports when state is available
+                identifier = getPackageNameFromPath(path);
+            }
+
+            // Build a clean rawSnippet for this individual import.
+            // Even if it was part of a group, we return it as a standalone "import ..." statement
+            // so that relevantImportsFor can match it and fragments can prepend it.
+            String rawSnippet = "import " + (prefix.isEmpty() ? "" : prefix + " ") + "\"" + path + "\"";
+
+            localImportInfos.add(new ImportInfo(rawSnippet, false, identifier, alias));
+        }
+    }
+
+    /**
+     * Simple heuristic to get package name from import path.
+     * Returns the last segment of the path (after the last '/').
+     * This is used during extractImports when the analyzer state isn't ready yet.
+     */
+    private String getPackageNameFromPath(String importPath) {
+        int lastSlash = importPath.lastIndexOf('/');
+        if (lastSlash != -1 && lastSlash < importPath.length() - 1) {
+            return importPath.substring(lastSlash + 1);
+        }
+        return importPath;
+    }
+
+    /**
+     * Extracts type and package identifiers from Go source.
+     * <p>
+     * Trade-off: High Precision. We target {@code type_identifier} for internal types and
+     * {@code selector_expression} operands to identify imported package usage (e.g., 'fmt' in 'fmt.Println').
+     */
+    @Override
+    public Set<String> extractTypeIdentifiers(String source) {
+        TSParser parser = getTSParser();
+        TSTree tree = parser.parseString(null, source);
+        if (tree == null || tree.getRootNode().isNull()) {
+            return Collections.emptySet();
+        }
+
+        SourceContent sourceContent = SourceContent.of(source);
+        TSQuery query = new TSQuery(
+                getTSLanguage(), "[(type_identifier) @type (selector_expression operand: (identifier) @pkg)]");
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+
+        Set<String> identifiers = new HashSet<>();
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                TSNode node = capture.getNode();
+                if (node != null && !node.isNull()) {
+                    identifiers.add(sourceContent.substringFrom(node).trim());
+                }
+            }
+        }
+        return identifiers;
+    }
+
+    /**
+     * Resolves Go import statements into a set of {@link CodeUnit}s.
+     * <p>
+     * Go imports are package-based. This method extracts the import paths,
+     * identifies the package name (usually the last segment), and resolves
+     * it to the package's exported members.
+     * Blank imports ('_') are skipped as they are for side-effects only.
+     * <p>
+     * Unlike Java, Go does not have explicit module CodeUnits. Instead, we find
+     * all CodeUnits whose packageName matches the imported package.
+     * <p>
+     * Handles both double-quoted ("path") and backtick-quoted (`path`) import paths,
+     * and ignores paths that appear inside comments.
+     * <p>
+     * NOTE: Regex-based comment stripping is necessary here because Tree-sitter node text
+     * (the raw strings in {@code importStatements}) represents the original source bytes
+     * between the node's start and end offsets, which includes comments and whitespace
+     * contained within the node's range.
+     */
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        if (importStatements.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> importedPackageNames = new LinkedHashSet<>();
+
+        for (String statement : importStatements) {
+            String trimmed = statement.trim();
+            if (trimmed.isEmpty() || !trimmed.startsWith("import")) continue;
+
+            // Strip comments to prevent the path regex from matching quoted strings inside comments
+            String withoutComments = GO_COMMENT_PATTERN.matcher(trimmed).replaceAll("");
+
+            // Find all quoted paths in the statement (handles both single and grouped imports)
+            Matcher m = IMPORT_PATH_PATTERN.matcher(withoutComments);
+            while (m.find()) {
+                if (!isBlankImport(withoutComments, m.start())) {
+                    // group(1) is double-quoted, group(2) is backtick-quoted
+                    String path = m.group(1) != null ? m.group(1) : m.group(2);
+                    importedPackageNames.add(resolveImportPathToPackageName(path));
+                }
+            }
+        }
+
+        // Go doesn't create module CodeUnits like Java does.
+        // Instead, find all CodeUnits whose packageName matches the imported package.
+        Set<CodeUnit> resolved = new LinkedHashSet<>();
+        for (String pkgName : importedPackageNames) {
+            // Pattern ^pkgName\. matches fqNames starting with "pkgName."
+            // since fqName = packageName + "." + shortName
+            String pattern = "^" + Pattern.quote(pkgName) + "\\.";
+            for (CodeUnit cu : searchDefinitions(pattern, false)) {
+                if (!cu.isModule()) {
+                    resolved.add(cu);
+                }
+            }
+        }
+
+        return Collections.unmodifiableSet(resolved);
+    }
+
+    private String resolveImportPathToPackageName(String importPath) {
+        return importPathToPackageNameCache.get(importPath, path -> {
+            // 1. Try to find actual source files in the project that match this import path.
+            // Go import paths always use forward slashes.
+            Set<ProjectFile> goFiles = getProject().getAnalyzableFiles(Languages.GO);
+
+            for (ProjectFile pf : goFiles) {
+                // Normalize the relative path to use forward slashes for comparison
+                String relPath = pf.getRelPath().toString().replace('\\', '/');
+                // We check if the file is inside a directory matching the import path.
+                // e.g., import "mymodule/pkg" matches "vendor/mymodule/pkg/file.go"
+                if (relPath.contains("/" + path + "/") || relPath.startsWith(path + "/")) {
+
+                    // Read the file and determine its package name
+                    Optional<SourceContent> content = SourceContent.read(pf);
+                    if (content.isPresent()) {
+                        TSTree tree = treeOf(pf);
+                        if (tree != null) {
+                            String pkgName =
+                                    determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get());
+                            if (!pkgName.isEmpty()) {
+                                return pkgName;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Fallback to last segment heuristic if no source found
+            int lastSlash = path.lastIndexOf('/');
+            if (lastSlash != -1) {
+                return path.substring(lastSlash + 1);
+            }
+            return path;
+        });
+    }
+
+    private boolean isBlankImport(String text, int quoteStart) {
+        // Look backwards from the start of the quoted path for a '_'
+        // We look only at the immediate prefix on the same line or after the last space/newline/carriage return
+        String prefix = text.substring(0, quoteStart).trim();
+        int lastSpace = Math.max(Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('\n')), prefix.lastIndexOf('\r'));
+        String lastToken =
+                lastSpace == -1 ? prefix : prefix.substring(lastSpace).trim();
+        return "_".equals(lastToken);
     }
 
     @Override

@@ -13,6 +13,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -38,6 +39,7 @@ public final class TestContextManager implements IContextManager {
     private final Set<ProjectFile> editableFiles;
     private final IConsoleIO consoleIO;
     private final TestService stubService;
+    private final ToolRegistry toolRegistry;
     private Context liveContext;
 
     // Test-friendly AnalyzerWrapper that uses a "quick runner" to return the mockAnalyzer immediately.
@@ -81,6 +83,7 @@ public final class TestContextManager implements IContextManager {
         this.repo = repoToSet;
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
+        this.toolRegistry = new ToolRegistry();
         this.analyzerWrapper = new TestAnalyzerWrapper(analyzer);
         this.liveContext = new Context(this).addFragments(toPathFragments(editableFiles));
     }
@@ -159,23 +162,19 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
+    public ToolRegistry getToolRegistry() {
+        return toolRegistry;
+    }
+
+    @Override
     public StreamingChatModel getCodeModel() {
         return null;
     }
 
     @Override
-    public Context createOrReplaceTaskList(Context context, List<String> tasks) {
-        // Strip whitespace-only entries
-        var cleaned =
-                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (cleaned.isEmpty()) {
-            // Clear task list when nothing valid is provided
-            return context.withTaskList(new TaskList.TaskListData(List.of()));
-        }
-        var items = cleaned.stream()
-                .map(t -> new TaskList.TaskItem(t, t, false)) // title=text, done=false
-                .toList();
-        return context.withTaskList(new TaskList.TaskListData(items));
+    public Context createOrReplaceTaskList(
+            Context context, @Nullable String bigPicture, List<TaskList.TaskItem> tasks) {
+        return context.withTaskList(new TaskList.TaskListData(bigPicture, List.copyOf(tasks)));
     }
 
     private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
@@ -186,7 +185,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public Llm getLlm(StreamingChatModel model, String taskDescription) {
-        return new Llm(model, taskDescription, this, false, false, false, false);
+    public Llm getLlm(StreamingChatModel model, String taskDescription, ai.brokk.TaskResult.Type type) {
+        return new Llm(model, taskDescription, type, this, false, false, false, false);
     }
 }

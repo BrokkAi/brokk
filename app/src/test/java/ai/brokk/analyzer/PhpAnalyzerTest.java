@@ -207,7 +207,7 @@ public class PhpAnalyzerTest {
 
     @Test
     void testGetMethodSource() {
-        Optional<String> sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "My.Lib.Foo.getValue", true);
+        Optional<String> sourceOpt = AnalyzerUtil.getSource(analyzer, "My.Lib.Foo.getValue", true);
         assertTrue(sourceOpt.isPresent());
         String expectedSource =
                 """
@@ -220,7 +220,7 @@ public class PhpAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
         assertEquals(normalize.apply(expectedSource), normalize.apply(sourceOpt.get()));
 
-        Optional<String> constructorSourceOpt = AnalyzerUtil.getMethodSource(analyzer, "My.Lib.Foo.__construct", true);
+        Optional<String> constructorSourceOpt = AnalyzerUtil.getSource(analyzer, "My.Lib.Foo.__construct", true);
         assertTrue(constructorSourceOpt.isPresent());
         String expectedConstructorSource =
                 """
@@ -237,7 +237,7 @@ public class PhpAnalyzerTest {
         Optional<CodeUnit> fooClassCUOpt =
                 analyzer.getDefinitions("My.Lib.Foo").stream().findFirst();
         assertTrue(fooClassCUOpt.isPresent());
-        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "My.Lib.Foo", true);
+        final var sourceOpt = AnalyzerUtil.getSource(analyzer, "My.Lib.Foo", true);
         assertTrue(sourceOpt.isPresent());
         final var classSource = sourceOpt.get();
         String expectedSourceStart = "#[Attribute1]\nclass Foo extends BaseFoo implements IFoo, IBar {";
@@ -248,7 +248,24 @@ public class PhpAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    void testIsConstructor() {
+        assertNotNull(analyzer, "Analyzer should be initialized.");
+
+        CodeUnit classCU =
+                analyzer.getDefinitions("My.Lib.Foo").stream().findFirst().orElseThrow();
+        CodeUnit constructCU = analyzer.getDefinitions("My.Lib.Foo.__construct").stream()
+                .findFirst()
+                .orElseThrow();
+        CodeUnit otherMethodCU = analyzer.getDefinitions("My.Lib.Foo.getValue").stream()
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(analyzer.isConstructor(constructCU, classCU, ""), "__construct should be a constructor");
+        assertFalse(analyzer.isConstructor(otherMethodCU, classCU, ""), "getValue should not be a constructor");
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();

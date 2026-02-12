@@ -11,20 +11,22 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
+import ai.brokk.gui.util.FileTypeIcons;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
 import ai.brokk.watchservice.AbstractWatchService;
 import java.awt.*;
-import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -105,12 +107,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         });
     }
 
-    @Override
-    public void removeNotify() {
-        super.removeNotify();
-        this.contextManager.removeFileChangeListener(this);
-    }
-
     private void initializeTree() {
         Path projectRoot = project.getRoot();
 
@@ -125,6 +121,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         setShowsRootHandles(true);
         getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         setCellRenderer(new ProjectTreeCellRenderer());
+        // Reserve 2px so Chrome's focus border (same thickness) can replace it without changing size
+        setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
         // Load root children immediately, then restore any persisted expansion state
         SwingUtilities.invokeLater(() -> loadChildrenForNodeAsync(treeRoot)
@@ -431,7 +429,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                         final boolean isExcludedNow = directlyExcluded;
                         contextManager.submitContextTask(() -> {
                             try {
-                                var currentDetails = project.loadBuildDetails();
+                                var currentDetails = project.awaitBuildDetails();
                                 Set<String> patternsSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
                                 // Canonicalize existing entries to ensure remove/add works across separators
                                 patternsSet.addAll(PathNormalizer.canonicalizeAllForProject(
@@ -474,70 +472,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
             JMenuItem deleteItem = new JMenuItem(targetFiles.size() == 1 ? "Delete File" : "Delete Files");
             deleteItem.addActionListener(ev -> {
-                var filesToDelete = targetFiles;
-
                 contextManager.submitExclusiveAction(() -> {
                     try {
-                        var nonText = filesToDelete.stream()
-                                .filter(pf -> !pf.isText())
-                                .toList();
-                        if (!nonText.isEmpty()) {
-                            SwingUtilities.invokeLater(
-                                    () -> chrome.toolError("Only text files can be deleted with undo/redo support"));
-                            return;
-                        }
-
-                        var trackedSet = project.hasGit() ? project.getRepo().getTrackedFiles() : Set.<ProjectFile>of();
-                        var deletedInfos = filesToDelete.stream()
-                                .map(pf -> {
-                                    var content = pf.exists() ? pf.read().orElse(null) : null;
-                                    if (content == null) {
-                                        return null;
-                                    }
-                                    boolean wasTracked = project.hasGit() && trackedSet.contains(pf);
-                                    return new ContextHistory.DeletedFile(pf, content, wasTracked);
-                                })
-                                .filter(Objects::nonNull)
-                                .toList();
-
-                        if (project.hasGit()) {
-                            project.getRepo().forceRemoveFiles(filesToDelete);
-                        } else {
-                            for (var pf : filesToDelete) {
-                                try {
-                                    Files.deleteIfExists(pf.absPath());
-                                } catch (Exception ex) {
-                                    var msg = "Failed to delete file: " + pf;
-                                    logger.error(msg, ex);
-                                    SwingUtilities.invokeLater(() -> chrome.toolError(msg));
-                                }
-                            }
-                        }
-
-                        contextManager.pushContext(ctx -> ctx.withParsedOutput(null));
-
-                        if (!deletedInfos.isEmpty()) {
-                            var contextHistory = contextManager.getContextHistory();
-                            var frozenContext = contextHistory.liveContext();
-                            contextHistory.addEntryInfo(
-                                    frozenContext.id(), new ContextHistory.ContextHistoryEntryInfo(deletedInfos));
-                            contextManager
-                                    .getProject()
-                                    .getSessionManager()
-                                    .saveHistory(contextHistory, contextManager.getCurrentSessionId());
-                        }
-
-                        var fileList = filesToDelete.stream()
-                                .map(ProjectFile::getFileName)
-                                .collect(Collectors.joining(", "));
-                        SwingUtilities.invokeLater(() -> {
-                            chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO, "Deleted " + fileList + ". Use Ctrl+Z to undo.");
-                        });
-                    } catch (Exception ex) {
-                        logger.error("Error deleting selected files", ex);
-                        SwingUtilities.invokeLater(
-                                () -> chrome.toolError("Error deleting selected files: " + ex.getMessage()));
+                        removeFiles(targetFiles);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
                     }
                 });
             });
@@ -590,6 +529,78 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         pasteItem.setEnabled(hasFilesInClipboard());
 
         contextMenu.add(pasteItem);
+    }
+
+    private void removeFiles(List<ProjectFile> targetFiles) throws InterruptedException {
+        contextManager.withContextResolvedAndWatcherPaused(() -> {
+            try {
+                var nonText = targetFiles.stream().filter(pf -> !pf.isText()).toList();
+                if (!nonText.isEmpty()) {
+                    SwingUtilities.invokeLater(
+                            () -> chrome.toolError("Only text files can be deleted with undo/redo support"));
+                    return false;
+                }
+
+                var trackedSet = project.hasGit() ? project.getRepo().getTrackedFiles() : Set.<ProjectFile>of();
+                var deletedInfos = targetFiles.stream()
+                        .map(pf -> {
+                            var content = pf.exists() ? pf.read().orElse(null) : null;
+                            if (content == null) {
+                                return null;
+                            }
+                            boolean wasTracked = project.hasGit() && trackedSet.contains(pf);
+                            return new ContextHistory.DeletedFile(pf, content, wasTracked);
+                        })
+                        .filter(Objects::nonNull)
+                        .toList();
+
+                if (project.hasGit()) {
+                    project.getRepo().forceRemoveFiles(targetFiles);
+                } else {
+                    for (var pf : targetFiles) {
+                        try {
+                            Files.deleteIfExists(pf.absPath());
+                        } catch (Exception ex) {
+                            var msg = "Failed to delete file: " + pf;
+                            logger.error(msg, ex);
+                            SwingUtilities.invokeLater(() -> chrome.toolError(msg));
+                        }
+                    }
+                }
+
+                contextManager.pushContext(ctx -> {
+                    var fileSet = Set.copyOf(targetFiles);
+                    var toRemove = ctx.allFragments()
+                            .filter(f -> f.getType().includeInProjectGuide())
+                            .filter(f -> f.files().join().stream().anyMatch(fileSet::contains))
+                            .toList();
+                    return ctx.removeFragments(toRemove).copyAndRefresh(fileSet);
+                });
+
+                if (!deletedInfos.isEmpty()) {
+                    var contextHistory = contextManager.getContextHistory();
+                    var frozenContext = contextHistory.liveContext();
+                    contextHistory.addEntryInfo(
+                            frozenContext.id(), new ContextHistory.ContextHistoryEntryInfo(deletedInfos));
+                    contextManager
+                            .getProject()
+                            .getSessionManager()
+                            .saveHistory(contextHistory, contextManager.getCurrentSessionId());
+                }
+
+                var fileList =
+                        targetFiles.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
+                SwingUtilities.invokeLater(() -> {
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Deleted " + fileList + ". Use Ctrl+Z to undo.");
+                });
+                return true;
+            } catch (Exception ex) {
+                logger.error("Error deleting selected files", ex);
+                SwingUtilities.invokeLater(() -> chrome.toolError("Error deleting selected files: " + ex.getMessage()));
+                return false;
+            }
+        });
     }
 
     private JMenuItem getHistoryMenuItem(List<ProjectFile> selectedFiles) {
@@ -697,6 +708,12 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
                             // Clear placeholder(s) and populate children.
                             node.removeAllChildren();
+
+                            // Invalidate display name cache since children changed
+                            // (affects collapsed directory chain display)
+                            if (node.getUserObject() instanceof ProjectTreeNode ptn) {
+                                ptn.invalidateDisplayName();
+                            }
 
                             for (ProjectTreeNode childTreeNode : preCreatedNodes) {
                                 DefaultMutableTreeNode childNode = new DefaultMutableTreeNode(childTreeNode);
@@ -1414,11 +1431,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
      * @return true if clipboard contains file list data
      */
     private boolean hasFilesInClipboard() {
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
         try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             return clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor);
-        } catch (Exception ex) {
-            logger.debug("Error checking clipboard contents", ex);
+        } catch (IllegalStateException e) {
+            logger.debug("Error checking clipboard contents", e);
             return false;
         }
     }
@@ -1430,19 +1447,39 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
      */
     @SuppressWarnings("unchecked")
     private List<File> getFilesFromClipboard() {
-        try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            if (clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor)) {
-                Transferable contents = clipboard.getContents(null);
-                if (contents != null) {
-                    Object data = contents.getTransferData(DataFlavor.javaFileListFlavor);
-                    if (data instanceof List) {
-                        return (List<File>) data;
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        int maxAttempts = 3;
+        int delayMs = 50;
+
+        for (int i = 0; i < maxAttempts; i++) {
+            try {
+                if (clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor)) {
+                    Transferable contents = clipboard.getContents(null);
+                    if (contents != null) {
+                        Object data = contents.getTransferData(DataFlavor.javaFileListFlavor);
+                        if (data instanceof List) {
+                            return (List<File>) data;
+                        }
                     }
                 }
+                return List.of();
+            } catch (IllegalStateException e) {
+                if (i == maxAttempts - 1) {
+                    contextManager
+                            .getIo()
+                            .showNotification(IConsoleIO.NotificationRole.ERROR, "Failed to access system clipboard");
+                    break;
+                }
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return List.of();
+                }
+            } catch (UnsupportedFlavorException | IOException e) {
+                logger.debug("Clipboard does not contain file list data: {}", e.getMessage());
+                break;
             }
-        } catch (Exception ex) {
-            logger.error("Error reading files from clipboard", ex);
         }
         return List.of();
     }
@@ -1556,6 +1593,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         private volatile @Nullable Boolean cachedIsExcluded;
         private volatile @Nullable Boolean cachedIsGitignored;
         private volatile @Nullable Boolean cachedIsTracked;
+        // Cached display name to avoid recomputation on every render
+        // Invalidated when tree structure changes (children added/removed)
+        private volatile @Nullable String cachedDisplayName;
 
         public ProjectTreeNode(File file, boolean childrenLoaded) {
             this.file = file;
@@ -1594,6 +1634,12 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         /** Resets load state to allow reloading (for refresh). */
         public void resetLoadState() {
             loadState.set(null);
+            cachedDisplayName = null; // Invalidate display name cache on refresh
+        }
+
+        /** Invalidates cached display name (call when tree structure changes). */
+        public void invalidateDisplayName() {
+            cachedDisplayName = null;
         }
 
         /** Marks as loaded without going through the loading process. */
@@ -1632,13 +1678,74 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             return cachedIsTracked;
         }
 
+        /**
+         * Computes display name for this node, collapsing single-child directory chains.
+         * For example, if this directory has one child "main" which has one child "java",
+         * this returns "src/main/java" instead of just "src".
+         *
+         * Only the "head" of a single-child chain shows the collapsed path. Intermediate
+         * nodes (those already collapsed into their parent's display) show just their own name.
+         *
+         * Results are cached to avoid recomputation on every render. Cache is invalidated
+         * when tree structure changes (via resetLoadState or invalidateDisplayName).
+         *
+         * @param node the tree node corresponding to this ProjectTreeNode
+         * @return the display name, potentially including collapsed child paths
+         */
+        public String getDisplayName(DefaultMutableTreeNode node) {
+            if (!isDirectory) {
+                return file.getName();
+            }
+
+            // Check cache first
+            String cached = cachedDisplayName;
+            if (cached != null) {
+                return cached;
+            }
+
+            // Compute display name
+            String displayName = computeDisplayName(node);
+            cachedDisplayName = displayName;
+            return displayName;
+        }
+
+        private String computeDisplayName(DefaultMutableTreeNode node) {
+            // Check if this node is already "collapsed into" its parent's display.
+            // If the parent has exactly one child (this node) and the parent is a directory,
+            // then the parent's display already includes this node's name, so just show simple name.
+            var parent = node.getParent();
+            if (parent instanceof DefaultMutableTreeNode parentNode
+                    && parentNode.getChildCount() == 1
+                    && parentNode.getUserObject() instanceof ProjectTreeNode parentTreeNode
+                    && parentTreeNode.isDirectory()) {
+                // This node is collapsed into parent - just show simple name
+                return file.getName();
+            }
+
+            // This is the head of a chain - collapse children into display
+            var name = new StringBuilder(file.getName());
+            var current = node;
+
+            // Follow single-child directory chains
+            while (current.getChildCount() == 1) {
+                var child = (DefaultMutableTreeNode) current.getFirstChild();
+                if (child.getUserObject() instanceof ProjectTreeNode childNode && childNode.isDirectory()) {
+                    name.append("/").append(childNode.getFile().getName());
+                    current = child;
+                } else {
+                    break;
+                }
+            }
+            return name.toString();
+        }
+
         @Override
         public String toString() {
             return file.getName();
         }
     }
 
-    /** Custom cell renderer that colors untracked files red and CI-excluded items gray */
+    /** Custom cell renderer that colors untracked files and CI-excluded items, with file-type icons */
     private static class ProjectTreeCellRenderer extends DefaultTreeCellRenderer {
         @Override
         public Component getTreeCellRendererComponent(
@@ -1647,23 +1754,32 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
             if (value instanceof DefaultMutableTreeNode node) {
                 if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
-                    // Set appropriate icon using cached isDirectory to avoid syscalls
-                    if (treeNode.isDirectory()) {
-                        setIcon(expanded ? getOpenIcon() : getClosedIcon());
-                    } else {
-                        setIcon(getLeafIcon());
-                    }
-
                     // Use cached coloring state from the node
                     boolean patternExcluded = treeNode.isExcluded();
                     boolean gitignored = treeNode.isGitignored();
                     boolean isTracked = treeNode.isTracked();
+                    boolean isExcludedOrIgnored = patternExcluded || (gitignored && !isTracked);
 
-                    if (patternExcluded || (gitignored && !isTracked)) {
+                    // Set appropriate icon based on file type, greyed out if excluded/gitignored
+                    Icon icon;
+                    if (treeNode.isDirectory()) {
+                        icon = FileTypeIcons.getFolderIcon(expanded);
+                        // Show grouped directory names (e.g., "src/main/java" instead of "src")
+                        setText(treeNode.getDisplayName(node));
+                    } else {
+                        icon = FileTypeIcons.getIconForFile(treeNode.getFile().getName());
+                    }
+
+                    // Grey out icon for excluded/gitignored items
+                    if (isExcludedOrIgnored) {
+                        setIcon(FileTypeIcons.getGreyedIcon(icon));
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
-                    } else if (!treeNode.isDirectory() && !isTracked) {
-                        // Color untracked files red
-                        setForeground(Color.RED);
+                    } else {
+                        setIcon(icon);
+                        if (!treeNode.isDirectory() && !isTracked) {
+                            // Color untracked files with softer muted orange
+                            setForeground(ThemeColors.getColor(ThemeColors.UNTRACKED_FOREGROUND));
+                        }
                     }
                 } else if (LOADING_PLACEHOLDER.equals(node.getUserObject())) {
                     setText(LOADING_PLACEHOLDER);
@@ -1671,6 +1787,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 }
             }
 
+            // Override the LAF focus-cell border for all states: use empty so extra insets never
+            // change cell size on click (avoids tree shift) and so the reused renderer does not
+            // carry over a previously set border to other cells.
+            setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             return this;
         }
     }

@@ -3,6 +3,7 @@ package ai.brokk;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -74,23 +75,23 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             tempModelLocations.put(UNAVAILABLE, "not_a_model");
         }
 
-        this.modelLocations = Map.copyOf(tempModelLocations);
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
+        this.modelLocations = Map.copyOf(tempModelLocations);
 
         // STT model initialization
-        var sttLocation = modelInfoMap.entrySet().stream()
+        var sttModelName = modelInfoMap.entrySet().stream()
                 .filter(entry -> "audio_transcription".equals(entry.getValue().get("mode")))
                 .map(Map.Entry::getKey)
                 .findFirst()
                 .orElse(null);
 
-        if (sttLocation == null) {
+        if (sttModelName == null) {
             LogManager.getLogger(Service.class)
                     .warn("No suitable transcription model found via LiteLLM proxy. STT will be unavailable.");
             sttModel = new UnavailableSTT();
         } else {
-            LogManager.getLogger(Service.class).info("Found transcription model at {}", sttLocation);
-            sttModel = new OpenAIStt(sttLocation);
+            LogManager.getLogger(Service.class).info("Found transcription model: {}", sttModelName);
+            sttModel = new OpenAIStt(sttModelName);
         }
     }
 
@@ -100,10 +101,17 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Fetches the user's balance for the given Brokk API key.
+     * Fetches the user's balance and subscription status for the given Brokk API key.
+     * This is the preferred method when you need both balance and subscription info,
+     * as it avoids duplicate network calls.
+     *
+     * @param key the Brokk API key
+     * @return BalanceInfo containing balance and subscription status
+     * @throws IllegalArgumentException if key is malformed or unauthorized
+     * @throws IOException if network error or unexpected response format
      */
     @Blocking
-    public static float getUserBalance(String key) throws IOException {
+    public static BalanceInfo getBalanceInfo(String key) throws IOException {
         parseKey(key); // Throws IllegalArgumentException if key is malformed
 
         String url = MainProject.getServiceUrl() + "/api/payments/balance-lookup/" + key;
@@ -119,15 +127,32 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             String responseBody = response.body() != null ? response.body().string() : "";
             var objectMapper = new ObjectMapper();
             JsonNode rootNode = objectMapper.readTree(responseBody);
+
+            float balance;
             if (rootNode.has("available_balance")
                     && rootNode.get("available_balance").isNumber()) {
-                return rootNode.get("available_balance").floatValue();
+                balance = rootNode.get("available_balance").floatValue();
             } else if (rootNode.isNumber()) {
-                return rootNode.floatValue();
+                balance = rootNode.floatValue();
             } else {
                 throw new IOException("Unexpected balance response format: " + responseBody);
             }
+
+            // Extract is_subscribed; default to false if missing or not a boolean
+            boolean isSubscribed = false;
+            if (rootNode.has("is_subscribed") && rootNode.get("is_subscribed").isBoolean()) {
+                isSubscribed = rootNode.get("is_subscribed").asBoolean();
+            }
+
+            return new BalanceInfo(balance, isSubscribed);
         }
+    }
+
+    /**
+     * Fetches the user's balance for the given Brokk API key.
+     */
+    public static float getUserBalance(String key) throws IOException {
+        return getBalanceInfo(key).balance();
     }
 
     /**
@@ -205,7 +230,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         boolean isBrokk = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST;
         boolean isFreeTierOnly = false;
 
-        String userId = "";
+        String url = baseUrl + "/model/info";
         if (isBrokk) {
             String brokkKey = MainProject.getBrokkKey();
             if (brokkKey.isEmpty()) {
@@ -214,10 +239,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 return;
             }
             var kp = parseKey(brokkKey);
-            userId = kp.userId().toString();
-        }
-        String url = baseUrl + "/model/info";
-        if (userId != null) {
+            var userId = kp.userId().toString();
             url += "?user_id=" + URLEncoder.encode(userId, StandardCharsets.UTF_8);
         }
         Request request = BrokkHttp.proxyRequest().url(url).get().build();
@@ -335,7 +357,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                     }
 
                     var immutableModelInfo = Map.copyOf(modelInfo);
-                    infoTarget.put(modelLocation, immutableModelInfo);
+                    infoTarget.put(modelName, immutableModelInfo);
                     LogManager.getLogger(Service.class)
                             .debug(
                                     "Discovered model: {} -> {} with info {})",
@@ -372,11 +394,24 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             throws IOException {
         var kp = parseKey(MainProject.getBrokkKey());
 
+        // Resolve version and environment, defaulting to "Unknown" if blank/null
+        String version = BuildInfo.version;
+        if (version == null || version.isBlank()) {
+            version = "Unknown";
+        }
+        String environment = Environment.getOsDescription();
+        if (environment == null || environment.isBlank()) {
+            environment = "Unknown";
+        }
+        log.debug("Sending feedback with version={}, environment={}", version, environment);
+
         var bodyBuilder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("category", category)
                 .addFormDataPart("feedback_text", feedbackText)
-                .addFormDataPart("user_id", kp.userId().toString());
+                .addFormDataPart("user_id", kp.userId().toString())
+                .addFormDataPart("version", version)
+                .addFormDataPart("environment", environment);
 
         if (includeDebugLog) {
             var debugLogPath =
@@ -398,10 +433,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                             "debug.log.gz",
                             RequestBody.create(gzippedFile, MediaType.parse("application/gzip")));
                 } catch (IOException e) {
-                    LogManager.getLogger(Service.class).warn("Failed to gzip debug log, skipping: {}", e.getMessage());
+                    log.warn("Failed to gzip debug log, skipping: {}", e.getMessage());
                 }
             } else {
-                LogManager.getLogger(Service.class).debug("Debug log not found at {}", debugLogPath);
+                log.debug("Debug log not found at {}", debugLogPath);
             }
         }
 
@@ -422,34 +457,20 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
                 throw new ServiceHttpException(response.code(), errorBody, "Failed to send feedback");
             }
-            LogManager.getLogger(Service.class).debug("Feedback sent successfully");
+            log.debug("Feedback sent successfully");
         }
     }
 
     /**
-     * Reports a client exception to the Brokk server for monitoring and debugging purposes, with optional context
-     * fields.
+     * Reports a client exception to the Brokk server for monitoring and debugging purposes.
+     * The exception report JSON is fully constructed by ExceptionReporter; this method
+     * just handles HTTP transport.
      */
     @Override
-    public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
-            throws IOException {
+    public JsonNode reportClientException(JsonNode exceptionReport) throws IOException {
         String brokkKey = MainProject.getBrokkKey();
 
-        var jsonBody = objectMapper.createObjectNode();
-        jsonBody.put("stacktrace", stacktrace);
-        jsonBody.put("client_version", clientVersion);
-
-        // Add optional fields
-        if (!optionalFields.isEmpty()) {
-            var fieldsNode = objectMapper.createObjectNode();
-            for (var entry : optionalFields.entrySet()) {
-                fieldsNode.put(entry.getKey(), entry.getValue());
-            }
-            jsonBody.set("context", fieldsNode);
-        }
-
-        RequestBody body = RequestBody.create(jsonBody.toString(), MediaType.parse("application/json"));
-
+        RequestBody body = RequestBody.create(exceptionReport.toString(), MediaType.parse("application/json"));
         Request request = new Request.Builder()
                 .url(MainProject.getServiceUrl() + "/api/client-exceptions/")
                 .header("Authorization", "Bearer " + brokkKey)
@@ -469,14 +490,116 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
+     * Forwards OAuth callback parameters to the Brokk backend for Codex OAuth flow.
+     *
+     * @param callbackParams The query parameters received from the OAuth callback
+     * @param verifier The PKCE code_verifier for this authorization attempt
+     * @return null on success (2xx response), or an error message on failure
+     */
+    @Nullable
+    public static String forwardCodexOauthCallbackToBackend(Map<String, String> callbackParams, String verifier) {
+        String brokkKey = MainProject.getBrokkKey();
+
+        var urlBuilder = new StringBuilder(MainProject.getServiceUrl());
+        urlBuilder.append("/api/auth/codex-oauth/callback?");
+
+        var queryParams = new StringBuilder();
+        for (var entry : callbackParams.entrySet()) {
+            if (!queryParams.isEmpty()) {
+                queryParams.append("&");
+            }
+            queryParams
+                    .append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
+                    .append("=")
+                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+        }
+
+        if (!queryParams.isEmpty()) {
+            queryParams.append("&");
+        }
+        queryParams.append("code_verifier=").append(URLEncoder.encode(verifier, StandardCharsets.UTF_8));
+
+        urlBuilder.append(queryParams);
+
+        String url = urlBuilder.toString();
+        LogManager.getLogger(Service.class)
+                .debug("Forwarding OAuth callback to backend: {}", url.replaceAll("code=[^&]+", "code=***"));
+
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer " + brokkKey)
+                .get()
+                .build();
+
+        try (Response response = BrokkHttp.execute(request)) {
+            int statusCode = response.code();
+            String responseBody = response.body() != null ? response.body().string() : "";
+
+            if (response.isSuccessful()) {
+                LogManager.getLogger(Service.class).info("Backend OAuth call succeeded: status={}", statusCode);
+                return null;
+            } else {
+                String truncatedBody =
+                        responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody;
+                LogManager.getLogger(Service.class)
+                        .warn("Backend OAuth call failed: status={}, body={}", statusCode, truncatedBody);
+                return "Backend authentication failed (HTTP " + statusCode + ")";
+            }
+        } catch (IOException e) {
+            LogManager.getLogger(Service.class).error("Failed to call backend OAuth endpoint", e);
+            return "Failed to communicate with Brokk backend: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Disconnects the OpenAI Codex OAuth authorization by calling the backend DELETE endpoint.
+     *
+     * @return null on success (2xx response), or an error message on failure
+     */
+    @Nullable
+    public static String disconnectCodexOauth() {
+        String brokkKey = MainProject.getBrokkKey();
+
+        String url = MainProject.getServiceUrl() + "/api/auth/codex-oauth/authorization";
+
+        LogManager.getLogger(Service.class).debug("Disconnecting OpenAI Codex OAuth via DELETE {}", url);
+
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer " + brokkKey)
+                .delete()
+                .build();
+
+        try (Response response = BrokkHttp.execute(request)) {
+            int statusCode = response.code();
+            String responseBody = response.body() != null ? response.body().string() : "";
+
+            if (response.isSuccessful()) {
+                LogManager.getLogger(Service.class)
+                        .info("OpenAI Codex OAuth disconnected successfully: status={}", statusCode);
+                return null;
+            } else {
+                String truncatedBody =
+                        responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody;
+                LogManager.getLogger(Service.class)
+                        .warn("Failed to disconnect OpenAI Codex OAuth: status={}, body={}", statusCode, truncatedBody);
+                return "Failed to disconnect (HTTP " + statusCode + ")";
+            }
+        } catch (IOException e) {
+            LogManager.getLogger(Service.class).error("Failed to call backend disconnect endpoint", e);
+            return "Failed to communicate with Brokk backend: " + e.getMessage();
+        }
+    }
+
+    /**
      * STT implementation using Whisper-compatible API via LiteLLM proxy. Uses OkHttp for multipart/form-data upload.
      */
     public class OpenAIStt implements SpeechToTextModel {
         private final Logger logger = LogManager.getLogger(OpenAIStt.class);
-        private final String modelLocation; // e.g., "openai/whisper-1"
+        private final String modelName; // e.g., "whisper-1"
 
-        public OpenAIStt(String modelLocation) {
-            this.modelLocation = modelLocation;
+        public OpenAIStt(String modelName) {
+            this.modelName = modelName;
         }
 
         private MediaType getMediaTypeFromFileName(String fileName) {
@@ -512,7 +635,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             var builder = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("file", file.getName(), fileBody)
-                    .addFormDataPart("model", modelLocation)
+                    .addFormDataPart("model", modelName)
                     .addFormDataPart("language", "en")
                     .addFormDataPart("response_format", "json");
 

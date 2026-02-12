@@ -68,6 +68,8 @@ jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
 apache-compress = "org.apache.commons:commons-compress:1.26.2"
 apache-commons-text = "org.apache.commons:commons-text:1.12.0"
+handlebars = "com.github.jknack:handlebars:4.5.0"
+mustache = "com.github.spullara.mustache.java:compiler:0.9.10"
 mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.12.1" }
 uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
 pcollections = "org.pcollections:pcollections:5.0.0"
@@ -88,7 +90,6 @@ xz = "org.tukaani:xz:1.10"
 # Markdown
 flexmark-core = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
 flexmark-html2md = { module = "com.vladsch.flexmark:flexmark-html2md-converter", version.ref = "flexmark" }
-mustache = "com.github.spullara.mustache.java:compiler:0.9.10"
 
 # GitHub API
 github-api = "org.kohsuke:github-api:1.327"
@@ -137,7 +138,7 @@ logging = ["slf4j-api", "log4j-slf4j2-impl"]
 junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
 junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
 ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
-markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
+markdown = ["flexmark-core", "flexmark-html2md", "handlebars", "mustache"]
 git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]
 treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript", "treesitter-scala"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]

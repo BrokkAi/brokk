@@ -1984,19 +1984,21 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
 
         List<UUID> sessionIds = parseSessionIdsFromPrBody(prBody);
+        logger.debug("Sessions in PR #{} description: {}", pr.getNumber(), sessionIds);
         if (sessionIds.isEmpty()) {
             return;
         }
 
-        logger.info("Found {} session ID(s) in PR #{} description, downloading...", sessionIds.size(), pr.getNumber());
-
         var sessionManager = contextManager.getProject().getSessionManager();
-
         for (UUID sessionId : sessionIds) {
             sessionManager
                     .downloadForeignAsync(sessionId)
                     .thenAccept(path ->
-                            logger.debug("Successfully downloaded session {} from PR #{}", sessionId, pr.getNumber()));
+                            logger.debug("Successfully downloaded session {} from PR #{}", sessionId, pr.getNumber()))
+                    .exceptionally(th -> {
+                        logger.warn("Unable to download {}", sessionId, th);
+                        return null;
+                    });
         }
     }
 

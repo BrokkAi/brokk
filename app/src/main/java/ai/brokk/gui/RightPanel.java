@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
 import ai.brokk.context.Context;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.components.NoticeBanner;
 import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.DetachableTabFrame;
@@ -15,6 +16,7 @@ import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.HistoryIo;
 import java.awt.*;
 import java.awt.event.AWTEventListener;
 import java.awt.event.MouseAdapter;
@@ -22,7 +24,9 @@ import java.awt.event.MouseEvent;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,6 +44,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     private final HistoryOutputPanel historyOutputPanel;
     private final InstructionsPanel instructionsPanel;
     private final TaskListPanel taskListPanel;
+    private final NoticeBanner historicalNoticePanel;
     private final TerminalPanel terminalPanel;
 
     private final JPanel sessionHeaderPanel;
@@ -123,6 +128,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         sessionHeaderPanel = createSessionHeader();
         updateSessionComboBox();
 
+        historicalNoticePanel = new NoticeBanner();
         instructionsPanel = new InstructionsPanel(chrome);
         taskListPanel = new TaskListPanel(chrome);
         terminalPanel =
@@ -138,7 +144,12 @@ public class RightPanel extends JPanel implements ThemeAware {
         branchSelectorPanel = createBranchSelectorHeader();
 
         commandPanel = new JPanel(new BorderLayout());
-        commandPanel.add(branchSelectorPanel, BorderLayout.NORTH);
+        var commandHeaderStack = new JPanel();
+        commandHeaderStack.setLayout(new BoxLayout(commandHeaderStack, BoxLayout.Y_AXIS));
+        commandHeaderStack.add(branchSelectorPanel);
+        commandHeaderStack.add(historicalNoticePanel);
+
+        commandPanel.add(commandHeaderStack, BorderLayout.NORTH);
         commandPanel.add(commandPane, BorderLayout.CENTER);
         commandPanel.setMinimumSize(new Dimension(200, 325));
 
@@ -160,8 +171,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         // Review Tab Setup - show placeholder if no Git repo
         if (chrome.getProject().hasGit()) {
-            var sessionChangesPanel = new SessionChangesPanel(
-                    chrome, contextManager, this::updateReviewTabTitleAndTooltip, this::updateReviewTabBadge);
+            var sessionChangesPanel = new SessionChangesPanel(chrome, contextManager, this::onReviewTabStateChanged);
             reviewTabComponent = sessionChangesPanel;
         } else {
             var placeholder = new JLabel("Git repository required for Review", SwingConstants.CENTER);
@@ -189,6 +199,20 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         tabDragUndockHandler = new TabDragUndockHandler();
         tabDragUndockHandler.register();
+
+        contextManager.addContextListener(new ai.brokk.IContextManager.ContextListener() {
+            @Override
+            public void contextChanged(Context newCtx) {
+                SwingUtilities.invokeLater(() -> {
+                    Context live = contextManager.liveContext();
+                    if (!newCtx.id().equals(live.id())) {
+                        historicalNoticePanel.setMessage("Viewing historical Context + Tasks");
+                    } else {
+                        historicalNoticePanel.setMessage(null);
+                    }
+                });
+            }
+        });
 
         add(sessionHeaderPanel, BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
@@ -228,11 +252,8 @@ public class RightPanel extends JPanel implements ThemeAware {
                 Comparator.comparingLong(SessionManager.SessionInfo::modified).reversed());
         for (var s : sessions) model.addElement(s);
 
-        // Pre-populate counts map with placeholder; load actual counts async
-        var taskCounts = new ConcurrentHashMap<UUID, Integer>();
-        for (var s : sessions) {
-            taskCounts.put(s.id(), -1); // -1 means "loading"
-        }
+        // Pre-populate counts map with null; load actual counts async
+        var taskCounts = new ConcurrentHashMap<UUID, HistoryIo.TaskCounts>();
 
         var list = new JList<SessionManager.SessionInfo>(model);
         list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
@@ -248,12 +269,13 @@ public class RightPanel extends JPanel implements ThemeAware {
         list.setCellRenderer(new SessionInfoRenderer(taskCounts));
 
         // Load counts asynchronously and repaint as each completes
+        // Use countSessionStats to get both AI response and task counts in a single pass
         var sessionManager = contextManager.getProject().getSessionManager();
         for (var s : sessions) {
             var sessionId = s.id();
             contextManager.getBackgroundTasks().submit(() -> {
-                int count = sessionManager.countAiResponses(sessionId);
-                taskCounts.put(sessionId, count);
+                var stats = sessionManager.countSessionStats(sessionId);
+                taskCounts.put(sessionId, stats.tasks());
                 SwingUtilities.invokeLater(list::repaint);
             });
         }
@@ -321,9 +343,9 @@ public class RightPanel extends JPanel implements ThemeAware {
         private final JLabel nameLabel = new JLabel();
         private final JLabel timeLabel = new JLabel();
         private final JLabel countLabel = new JLabel();
-        private final Map<UUID, Integer> taskCounts;
+        private final Map<UUID, HistoryIo.TaskCounts> taskCounts;
 
-        SessionInfoRenderer(Map<UUID, Integer> taskCounts) {
+        SessionInfoRenderer(Map<UUID, HistoryIo.TaskCounts> taskCounts) {
             this.taskCounts = taskCounts;
             setLayout(new BorderLayout(0, 2));
             setOpaque(true);
@@ -365,9 +387,17 @@ public class RightPanel extends JPanel implements ThemeAware {
             var instant = Instant.ofEpochMilli(value.modified());
             timeLabel.setText(GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault())));
 
-            // Read pre-computed count; -1 means still loading
-            int cnt = taskCounts.getOrDefault(value.id(), -1);
-            countLabel.setText(cnt < 0 ? "..." : String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks"));
+            // Read pre-computed counts; null means still loading
+            var counts = taskCounts.get(value.id());
+            if (counts == null) {
+                countLabel.setText("...");
+            } else if (counts.total() == 0) {
+                countLabel.setText("no tasks");
+            } else if (counts.incomplete() == 0) {
+                countLabel.setText(String.format("%d tasks done", counts.total()));
+            } else {
+                countLabel.setText(String.format("%d tasks (%d pending)", counts.total(), counts.incomplete()));
+            }
 
             // Apply selection colors
             var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
@@ -425,9 +455,11 @@ public class RightPanel extends JPanel implements ThemeAware {
                 taskListPanel.restoreControls();
                 var center = instructionsPanel.getCenterPanel();
                 center.add(contextArea, Math.min(1, center.getComponentCount()));
+                instructionsPanel.restoreModeToggleToBottom();
                 instructionsPanel.restoreModelSelectorToBottom();
             } else if (selected == taskListPanel) {
                 taskListPanel.setSharedContextArea(contextArea);
+                taskListPanel.setSharedModeToggle(instructionsPanel.getModeToggleComponent());
                 taskListPanel.setSharedModelSelector(instructionsPanel.getModelSelectorComponent());
             }
         });
@@ -499,7 +531,10 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        reviewFrame = new DetachableTabFrame("Review", reviewTabComponent, this::redockReview);
+        reviewFrame = new DetachableTabFrame("Review", reviewTabComponent, this::redockReview, chrome.getTheme());
+        if (reviewTabComponent instanceof SessionChangesPanel scp) {
+            scp.requestUpdate();
+        }
         reviewFrame.setVisible(true);
     }
 
@@ -514,6 +549,9 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         updateReviewTabBadge(
                 contextManager.getProject().getRepo().getModifiedProjectFiles().size());
+        if (reviewTabComponent instanceof SessionChangesPanel scp) {
+            scp.requestUpdate();
+        }
 
         if (reviewFrame != null) {
             reviewFrame.dispose();
@@ -561,7 +599,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        terminalFrame = new DetachableTabFrame("Terminal", terminalPanel, this::redockTerminal);
+        terminalFrame = new DetachableTabFrame("Terminal", terminalPanel, this::redockTerminal, chrome.getTheme());
         terminalFrame.setVisible(true);
     }
 
@@ -615,6 +653,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         boolean advanced = GlobalUiSettings.isAdvancedMode();
         branchSelectorPanel.setVisible(chrome.getProject().hasGit());
         historyOutputPanel.setAdvancedMode(advanced);
+        instructionsPanel.applyAdvancedMode(advanced);
 
         int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
         if (!advanced) {
@@ -768,12 +807,23 @@ public class RightPanel extends JPanel implements ThemeAware {
         return taskListPanel;
     }
 
-    private void updateReviewTabTitleAndTooltip(String title, String tooltip) {
-        int idx = getReviewTabIndex();
-        if (idx != -1) {
-            buildReviewTabs.setTitleAt(idx, title);
-            buildReviewTabs.setToolTipTextAt(idx, tooltip);
-        }
+    private void onReviewTabStateChanged(SessionChangesPanel.ReviewTabState state) {
+        SwingUtilities.invokeLater(() -> {
+            if (!GlobalUiSettings.isReviewDocked()) {
+                if (reviewFrame != null) {
+                    reviewFrame.setHeaderTitle(
+                            Icons.FLOWSHEET, state.title(), state.tooltip(), state.uncommittedCount());
+                }
+                return;
+            }
+
+            int idx = getReviewTabIndex();
+            if (idx != -1) {
+                buildReviewTabs.setTitleAt(idx, state.title());
+                buildReviewTabs.setToolTipTextAt(idx, state.tooltip());
+            }
+            updateReviewTabBadge(state.uncommittedCount());
+        });
     }
 
     public void requestReviewUpdate() {
@@ -800,15 +850,22 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Compatibility overload for reviewing from a commit up to HEAD.
+     */
+    public void startCommitRangeReview(String oldestCommitId) {
+        startCommitRangeReview(oldestCommitId + "^", "HEAD");
+    }
+
+    /**
      * Starts a review for a specific range of commits.
      * Selects the Review tab and triggers the review generation in SessionChangesPanel.
      */
-    public void startCommitRangeReview(String oldestCommitId) {
+    public void startCommitRangeReview(String fromRef, String toRef) {
         SwingUtilities.invokeLater(() -> {
             focusReviewTab();
 
             if (reviewTabComponent instanceof SessionChangesPanel scp) {
-                scp.startCommitRangeReview(oldestCommitId);
+                scp.startCommitRangeReview(fromRef, toRef);
             }
         });
     }
@@ -873,14 +930,61 @@ public class RightPanel extends JPanel implements ThemeAware {
         });
     }
 
+    public void selectBuildTab() {
+        assert SwingUtilities.isEventDispatchThread();
+        int idx = buildReviewTabs.indexOfTab("Build");
+        if (idx != -1) {
+            buildReviewTabs.setSelectedIndex(idx);
+        }
+    }
+
+    public void selectReviewTab() {
+        assert SwingUtilities.isEventDispatchThread();
+        int idx = buildReviewTabs.indexOfTab("Review");
+        if (idx != -1) {
+            buildReviewTabs.setSelectedIndex(idx);
+        }
+    }
+
     public void selectPreviewTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Preview");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
         }
     }
 
+    public void cycleBuildReviewPreview(boolean forward) {
+        assert SwingUtilities.isEventDispatchThread();
+        List<Integer> indices = new ArrayList<>();
+        int buildIdx = buildReviewTabs.indexOfTab("Build");
+        if (buildIdx != -1) {
+            indices.add(buildIdx);
+        }
+        // Use component-based lookup for Review since its title changes dynamically
+        int reviewIdx = getReviewTabIndex();
+        if (reviewIdx != -1) {
+            indices.add(reviewIdx);
+        }
+        int previewIdx = buildReviewTabs.indexOfTab("Preview");
+        if (previewIdx != -1) {
+            indices.add(previewIdx);
+        }
+        if (indices.isEmpty()) {
+            return;
+        }
+        int current = buildReviewTabs.getSelectedIndex();
+        int pos = indices.indexOf(current);
+        if (pos == -1) {
+            buildReviewTabs.setSelectedIndex(indices.getFirst());
+            return;
+        }
+        int nextPos = forward ? (pos + 1) % indices.size() : (pos - 1 + indices.size()) % indices.size();
+        buildReviewTabs.setSelectedIndex(indices.get(nextPos));
+    }
+
     public void selectTerminalTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int idx = buildReviewTabs.indexOfTab("Terminal");
         if (idx != -1) {
             buildReviewTabs.setSelectedIndex(idx);
@@ -888,6 +992,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void selectTasksTab() {
+        assert SwingUtilities.isEventDispatchThread();
         int buildIdx = buildReviewTabs.indexOfTab("Build");
         if (buildIdx != -1) {
             buildReviewTabs.setSelectedIndex(buildIdx);
@@ -896,6 +1001,31 @@ public class RightPanel extends JPanel implements ThemeAware {
         if (taskIdx != -1) {
             commandPane.setSelectedIndex(taskIdx);
         }
+        taskListPanel.getTaskInput().requestFocusInWindow();
+    }
+
+    public void selectInstructionsTab() {
+        assert SwingUtilities.isEventDispatchThread();
+        int buildIdx = buildReviewTabs.indexOfTab("Build");
+        if (buildIdx != -1) {
+            buildReviewTabs.setSelectedIndex(buildIdx);
+        }
+        int instructionsIdx = commandPane.indexOfTab("Instructions");
+        if (instructionsIdx != -1) {
+            commandPane.setSelectedIndex(instructionsIdx);
+        }
+        instructionsPanel.requestCommandInputFocus();
+    }
+
+    public void toggleInstructionsTasksTab() {
+        SwingUtilities.invokeLater(() -> {
+            var selected = commandPane.getSelectedComponent();
+            if (selected == instructionsPanel) {
+                selectTasksTab();
+            } else {
+                selectInstructionsTab();
+            }
+        });
     }
 
     public PreviewTabbedPane getPreviewTabbedPane() {

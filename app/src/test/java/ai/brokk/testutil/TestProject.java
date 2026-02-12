@@ -9,10 +9,12 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.IProject;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -76,8 +78,8 @@ public class TestProject implements IProject {
     }
 
     @Override
-    public BuildAgent.BuildDetails loadBuildDetails() {
-        return this.buildDetails;
+    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
+        return Optional.of(this.buildDetails);
     }
 
     @Override
@@ -98,10 +100,6 @@ public class TestProject implements IProject {
     @Override
     public String getStyleGuide() {
         return styleGuide;
-    }
-
-    public void setStyleGuide(String styleGuide) {
-        this.styleGuide = styleGuide;
     }
 
     public void setExclusionPatterns(Set<String> patterns) {
@@ -169,15 +167,6 @@ public class TestProject implements IProject {
     }
 
     @Override
-    public long getRunCommandTimeoutSeconds() {
-        return runCommandTimeoutSeconds;
-    }
-
-    public void setRunCommandTimeoutSeconds(long seconds) {
-        this.runCommandTimeoutSeconds = seconds;
-    }
-
-    @Override
     public Path getRoot() {
         return root;
     }
@@ -190,13 +179,15 @@ public class TestProject implements IProject {
     @Override
     public Set<ProjectFile> getAllFiles() {
         try (Stream<Path> stream = Files.walk(root)) {
-            return stream.filter(Files::isRegularFile)
+            return stream.filter(p -> Files.isRegularFile(p))
                     .map(p -> new ProjectFile(root, root.relativize(p)))
                     .collect(Collectors.toSet());
-        } catch (IOException e) {
+        } catch (IOException | UncheckedIOException e) {
             System.err.printf("ERROR (TestProject.getAllFiles): walk failed on %s: %s%n", root, e.getMessage());
-            // This can happen if the test resource dir doesn't exist, which is a test setup error.
-            if (!(e instanceof NoSuchFileException)) {
+            // NoSuchFileException can occur directly (from Files.walk) or wrapped in UncheckedIOException (from stream
+            // iteration)
+            Throwable cause = e instanceof UncheckedIOException ? e.getCause() : e;
+            if (!(cause instanceof NoSuchFileException)) {
                 e.printStackTrace(System.err);
             }
             return Collections.emptySet();

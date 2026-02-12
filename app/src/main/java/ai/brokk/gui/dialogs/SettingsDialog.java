@@ -1,5 +1,7 @@
 package ai.brokk.gui.dialogs;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.Service;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.github.BackgroundGitHubAuth;
@@ -42,6 +44,8 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
 
     private boolean proxySettingsChanged = false; // Track if proxy needs restart
     private boolean uiScaleSettingsChanged = false; // Track if UI scale needs restart
+
+    private @Nullable String pendingSelectTab;
 
     public SettingsDialog(Frame owner, Chrome chrome) {
         super(owner, "Settings");
@@ -136,31 +140,70 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     void loadSettingsInBackground() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        var worker = new SwingWorker<SettingsData, Void>() {
-            @Override
-            protected SettingsData doInBackground() {
-                // All I/O happens here in background thread
-                return SettingsData.load(chrome.getProject());
-            }
+        ai.brokk.concurrent.LoggingFuture.supplyAsync(() -> SettingsData.load(chrome.getProject()))
+                .thenAccept(data -> SwingUtil.runOnEdt(() -> {
+                    if (!isDisplayable() || !isShowing()) {
+                        return;
+                    }
+                    if (data.buildDetails() == null) {
+                        awaitBuildDetailsAndPopulate(data);
+                    } else {
+                        populateUIFromData(data);
 
-            @Override
-            protected void done() {
-                // Guard: if the dialog has been disposed or is no longer showing, skip all UI updates
-                if (!isDisplayable() || !isShowing()) {
-                    return;
-                }
-
-                try {
-                    var data = get();
-                    populateUIFromData(data);
-                } catch (Exception e) {
+                        if (pendingSelectTab != null) {
+                            String tab = pendingSelectTab;
+                            pendingSelectTab = null;
+                            selectTab(SettingsDialog.this, tab);
+                        }
+                    }
+                }))
+                .exceptionally(e -> {
                     logger.error("Failed to load settings", e);
-                    chrome.toolError("Failed to load settings: " + e.getMessage(), "Settings Error");
-                    dispose();
-                }
+                    SwingUtil.runOnEdt(() -> {
+                        chrome.toolError("Failed to load settings: " + e.getMessage(), "Settings Error");
+                        dispose();
+                    });
+                    return null;
+                });
+    }
+
+    private void awaitBuildDetailsAndPopulate(SettingsData partialData) {
+        var project = chrome.getProject();
+
+        var future = project.getBuildDetailsFuture();
+        boolean completed = ai.brokk.gui.MaterialOptionPane.showBlockingProgressDialog(
+                this, "Waiting for build settings inference...", "Project Initialization", future);
+
+        if (completed) {
+            try {
+                var details = requireNonNull(future.getNow(null));
+                populateUIFromData(new SettingsData(
+                        partialData.jvmMemorySettings(),
+                        partialData.brokkApiKey(),
+                        partialData.accountBalance(),
+                        partialData.favoriteModels(),
+                        partialData.isPaidSubscriber(),
+                        details,
+                        partialData.styleGuide(),
+                        partialData.commitMessageFormat()));
+            } catch (Exception e) {
+                logger.error("Error retrieving build details", e);
+                dispose();
             }
-        };
-        worker.execute();
+        } else {
+            // User cancelled
+            dispose();
+        }
+    }
+
+    /**
+     * Triggers a settings reload and schedules a tab selection once the reload is complete.
+     * Must be called on the EDT.
+     */
+    void reloadSettingsAndSelectTab(String targetTabName) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        this.pendingSelectTab = targetTabName;
+        loadSettingsInBackground();
     }
 
     /**
@@ -289,7 +332,22 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         return dialog;
     }
 
-    private static void selectTab(SettingsDialog dialog, String targetTabName) {
+    private static @Nullable JTabbedPane findNestedTabbedPane(Component component) {
+        if (component instanceof JTabbedPane jTabbedPane) {
+            return jTabbedPane;
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                JTabbedPane found = findNestedTabbedPane(child);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    static void selectTab(SettingsDialog dialog, String targetTabName) {
         boolean tabSelected = false;
         int globalTabIndex = -1;
         int projectTabIndex = -1;
@@ -362,6 +420,27 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
                             tabSelected = true;
                         }
                         break;
+                    }
+                }
+
+                // If not found in Advanced sub-tabs directly, check for nested tabs (e.g., Models > Model Roles)
+                if (!tabSelected) {
+                    for (int i = 0; i < advancedSubTabs.getTabCount(); i++) {
+                        Component tabComponent = advancedSubTabs.getComponentAt(i);
+                        // Look for nested JTabbedPane within the tab's component hierarchy
+                        JTabbedPane nestedTabbedPane = findNestedTabbedPane(tabComponent);
+                        if (nestedTabbedPane != null) {
+                            for (int j = 0; j < nestedTabbedPane.getTabCount(); j++) {
+                                if (targetTabName.equals(nestedTabbedPane.getTitleAt(j))) {
+                                    dialog.tabbedPane.setSelectedIndex(advancedTabIndex);
+                                    advancedSubTabs.setSelectedIndex(i); // Select the parent tab (e.g., Models)
+                                    nestedTabbedPane.setSelectedIndex(j); // Select the nested tab (e.g., Model Roles)
+                                    tabSelected = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (tabSelected) break;
                     }
                 }
             }
@@ -459,18 +538,18 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
      * Consolidated settings data loaded in background to avoid EDT blocking.
      * All I/O operations happen in the static load() method which runs off EDT.
      */
-    public static record SettingsData(
+    public record SettingsData(
             // Global settings
             MainProject.JvmMemorySettings jvmMemorySettings,
             String brokkApiKey,
             String accountBalance,
             List<Service.FavoriteModel> favoriteModels,
+            boolean isPaidSubscriber,
 
             // Project-specific settings (nullable if no project)
             @Nullable BuildAgent.BuildDetails buildDetails,
             @Nullable String styleGuide,
-            @Nullable String commitMessageFormat,
-            @Nullable String reviewGuide) {
+            @Nullable String commitMessageFormat) {
         private static final Logger logger = LogManager.getLogger(SettingsData.class);
 
         /**
@@ -485,7 +564,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             // Load global settings (file I/O)
             var jvmSettings = MainProject.getJvmMemorySettings();
             var apiKey = MainProject.getBrokkKey();
-            var balance = loadAccountBalance(apiKey); // network I/O
+            var balanceResult = loadAccountBalanceWithPaidStatus(apiKey); // network I/O
             var models = MainProject.loadFavoriteModels(); // file I/O
 
             // If empty, create default and save
@@ -505,41 +584,55 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             BuildAgent.BuildDetails buildDetails = null;
             String styleGuide = null;
             String commitFormat = null;
-            String reviewGuide = null;
 
             if (project != null) {
-                try {
-                    buildDetails = project.loadBuildDetails();
-                    styleGuide = project.getStyleGuide();
-                    commitFormat = project.getCommitMessageFormat();
-                    reviewGuide = project.getReviewGuide();
-                } catch (Exception e) {
-                    logger.warn("Failed to load project settings", e);
+                var future = project.getBuildDetailsFuture();
+                if (future.isDone() && !future.isCancelled()) {
+                    buildDetails = future.getNow(BuildAgent.BuildDetails.EMPTY);
                 }
+                // If null, the caller (SettingsDialog) will handle the modal await logic
+                styleGuide = project.getStyleGuide();
+                commitFormat = project.getCommitMessageFormat();
             }
 
             return new SettingsData(
-                    jvmSettings, apiKey, balance, models, buildDetails, styleGuide, commitFormat, reviewGuide);
+                    jvmSettings,
+                    apiKey,
+                    balanceResult.displayString(),
+                    models,
+                    balanceResult.isPaid(),
+                    buildDetails,
+                    styleGuide,
+                    commitFormat);
         }
 
         /**
-         * Loads account balance via network call. Safe to call off EDT.
+         * Result of loading balance: both the display string and paid status.
+         */
+        private record BalanceResult(String displayString, boolean isPaid) {}
+
+        /**
+         * Loads account balance via network call and determines paid status.
+         * Uses the backend's `is_subscribed` attribute to determine subscription status.
+         * Safe to call off EDT.
          */
         @Blocking
-        private static String loadAccountBalance(String apiKey) {
+        private static BalanceResult loadAccountBalanceWithPaidStatus(String apiKey) {
             if (apiKey.isBlank()) {
-                return "No API key configured";
+                return new BalanceResult("No API key configured", false);
             }
 
             try {
-                Service.validateKey(apiKey); // throws if invalid
-                float balance = Service.getUserBalance(apiKey);
-                return String.format("$%.2f", balance);
+                var balanceInfo = Service.getBalanceInfo(apiKey);
+                String displayString = String.format("$%.2f", balanceInfo.balance());
+                // Use backend's is_subscribed flag to determine paid status
+                boolean isPaid = balanceInfo.isSubscribed();
+                return new BalanceResult(displayString, isPaid);
             } catch (IllegalArgumentException e) {
-                return "Invalid API key format";
+                return new BalanceResult("Invalid API key format", false);
             } catch (IOException e) {
                 logger.warn("Failed to load account balance", e);
-                return "Error loading balance: " + e.getMessage();
+                return new BalanceResult("Error loading balance: " + e.getMessage(), false);
             }
         }
     }

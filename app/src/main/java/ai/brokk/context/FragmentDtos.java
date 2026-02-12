@@ -44,7 +44,6 @@ public class FragmentDtos {
                     PasteTextFragmentDto,
                     PasteImageFragmentDto,
                     StacktraceFragmentDto,
-                    CallGraphFragmentDto,
                     CodeFragmentDto,
                     HistoryFragmentDto,
                     BuildFragmentDto,
@@ -110,7 +109,7 @@ public class FragmentDtos {
     }
 
     /** DTO for TaskFragment - represents a session's chat messages. */
-    public record TaskFragmentDto(String id, List<ChatMessageDto> messages, String taskDescription)
+    public record TaskFragmentDto(String id, List<ChatMessageDto> messages, @Nullable String taskDescription)
             implements VirtualFragmentDto { // id changed to String
         public TaskFragmentDto {
             messages = List.copyOf(messages);
@@ -226,19 +225,6 @@ public class FragmentDtos {
             implements VirtualFragmentDto { // id changed to String
         public StacktraceFragmentDto {
             sources = Set.copyOf(sources);
-        }
-    }
-
-    /** DTO for CallGraphFragment - contains method name, depth, and graph type (callee/caller). */
-    public record CallGraphFragmentDto(String id, String methodName, int depth, boolean isCalleeGraph)
-            implements VirtualFragmentDto { // id changed to String
-        public CallGraphFragmentDto {
-            if (methodName.isEmpty()) {
-                throw new IllegalArgumentException("methodName cannot be null or empty");
-            }
-            if (depth <= 0) {
-                throw new IllegalArgumentException("depth must be positive");
-            }
         }
     }
 
@@ -371,11 +357,6 @@ public class FragmentDtos {
             if (summaryContentId != null && summaryContentId.isEmpty()) {
                 throw new IllegalArgumentException("summaryContentId cannot be empty when present");
             }
-        }
-
-        // Backward-compatible auxiliary constructor for pre-meta call sites
-        public TaskEntryRefDto(int sequence, @Nullable String logId, @Nullable String summaryContentId) {
-            this(sequence, logId, summaryContentId, null, null, null);
         }
     }
 }

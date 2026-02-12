@@ -1,11 +1,12 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.concurrent.ExecutorsUtil;
-import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.TextCanonicalizer;
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,9 +36,7 @@ import java.util.TreeSet;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BiConsumer;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -55,7 +54,8 @@ import org.treesitter.*;
  * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
  * how to map a capture to a {@link CodeUnit}.
  */
-public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
+public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider {
+
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
@@ -65,35 +65,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private static final Semaphore IO_FD_SEMAPHORE = new Semaphore(Math.max(8, IO_VT_CAP), true);
     private static final int MAX_IO_READ_RETRIES = 6; // exponential backoff attempts for EMFILE
 
-    // Common separators across languages to denote hierarchy or member access.
-    // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
-    private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
-
     // Progress listeners for reporting parsing progress to UI
     private final ProgressListener progressListener;
 
-    // Helper util for lazy supertype and subtype computation and recursion guarding.
-    //
-    // DESIGN NOTE: This cache is transient and specific to this analyzer instance.
-    // It is NOT invalidated when files change because update() returns a fresh Analyzer instance
-    // and discards the current one (along with this cache).
-    // The new analyzer is initialized from 'this.state' (which contains the immutable state
-    // from the start of this instance's lifecycle), effectively resetting any lazy computations.
-    // This prevents stale hierarchy data from persisting across updates when inheritance hierarchies change.
-    //
-    // The only time this cache is merged into the persistent state is during snapshotState(),
-    // which allows saving the work to disk.
-    //
-    // NOTE: update() does NOT merge this cache into the new state. This is intentional:
-    // when source files change, previous relationships may be invalid.
-    // Discarding the cache ensures we re-compute hierarchies against the new state.
-    private final LazyTypeHierarchyCache lazyHierarchy = new LazyTypeHierarchyCache();
-
     /**
-     * Helper util for lazy import resolution and recursion guarding.
-     * Follows the same instance-lifecycle pattern as LazySupertypeCache.
+     * Unified transient but transferable cache for lazy computations (trees, imports, hierarchies).
+     *
+     * <p>DESIGN NOTE: This cache is transient to an analyzer snapshot but is structurally shared or
+     * transferred during {@link #update(Set)}. When an update occurs, a filtered version of this
+     * cache is passed to the new analyzer snapshot, excluding entries for changed files or
+     * CodeUnits sourced from those files.
+     *
+     * <p>For {@link ai.brokk.analyzer.cache.BidirectionalCache} instances (imports, hierarchies),
+     * only forward mappings are transferred; reverse mappings are cleared and repopulated lazily
+     * to ensure correctness after incremental changes.
      */
-    private final LazyImportCache lazyImports = new LazyImportCache();
+    private final AnalyzerCache cache;
 
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
@@ -137,183 +124,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * This is safe and intentional; clients must not assume parsedTree is non-null.
      *
      * @param topLevelCodeUnits the top-level code units.
-     * @param parsedTree        the corresponding parse tree (transient; null after load from storage).
      * @param importStatements  imports found on this file.
      */
     public record FileProperties(
-            List<CodeUnit> topLevelCodeUnits,
-            @JsonIgnore @Nullable TSTree parsedTree,
-            List<String> importStatements,
-            boolean containsTests) {
+            List<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
 
         public static FileProperties empty() {
-            return new FileProperties(Collections.emptyList(), null, Collections.emptyList(), false);
+            return new FileProperties(Collections.emptyList(), Collections.emptyList(), false);
         }
     }
 
     /**
-     * Sealed interface for supertype computation state.
-     */
-    public sealed interface SuperTypeInfo {
-        record Computed(List<CodeUnit> supertypes) implements SuperTypeInfo {}
-
-        record Uncomputed() implements SuperTypeInfo {}
-    }
-
-    /**
-     * Helper class to encapsulate lazy import resolution caching and circularity detection.
-     */
-    private static final class LazyImportCache {
-        private final ConcurrentHashMap<ProjectFile, Set<CodeUnit>> forwardCache = new ConcurrentHashMap<>();
-        private final ConcurrentHashMap<ProjectFile, Set<ProjectFile>> reverseCache = new ConcurrentHashMap<>();
-        private final ThreadLocal<Set<ProjectFile>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
-        private volatile boolean isReversePopulated = false;
-
-        @Nullable
-        Set<CodeUnit> getImportedCodeUnits(ProjectFile file) {
-            return forwardCache.get(file);
-        }
-
-        @Nullable
-        Set<ProjectFile> getReferencingFiles(ProjectFile file) {
-            return reverseCache.get(file);
-        }
-
-        Set<CodeUnit> computeIfAbsent(ProjectFile file, Function<ProjectFile, Set<CodeUnit>> computer) {
-            return forwardCache.computeIfAbsent(file, f -> {
-                var visiting = recursionGuard.get();
-                if (!visiting.add(f)) {
-                    log.trace("Circular import detection triggered for {}", f);
-                    return Collections.emptySet();
-                }
-                try {
-                    Set<CodeUnit> resolved = computer.apply(f);
-                    // Update reverse cache based on resolved imports
-                    for (CodeUnit cu : resolved) {
-                        reverseCache
-                                .computeIfAbsent(cu.source(), k -> ConcurrentHashMap.newKeySet())
-                                .add(f);
-                    }
-                    return Collections.unmodifiableSet(resolved);
-                } finally {
-                    visiting.remove(f);
-                }
-            });
-        }
-
-        boolean isEmpty() {
-            return forwardCache.isEmpty();
-        }
-
-        void forEachForward(BiConsumer<? super ProjectFile, ? super Set<CodeUnit>> action) {
-            forwardCache.forEach(action);
-        }
-
-        void forEachReverse(BiConsumer<? super ProjectFile, ? super Set<ProjectFile>> action) {
-            reverseCache.forEach(action);
-        }
-    }
-
-    /**
-     * Helper class to encapsulate lazy supertype and subtype caching and recursion detection.
-     */
-    private static final class LazyTypeHierarchyCache {
-        private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> supertypeCache = new ConcurrentHashMap<>();
-        private final ConcurrentHashMap<CodeUnit, Set<CodeUnit>> subtypeCache = new ConcurrentHashMap<>();
-        private final ThreadLocal<Set<CodeUnit>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
-
-        boolean isComputing(CodeUnit cu) {
-            return recursionGuard.get().contains(cu);
-        }
-
-        @Nullable
-        List<CodeUnit> getSupertypes(CodeUnit cu) {
-            return supertypeCache.get(cu);
-        }
-
-        @Nullable
-        Set<CodeUnit> getSubtypes(CodeUnit cu) {
-            return subtypeCache.get(cu);
-        }
-
-        List<CodeUnit> computeSupertypesIfAbsent(CodeUnit cu, Function<CodeUnit, List<CodeUnit>> computer) {
-            return supertypeCache.computeIfAbsent(cu, k -> {
-                var visiting = recursionGuard.get();
-                visiting.add(k);
-                try {
-                    return computer.apply(k);
-                } finally {
-                    visiting.remove(k);
-                }
-            });
-        }
-
-        Set<CodeUnit> computeSubtypesIfAbsent(CodeUnit cu, Function<CodeUnit, Set<CodeUnit>> computer) {
-            return subtypeCache.computeIfAbsent(cu, k -> {
-                var visiting = recursionGuard.get();
-                visiting.add(k);
-                try {
-                    return computer.apply(k);
-                } finally {
-                    visiting.remove(k);
-                }
-            });
-        }
-
-        boolean isEmpty() {
-            return supertypeCache.isEmpty() && subtypeCache.isEmpty();
-        }
-
-        void forEachSupertype(BiConsumer<? super CodeUnit, ? super List<CodeUnit>> action) {
-            supertypeCache.forEach(action);
-        }
-
-        void forEachSubtype(BiConsumer<? super CodeUnit, ? super Set<CodeUnit>> action) {
-            subtypeCache.forEach(action);
-        }
-    }
-
-    /**
-     * Per-CodeUnit state: children, signatures, ranges, supertypes, and AST-derived hasBody flag.
+     * Per-CodeUnit state: children, signatures, ranges, and AST-derived hasBody flag.
      * <p>
      * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
      * During incremental updates and multi-file merges, hasBody is combined using logical OR so that a single
      * definition anywhere marks the CodeUnit as having a body.
      */
     public record CodeUnitProperties(
-            List<CodeUnit> children,
-            List<String> signatures,
-            List<Range> ranges,
-            List<String> rawSupertypes,
-            SuperTypeInfo superTypes,
-            boolean hasBody) {
-
-        /**
-         * Compatibility constructor for legacy deserialization logic that provides raw supertypes
-         * but not the computed SuperTypeInfo. Initializes superTypes as Uncomputed.
-         */
-        public CodeUnitProperties(
-                List<CodeUnit> children,
-                List<String> signatures,
-                List<Range> ranges,
-                List<String> rawSupertypes,
-                boolean hasBody) {
-            this(children, signatures, ranges, rawSupertypes, new SuperTypeInfo.Uncomputed(), hasBody);
-        }
+            List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
 
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(
-                    Collections.emptyList(),
-                    Collections.emptyList(),
-                    Collections.emptyList(),
-                    Collections.emptyList(),
-                    new SuperTypeInfo.Uncomputed(),
-                    false);
-        }
-
-        // Convenience for accessing supertypes if computed, or empty list if uncomputed or not applicable.
-        public List<CodeUnit> supertypes() {
-            return superTypes instanceof SuperTypeInfo.Computed c ? c.supertypes() : Collections.emptyList();
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false);
         }
     }
 
@@ -368,6 +201,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Set<String> classLikeNodeTypes,
             Set<String> functionLikeNodeTypes,
             Set<String> fieldLikeNodeTypes,
+            Set<String> constructorNodeTypes,
             Set<String> decoratorNodeTypes,
             String importNodeType,
             String identifierFieldName,
@@ -383,8 +217,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, Set<CodeUnit>> codeUnitsBySymbol,
-            List<String> importStatements,
-            @Nullable TSTree parsedTree,
+            List<ImportInfo> importStatements,
             boolean containsTests) {}
 
     // Public record for stage timing information exposed to external tools
@@ -484,6 +317,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         this.language = language;
         // Register listener early so it receives progress during construction
         progressListener = listener;
+        this.cache = new AnalyzerCache();
 
         // Initialize query using a ThreadLocal for thread safety
         // The supplier will use the appropriate getQueryResource() from the subclass
@@ -515,6 +349,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var localSymbolIndex = new ConcurrentHashMap<String, Set<CodeUnit>>();
         var localCodeUnitState = new ConcurrentHashMap<CodeUnit, CodeUnitProperties>();
         var localFileState = new ConcurrentHashMap<ProjectFile, FileProperties>();
+        var moduleKeyCache = Caffeine.newBuilder().maximumSize(10000).<String, CodeUnit>build();
         List<CompletableFuture<?>> futures = new ArrayList<>();
         int totalFiles = filesToProcess.size();
         var progressReporter = new DebouncedProgressReporter(totalFiles, "Parsing " + language.name() + " files", 100);
@@ -526,7 +361,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
             for (var pf : filesToProcess) {
-                CompletableFuture<Void> future = LoggingFuture.supplyAsync(
+                // we do our own exception handling so LoggingFuture is not appropriate here
+                CompletableFuture<Void> future = CompletableFuture.supplyAsync(
                                 () -> {
                                     totalFilesAttempted.incrementAndGet();
                                     return readFileBytes(pf, timing);
@@ -540,7 +376,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         timing,
                                         localSymbolIndex,
                                         localCodeUnitState,
-                                        localFileState),
+                                        localFileState,
+                                        moduleKeyCache),
                                 ingestExecutor)
                         .whenComplete((ignored, ex) -> {
                             progressReporter.increment();
@@ -678,7 +515,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
-        this(project, language, prebuiltState, ProgressListener.NOOP);
+        this(project, language, prebuiltState, ProgressListener.NOOP, null);
     }
 
     protected final ProgressListener getProgressListener() {
@@ -695,9 +532,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected TreeSitterAnalyzer(
             IProject project, Language language, AnalyzerState prebuiltState, ProgressListener listener) {
+        this(project, language, prebuiltState, listener, null);
+    }
+
+    /**
+     * Internal implementation for snapshot instances that supports an optional pre-populated cache.
+     */
+    protected TreeSitterAnalyzer(
+            IProject project,
+            Language language,
+            AnalyzerState prebuiltState,
+            ProgressListener listener,
+            @Nullable AnalyzerCache prebuiltCache) {
         this.project = project;
         this.language = language;
         this.progressListener = listener;
+        this.cache = prebuiltCache != null ? prebuiltCache : new AnalyzerCache();
 
         this.query = ThreadLocal.withInitial(() -> {
             String rawQueryString = loadResource(getQueryResource());
@@ -751,7 +601,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     protected List<CodeUnit> supertypesOf(CodeUnit codeUnit) {
-        return codeUnitProperties(codeUnit).supertypes();
+        return performGetDirectAncestors(codeUnit);
     }
 
     private FileProperties fileProperties(ProjectFile file) {
@@ -771,62 +621,45 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty()) {
+        if (cache.isEmpty()) {
             return this.state;
         }
 
-        PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState = this.state.codeUnitState();
-        if (!lazyHierarchy.isEmpty()) {
-            // Efficiently merge lazy-computed supertypes into the snapshot state using PMap structural sharing.
-            // Instead of copying the entire map (O(N)), we collect only the updates (O(M)) and apply them (O(M log N)).
-            Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>();
-
-            lazyHierarchy.forEachSupertype((cu, supers) -> {
-                CodeUnitProperties existing = this.state.codeUnitState().get(cu);
-                if (existing != null) {
-                    // Create new record with Computed supertypes
-                    var newProps = new CodeUnitProperties(
-                            existing.children(),
-                            existing.signatures(),
-                            existing.ranges(),
-                            existing.rawSupertypes(),
-                            new SuperTypeInfo.Computed(supers),
-                            existing.hasBody());
-                    updates.put(cu, newProps);
-                }
-            });
-            nextCodeUnitState = nextCodeUnitState.plusAll(updates);
-        }
-
         TypeHierarchyGraph nextTypeHierarchyGraph = this.state.typeHierarchyGraph();
-        if (!lazyHierarchy.isEmpty()) {
+        if (!cache.typeHierarchy().isEmpty()) {
             Map<CodeUnit, List<CodeUnit>> superUpdates =
                     new HashMap<>(this.state.typeHierarchyGraph().supertypes());
             Map<CodeUnit, Set<CodeUnit>> subUpdates =
                     new HashMap<>(this.state.typeHierarchyGraph().subtypes());
 
-            lazyHierarchy.forEachSupertype(superUpdates::put);
-            lazyHierarchy.forEachSubtype(subUpdates::put);
+            cache.typeHierarchy().forEachForward(superUpdates::put);
+            cache.typeHierarchy().forEachReverse((cu, newSubtypes) -> {
+                subUpdates.merge(cu, new HashSet<>(newSubtypes), (existing, added) -> {
+                    var merged = new HashSet<>(existing);
+                    merged.addAll(added);
+                    return merged;
+                });
+            });
 
             nextTypeHierarchyGraph = TypeHierarchyGraph.from(superUpdates, subUpdates);
         }
 
         ImportGraph nextImportGraph = this.state.importGraph();
-        if (!lazyImports.isEmpty()) {
+        if (!cache.imports().isEmpty()) {
             Map<ProjectFile, Set<CodeUnit>> forwardUpdates =
                     new HashMap<>(this.state.importGraph().imports());
             Map<ProjectFile, Set<ProjectFile>> reverseUpdates =
                     new HashMap<>(this.state.importGraph().reverseImports());
 
-            lazyImports.forEachForward(forwardUpdates::put);
-            lazyImports.forEachReverse(reverseUpdates::put);
+            cache.imports().forEachForward(forwardUpdates::put);
+            cache.imports().forEachReverse(reverseUpdates::put);
 
             nextImportGraph = ImportGraph.from(forwardUpdates, reverseUpdates);
         }
 
         return new AnalyzerState(
                 this.state.symbolIndex(),
-                nextCodeUnitState,
+                this.state.codeUnitState(),
                 this.state.fileState(),
                 nextImportGraph,
                 nextTypeHierarchyGraph,
@@ -846,7 +679,59 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public List<String> importStatementsOf(ProjectFile file) {
+        return fileProperties(file).importStatements().stream()
+                .map(ImportInfo::rawSnippet)
+                .toList();
+    }
+
+    /**
+     * Returns the structured import information for the given file.
+     * Subclasses implementing ImportAnalysisProvider should delegate to this method.
+     */
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
         return fileProperties(file).importStatements();
+    }
+
+    /**
+     * Returns the raw import snippets that are relevant to the given CodeUnit based on type references in its source.
+     *
+     * Base implementation returns an empty set. Language-specific analyzers should override this method
+     * to provide appropriate import filtering logic for their language's import semantics.
+     *
+     * @param cu the CodeUnit to analyze
+     * @return set of raw import snippets relevant to this CodeUnit
+     */
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        // Base implementation returns empty set.
+        // Language-specific analyzers (JavaAnalyzer, PythonAnalyzer, GoAnalyzer, CppAnalyzer)
+        // override this with appropriate logic for their import semantics.
+        return Set.of();
+    }
+
+    /**
+     * Extracts the package/module name from a wildcard import statement.
+     *
+     * Base implementation returns an empty string. Language-specific analyzers should override
+     * this method to parse their language's wildcard import syntax.
+     *
+     * @param rawSnippet the raw import statement text
+     * @return the package/module name, or empty string if not applicable
+     */
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        return "";
+    }
+
+    /**
+     * Extracts potential type identifiers from source code.
+     *
+     * @param source the source code to analyze
+     * @return set of potential type identifier names
+     */
+    public Set<String> extractTypeIdentifiers(String source) {
+        // Base implementation returns empty set.
+        // Languages without an override will return no identifiers,
+        // causing relevantImportsFor to include all imports as a conservative fallback.
+        return Set.of();
     }
 
     /**
@@ -855,10 +740,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param file the project file
      * @return an unmodifiable set of resolved CodeUnits from import statements
      */
-    @Override
-    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+    protected Set<CodeUnit> performImportedCodeUnitsOf(ProjectFile file) {
         // 1. Check lazy cache first
-        Set<CodeUnit> cached = lazyImports.getImportedCodeUnits(file);
+        Set<CodeUnit> cached = cache.imports().getForward(file);
         if (cached != null) {
             return cached;
         }
@@ -870,16 +754,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // 3. Compute lazily via resolveImports and cache the result
-        return lazyImports.computeIfAbsent(file, f -> resolveImports(f, importStatementsOf(f)));
+        return cache.imports().computeForwardIfAbsent(file, f -> {
+            Set<CodeUnit> resolved = resolveImports(f, importStatementsOf(f));
+            // Update reverse cache for BidirectionalCache manually since the populator is NO-OP
+            for (CodeUnit cu : resolved) {
+                cache.imports().updateReverse(cu.source(), existing -> {
+                    Set<ProjectFile> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(f);
+                    return set;
+                });
+            }
+            return resolved;
+        });
     }
 
     /**
      * Returns the set of files that import the given file.
      */
-    @Override
-    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+    protected Set<ProjectFile> performReferencingFilesOf(ProjectFile file) {
         // 1. Check lazy cache first
-        Set<ProjectFile> cached = lazyImports.getReferencingFiles(file);
+        Set<ProjectFile> cached = cache.imports().getReverse(file);
         if (cached != null && !cached.isEmpty()) {
             return cached;
         }
@@ -890,27 +784,68 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return persisted;
         }
 
-        // 3. If not cached, we need to ensure all forward imports are resolved to populate the reverse cache
-        if (!lazyImports.isReversePopulated) {
-            synchronized (lazyImports) {
-                if (!lazyImports.isReversePopulated) {
-                    for (ProjectFile f : this.state.fileState().keySet()) {
-                        // Calling importedCodeUnitsOf ensures forward imports are computed and cached,
-                        // which also populates lazyImports.reverseCache.
-                        importedCodeUnitsOf(f);
-                    }
-                    lazyImports.isReversePopulated = true;
-                }
-            }
-        }
+        // 3. Phase 1: Filter candidates using cheap text-based matching
+        List<ProjectFile> allFiles = List.copyOf(this.state.fileState().keySet());
+        int totalFiles = allFiles.size();
+        notifyProgressListener(0, totalFiles, "Filtering import candidates");
 
-        return lazyImports.getReferencingFiles(file) != null
-                ? Objects.requireNonNull(lazyImports.getReferencingFiles(file))
-                : Collections.emptySet();
+        var filterReporter = new DebouncedProgressReporter(totalFiles, "Filtering import candidates", 100);
+        List<ProjectFile> candidates = allFiles.stream()
+                .filter(f -> {
+                    boolean matches = couldImportFile(f, fileProperties(f).importStatements(), file);
+                    filterReporter.increment();
+                    return matches;
+                })
+                .toList();
+        filterReporter.reportFinal();
+
+        // 4. Phase 2: Resolve imports for candidates to populate reverse cache
+        int totalCandidates = candidates.size();
+        var resolveReporter = new DebouncedProgressReporter(totalCandidates, "Resolving candidate imports", 100);
+        for (ProjectFile f : candidates) {
+            // Calling performImportedCodeUnitsOf ensures forward imports are computed and cached,
+            // which also populates reverse cache.
+            performImportedCodeUnitsOf(f);
+            resolveReporter.increment();
+        }
+        resolveReporter.reportFinal();
+
+        // 5. Return the resolved reverse cache result.
+        Set<ProjectFile> resolved = cache.imports().getReverse(file);
+        if (resolved == null || resolved.isEmpty()) {
+            return Set.of();
+        }
+        return Collections.unmodifiableSet(new HashSet<>(resolved));
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
-        return fileProperties(file).parsedTree();
+        // 1. Check lazy cache first
+        TSTree cached = cache.trees().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Parse on-demand if file exists and cache result
+        if (Files.exists(file.absPath())) {
+            try {
+                byte[] bytes = readFileBytes(file, null);
+                if (bytes.length == 0) {
+                    return null;
+                }
+                bytes = TextCanonicalizer.stripUtf8Bom(bytes);
+                String src = new String(bytes, StandardCharsets.UTF_8);
+                TSTree tree = getTSParser().parseString(null, src);
+                if (tree != null) {
+                    cache.trees().put(file, tree);
+                }
+                return tree;
+            } catch (Exception e) {
+                log.debug("Failed to parse tree on-demand for {}: {}", file, e.getMessage());
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /* ---------- IAnalyzer ---------- */
@@ -1028,19 +963,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     private Set<CodeUnit> searchDefinitionsInternal(Pattern compiledPattern, @Nullable String substringFilter) {
-        var anonPredicate = new Predicate<CodeUnit>() {
-            @Override
-            public boolean test(CodeUnit codeUnit) {
-                return !isAnonymousStructure(codeUnit.fqName());
-            }
-        };
-
-        var matcher = compiledPattern.matcher("");
-        return this.state.codeUnitState.keySet().stream()
+        var threadLocalMatcher = ThreadLocal.withInitial(() -> compiledPattern.matcher(""));
+        return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> substringFilter == null
                         || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
-                .filter(cu -> matcher.reset(cu.fqName()).find())
-                .filter(anonPredicate)
+                .filter(cu -> threadLocalMatcher.get().reset(cu.fqName()).find())
+                .filter(cu -> !isAnonymousStructure(cu.fqName()))
                 .collect(Collectors.toSet());
     }
 
@@ -1296,7 +1224,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getClassSource(CodeUnit cu, boolean includeComments) {
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        var sources = getSources(codeUnit, includeComments);
+        if (sources.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(String.join("\n\n", sources));
+    }
+
+    @Override
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        if (codeUnit.isFunction()) {
+            return getSourcesForFunction(codeUnit, includeComments);
+        }
+        if (codeUnit.isClass()) {
+            return getSourceForClass(codeUnit, includeComments).map(Set::of).orElse(Set.of());
+        }
+        return Set.of();
+    }
+
+    private Optional<String> getSourceForClass(CodeUnit cu, boolean includeComments) {
         if (!cu.isClass()) {
             return Optional.empty();
         }
@@ -1321,8 +1268,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return Optional.of(extractedSource);
     }
 
-    @Override
-    public Set<String> getMethodSources(CodeUnit cu, boolean includeComments) {
+    private Set<String> getSourcesForFunction(CodeUnit cu, boolean includeComments) {
         if (!cu.isFunction()) {
             return Collections.emptySet();
         }
@@ -1365,21 +1311,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, cu.fqName());
         }
         return Collections.unmodifiableSequencedSet(methodSources);
-    }
-
-    @Override
-    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
-        if (codeUnit.isFunction()) {
-            Set<String> sources = getMethodSources(codeUnit, includeComments);
-            if (sources.isEmpty()) {
-                return Optional.empty();
-            }
-            return Optional.of(String.join("\n\n", sources));
-        } else if (codeUnit.isClass()) {
-            return getClassSource(codeUnit, includeComments);
-        } else {
-            return Optional.empty(); // Fields and other types not supported by default
-        }
     }
 
     @Override
@@ -1498,6 +1429,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected SkeletonType refineSkeletonType(
             String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
         return getSkeletonTypeForCapture(captureName);
+    }
+
+    protected TSNode adjustSourceRangeNode(TSNode definitionNode, String captureName) {
+        return definitionNode;
     }
 
     /**
@@ -2001,7 +1936,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
         if (fileBytes.length == 0) {
             log.trace("Skipping binary/empty file: {}", file);
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null, false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         }
 
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
@@ -2012,10 +1947,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
         Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
         Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
-        Map<CodeUnit, List<String>> localRawSupertypes = new HashMap<>();
         Map<String, Set<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>();
-        List<String> localImportStatements = new ArrayList<>();
+        Map<CodeUnit, String> cuToCaptureName = new HashMap<>();
+        List<ImportInfo> localImportInfos = new ArrayList<>();
         Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
 
         long __parseStart = System.nanoTime();
@@ -2036,7 +1971,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), tree, false);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         }
         String rootNodeType = rootNode.getType();
         log.trace("Root node type for {}: {}", file, rootNodeType);
@@ -2100,14 +2035,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-            TSNode importNode =
-                    capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
-            if (importNode != null && !importNode.isNull()) {
-                String importText = sourceContent.substringFrom(importNode).strip();
-                if (!importText.isEmpty()) {
-                    localImportStatements.add(importText);
-                }
-            }
+            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
 
             for (var captureEntry : capturedNodesForMatch.entrySet()) {
                 String captureName = captureEntry.getKey();
@@ -2350,6 +2278,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             String signature =
                     buildSignatureString(node, simpleName, sourceContent, primaryCaptureName, modifierKeywords, file);
+
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -2363,13 +2292,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         node.getType(),
                         primaryCaptureName,
                         simpleName);
-            }
-
-            if (cu.isClass()) {
-                List<String> rawSupers = extractRawSupertypesForClassLike(cu, node, signature, sourceContent);
-                if (!rawSupers.isEmpty()) {
-                    localRawSupertypes.put(cu, rawSupers);
-                }
             }
 
             if (existingCUforKeyLookup != null
@@ -2412,18 +2334,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     sigsForCu.add(signature);
                 }
             }
-            var originalRange = new Range(
-                    node.getStartByte(),
-                    node.getEndByte(),
-                    node.getStartPoint().getRow(),
-                    node.getEndPoint().getRow(),
-                    node.getStartByte());
 
-            var finalRange =
-                    (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(node, sourceContent) : originalRange;
+            var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
+            var originalRange = new Range(
+                    rangeNode.getStartByte(),
+                    rangeNode.getEndByte(),
+                    rangeNode.getStartPoint().getRow(),
+                    rangeNode.getEndPoint().getRow(),
+                    rangeNode.getStartByte());
+
+            var finalRange = (cu.isClass() || cu.isFunction())
+                    ? expandRangeWithComments(rangeNode, sourceContent)
+                    : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
+
             localCuByFqName.put(cu.fqName(), cu);
+            cuToCaptureName.put(cu, primaryCaptureName);
             localChildren.putIfAbsent(cu, new ArrayList<>());
 
             boolean attachedToParent = false;
@@ -2484,6 +2411,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             log.trace("Stored/Updated info for CU: {}", cu);
         }
 
+        List<String> localImportStatements =
+                localImportInfos.stream().map(ImportInfo::rawSnippet).toList();
+
         createModulesFromImports(
                 file,
                 localImportStatements,
@@ -2494,6 +2424,55 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 localSignatures,
                 localSourceRanges,
                 localChildren);
+
+        // Synthetic constructor injection: for each class-like CU, check if it needs an implicit constructor.
+        // Implicit constructors are fully integrated into the local state:
+        // 1. Attached as a direct child of the enclosing class in localChildren
+        // 2. Present in localStates (and therefore codeUnitState) via the unionKeys mechanism
+        // 3. Registered in the symbol index for resolution via getDefinitions
+        // We do NOT add a signature entry to preserve existing skeleton rendering expectations.
+        for (CodeUnit cu : List.copyOf(localCuByFqName.values())) {
+            if (cu.isClass()) {
+                List<CodeUnit> kids = localChildren.getOrDefault(cu, List.of());
+                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
+                    // Use the capture name stored during analysis to identify constructors
+                    String capture = cuToCaptureName.getOrDefault(k, "");
+                    return isConstructor(k, cu, capture);
+                });
+
+                if (!hasExplicitConstructor) {
+                    String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
+                    CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
+                    if (implicit != null) {
+                        // Register in symbol index for resolution
+                        localCodeUnitsBySymbol
+                                .computeIfAbsent(implicit.identifier(), k -> new HashSet<>())
+                                .add(implicit);
+                        if (!implicit.shortName().equals(implicit.identifier())) {
+                            localCodeUnitsBySymbol
+                                    .computeIfAbsent(implicit.shortName(), k -> new HashSet<>())
+                                    .add(implicit);
+                        }
+
+                        // Add to the main CU map
+                        localCuByFqName.putIfAbsent(implicit.fqName(), implicit);
+                        localHasBody.put(implicit, true);
+
+                        // Fully integrate into the state:
+                        // 1. Attach as child of the class
+                        localChildren
+                                .computeIfAbsent(cu, k -> new ArrayList<>())
+                                .add(implicit);
+                        // 2. Ensure entries exist for the synthetic unit itself to force inclusion in unionKeys
+                        localChildren.putIfAbsent(implicit, new ArrayList<>());
+                        localSourceRanges.putIfAbsent(implicit, new ArrayList<>());
+                        // Note: we do NOT add a signature entry to preserve current skeleton expectations
+
+                        log.trace("Synthesized implicit constructor for class {}", cu.fqName());
+                    }
+                }
+            }
+        }
 
         boolean containsTests = containsTestMarkers(tree, sourceContent);
 
@@ -2522,17 +2501,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             var kids = finalLocalChildren.getOrDefault(cu, List.of());
             var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
-            var rawSupers = localRawSupertypes.getOrDefault(cu, List.of());
             boolean hasBody = localHasBody.getOrDefault(cu, false);
             localStates.put(
-                    cu,
-                    new CodeUnitProperties(
-                            List.copyOf(kids),
-                            List.copyOf(sigs),
-                            List.copyOf(rngs),
-                            List.copyOf(rawSupers),
-                            new SuperTypeInfo.Uncomputed(),
-                            hasBody));
+                    cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody));
         }
 
         for (var cu : localStates.keySet()) {
@@ -2571,8 +2542,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 localTopLevelCUs.stream().distinct().toList(),
                 Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
-                Collections.unmodifiableList(localImportStatements),
-                tree,
+                Collections.unmodifiableList(localImportInfos),
                 containsTests);
     }
 
@@ -2586,11 +2556,51 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Determines how a parent node's name should appear in the classChain.
-     * By default delegates to determineClassName, but can be overridden to add type markers
+     * By default, delegates to determineClassName, but can be overridden to add type markers
      * (e.g., Python adds ":F" for functions to distinguish them from classes in the chain).
      */
     protected String determineClassChainSegmentName(String nodeType, String shortName) {
         return determineClassName(nodeType, shortName);
+    }
+
+    /**
+     * Returns raw supertype names (extends/implements) for a class-like entity, computing them lazily if necessary.
+     */
+    protected List<String> getRawSupertypesLazily(CodeUnit cu) {
+        if (!cu.isClass()) {
+            return List.of();
+        }
+
+        List<String> cached = cache.rawSupertypes().get(cu);
+        if (cached != null) {
+            return cached;
+        }
+
+        TSTree tree = treeOf(cu.source());
+        if (tree == null) {
+            return List.of();
+        }
+
+        SourceContent sc = SourceContent.read(cu.source()).orElse(null);
+        if (sc == null) {
+            return List.of();
+        }
+
+        List<Range> ranges = rangesOf(cu);
+        if (ranges.isEmpty()) {
+            return List.of();
+        }
+
+        Range primary = ranges.getFirst();
+        TSNode node = tree.getRootNode().getDescendantForByteRange(primary.startByte(), primary.endByte());
+        if (node == null || node.isNull()) {
+            return List.of();
+        }
+
+        List<String> extracted =
+                extractRawSupertypesForClassLike(cu, node, cu.signature() != null ? cu.signature() : "", sc);
+        cache.rawSupertypes().put(cu, extracted);
+        return extracted;
     }
 
     /**
@@ -3350,46 +3360,56 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Returns the direct supertypes/basetypes of the given CodeUnit if it is a class-like entity. For non-class code
      * units, returns an empty list.
      */
-    @Override
-    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+    protected List<CodeUnit> performGetDirectAncestors(CodeUnit cu) {
         if (!cu.isClass()) {
             return List.of();
         }
 
-        // Guard against recursive computation on the same thread.
-        // This prevents infinite recursion and avoids IllegalStateException from ConcurrentHashMap.computeIfAbsent.
-        if (lazyHierarchy.isComputing(cu)) {
-            log.trace("Recursive getDirectAncestors detected for {}", cu.fqName());
-            return List.of();
-        }
-
         // 1. Check lazy cache
-        List<CodeUnit> cached = lazyHierarchy.getSupertypes(cu);
+        List<CodeUnit> cached = cache.typeHierarchy().getForward(cu);
         if (cached != null) {
             return cached;
         }
 
-        // 2. Check persistent state
-        CodeUnitProperties props = codeUnitProperties(cu);
-        if (props.superTypes() instanceof SuperTypeInfo.Computed computed) {
-            return computed.supertypes();
+        // 2. Check persistent TypeHierarchyGraph state
+        List<CodeUnit> persisted = this.state.typeHierarchyGraph().supertypesOf(cu);
+        if (!persisted.isEmpty()) {
+            // Ensure the reverse subtype index is populated in the transient cache
+            for (CodeUnit ancestor : persisted) {
+                cache.typeHierarchy().updateReverse(ancestor, existing -> {
+                    Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(cu);
+                    return set;
+                });
+            }
+            return persisted;
         }
 
         // 3. Compute lazily (atomic per key)
-        return lazyHierarchy.computeSupertypesIfAbsent(cu, this::computeSupertypes);
+        return cache.typeHierarchy().computeForwardIfAbsent(cu, k -> {
+            List<CodeUnit> supertypes = computeSupertypes(k);
+            // Update reverse index for BidirectionalCache manually since populator is NO-OP
+            for (CodeUnit ancestor : supertypes) {
+                cache.typeHierarchy().updateReverse(ancestor, (existing) -> {
+                    Set<CodeUnit> set = existing != null ? existing : new HashSet<>();
+                    set.add(k);
+                    return set;
+                });
+            }
+            return supertypes;
+        });
     }
 
     /**
      * Returns the direct subtypes/descendants for the given CodeUnit.
      */
-    @Override
-    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+    protected Set<CodeUnit> performGetDirectDescendants(CodeUnit cu) {
         if (!cu.isClass()) {
             return Set.of();
         }
 
-        // 1. Check lazy cache first
-        Set<CodeUnit> cached = lazyHierarchy.getSubtypes(cu);
+        // 1. Check lazy cache first (populated as side-effect of supertype computation)
+        Set<CodeUnit> cached = cache.typeHierarchy().getReverse(cu);
         if (cached != null) {
             return cached;
         }
@@ -3400,20 +3420,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return persisted;
         }
 
-        // 3. Guard against recursion/cycles
-        if (lazyHierarchy.isComputing(cu)) {
-            log.trace("Recursive getDirectDescendants detected for {}", cu.fqName());
-            return Set.of();
+        // 3. Filter candidate classes by checking rawSupertypes text (cheap pre-filter)
+        String targetName = cu.shortName();
+        List<CodeUnit> candidates = this.state.codeUnitState().keySet().stream()
+                .filter(CodeUnit::isClass)
+                .filter(candidate ->
+                        getRawSupertypesLazily(candidate).stream().anyMatch(raw -> raw.contains(targetName)))
+                .toList();
+
+        // 4. Resolve ancestors for candidates to populate the reverse index
+        for (CodeUnit candidate : candidates) {
+            performGetDirectAncestors(candidate);
         }
 
-        // 4. Compute lazily and populate cache
-        return lazyHierarchy.computeSubtypesIfAbsent(cu, k -> {
-            Set<CodeUnit> descendants = this.state.codeUnitState().keySet().stream()
-                    .filter(CodeUnit::isClass)
-                    .filter(candidateClass -> getDirectAncestors(candidateClass).contains(k))
-                    .collect(Collectors.toUnmodifiableSet());
-            return descendants;
-        });
+        // 5. Now check cache again - it should be populated from step 4
+        Set<CodeUnit> result = cache.typeHierarchy().getReverse(cu);
+        return result != null ? Set.copyOf(result) : Set.of();
     }
 
     /* ---------- file filtering helpers ---------- */
@@ -3535,7 +3557,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             @Nullable ConstructionTiming timing,
             Map<String, Set<CodeUnit>> targetSymbolIndex,
             Map<CodeUnit, CodeUnitProperties> targetCodeUnitState,
-            Map<ProjectFile, FileProperties> targetFileState) {
+            Map<ProjectFile, FileProperties> targetFileState,
+            Cache<String, CodeUnit> moduleKeyCache) {
         if (analysisResult.topLevelCUs().isEmpty()
                 && analysisResult.codeUnitState().isEmpty()) {
             log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
@@ -3562,23 +3585,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // so that children from multiple files aggregate under a single module entry.
             CodeUnit mergeKey = cu;
             if (cu.isModule()) {
-                for (CodeUnit existingKey : targetCodeUnitState.keySet()) {
-                    if (existingKey.isModule() && existingKey.fqName().equals(cu.fqName())) {
-                        mergeKey = existingKey; // use the canonical key already present
-                        break;
-                    }
+                CodeUnit existingKey = moduleKeyCache.getIfPresent(cu.fqName());
+                if (existingKey != null) {
+                    mergeKey = existingKey;
                 }
             }
 
+            final CodeUnit finalMergeKey = mergeKey;
             targetCodeUnitState.compute(mergeKey, (k, existing) -> {
                 if (existing == null) {
                     return new CodeUnitProperties(
-                            newState.children(),
-                            newState.signatures(),
-                            newState.ranges(),
-                            newState.rawSupertypes(),
-                            newState.superTypes(),
-                            newState.hasBody());
+                            newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
                 }
                 List<CodeUnit> mergedKids = existing.children();
                 var newKids = newState.children();
@@ -3604,35 +3621,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     for (var r : newRngs) if (!tmp.contains(r)) tmp.add(r);
                     mergedRanges = List.copyOf(tmp);
                 }
-                List<String> mergedRawSupers = existing.rawSupertypes();
-                var newRawSupers = newState.rawSupertypes();
-                if (!newRawSupers.isEmpty()) {
-                    var tmp = new ArrayList<String>(existing.rawSupertypes().size() + newRawSupers.size());
-                    tmp.addAll(existing.rawSupertypes());
-                    for (var s : newRawSupers) if (!tmp.contains(s)) tmp.add(s);
-                    mergedRawSupers = List.copyOf(tmp);
-                }
-
-                SuperTypeInfo mergedSuperTypes = existing.superTypes();
-                // If raw supertypes or ranges have changed, invalidate previously computed supertypes
-                if (!mergedRawSupers.equals(existing.rawSupertypes()) || !mergedRanges.equals(existing.ranges())) {
-                    mergedSuperTypes = new SuperTypeInfo.Uncomputed();
-                } else if (newState.superTypes() instanceof SuperTypeInfo.Computed newComputed) {
-                    if (mergedSuperTypes instanceof SuperTypeInfo.Computed existingComputed) {
-                        var tmp = new ArrayList<>(existingComputed.supertypes());
-                        for (var r : newComputed.supertypes()) if (!tmp.contains(r)) tmp.add(r);
-                        mergedSuperTypes = new SuperTypeInfo.Computed(List.copyOf(tmp));
-                    } else {
-                        mergedSuperTypes = newComputed;
-                    }
-                }
 
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
-                return new CodeUnitProperties(
-                        mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSuperTypes, mergedHasBody);
+                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedHasBody);
             });
+
+            if (cu.isModule()) {
+                // Assignment is here to pass linting
+                var unused = moduleKeyCache.get(cu.fqName(), k -> finalMergeKey);
+            }
         });
 
         // Update file state
@@ -3640,7 +3639,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 pf,
                 new FileProperties(
                         analysisResult.topLevelCUs(),
-                        analysisResult.parsedTree(),
                         analysisResult.importStatements(),
                         analysisResult.containsTests()));
 
@@ -3661,10 +3659,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @return a new analyzer.
      */
     protected final IAnalyzer newSnapshot(AnalyzerState state) {
-        return newSnapshot(state, getProgressListener());
+        return newSnapshot(state, getProgressListener(), null);
     }
 
-    protected abstract IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener);
+    protected final IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return newSnapshot(state, listener, null);
+    }
+
+    protected abstract IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache);
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
@@ -3674,82 +3677,95 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var relevantFiles = filterRelevantFiles(changedFiles);
         if (relevantFiles.isEmpty()) return this;
 
-        int total = relevantFiles.size();
-        var reanalyzedCount = new AtomicInteger(0);
-        var deletedCount = new AtomicInteger(0);
-        var cleanupNanos = new AtomicLong(0L);
-        var reanalyzeNanos = new AtomicLong(0L);
-
         final var base = this.state;
+        long cleanupStart = System.nanoTime();
+
+        // 1. Identify all CodeUnits and files to remove
+        Set<CodeUnit> codeUnitsToRemove = new HashSet<>();
+        for (ProjectFile file : relevantFiles) {
+            FileProperties props = base.fileState().get(file);
+            if (props != null) {
+                for (CodeUnit topCu : props.topLevelCodeUnits()) {
+                    collectCodeUnitAndDescendants(topCu, base.codeUnitState(), codeUnitsToRemove);
+                }
+            }
+        }
+
+        // 2. Perform cleanup once
         var newSymbolIndex = new ConcurrentHashMap<>(base.symbolIndex());
         var newCodeUnitState = new ConcurrentHashMap<>(base.codeUnitState());
         var newFileState = new ConcurrentHashMap<>(base.fileState());
+        var moduleKeyCache = Caffeine.newBuilder().maximumSize(10000).<String, CodeUnit>build();
+
+        relevantFiles.forEach(newFileState::remove);
+        codeUnitsToRemove.forEach(newCodeUnitState::remove);
+
+        // Filter children lists in remaining entries
+        newCodeUnitState.replaceAll((cu, props) -> {
+            List<CodeUnit> children = props.children();
+            List<CodeUnit> filtered = children.stream()
+                    .filter(child -> !codeUnitsToRemove.contains(child))
+                    .toList();
+            return (filtered.size() == children.size())
+                    ? props
+                    : new CodeUnitProperties(filtered, props.signatures(), props.ranges(), props.hasBody());
+        });
+
+        // Filter symbol index
+        newSymbolIndex.replaceAll((symbol, cus) ->
+                cus.stream().filter(cu -> !codeUnitsToRemove.contains(cu)).collect(Collectors.toSet()));
+        newSymbolIndex.entrySet().removeIf(e -> e.getValue().isEmpty());
+
+        long cleanupNanos = System.nanoTime() - cleanupStart;
+
+        // 3. Re-analyze changed files in parallel
+        int total = relevantFiles.size();
+        var reanalyzedCount = new AtomicInteger(0);
+        var deletedCount = new AtomicInteger(0);
+        var reanalyzeNanos = new AtomicLong(0L);
 
         int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
+        var progressReporter = new DebouncedProgressReporter(total, "Updating " + language.name() + " files", 100);
 
         try (var executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
             for (var file : relevantFiles) {
                 futures.add(CompletableFuture.runAsync(
-                        () -> {
-                            long cleanupStart = System.nanoTime();
-
-                            // Remove old entries for this file
-                            Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
-                            newFileState.remove(file);
-                            // Purge CodeUnitState entries for this file and prune children lists
-                            newCodeUnitState.keySet().removeIf(fromFile);
-                            newCodeUnitState.replaceAll((parent, state) -> {
-                                var filteredKids = state.children().stream()
-                                        .filter(fromFile.negate())
-                                        .toList();
-                                return filteredKids.equals(state.children())
-                                        ? state
-                                        : new CodeUnitProperties(
-                                                List.copyOf(filteredKids),
-                                                state.signatures(),
-                                                state.ranges(),
-                                                state.rawSupertypes(),
-                                                state.superTypes(),
-                                                state.hasBody());
-                            });
-                            // Purge from symbol index
-                            var symbolsToRemove = new ArrayList<String>();
-                            newSymbolIndex.replaceAll((symbol, cus) -> {
-                                var remaining =
-                                        cus.stream().filter(fromFile.negate()).collect(Collectors.toSet());
-                                if (remaining.isEmpty()) symbolsToRemove.add(symbol);
-                                return remaining;
-                            });
-                            for (var s : symbolsToRemove) newSymbolIndex.remove(s);
-
-                            cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
-
-                            // Re-analyze if file still exists
-                            if (Files.exists(file.absPath())) {
-                                long reanStart = System.nanoTime();
-                                try {
-                                    var parser = getTSParser();
-                                    byte[] bytes = readFileBytes(file, null);
-                                    var analysisResult = analyzeFileContent(file, bytes, parser, null);
-                                    mergeAnalysisResultIntoMaps(
-                                            file, analysisResult, null, newSymbolIndex, newCodeUnitState, newFileState);
-                                    reanalyzedCount.incrementAndGet();
-                                } catch (UncheckedIOException e) {
-                                    log.warn("IO error re-analysing {}: {}", file, e.getMessage());
-                                } finally {
-                                    reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
-                                }
-                            } else {
-                                deletedCount.incrementAndGet();
-                                log.debug("File {} deleted; state cleaned.", file);
-                            }
-                        },
-                        executor));
+                                () -> {
+                                    if (Files.exists(file.absPath())) {
+                                        long reanStart = System.nanoTime();
+                                        try {
+                                            var parser = getTSParser();
+                                            byte[] bytes = readFileBytes(file, null);
+                                            var analysisResult = analyzeFileContent(file, bytes, parser, null);
+                                            mergeAnalysisResultIntoMaps(
+                                                    file,
+                                                    analysisResult,
+                                                    null,
+                                                    newSymbolIndex,
+                                                    newCodeUnitState,
+                                                    newFileState,
+                                                    moduleKeyCache);
+                                            reanalyzedCount.incrementAndGet();
+                                        } catch (UncheckedIOException e) {
+                                            log.warn("IO error re-analysing {}: {}", file, e.getMessage());
+                                        } finally {
+                                            reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
+                                        }
+                                    } else {
+                                        deletedCount.incrementAndGet();
+                                        log.trace("File {} deleted; state cleaned.", file);
+                                    }
+                                },
+                                executor)
+                        .whenComplete((ignored, ex) -> progressReporter.increment()));
             }
             if (!futures.isEmpty())
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                         .join();
+
+            // Final progress update (ensures 100% is always reported)
+            progressReporter.reportFinal();
         }
 
         // Build new immutable snapshot and return a new analyzer instance
@@ -3774,7 +3790,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 snapshotNanos);
 
         long totalMs = System.currentTimeMillis() - overallStartMs;
-        long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos.get());
+        long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos);
         long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos.get());
         log.debug(
                 "[{}] TreeSitter incremental update: relevantFiles={}, reanalyzed={}, deleted={}, cleanup={} ms, reanalyze={} ms, total={} ms",
@@ -3789,7 +3805,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Re-run combined post-processing (imports + type analysis) after ingesting updates
         var typedState = runPostProcessing(nextState);
 
-        return newSnapshot(typedState);
+        var filteredCache = new AnalyzerCache(this.cache, changedFiles);
+        return newSnapshot(typedState, getProgressListener(), filteredCache);
+    }
+
+    private void collectCodeUnitAndDescendants(
+            CodeUnit cu, Map<CodeUnit, CodeUnitProperties> state, Set<CodeUnit> out) {
+        if (!out.add(cu)) return;
+        CodeUnitProperties props = state.get(cu);
+        if (props != null) {
+            for (CodeUnit child : props.children()) {
+                collectCodeUnitAndDescendants(child, state, out);
+            }
+        }
     }
 
     /**
@@ -3891,6 +3919,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Hook for language-specific analyzers to extract import statements from query captures.
+     * Called during file analysis for each query match. Override in subclasses to handle language-specific
+     * import patterns and to produce structured ImportInfo records.
+     *
+     * @param capturedNodesForMatch map of capture names to captured nodes for the current match
+     * @param sourceContent the source code content
+     * @param localImportInfos list to add extracted ImportInfo records to
+     */
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        if (importNode != null && !importNode.isNull()) {
+            String importText = sourceContent.substringFrom(importNode).strip();
+            if (!importText.isEmpty()) {
+                // Default implementation: create basic ImportInfo without identifier extraction
+                // Subclasses should override to provide language-specific parsing
+                localImportInfos.add(new ImportInfo(importText, false, null, null));
+            }
+        }
+    }
+
+    /**
      * Overridable hook to resolve import statements to concrete CodeUnits for a given file.
      * Default implementation returns an empty set. Subclasses can override to provide language-specific
      * import resolution logic.
@@ -3904,35 +3954,45 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Public API for checking if imports from a source file could reference a target file.
+     * This is a conservative text-based pre-filter used to reduce expensive import resolution.
+     *
+     * @param sourceFile the file containing the import statements
+     * @param imports the import statements from the source file
+     * @param target the target file to check
+     * @return true if any import could potentially reference the target (may have false positives)
+     */
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        return couldImportFile(imports, target);
+    }
+
+    /**
+     * Internal implementation for checking if imports could reference a target file.
+     *
+     * <p>Implementations should be conservative and return {@code true} when uncertain to avoid
+     * false negatives. It is acceptable to return {@code true} for imports that don't actually
+     * reference the target (false positives), but returning {@code false} when the import does
+     * reference the target (false negatives) would cause incorrect behavior.
+     *
+     * @param imports the list of import statements from a source file
+     * @param target the target file to check if any import could reference
+     * @return {@code true} if any import could potentially reference the target file,
+     *         {@code false} only if it's certain that none of the imports reference the target
+     */
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        return true;
+    }
+
+    /**
      * Combined post-processing pipeline. All hierarchy computation is deferred to lazy on-demand resolution.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new HashMap<>();
-
-        baseState.codeUnitState().forEach((cu, props) -> {
-            if (cu.isClass() && !(props.superTypes() instanceof SuperTypeInfo.Uncomputed)) {
-                updatedCodeUnitState.put(
-                        cu,
-                        new CodeUnitProperties(
-                                props.children(),
-                                props.signatures(),
-                                props.ranges(),
-                                props.rawSupertypes(),
-                                new SuperTypeInfo.Uncomputed(),
-                                props.hasBody()));
-            }
-        });
-
-        PMap<CodeUnit, CodeUnitProperties> finalCodeUnitState = updatedCodeUnitState.isEmpty()
-                ? baseState.codeUnitState()
-                : baseState.codeUnitState().plusAll(updatedCodeUnitState);
-
         return new AnalyzerState(
                 baseState.symbolIndex(),
-                finalCodeUnitState,
+                baseState.codeUnitState(),
                 baseState.fileState(),
                 baseState.importGraph(),
-                TypeHierarchyGraph.empty(),
+                baseState.typeHierarchyGraph(),
                 baseState.symbolKeyIndex(),
                 baseState.snapshotEpochNanos());
     }
@@ -4230,5 +4290,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected boolean isNullNameExpectedForExtraction(String nodeType) {
         return false;
+    }
+
+    /**
+     * Determines if a CodeUnit is a constructor for the given enclosing class.
+     * Checks the language profile's constructorNodeTypes first, then falls back to custom logic.
+     *
+     * @param captureName the Tree-sitter capture name (e.g., "constructor.definition")
+     */
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        if (getLanguageSyntaxProfile().constructorNodeTypes().contains(captureName)) {
+            return true;
+        }
+        // Fallback: If no node types are specified in the profile, check for name matching
+        if (getLanguageSyntaxProfile().constructorNodeTypes().isEmpty() && enclosingClass != null) {
+            return candidate.isFunction() && candidate.identifier().equals(enclosingClass.identifier());
+        }
+        return false;
+    }
+
+    /**
+     * Creates a synthetic implicit constructor for the given enclosing class.
+     * Default implementation returns null.
+     */
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        return null;
     }
 }

@@ -2,29 +2,37 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSParser;
+import org.treesitter.TSQuery;
+import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterPython;
 
-public final class PythonAnalyzer extends TreeSitterAnalyzer {
+public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
+
+    private static final Pattern WILDCARD_IMPORT_PATTERN = Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -36,6 +44,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             Set.of(CLASS_DEFINITION),
             Set.of(FUNCTION_DEFINITION),
             Set.of(ASSIGNMENT, TYPED_PARAMETER),
+            Set.of(),
             Set.of(DECORATOR),
             IMPORT_DECLARATION,
             "name", // identifierFieldName
@@ -59,17 +68,19 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.PYTHON, listener);
     }
 
-    private PythonAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.PYTHON, state, listener);
+    private PythonAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.PYTHON, state, listener, cache);
     }
 
     public static PythonAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new PythonAnalyzer(project, state, listener);
+        return new PythonAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new PythonAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new PythonAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -589,6 +600,20 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         // Pattern: class Child(Parent1, Parent2): ...
         var query = getThreadLocalQuery();
 
+        // Use the actual definition node for range matching.
+        // If classNode is a decorated_definition, we must find the inner class_definition node
+        // to match the 'type.decl' capture in python.scm.
+        TSNode matchNode = classNode;
+        if (DECORATED_DEFINITION.equals(classNode.getType())) {
+            for (int i = 0; i < classNode.getNamedChildCount(); i++) {
+                TSNode child = classNode.getNamedChild(i);
+                if (CLASS_DEFINITION.equals(child.getType())) {
+                    matchNode = child;
+                    break;
+                }
+            }
+        }
+
         // Ascend to root node for matching
         TSNode root = classNode;
         while (root.getParent() != null && !root.getParent().isNull()) {
@@ -601,8 +626,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         var match = new TSQueryMatch();
         List<TSNode> aggregateSuperNodes = new ArrayList<>();
 
-        final int targetStart = classNode.getStartByte();
-        final int targetEnd = classNode.getEndByte();
+        final int targetStart = matchNode.getStartByte();
+        final int targetEnd = matchNode.getEndByte();
 
         while (cursor.nextMatch(match)) {
             TSNode declNode = null;
@@ -869,12 +894,296 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return performGetDirectAncestors(cu);
+    }
+
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return performGetDirectDescendants(cu);
+    }
+
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(IMPORT_DECLARATION);
+        if (importNode == null || importNode.isNull()) {
+            return;
+        }
+
+        String importText = sourceContent.substringFrom(importNode).strip();
+        if (importText.isEmpty()) {
+            return;
+        }
+
+        // Check for wildcard patterns
+        boolean isWildcard = capturedNodesForMatch.containsKey(IMPORT_WILDCARD)
+                || capturedNodesForMatch.containsKey(IMPORT_MODULE_WILDCARD)
+                || capturedNodesForMatch.containsKey(IMPORT_RELATIVE_WILDCARD);
+
+        String identifier = null;
+        String alias = null;
+
+        // Check for alias first - if present, it becomes both the alias and the identifier used in code
+        TSNode aliasNode = capturedNodesForMatch.get(IMPORT_ALIAS);
+        if (aliasNode != null && !aliasNode.isNull()) {
+            alias = sourceContent.substringFrom(aliasNode).strip();
+            identifier = alias;
+        } else {
+            // Check for import.name - this is the imported symbol (e.g., "Foo" from "from pkg import Foo")
+            TSNode nameNode = capturedNodesForMatch.get(IMPORT_NAME);
+            if (nameNode != null && !nameNode.isNull()) {
+                identifier = sourceContent.substringFrom(nameNode).strip();
+            } else {
+                // For "import module" style, check import.module
+                TSNode moduleNode = capturedNodesForMatch.get(IMPORT_MODULE);
+                if (moduleNode == null || moduleNode.isNull()) {
+                    moduleNode = capturedNodesForMatch.get(IMPORT_RELATIVE);
+                }
+
+                if (moduleNode != null && !moduleNode.isNull()) {
+                    String modulePath = sourceContent.substringFrom(moduleNode).strip();
+                    // For 'import a.b.c', the identifier used in code is 'a'
+                    // For 'from a.b import c', identifier is 'c' (handled above in nameNode block)
+                    int dotIdx = modulePath.indexOf('.');
+                    identifier = dotIdx != -1 ? modulePath.substring(0, dotIdx) : modulePath;
+                }
+            }
+        }
+
+        localImportInfos.add(new ImportInfo(importText, isWildcard, identifier, alias));
+    }
+
+    @Override
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        // Python: "from pkg.sub import *" -> "pkg.sub"
+        // Python: "from ..pkg import *" -> "..pkg"
+        var matcher = WILDCARD_IMPORT_PATTERN.matcher(rawSnippet);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return super.extractPackageFromWildcard(rawSnippet);
+    }
+
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> extractedIdentifiers = extractTypeIdentifiers(sourceOpt.get());
+        if (extractedIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        List<ImportInfo> imports = importInfoOf(cu.source());
+        if (imports.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> matchedImports = new LinkedHashSet<>();
+        Set<String> resolvedIdentifiers = new HashSet<>();
+        List<ImportInfo> wildcardImports = new ArrayList<>();
+
+        // First pass: match explicit (non-wildcard) imports
+        for (ImportInfo info : imports) {
+            if (info.isWildcard()) {
+                wildcardImports.add(info);
+                continue;
+            }
+
+            String identifier = info.identifier();
+            String alias = info.alias();
+
+            if (identifier != null && extractedIdentifiers.contains(identifier)) {
+                matchedImports.add(info.rawSnippet());
+                resolvedIdentifiers.add(identifier);
+            }
+            if (alias != null && extractedIdentifiers.contains(alias)) {
+                matchedImports.add(info.rawSnippet());
+                resolvedIdentifiers.add(alias);
+            }
+        }
+
+        // Determine unresolved identifiers
+        Set<String> unresolvedIdentifiers = new HashSet<>(extractedIdentifiers);
+        unresolvedIdentifiers.removeAll(resolvedIdentifiers);
+
+        // Second pass: check wildcard imports for unresolved identifiers
+        if (!unresolvedIdentifiers.isEmpty() && !wildcardImports.isEmpty()) {
+            Set<String> resolvedViaWildcard = new HashSet<>();
+            Set<ImportInfo> usedWildcards = new LinkedHashSet<>();
+
+            for (String id : unresolvedIdentifiers) {
+                for (ImportInfo wildcard : wildcardImports) {
+                    String packageName = extractPackageFromWildcard(wildcard.rawSnippet());
+                    if (packageName.isEmpty()) continue;
+
+                    var definitions = getDefinitions(packageName + "." + id);
+                    if (!definitions.isEmpty()) {
+                        usedWildcards.add(wildcard);
+                        resolvedViaWildcard.add(id);
+                    }
+                }
+            }
+
+            // Add wildcards that resolved identifiers
+            for (ImportInfo wildcard : usedWildcards) {
+                matchedImports.add(wildcard.rawSnippet());
+            }
+
+            // If any identifiers remain unresolved, include all wildcards as fallback
+            unresolvedIdentifiers.removeAll(resolvedViaWildcard);
+            if (!unresolvedIdentifiers.isEmpty()) {
+                for (ImportInfo wildcard : wildcardImports) {
+                    matchedImports.add(wildcard.rawSnippet());
+                }
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    /**
+     * Extracts identifiers from Python source using Tree-Sitter.
+     * <p>
+     * Trade-off: High Recall. Python lacks a distinct 'type_identifier' node type. We capture
+     * all identifiers via AST traversal, which is more precise than regex because it naturally
+     * excludes identifiers inside comments and string literals. While this may over-match local
+     * variables, it ensures we don't miss any imported symbols used as types, decorators, or
+     * function calls. The import filtering logic handles false positives gracefully.
+     */
+    @Override
+    public Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        TSTree tree = parser.parseString(null, source);
+        if (tree == null) return identifiers;
+        TSNode rootNode = tree.getRootNode();
+
+        if (rootNode.isNull()) {
+            return identifiers;
+        }
+
+        // Capture all identifiers. This is intentionally broad because Python doesn't distinguish
+        // type identifiers from value identifiers syntactically. The AST-based approach still
+        // provides value over regex by excluding identifiers in comments and string literals.
+        String queryStr = "(identifier) @id";
+
+        TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, rootNode);
+
+        SourceContent sc = SourceContent.of(source);
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                TSNode node = capture.getNode();
+                if (node != null && !node.isNull()) {
+                    String text = sc.substringFrom(node).strip();
+                    if (!text.isEmpty()) {
+                        identifiers.add(text);
+                    }
+                }
+            }
+        }
+
+        return identifiers;
+    }
+
+    @Override
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        PythonModuleInfo targetModule = resolveModuleInfo(target);
+        String targetFqn = targetModule.moduleQualifiedPackage();
+
+        for (ImportInfo imp : imports) {
+            String raw = imp.rawSnippet();
+
+            // Extract the module part.
+            // Patterns:
+            // 1. "import X.Y" -> module path is X.Y
+            // 2. "from X.Y import Z" -> module path is X.Y
+            // 3. "from .X import Y" -> relative module path
+            // 4. "from . import Y" -> relative module path (dots only)
+
+            String modulePath = null;
+            if (raw.startsWith("from ")) {
+                // "from path import name"
+                int importIdx = raw.indexOf(" import ");
+                if (importIdx != -1) {
+                    modulePath = raw.substring(5, importIdx).trim();
+                }
+            } else if (raw.startsWith("import ")) {
+                // "import path" or "import path as alias"
+                String pathPart = raw.substring(7).trim();
+                int asIdx = pathPart.indexOf(" as ");
+                modulePath = (asIdx != -1) ? pathPart.substring(0, asIdx).trim() : pathPart;
+            }
+
+            if (modulePath == null || modulePath.isEmpty()) {
+                continue;
+            }
+
+            // Handle relative imports
+            String resolvedPath = modulePath;
+            if (modulePath.startsWith(".")) {
+                Optional<String> absolutePath = resolveRelativeImport(sourceFile, modulePath);
+                if (absolutePath.isEmpty()) {
+                    // Conservative: if we can't resolve the relative path, assume it might match.
+                    return true;
+                }
+                resolvedPath = absolutePath.get();
+            }
+
+            // Check for potential dependencies based on module paths.
+            // A dependency exists if:
+            // 1. Exact match: The import targets the file directly (e.g., import mypkg.mod)
+            // 2. Target is within the imported module: The import targets a package containing the file
+            //    (e.g., 'import mypkg' where the target file is 'mypkg/mod.py').
+            // 3. Import is from within the target module: The import targets a sub-module or member of the file
+            //    (e.g., 'from mypkg.mod import func').
+            if (targetFqn.equals(resolvedPath)
+                    || targetFqn.startsWith(resolvedPath + ".")
+                    || resolvedPath.startsWith(targetFqn + ".")) {
+                return true;
+            }
+
+            // Also check if the imported identifier matches the target's module name
+            // (e.g. "from mypackage import utils" where target is mypackage/utils.py)
+            if (imp.identifier() != null) {
+                String fullImportedName = resolvedPath + "." + imp.identifier();
+                // Check if this full name exactly matches the target or is a parent of the target
+                if (targetFqn.equals(fullImportedName) || targetFqn.startsWith(fullImportedName + ".")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return "__init__".equals(candidate.identifier());
+    }
+
+    @Override
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
-        // Get raw supertype names from CodeUnitProperties
-        var rawNames = withCodeUnitProperties(
-                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).rawSupertypes());
+        // Get raw supertype names lazily
+        var rawNames = getRawSupertypesLazily(cu);
 
         if (rawNames.isEmpty()) {
             return List.of();

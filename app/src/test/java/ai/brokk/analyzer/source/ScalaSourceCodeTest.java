@@ -35,7 +35,7 @@ public class ScalaSourceCodeTest {
                         "Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            AnalyzerUtil.getClassSource(analyzer, "ai.brokk.Foo", false)
+            AnalyzerUtil.getSource(analyzer, "ai.brokk.Foo", false)
                     .ifPresentOrElse(
                             source -> assertEquals(
                                     """
@@ -55,7 +55,7 @@ public class ScalaSourceCodeTest {
                                     source),
                             () -> fail("Could not find source code for 'Foo'!"));
 
-            AnalyzerUtil.getMethodSource(analyzer, "ai.brokk.Foo.foo1", false)
+            AnalyzerUtil.getSource(analyzer, "ai.brokk.Foo.foo1", false)
                     .ifPresentOrElse(
                             source -> assertEquals(
                                     """
@@ -67,7 +67,7 @@ public class ScalaSourceCodeTest {
                                     source),
                             () -> fail("Could not find source code for 'Foo.foo1'!"));
 
-            AnalyzerUtil.getMethodSource(analyzer, "ai.brokk.foo2", false)
+            AnalyzerUtil.getSource(analyzer, "ai.brokk.foo2", false)
                     .ifPresentOrElse(
                             source -> assertEquals(
                                     """

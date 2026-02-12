@@ -94,9 +94,11 @@ public final class MergeOneFile {
     public Outcome merge() throws InterruptedException {
         var repo = (GitRepo) cm.getProject().getRepo();
         var file = conflict.file();
-        var llm =
-                cm.getLlm(new Llm.Options(planningModel, "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file))
-                        .withEcho());
+        var llm = cm.getLlm(new Llm.Options(
+                        planningModel,
+                        "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file),
+                        TaskResult.Type.MERGE)
+                .withEcho());
         llm.setOutput(io);
 
         // refine the progress bar total to reflect merge complexity
@@ -213,20 +215,18 @@ public final class MergeOneFile {
                 }
 
                 if ("callCodeAgent".equals(req.name())) {
-                    var last = this.lastCodeAgentResult;
-                    if (last != null) {
-                        var sd = last.stopDetails();
-                        var reason = sd.reason();
-                        if (reason == TaskResult.StopReason.IO_ERROR) {
-                            logger.warn("CodeAgent reported IO_ERROR for {}: {}", file, sd);
-                            return new Outcome(Status.IO_ERROR, formatFailure(file, sd.toString()));
-                        }
-                        if (reason == TaskResult.StopReason.APPLY_ERROR) {
-                            // Nudge the planner: use full-file replacement next
-                            var nudge = buildApplyErrorNudgeMessage();
-                            currentSessionMessages.add(new UserMessage(nudge));
-                            io.llmOutput(nudge, ChatMessageType.USER, LlmOutputMeta.DEFAULT);
-                        }
+                    var last = requireNonNull(this.lastCodeAgentResult);
+                    var sd = last.stopDetails();
+                    var reason = sd.reason();
+                    if (reason == TaskResult.StopReason.IO_ERROR) {
+                        logger.warn("CodeAgent reported IO_ERROR for {}: {}", file, sd);
+                        return new Outcome(Status.IO_ERROR, formatFailure(file, sd.toString()));
+                    }
+                    if (reason == TaskResult.StopReason.APPLY_ERROR) {
+                        // Nudge the planner: use full-file replacement next
+                        var nudge = buildApplyErrorNudgeMessage();
+                        currentSessionMessages.add(new UserMessage(nudge));
+                        io.llmOutput(nudge, ChatMessageType.USER, LlmOutputMeta.DEFAULT);
                     }
 
                     var textOpt = file.read();
@@ -417,7 +417,7 @@ public final class MergeOneFile {
         }
 
         var agent = new CodeAgent(cm, codeModel, io);
-        var result = agent.execute(file, instructions, requireNonNull(currentSessionMessages));
+        var result = agent.execute(file, instructions, List.of());
         this.lastCodeAgentResult = result;
         return String.valueOf(result.stopDetails());
     }

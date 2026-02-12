@@ -7,6 +7,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.InstructionsPanel;
@@ -223,14 +224,30 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         applyThemeColorsFromUIManager();
 
         // Load persisted runs (per-project) if available
-        try {
+        LoggingFuture.supplyCallableVirtual(() -> {
             List<TestRunsStore.Run> records = runsStore.load();
             if (!records.isEmpty()) {
-                restoreRuns(records);
+                int count = Math.min(records.size(), maxRuns);
+                List<CompletedEntry> entries = new ArrayList<>(count);
+                IContextManager cm = chrome.getContextManager();
+
+                for (int i = 0; i < count; i++) {
+                    var r = records.get(i);
+                    var fragment = new ContextFragments.StringFragment(
+                            cm, r.output(), "Test Output", SyntaxConstants.SYNTAX_STYLE_NONE);
+                    entries.add(new CompletedEntry(
+                            r.fileCount(),
+                            r.command(),
+                            Instant.ofEpochMilli(r.startedAtMillis()),
+                            Instant.ofEpochMilli(requireNonNull(r.completedAtMillis())),
+                            r.exitCode(),
+                            fragment));
+                }
+                SwingUtilities.invokeLater(() -> doRestore(entries));
             }
-        } catch (Exception e) {
-            logger.warn("Failed to load persisted test runs: {}", e.getMessage(), e);
-        }
+
+            return null;
+        });
 
         // Initialize Run All button state and enable asynchronously once build details are available
         runAllButton.setEnabled(false);
@@ -338,45 +355,11 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
     }
 
-    /**
-     * Restore runs into the UI. Preserves order (oldest -> newest), truncates to maxRuns most recent, rebuilds state,
-     * selects newest, and updates the output area accordingly. EDT safety: uses runOnEdt to mutate Swing state.
-     */
-    public void restoreRuns(List<TestRunsStore.Run> records) {
-        if (records.isEmpty()) {
-            return;
-        }
-        if (SwingUtilities.isEventDispatchThread()) {
-            doRestore(records);
-        } else {
-            try {
-                SwingUtilities.invokeAndWait(() -> doRestore(records));
-            } catch (Exception e) {
-                logger.warn("Failed to restore runs on EDT: {}", e.getMessage(), e);
-            }
-        }
-    }
-
-    private void doRestore(List<TestRunsStore.Run> records) {
-        int count = Math.min(records.size(), maxRuns);
-        List<TestRunsStore.Run> slice = records.subList(0, count);
-
+    private void doRestore(List<CompletedEntry> entries) {
         restoringRuns = true;
         try {
             runListModel.clear();
-
-            IContextManager cm = chrome.getContextManager();
-
-            for (var r : slice) {
-                var fragment = new ContextFragments.StringFragment(
-                        cm, r.output(), "Test Output", SyntaxConstants.SYNTAX_STYLE_NONE);
-                var entry = new CompletedEntry(
-                        r.fileCount(),
-                        r.command(),
-                        Instant.ofEpochMilli(r.startedAtMillis()),
-                        Instant.ofEpochMilli(requireNonNull(r.completedAtMillis())),
-                        r.exitCode(),
-                        fragment);
+            for (var entry : entries) {
                 runListModel.addElement(entry);
             }
             updateClearButtonTooltip();
@@ -439,7 +422,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
             runList.setSelectedIndex(0);
 
-            chrome.getPreviewManager().openFragmentPreview(fragment);
+            if (exitCode != 0) {
+                chrome.getPreviewManager().openFragmentPreview(fragment);
+            }
 
             triggerSave();
             updateClearButtonTooltip();

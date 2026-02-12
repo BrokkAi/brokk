@@ -30,7 +30,7 @@ class CppAnalyzerUpdateTest {
         initial.write("""
                 int foo() { return 1; }
                 """);
-        project = new TestProject(tempDir, Languages.CPP_TREESITTER);
+        project = new TestProject(tempDir, Languages.C_CPP);
         analyzer = new CppAnalyzer(project);
     }
 
@@ -96,7 +96,7 @@ class CppAnalyzerUpdateTest {
         var tmp = UpdateTestUtil.newTempDir();
         UpdateTestUtil.writeFile(tmp, "B.cpp", "int foo() { return 1; }\n");
 
-        var proj = UpdateTestUtil.newTestProject(tmp, Languages.CPP_TREESITTER);
+        var proj = UpdateTestUtil.newTestProject(tmp, Languages.C_CPP);
         try (proj) {
             var localAnalyzer = new CppAnalyzer(proj);
 

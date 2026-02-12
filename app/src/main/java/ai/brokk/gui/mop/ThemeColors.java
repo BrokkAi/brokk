@@ -53,6 +53,9 @@ public class ThemeColors {
     // CI exclusion colors
     public static final String CI_EXCLUDED_FOREGROUND = "ci_excluded_foreground";
 
+    // Untracked file colors
+    public static final String UNTRACKED_FOREGROUND = "untracked_foreground";
+
     // Mode indicator colors
     public static final String MODE_ANSWER_BG = "mode_answer_bg";
     public static final String MODE_ANSWER_FG = "mode_answer_fg";
@@ -168,6 +171,7 @@ public class ThemeColors {
             case CHAT_BACKGROUND -> new Color(37, 37, 37);
             case CHAT_TEXT -> new Color(212, 212, 212);
             case CI_EXCLUDED_FOREGROUND -> Color.GRAY;
+            case UNTRACKED_FOREGROUND -> new Color(0xCC, 0x88, 0x44); // Muted orange/brown
             case ACCENT_GRADIENT_START -> new Color(0x1e, 0x88, 0xe5); // Blue
             case ACCENT_GRADIENT_END -> new Color(0x15, 0x65, 0xc0); // Darker blue
             default -> {

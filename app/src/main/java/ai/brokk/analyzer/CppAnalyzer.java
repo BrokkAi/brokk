@@ -2,19 +2,120 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
+import java.nio.file.InvalidPathException;
 import java.util.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.treesitter.TSLanguage;
-import org.treesitter.TSNode;
-import org.treesitter.TreeSitterCpp;
+import org.treesitter.*;
 
-public class CppAnalyzer extends TreeSitterAnalyzer {
+public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
+    private static final Pattern QUOTED_INCLUDE_PATTERN = Pattern.compile("^#\\s*include\\s*\"([^\"]+)\"");
+
+    private static final Set<String> CPP_KEYWORDS = Set.of(
+            "alignas",
+            "alignof",
+            "and",
+            "and_eq",
+            "asm",
+            "atomic_cancel",
+            "atomic_commit",
+            "atomic_noexcept",
+            "auto",
+            "bitand",
+            "bitor",
+            "bool",
+            "break",
+            "case",
+            "catch",
+            "char",
+            "char8_t",
+            "char16_t",
+            "char32_t",
+            "class",
+            "compl",
+            "concept",
+            "const",
+            "consteval",
+            "constexpr",
+            "constinit",
+            "const_cast",
+            "continue",
+            "co_await",
+            "co_return",
+            "co_yield",
+            "decltype",
+            "default",
+            "delete",
+            "do",
+            "double",
+            "dynamic_cast",
+            "else",
+            "enum",
+            "explicit",
+            "export",
+            "extern",
+            "false",
+            "float",
+            "for",
+            "friend",
+            "goto",
+            "if",
+            "inline",
+            "int",
+            "long",
+            "mutable",
+            "namespace",
+            "new",
+            "noexcept",
+            "not",
+            "not_eq",
+            "nullptr",
+            "operator",
+            "or",
+            "or_eq",
+            "private",
+            "protected",
+            "public",
+            "reflexpr",
+            "register",
+            "reinterpret_cast",
+            "requires",
+            "return",
+            "short",
+            "signed",
+            "sizeof",
+            "static",
+            "static_assert",
+            "static_cast",
+            "struct",
+            "switch",
+            "synchronized",
+            "template",
+            "this",
+            "thread_local",
+            "throw",
+            "true",
+            "try",
+            "typedef",
+            "typeid",
+            "typename",
+            "union",
+            "unsigned",
+            "using",
+            "virtual",
+            "void",
+            "volatile",
+            "wchar_t",
+            "while",
+            "xor",
+            "xor_eq");
 
     @Override
     public Optional<String> extractCallReceiver(String reference) {
@@ -49,8 +150,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                     DESTRUCTOR_DECLARATION,
                     DECLARATION),
             Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
+            Set.of(CaptureNames.CONSTRUCTOR_DEFINITION),
             Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
-            IMPORT_DECLARATION,
+            CaptureNames.IMPORT_DECLARATION,
             "name",
             "body",
             "parameters",
@@ -65,20 +167,22 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     public CppAnalyzer(IProject project, ProgressListener listener) {
-        super(project, Languages.CPP_TREESITTER, listener);
+        super(project, Languages.C_CPP, listener);
     }
 
-    private CppAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
-        super(project, Languages.CPP_TREESITTER, state, listener);
+    private CppAnalyzer(
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+        super(project, Languages.C_CPP, state, listener, cache);
     }
 
     public static CppAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new CppAnalyzer(project, state, listener);
+        return new CppAnalyzer(project, state, listener, null);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new CppAnalyzer(getProject(), state, listener);
+    protected IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
+        return new CppAnalyzer(getProject(), state, listener, previousCache);
     }
 
     @Override
@@ -303,8 +407,160 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    /**
+     * Resolves C++ include statements.
+     * Only "quoted" includes are resolved by looking for the file relative to the current file's directory.
+     * <angle-bracket> includes are treated as system headers and skipped.
+     */
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        if (importStatements.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<CodeUnit> resolved = new HashSet<>();
+        for (String line : importStatements) {
+            String trimmed = line.strip();
+
+            // Extract content between "" (quoted includes only; angle-bracket includes are system headers)
+            Matcher m = QUOTED_INCLUDE_PATTERN.matcher(trimmed);
+            if (m.find()) {
+                // Quoted include: resolve relative to current file
+                String includePath = m.group(1);
+                resolveRelativeInclude(file, includePath).ifPresent(resolvedFile -> {
+                    resolved.addAll(getDeclarations(resolvedFile));
+                });
+            }
+            // Angle bracket includes are ignored as they usually point to system headers
+        }
+
+        return Collections.unmodifiableSet(resolved);
+    }
+
+    @Override
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        if (imports.isEmpty()) {
+            return false;
+        }
+
+        // Get the target file's relative path (normalized to forward slashes)
+        String targetPath = target.getRelPath().toString().replace('\\', '/');
+
+        for (ImportInfo imp : imports) {
+            String rawSnippet = imp.rawSnippet();
+
+            // Only consider quoted includes (#include "path"), not angle bracket includes (#include <path>)
+            // Angle bracket includes are typically external/system headers
+            Matcher m = QUOTED_INCLUDE_PATTERN.matcher(rawSnippet);
+            if (m.find()) {
+                String includePath = m.group(1);
+                // Normalize to forward slashes
+                includePath = includePath.replace('\\', '/');
+
+                // Check if include path matches or is a suffix of the target path
+                // e.g., "utils/helper.h" should match target "src/utils/helper.h" or "utils/helper.h"
+                if (targetPath.equals(includePath) || targetPath.endsWith("/" + includePath)) {
+                    return true;
+                }
+            }
+            // Angle bracket includes like #include <vector> are external headers, skip them
+        }
+
+        return false;
+    }
+
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        // Get the import node using the standard capture name
+        TSNode importNode = capturedNodesForMatch.get(CaptureNames.IMPORT_DECLARATION);
+        if (importNode == null || importNode.isNull()) {
+            return;
+        }
+
+        String importText = sourceContent.substringFrom(importNode).strip();
+        if (importText.isEmpty()) {
+            return;
+        }
+
+        // Determine if this is a local include ("...") or system include (<...>)
+        // and extract the identifier (filename without extension) for local includes
+        String identifier = null;
+
+        // Check for quoted include: #include "header.h"
+        Matcher quotedMatcher = QUOTED_INCLUDE_PATTERN.matcher(importText);
+        if (quotedMatcher.find()) {
+            String path = quotedMatcher.group(1);
+            // Extract filename without extension as identifier
+            identifier = extractFilenameWithoutExtension(path);
+        }
+        // System includes (<...>) get null identifier - can't reliably match
+
+        localImportInfos.add(new ImportInfo(importText, false, identifier, null));
+    }
+
+    /**
+     * Extracts the filename without extension from an include path.
+     * E.g., "helper.h" -> "helper", "path/to/file.hpp" -> "file"
+     */
+    private String extractFilenameWithoutExtension(String path) {
+        // Get the filename part (after last /)
+        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        String filename = (lastSlash >= 0) ? path.substring(lastSlash + 1) : path;
+
+        // Remove extension
+        int lastDot = filename.lastIndexOf('.');
+        if (lastDot > 0) {
+            return filename.substring(0, lastDot);
+        }
+        return filename;
+    }
+
+    private Optional<ProjectFile> resolveRelativeInclude(ProjectFile includingFile, String relativePath) {
+        try {
+            var parent = includingFile.absPath().getParent();
+            if (parent == null) {
+                return Optional.empty();
+            }
+
+            var resolvedPath = parent.resolve(relativePath).normalize();
+            var root = includingFile.getRoot();
+
+            // Guard against path traversal outside project root
+            if (!resolvedPath.startsWith(root)) {
+                return Optional.empty();
+            }
+
+            var relToRoot = root.relativize(resolvedPath);
+
+            ProjectFile candidate = new ProjectFile(root, relToRoot);
+            // Verify the file exists in the project's view
+            if (getTopLevelDeclarations().containsKey(candidate)) {
+                return Optional.of(candidate);
+            }
+        } catch (InvalidPathException e) {
+            log.debug("Failed to resolve relative include '{}' from '{}'", relativePath, includingFile, e);
+        }
+        return Optional.empty();
+    }
+
+    @Override
     protected boolean requiresSemicolons() {
         return true;
+    }
+
+    @Override
+    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+        return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
     }
 
     @Override
@@ -891,6 +1147,114 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        // C++ doesn't have Java-style wildcards.
+        // However, for #include "header.h", we treat the base filename as the "package"
+        // to help relevantImportsFor match symbols against that header's contents.
+        Matcher m = QUOTED_INCLUDE_PATTERN.matcher(rawSnippet);
+        if (m.find()) {
+            return extractFilenameWithoutExtension(m.group(1));
+        }
+        return "";
+    }
+
+    /**
+     * C++ override of relevantImportsFor that checks if extracted identifiers
+     * are defined in the resolved imports from each #include.
+     *
+     * Unlike Java where import statements directly name the imported types,
+     * C++ #include statements bring in all declarations from a header file.
+     * We match by checking if any called function/type is declared in the included header.
+     */
+    @Override
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        var sourceOpt = getSource(cu, false);
+        if (sourceOpt.isEmpty()) {
+            return Set.of();
+        }
+        String source = sourceOpt.get();
+
+        List<ImportInfo> allImports = importInfoOf(cu.source());
+        if (allImports.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> typeIdentifiers = extractTypeIdentifiers(source);
+        if (typeIdentifiers.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> matchedImports = new HashSet<>();
+
+        // For each include, check if any of the identifiers we use are defined in that header
+        for (ImportInfo imp : allImports) {
+            String rawSnippet = imp.rawSnippet();
+
+            // Only process quoted includes (local headers we can resolve)
+            Matcher m = QUOTED_INCLUDE_PATTERN.matcher(rawSnippet);
+            if (!m.find()) {
+                continue;
+            }
+
+            String includePath = m.group(1);
+            var resolvedFileOpt = resolveRelativeIncludeForRelevance(cu.source(), includePath);
+            if (resolvedFileOpt.isEmpty()) {
+                continue;
+            }
+
+            ProjectFile resolvedFile = resolvedFileOpt.get();
+            Set<CodeUnit> declaredInHeader = getDeclarations(resolvedFile);
+
+            // Check if any identifier we use is declared in this header
+            for (CodeUnit headerCu : declaredInHeader) {
+                String shortName = headerCu.shortName();
+                // For methods like "ClassName.methodName", extract just the method name
+                int dotIdx = shortName.lastIndexOf('.');
+                String simpleName = (dotIdx >= 0) ? shortName.substring(dotIdx + 1) : shortName;
+
+                if (typeIdentifiers.contains(simpleName)) {
+                    matchedImports.add(rawSnippet);
+                    break;
+                }
+            }
+        }
+
+        return Collections.unmodifiableSet(matchedImports);
+    }
+
+    /**
+     * Resolves a relative include path to a ProjectFile for relevance checking.
+     * Similar to resolveRelativeInclude but returns Optional for cleaner API.
+     */
+    private Optional<ProjectFile> resolveRelativeIncludeForRelevance(ProjectFile includingFile, String relativePath) {
+        try {
+            var parent = includingFile.absPath().getParent();
+            if (parent == null) {
+                return Optional.empty();
+            }
+
+            var resolvedPath = parent.resolve(relativePath).normalize();
+            var root = includingFile.getRoot();
+
+            // Guard against path traversal outside project root
+            if (!resolvedPath.startsWith(root)) {
+                return Optional.empty();
+            }
+
+            var relToRoot = root.relativize(resolvedPath);
+            ProjectFile candidate = new ProjectFile(root, relToRoot);
+
+            // Verify the file exists in the project's analyzed files
+            if (getTopLevelDeclarations().containsKey(candidate)) {
+                return Optional.of(candidate);
+            }
+        } catch (InvalidPathException e) {
+            log.debug("Failed to resolve relative include '{}' from '{}'", relativePath, includingFile, e);
+        }
+        return Optional.empty();
+    }
+
+    @Override
     protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
         // For C++, we ignore duplicates for classes, fields, and modules
         // BUT NOT for functions, because they might be overloads with different signatures
@@ -956,10 +1320,44 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         };
     }
 
-    public String getCacheStatistics() {
-        int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
-                .filter(fp -> fp.parsedTree() != null)
-                .count());
-        return "ParsedTrees: %d".formatted(parsedTreeCount);
+    /**
+     * Extracts identifiers that might require imports in C++.
+     * <p>
+     * Trade-off: High Recall. C++ resolution is complex (macros, templates, namespaces). We capture
+     * {@code type_identifier}, {@code identifier}, and {@code qualified_identifier} to ensure we don't
+     * miss headers required for functions or variables, even if it occasionally over-matches local symbols.
+     */
+    @Override
+    public Set<String> extractTypeIdentifiers(String source) {
+        Set<String> identifiers = new HashSet<>();
+        TSParser parser = getTSParser();
+        TSTree tree = parser.parseString(null, source);
+        if (tree == null || tree.getRootNode().isNull()) {
+            return identifiers;
+        }
+
+        TSQuery query = new TSQuery(
+                getTSLanguage(), "[(type_identifier) @type (identifier) @id (qualified_identifier) @qualified]");
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+
+        SourceContent sourceContent = SourceContent.of(source);
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String text = sourceContent.substringFrom(capture.getNode()).strip();
+                if (text.isEmpty()) continue;
+
+                // For qualified identifiers (e.g., std::string), split into parts
+                List<String> parts = Splitter.on("::").splitToList(text);
+                for (String part : parts) {
+                    if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
+                        identifiers.add(part);
+                    }
+                }
+            }
+        }
+
+        return identifiers;
     }
 }

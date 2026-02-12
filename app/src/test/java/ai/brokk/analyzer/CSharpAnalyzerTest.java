@@ -13,7 +13,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
-import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -159,15 +158,15 @@ public final class CSharpAnalyzerTest {
     }
 
     @Test
-    void testCSharpGetMethodSource() throws IOException {
+    void testCSharpGetMethodSource() {
         TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
         assertFalse(analyzer.isEmpty());
 
         // Case 1: Single method (Constructor in this case, as it's simple and unique)
-        // FQName for constructor of class A in TestNamespace is "TestNamespace.A.<init>"
-        Optional<String> constructorSourceOpt = AnalyzerUtil.getMethodSource(analyzer, "TestNamespace.A.<init>", true);
-        assertTrue(constructorSourceOpt.isPresent(), "Source for constructor A.<init> should be present.");
+        // FQName for constructor of class A in TestNamespace is "TestNamespace.A.A"
+        Optional<String> constructorSourceOpt = AnalyzerUtil.getSource(analyzer, "TestNamespace.A.A", true);
+        assertTrue(constructorSourceOpt.isPresent(), "Source for constructor A.A should be present.");
         String expectedConstructorSource =
                 """
                         // Constructor
@@ -176,11 +175,10 @@ public final class CSharpAnalyzerTest {
                                     MyField = 0;
                                     MyProperty = "default";
                                 }""";
-        assertCodeEquals(
-                expectedConstructorSource, constructorSourceOpt.get(), "Constructor A.<init> source mismatch.");
+        assertCodeEquals(expectedConstructorSource, constructorSourceOpt.get(), "Constructor A.A source mismatch.");
 
         // Case 2: Multiple overloads for TestNamespace.A.MethodA
-        Optional<String> methodASourcesOpt = AnalyzerUtil.getMethodSource(analyzer, "TestNamespace.A.MethodA", true);
+        Optional<String> methodASourcesOpt = AnalyzerUtil.getSource(analyzer, "TestNamespace.A.MethodA", true);
         assertTrue(methodASourcesOpt.isPresent(), "Sources for TestNamespace.A.MethodA overloads should be present.");
 
         String expectedMethodAOverload1Source =
@@ -208,12 +206,12 @@ public final class CSharpAnalyzerTest {
 
         // Case 3: Non-existent method
         Optional<String> nonExistentSourceOpt =
-                AnalyzerUtil.getMethodSource(analyzer, "TestNamespace.A.NonExistentMethod", true);
+                AnalyzerUtil.getSource(analyzer, "TestNamespace.A.NonExistentMethod", true);
         assertFalse(nonExistentSourceOpt.isPresent(), "Source for non-existent method should be empty.");
 
         // Case 4: Method in a nested namespace class
         Optional<String> nestedMethodSourceOpt =
-                AnalyzerUtil.getMethodSource(analyzer, "Outer.Inner.MyNestedClass.NestedMethod", true);
+                AnalyzerUtil.getSource(analyzer, "Outer.Inner.MyNestedClass.NestedMethod", true);
         assertTrue(
                 nestedMethodSourceOpt.isPresent(),
                 "Source for Outer.Inner.MyNestedClass.NestedMethod should be present.");
@@ -296,19 +294,19 @@ public final class CSharpAnalyzerTest {
                 "SkeletonFragment.description() mismatch.");
 
         // Method source extraction for interface methods
-        Optional<String> validateSourceOpt = AnalyzerUtil.getMethodSource(analyzer, validateCU.fqName(), true);
+        Optional<String> validateSourceOpt = AnalyzerUtil.getSource(analyzer, validateCU.fqName(), true);
         assertTrue(validateSourceOpt.isPresent(), "Source for ValidateExistenceAsync should be present.");
         assertCodeEquals(
                 "public Task<Message> ValidateExistenceAsync(Guid assetId);",
                 validateSourceOpt.get(),
                 "ValidateExistenceAsync source mismatch.");
 
-        Optional<String> canConnectSourceOpt = AnalyzerUtil.getMethodSource(analyzer, canConnectCU.fqName(), true);
+        Optional<String> canConnectSourceOpt = AnalyzerUtil.getSource(analyzer, canConnectCU.fqName(), true);
         assertTrue(canConnectSourceOpt.isPresent(), "Source for CanConnectAsync should be present.");
         assertCodeEquals(
                 "public Task<bool> CanConnectAsync();", canConnectSourceOpt.get(), "CanConnectAsync source mismatch.");
 
-        Optional<String> getDescSourceOpt = AnalyzerUtil.getMethodSource(analyzer, getDescCU.fqName(), true);
+        Optional<String> getDescSourceOpt = AnalyzerUtil.getSource(analyzer, getDescCU.fqName(), true);
         assertTrue(getDescSourceOpt.isPresent(), "Source for GetDeliveryPointDescriptionAsync should be present.");
         assertCodeEquals(
                 "public Task<string> GetDeliveryPointDescriptionAsync(Guid deliveryPointId);",
@@ -372,7 +370,7 @@ public final class CSharpAnalyzerTest {
     }
 
     @Test
-    public void getUsesClassComprehensivePatternsTest() {
+    public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
 

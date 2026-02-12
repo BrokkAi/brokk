@@ -40,6 +40,7 @@ public class HistoryTable extends JPanel {
     private final JScrollPane scrollPane;
     private final ResetArrowLayerUI arrowLayerUI;
     private final ContextManager contextManager;
+    private boolean suppressSelectionEvents = false;
 
     @SuppressWarnings("unused")
     private final Chrome chrome;
@@ -154,7 +155,23 @@ public class HistoryTable extends JPanel {
      * Updates the table with the given history, optionally selecting the specified context.
      * Must be called on EDT.
      */
+    private static @Nullable Context getContextFromModelValue(Object val) {
+        if (val instanceof ActivityTableRenderers.ContextUiModel uiModel) {
+            return uiModel.context();
+        }
+        return null;
+    }
+
     public void setHistory(ContextHistory history, @Nullable Context contextToSelect) {
+        suppressSelectionEvents = true;
+        try {
+            setHistoryInternal(history, contextToSelect);
+        } finally {
+            suppressSelectionEvents = false;
+        }
+    }
+
+    private void setHistoryInternal(ContextHistory history, @Nullable Context contextToSelect) {
         // Reset any per-row height customizations before rebuilding
         table.setRowHeight(table.getRowHeight());
 
@@ -189,7 +206,7 @@ public class HistoryTable extends JPanel {
             if (!descriptor.shouldShowHeader()) {
                 var ctx = children.getFirst();
                 Context prev = history.previousOf(ctx);
-                Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
+                Icon icon = history.isAiResult(ctx) ? Icons.CHAT_BUBBLE : null;
 
                 ComputedValue<String> description = resetTargetIds.contains(ctx.id())
                         ? ComputedValue.completed("Copy From History")
@@ -197,7 +214,8 @@ public class HistoryTable extends JPanel {
 
                 ComputedSubscription.bind(description, table, table::repaint);
                 var actionVal = new ActionText(description, 0);
-                model.addRow(new Object[] {icon, actionVal, ctx});
+                var uiModel = new ActivityTableRenderers.ContextUiModel(ctx, history.isAiResult(ctx));
+                model.addRow(new Object[] {icon, actionVal, uiModel});
 
                 if (ctx.equals(contextToSelect)) {
                     rowToSelect = currentRow;
@@ -231,8 +249,9 @@ public class HistoryTable extends JPanel {
                     var childDesc = child.getAction(prev);
                     ComputedSubscription.bind(childDesc, table, table::repaint);
                     var childAction = new ActionText(childDesc, 1);
-                    Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                    model.addRow(new Object[] {childIcon, childAction, child});
+                    Icon childIcon = history.isAiResult(child) ? Icons.CHAT_BUBBLE : null;
+                    var uiModel = new ActivityTableRenderers.ContextUiModel(child, history.isAiResult(child));
+                    model.addRow(new Object[] {childIcon, childAction, uiModel});
 
                     if (child.equals(contextToSelect)) {
                         rowToSelect = currentRow;
@@ -250,7 +269,8 @@ public class HistoryTable extends JPanel {
         var diffService = history.getDiffService();
         for (int row = 0; row < model.getRowCount(); row++) {
             Object v = model.getValueAt(row, COL_CONTEXT);
-            if (v instanceof Context ctxRow) {
+            Context ctxRow = getContextFromModelValue(v);
+            if (ctxRow != null) {
                 var diffsOpt = diffService.peek(ctxRow);
                 if (diffsOpt.isPresent() && !diffsOpt.get().isEmpty()) {
                     adjustRowHeightForContext(ctxRow);
@@ -267,7 +287,7 @@ public class HistoryTable extends JPanel {
             int candidate = headerRow >= 0 ? headerRow + 1 : -1;
             if (candidate >= 0 && candidate < model.getRowCount()) {
                 Object v = model.getValueAt(candidate, COL_CONTEXT);
-                if (v instanceof Context) {
+                if (getContextFromModelValue(v) != null) {
                     rowToSelect = candidate;
                 }
             }
@@ -307,16 +327,15 @@ public class HistoryTable extends JPanel {
 
     private void setupSelectionHandler() {
         table.getSelectionModel().addListSelectionListener(e -> {
-            if (e.getValueIsAdjusting()) return;
+            if (suppressSelectionEvents) return;
             int row = table.getSelectedRow();
             if (row >= 0 && row < table.getRowCount()) {
                 Object val = model.getValueAt(row, COL_CONTEXT);
-                if (val instanceof Context ctx) {
+                Context ctx = getContextFromModelValue(val);
+                if (ctx != null) {
                     selectionListeners.forEach(l -> l.accept(ctx));
-                    if (currentHistory != null) {
-                        var ds = currentHistory.getDiffService();
-                        ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
-                    }
+                    // Diff is requested by requestVisibleDiffs() for visible rows;
+                    // no need to trigger row height adjustment here which causes scroll bounce
                 } else {
                     selectionClearedListeners.forEach(Runnable::run);
                 }
@@ -358,8 +377,11 @@ public class HistoryTable extends JPanel {
                 if (SwingUtilities.isLeftMouseButton(e)) {
                     if (val instanceof GroupRow) {
                         toggleGroupRow(row);
-                    } else if (e.getClickCount() == 2 && val instanceof Context ctx) {
-                        doubleClickListeners.forEach(l -> l.accept(ctx));
+                    } else if (e.getClickCount() == 2) {
+                        Context ctx = getContextFromModelValue(val);
+                        if (ctx != null) {
+                            doubleClickListeners.forEach(l -> l.accept(ctx));
+                        }
                     }
                 }
             }
@@ -379,8 +401,14 @@ public class HistoryTable extends JPanel {
                     int row = table.rowAtPoint(e.getPoint());
                     if (row < 0) return;
                     Object val = model.getValueAt(row, COL_CONTEXT);
-                    if (val instanceof Context ctx) {
-                        table.setRowSelectionInterval(row, row);
+                    Context ctx = getContextFromModelValue(val);
+                    if (ctx != null) {
+                        suppressSelectionEvents = true;
+                        try {
+                            table.setRowSelectionInterval(row, row);
+                        } finally {
+                            suppressSelectionEvents = false;
+                        }
                         contextMenuListeners.forEach(l -> l.accept(ctx, e));
                     }
                 }
@@ -439,7 +467,8 @@ public class HistoryTable extends JPanel {
         int targetRow = -1;
         for (int row = 0; row < model.getRowCount(); row++) {
             Object val = model.getValueAt(row, COL_CONTEXT);
-            if (val == ctx) {
+            if (val instanceof ActivityTableRenderers.ContextUiModel uiModel
+                    && uiModel.context().equals(ctx)) {
                 targetRow = row;
                 break;
             }
@@ -483,7 +512,8 @@ public class HistoryTable extends JPanel {
 
         for (int row = first; row <= last; row++) {
             Object v = model.getValueAt(row, COL_CONTEXT);
-            if (v instanceof Context ctx) {
+            if (v instanceof ActivityTableRenderers.ContextUiModel uiModel) {
+                Context ctx = uiModel.context();
                 ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
             }
         }
@@ -491,10 +521,22 @@ public class HistoryTable extends JPanel {
         int sel = table.getSelectedRow();
         if (sel >= 0 && sel < table.getRowCount()) {
             Object sv = model.getValueAt(sel, COL_CONTEXT);
-            if (sv instanceof Context sctx) {
+            if (sv instanceof ActivityTableRenderers.ContextUiModel uiModel) {
+                Context sctx = uiModel.context();
                 ds.diff(sctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(sctx)));
             }
         }
+    }
+
+    /**
+     * Returns the currently selected Context, or null if no Context row is selected.
+     */
+    public @Nullable Context getSelectedContext() {
+        int row = table.getSelectedRow();
+        if (row < 0 || row >= model.getRowCount()) {
+            return null;
+        }
+        return getContextFromModelValue(model.getValueAt(row, COL_CONTEXT));
     }
 
     private static Point clampViewportPosition(JScrollPane sp, Point desired) {

@@ -2,10 +2,12 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -180,7 +182,12 @@ class ExceptionReporterAsyncTest {
         assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
 
         ServiceCall call = serviceSpy.getCalls().get(0);
-        assertEquals(optionalFields, call.optionalFields, "Optional fields should be passed to the service");
+        // Verify caller-provided fields are preserved
+        assertEquals("user123", call.optionalFields.get("userId"), "Caller field userId should be preserved");
+        assertEquals("test-operation", call.optionalFields.get("context"), "Caller field context should be preserved");
+        // Verify telemetry fields are also present
+        assertTrue(call.optionalFields.containsKey("watchService"), "Should include watchService");
+        assertTrue(call.optionalFields.containsKey("launchMode"), "Should include launchMode");
         assertTrue(call.stacktrace.contains("RuntimeException"));
     }
 
@@ -198,7 +205,13 @@ class ExceptionReporterAsyncTest {
         assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
 
         ServiceCall call = serviceSpy.getCalls().get(0);
-        assertTrue(call.optionalFields.isEmpty(), "Optional fields should be empty");
+        // Even with empty caller fields, telemetry fields should be present
+        // In non-jdeploy environment: watchService, launchMode (2 fields)
+        assertEquals(2, call.optionalFields.size(), "Should have 2 telemetry fields");
+        assertTrue(call.optionalFields.containsKey("watchService"), "Should include watchService");
+        assertTrue(call.optionalFields.containsKey("launchMode"), "Should include launchMode");
+        assertEquals(
+                "other", call.optionalFields.get("launchMode"), "launchMode should be 'other' in test environment");
     }
 
     @Test
@@ -219,11 +232,15 @@ class ExceptionReporterAsyncTest {
         assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
 
         ServiceCall call = serviceSpy.getCalls().get(0);
-        assertEquals(4, call.optionalFields.size(), "Should have 4 optional fields");
+        // 4 caller fields + 2 telemetry fields (watchService, launchMode)
+        // Note: jdeployLauncherPath is only added when running via jdeploy
+        assertEquals(6, call.optionalFields.size(), "Should have 6 optional fields (4 caller + 2 telemetry)");
         assertEquals("user123", call.optionalFields.get("userId"));
         assertEquals("sess456", call.optionalFields.get("sessionId"));
         assertEquals("codeAnalysis", call.optionalFields.get("operationType"));
         assertEquals("TestProject", call.optionalFields.get("projectName"));
+        assertTrue(call.optionalFields.containsKey("watchService"), "Should include watchService");
+        assertTrue(call.optionalFields.containsKey("launchMode"), "Should include launchMode");
     }
 
     @Test
@@ -243,6 +260,93 @@ class ExceptionReporterAsyncTest {
                 2,
                 serviceSpy.getCalls().size(),
                 "Service should be called twice for same exception type from different locations");
+    }
+
+    @Test
+    @DisplayName("Should enrich all exceptions with telemetry fields")
+    void shouldEnrichAllExceptionsWithTelemetryFields() throws Exception {
+        Exception testException = new RuntimeException("Regular exception");
+
+        exceptionReporter.reportException(testException);
+        Thread.sleep(500);
+
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+
+        // Verify all telemetry fields are present
+        assertTrue(call.optionalFields.containsKey("watchService"), "Should include watchService");
+        assertTrue(call.optionalFields.containsKey("launchMode"), "Should include launchMode");
+
+        // Verify values match Environment methods
+        assertEquals(
+                Environment.getActiveWatchServiceImpl(),
+                call.optionalFields.get("watchService"),
+                "watchService should match Environment.getActiveWatchServiceImpl()");
+        assertEquals(
+                "other", call.optionalFields.get("launchMode"), "launchMode should be 'other' in test environment");
+    }
+
+    @Test
+    @DisplayName("Should not overwrite caller-provided telemetry fields")
+    void shouldNotOverwriteCallerProvidedTelemetryFields() throws Exception {
+        Exception testException = new RuntimeException("Test exception");
+        Map<String, String> callerFields = Map.of("watchService", "caller-provided-impl");
+
+        exceptionReporter.reportException(testException, callerFields);
+        Thread.sleep(500);
+
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+
+        // Verify caller-provided field is preserved (not overwritten)
+        assertEquals(
+                "caller-provided-impl",
+                call.optionalFields.get("watchService"),
+                "Caller-provided watchService should be preserved");
+    }
+
+    @Test
+    @DisplayName("Should detect non-jdeploy launch mode")
+    void shouldDetectNonJdeployLaunchMode() throws Exception {
+        Exception testException = new RuntimeException("Test exception");
+
+        exceptionReporter.reportException(testException);
+        Thread.sleep(500);
+
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+
+        // In test environment, jdeploy.launcher.path is not set
+        assertEquals(
+                "other",
+                call.optionalFields.get("launchMode"),
+                "launchMode should be 'other' when not launched via jdeploy");
+        assertFalse(
+                call.optionalFields.containsKey("jdeployLauncherPath"),
+                "jdeployLauncherPath should not be present when not launched via jdeploy");
+    }
+
+    @Test
+    @DisplayName("Should not overwrite caller-provided launchMode")
+    void shouldNotOverwriteCallerProvidedLaunchMode() throws Exception {
+        Exception testException = new RuntimeException("Test exception");
+        Map<String, String> callerFields = Map.of("launchMode", "custom-launcher");
+
+        exceptionReporter.reportException(testException, callerFields);
+        Thread.sleep(500);
+
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+
+        // Verify caller-provided launchMode is preserved (not overwritten)
+        assertEquals(
+                "custom-launcher",
+                call.optionalFields.get("launchMode"),
+                "Caller-provided launchMode should be preserved");
     }
 
     // Helper methods
@@ -288,10 +392,9 @@ class ExceptionReporterAsyncTest {
         private final ObjectMapper objectMapper = new ObjectMapper();
 
         @Override
-        public JsonNode reportClientException(
-                String stacktrace, String clientVersion, Map<String, String> optionalFields) throws IOException {
+        public JsonNode reportClientException(JsonNode exceptionReport) throws IOException {
             callCount.incrementAndGet();
-            calls.add(new ServiceCall(stacktrace, clientVersion, optionalFields));
+            calls.add(new ServiceCall(exceptionReport));
 
             if (shouldFail) {
                 throw new IOException("Test service failure");
@@ -318,15 +421,32 @@ class ExceptionReporterAsyncTest {
         final String stacktrace;
         final String clientVersion;
         final Map<String, String> optionalFields;
+        final JsonNode fullReport;
 
-        ServiceCall(String stacktrace, String clientVersion) {
-            this(stacktrace, clientVersion, Map.of());
+        ServiceCall(JsonNode exceptionReport) {
+            this.fullReport = exceptionReport;
+            this.stacktrace = exceptionReport.get("stacktrace").asText();
+            this.clientVersion = exceptionReport.get("client_version").asText();
+
+            // Extract optional fields from context node
+            this.optionalFields = new HashMap<>();
+            JsonNode context = exceptionReport.get("context");
+            if (context != null) {
+                context.fields().forEachRemaining(entry -> {
+                    // Skip the nested objects (os, jvm) - only get string fields
+                    if (entry.getValue().isTextual()) {
+                        optionalFields.put(entry.getKey(), entry.getValue().asText());
+                    }
+                });
+            }
         }
 
+        // Legacy constructor for compatibility (not used anymore)
         ServiceCall(String stacktrace, String clientVersion, Map<String, String> optionalFields) {
             this.stacktrace = stacktrace;
             this.clientVersion = clientVersion;
             this.optionalFields = optionalFields != null ? optionalFields : Map.of();
+            this.fullReport = null;
         }
     }
 }
