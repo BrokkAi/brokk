@@ -425,13 +425,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var immutableSymbolIndex = new HashMap<String, Set<CodeUnit>>();
         localSymbolIndex.forEach((key, value) -> immutableSymbolIndex.put(key, Collections.unmodifiableSet(value)));
 
-        var initialState = new AnalyzerState(
-                HashTreePMap.from(immutableSymbolIndex),
-                HashTreePMap.from(localCodeUnitState),
-                HashTreePMap.from(localFileState),
-                symbolKeyIndex,
-                snapshotNanos);
-
         // Log summary of file processing results
         int totalAttempted = totalFilesAttempted.get();
         int successful = successfullyProcessed.get();
@@ -495,14 +488,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 formatSecondsMillis(mergeWall),
                 formatSecondsMillis(totalWall));
 
-        var postProcessed = runPostProcessing(initialState);
-        this.state = postProcessed;
+        this.state = new AnalyzerState(
+                HashTreePMap.from(immutableSymbolIndex),
+                HashTreePMap.from(localCodeUnitState),
+                HashTreePMap.from(localFileState),
+                symbolKeyIndex,
+                snapshotNanos);
 
         log.debug(
                 "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
                 language.name(),
-                postProcessed.codeUnitState().size(),
-                postProcessed.fileState().size());
+                state.codeUnitState().size(),
+                state.fileState().size());
 
         // Record time of initial analysis to support mtime-based incremental updates (nanos precision)
         var initInstant = Instant.now();
@@ -3808,13 +3805,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var immutableNextSymbolIndex = new HashMap<String, Set<CodeUnit>>();
         newSymbolIndex.forEach((key, value) -> immutableNextSymbolIndex.put(key, Collections.unmodifiableSet(value)));
 
-        var nextState = new AnalyzerState(
-                HashTreePMap.from(immutableNextSymbolIndex),
-                HashTreePMap.from(newCodeUnitState),
-                HashTreePMap.from(newFileState),
-                nextSymbolKeyIndex,
-                snapshotNanos);
-
         long totalMs = System.currentTimeMillis() - overallStartMs;
         long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos);
         long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos.get());
@@ -3828,8 +3818,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 reanalyzeMs,
                 totalMs);
 
-        // Re-run combined post-processing (imports + type analysis) after ingesting updates
-        var typedState = runPostProcessing(nextState);
+        var typedState = new AnalyzerState(
+                HashTreePMap.from(immutableNextSymbolIndex),
+                HashTreePMap.from(newCodeUnitState),
+                HashTreePMap.from(newFileState),
+                nextSymbolKeyIndex,
+                snapshotNanos);
 
         var filteredCache = new AnalyzerCache(this.cache, changedFiles);
         return newSnapshot(typedState, getProgressListener(), filteredCache);
@@ -4007,13 +4001,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         return true;
-    }
-
-    /**
-     * Combined post-processing pipeline. All hierarchy computation is deferred to lazy on-demand resolution.
-     */
-    protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        return baseState;
     }
 
     /* ---------- comment detection for source expansion ---------- */
