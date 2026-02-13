@@ -216,6 +216,8 @@ public class GitHubIssueService implements IssueService {
     }
 
     private IssueDetails loadDetailsFromRest(int issueNumber) throws IOException {
+        // Note: REST API does not expose 'isMinimized' for issue comments.
+        // Minimized comment filtering is only available via the GraphQL path.
         GHIssue issue = getAuth().getIssue(issueNumber);
         IssueHeader header = mapToIssueHeader(issue);
         if (header == null) {
@@ -291,6 +293,7 @@ public class GitHubIssueService implements IssueService {
                           bodyHTML
                           createdAt
                           author { login }
+                          isMinimized
                         }
                       }
                     }
@@ -389,6 +392,10 @@ public class GitHubIssueService implements IssueService {
                 JsonNode commentsNode = commentsSection.path("nodes");
                 if (commentsNode.isArray()) {
                     for (JsonNode node : commentsNode) {
+                        if (node.path("isMinimized").asBoolean(false)) {
+                            continue;
+                        }
+
                         String cBody = node.path("body").asText("");
                         String cHtmlBody =
                                 HtmlUtil.sanitize(node.path("bodyHTML").asText(""));

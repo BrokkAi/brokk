@@ -19,9 +19,10 @@ import ai.brokk.project.IProject;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
-import ai.brokk.util.BuildOutputPreprocessor;
+import ai.brokk.util.BuildOutputProcessor;
 import ai.brokk.util.BuildToolConventions;
 import ai.brokk.util.BuildToolConventions.BuildSystem;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentPython;
 import ai.brokk.util.Messages;
@@ -1272,6 +1273,20 @@ public class BuildAgent {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
+        var details = override != null ? override : cm.getProject().awaitBuildDetails();
+
+        // When BRK_TEST_RETRIES is set, decouple lint from tests and retry flaky test failures
+        @Nullable String testRetriesEnv = System.getenv("BRK_TEST_RETRIES");
+        if (testRetriesEnv != null && !testRetriesEnv.isBlank()) {
+            int retries;
+            try {
+                retries = Integer.parseInt(testRetriesEnv.trim());
+            } catch (NumberFormatException e) {
+                throw new RuntimeException(e);
+            }
+            return runBuildWithTestRetries(ctx, verificationCommand, details, retries);
+        }
+
         io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
         io.llmOutput(
@@ -1280,7 +1295,6 @@ public class BuildAgent {
                 LlmOutputMeta.newMessage().withTerminal(true));
 
         try {
-            var details = override != null ? override : cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
             var execCfg = cm.getProject().getShellConfig();
 
@@ -1298,7 +1312,55 @@ public class BuildAgent {
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
             String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
-            String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
+            String processed = BuildOutputProcessor.processForLlm(rawBuild, cm);
+            return ctx.withBuildResult(false, processed);
+        }
+    }
+
+    /**
+     * When BRK_TEST_RETRIES is set, run lint first, then run the test command with retries.
+     * This decouples persistent build errors from transient (flaky) test failures.
+     */
+    private static Context runBuildWithTestRetries(
+            Context ctx, String verificationCommand, BuildDetails details, int maxRetries) throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+
+        String lintCommand = details.buildLintCommand();
+        // The verificationCommand is the test command that was determined by determineVerificationCommand.
+        // If it equals the buildLintCommand, there are no separate tests to run.
+        String testCommand = verificationCommand.equals(lintCommand) ? "" : verificationCommand;
+
+        io.llmOutput(
+                "\nRunning verification with test retries enabled:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+
+        if (!lintCommand.isBlank()) {
+            io.llmOutput(
+                    "\nLint/compile: " + lintCommand + "\n",
+                    ChatMessageType.CUSTOM,
+                    LlmOutputMeta.newMessage().withTerminal(true));
+        }
+        if (!testCommand.isBlank()) {
+            io.llmOutput(
+                    "Test: " + testCommand + " (up to " + maxRetries + " attempts)\n\n",
+                    ChatMessageType.CUSTOM,
+                    LlmOutputMeta.terminal());
+        }
+
+        var envVars = details.environmentVariables();
+        var result = BuildVerifier.verifyWithRetries(
+                cm.getProject(),
+                lintCommand,
+                testCommand,
+                maxRetries,
+                envVars,
+                line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()));
+
+        if (result.success()) {
+            logger.debug("Verification with retries succeeded. Output: {}", result.output());
+            return ctx.withBuildResult(true, "Build succeeded.");
+        } else {
+            String processed = BuildOutputProcessor.processForLlm(result.output(), cm);
             return ctx.withBuildResult(false, processed);
         }
     }
@@ -1337,7 +1399,7 @@ public class BuildAgent {
             io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
             String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
-            String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
+            String processed = BuildOutputProcessor.processForLlm(rawBuild, cm);
             return ctx.withBuildResult(false, processed);
         }
     }

@@ -28,7 +28,6 @@ import ai.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.ScaledIcon;
 import ai.brokk.project.MainProject;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Environment;
@@ -1112,8 +1111,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 workspaceTokens = Messages.getApproximateMessageTokens(
                         WorkspacePrompts.getMessagesGroupedByMutability(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
                 var meta = BlitzForge.createTaskMeta(model, service);
-                historyTokens =
-                        Messages.getApproximateMessageTokens(CodePrompts.instance.getHistoryMessages(ctx, meta));
+                historyTokens = Messages.getApproximateMessageTokens(WorkspacePrompts.getHistoryMessages(ctx, meta));
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
                 hadError = true;
@@ -1428,7 +1426,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
                     var meta = BlitzForge.createTaskMeta(perFileModel, service);
-                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx, meta));
+                    list.addAll(WorkspacePrompts.getHistoryMessages(ctx, meta));
                     var text = "";
                     for (var m : list) {
                         text += m + "\n";
@@ -1599,7 +1597,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             context, EnumSet.of(SpecialTextType.TASK_LIST)));
                     var meta = BlitzForge.createTaskMeta(model, service);
-                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context, meta));
+                    readOnlyMessages.addAll(WorkspacePrompts.getHistoryMessages(context, meta));
                 }
                 if (fRelatedK != null) {
                     var acList = cm.liveContext().buildAutoContext(fRelatedK);

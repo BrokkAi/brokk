@@ -9,14 +9,14 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class BuildOutputPreprocessorSimpleTest {
+class BuildOutputProcessorSimpleTest {
 
     @Test
     void testPreprocessBuildOutput_shortOutput_returnsOriginal(@TempDir Path tempDir) throws InterruptedException {
         var contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         String shortOutput = "This is a short build output\nwith only a few lines\nshould pass through unchanged";
 
-        String result = BuildOutputPreprocessor.maybePreprocessOutput(shortOutput, contextManager);
+        String result = BuildOutputProcessor.maybePreprocessOutput(shortOutput, contextManager);
 
         assertEquals(shortOutput, result);
     }
@@ -24,14 +24,14 @@ class BuildOutputPreprocessorSimpleTest {
     @Test
     void testPreprocessBuildOutput_emptyInput_returnsEmptyString(@TempDir Path tempDir) throws InterruptedException {
         var contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        String result = BuildOutputPreprocessor.maybePreprocessOutput("", contextManager);
+        String result = BuildOutputProcessor.maybePreprocessOutput("", contextManager);
         assertEquals("", result);
     }
 
     @Test
     void testPreprocessBuildOutput_blankInput_returnsBlank(@TempDir Path tempDir) throws InterruptedException {
         var contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        String result = BuildOutputPreprocessor.maybePreprocessOutput("   ", contextManager);
+        String result = BuildOutputProcessor.maybePreprocessOutput("   ", contextManager);
         assertEquals("   ", result);
     }
 
@@ -40,11 +40,11 @@ class BuildOutputPreprocessorSimpleTest {
             throws InterruptedException {
         var contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         // Create output with exactly THRESHOLD_LINES lines
-        String exactThresholdOutput = IntStream.range(0, BuildOutputPreprocessor.THRESHOLD_LINES)
+        String exactThresholdOutput = IntStream.range(0, BuildOutputProcessor.THRESHOLD_LINES)
                 .mapToObj(i -> "Line " + i)
                 .reduce("", (acc, line) -> acc.isEmpty() ? line : acc + "\n" + line);
 
-        String result = BuildOutputPreprocessor.maybePreprocessOutput(exactThresholdOutput, contextManager);
+        String result = BuildOutputProcessor.maybePreprocessOutput(exactThresholdOutput, contextManager);
 
         assertEquals(exactThresholdOutput, result);
     }
@@ -62,7 +62,7 @@ class BuildOutputPreprocessorSimpleTest {
             """,
                 projectRoot, projectRoot);
 
-        String result = BuildOutputPreprocessor.sanitizeOnly(buildOutput, contextManager);
+        String result = BuildOutputProcessor.sanitizeOnly(buildOutput, contextManager);
 
         // Paths should be sanitized to relative paths
         assertTrue(result.contains("src/main/java/com/example/App.java:10: error"));
@@ -83,7 +83,7 @@ class BuildOutputPreprocessorSimpleTest {
             """,
                 projectRoot, projectRoot);
 
-        String result = BuildOutputPreprocessor.sanitizeOnly(buildOutput, contextManager);
+        String result = BuildOutputProcessor.sanitizeOnly(buildOutput, contextManager);
 
         // Paths should be sanitized to relative paths
         assertTrue(
@@ -107,7 +107,7 @@ class BuildOutputPreprocessorSimpleTest {
             """,
                 projectRootForward, projectRootBackward);
 
-        String result = BuildOutputPreprocessor.sanitizeOnly(buildOutput, contextManager);
+        String result = BuildOutputProcessor.sanitizeOnly(buildOutput, contextManager);
 
         // Both path styles should be sanitized
         assertTrue(result.contains("src/main/App.java:10: error") || result.contains("src\\main\\App.java:10: error"));
@@ -133,7 +133,7 @@ class BuildOutputPreprocessorSimpleTest {
             """,
                 projectRoot, projectRoot, projectRoot, projectRoot);
 
-        String result = BuildOutputPreprocessor.sanitizeOnly(buildOutput, contextManager);
+        String result = BuildOutputProcessor.sanitizeOnly(buildOutput, contextManager);
 
         // Only the complete path with proper word boundaries should be sanitized
         assertTrue(result.contains("src/main/App.java:10: error") || result.contains("src\\main\\App.java:10: error"));
@@ -147,14 +147,14 @@ class BuildOutputPreprocessorSimpleTest {
         var contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
 
         // Test empty input
-        assertEquals("", BuildOutputPreprocessor.sanitizeOnly("", contextManager));
+        assertEquals("", BuildOutputProcessor.sanitizeOnly("", contextManager));
 
         // Test whitespace-only input
-        assertEquals("   ", BuildOutputPreprocessor.sanitizeOnly("   ", contextManager));
+        assertEquals("   ", BuildOutputProcessor.sanitizeOnly("   ", contextManager));
 
         // Test input without any paths
         String noPaths = "Build successful\nAll tests passed\nNo errors found";
-        assertEquals(noPaths, BuildOutputPreprocessor.sanitizeOnly(noPaths, contextManager));
+        assertEquals(noPaths, BuildOutputProcessor.sanitizeOnly(noPaths, contextManager));
     }
 
     @Test
@@ -173,7 +173,7 @@ class BuildOutputPreprocessorSimpleTest {
             """,
                 upperCasePath, lowerCasePath);
 
-        String result = BuildOutputPreprocessor.sanitizeOnly(buildOutput, contextManager);
+        String result = BuildOutputProcessor.sanitizeOnly(buildOutput, contextManager);
 
         // Both case variations should be sanitized on case-insensitive filesystems
         // On case-sensitive systems, only exact matches are sanitized
@@ -193,7 +193,7 @@ class BuildOutputPreprocessorSimpleTest {
         String buildOutput = "Error in file: some.file[with].regex{chars}+and*more?.java";
 
         // Should not throw exception and should return original text
-        String result = BuildOutputPreprocessor.sanitizeOnly(buildOutput, contextManager);
+        String result = BuildOutputProcessor.sanitizeOnly(buildOutput, contextManager);
         assertNotNull(result);
         assertEquals(buildOutput, result); // No sanitization should occur for non-matching paths
     }

@@ -22,8 +22,8 @@ import org.jetbrains.annotations.Nullable;
  * <p>Provides both lightweight path sanitization and full LLM-based error extraction with timeout protection. For LLM
  * context optimization only - use raw output for success/failure decisions.
  */
-public class BuildOutputPreprocessor {
-    private static final Logger logger = LogManager.getLogger(BuildOutputPreprocessor.class);
+public class BuildOutputProcessor {
+    private static final Logger logger = LogManager.getLogger(BuildOutputProcessor.class);
 
     /**
      * Minimum number of lines in build output to trigger preprocessing. Below this threshold, the original output is

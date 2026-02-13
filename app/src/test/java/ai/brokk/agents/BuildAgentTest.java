@@ -8,13 +8,16 @@ import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -616,6 +619,210 @@ class BuildAgentTest {
                     Duration.ofSeconds(45),
                     capturedTimeout.get(),
                     "Verification command should use run-specific timeout");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesLintFailureStopsImmediately(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                outputConsumer.accept("lint-error");
+                throw new Environment.FailureException("lint failed", "compile error", 1);
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 5, Map.of(), null);
+
+            assertFalse(result.success(), "Should fail when lint fails");
+            assertEquals(1, callCount.get(), "Should only run lint once, never reach tests");
+            assertEquals(1, result.exitCode());
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesTestPassesOnFirstTry(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                outputConsumer.accept("ok");
+                return "ok";
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 5, Map.of(), null);
+
+            assertTrue(result.success(), "Should succeed");
+            assertEquals(2, callCount.get(), "Should run lint once + test once");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesTestPassesOnThirdAttempt(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                int n = callCount.incrementAndGet();
+                if (command.equals("lint-cmd")) {
+                    return "lint ok";
+                }
+                // First two test attempts fail, third succeeds
+                if (n <= 3) { // call 1 = lint, call 2 = test attempt 1, call 3 = test attempt 2
+                    outputConsumer.accept("flaky failure");
+                    throw new Environment.FailureException("test failed", "flaky", 1);
+                }
+                outputConsumer.accept("test passed");
+                return "test ok";
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 5, Map.of(), null);
+
+            assertTrue(result.success(), "Should succeed after retries");
+            assertEquals(4, callCount.get(), "Should run lint(1) + test fail(2) + test fail(3) + test pass(4)");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesAllTestAttemptsExhausted(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                if (command.equals("lint-cmd")) {
+                    return "lint ok";
+                }
+                outputConsumer.accept("persistent failure");
+                throw new Environment.FailureException("test failed", "always fails", 42);
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 5, Map.of(), null);
+
+            assertFalse(result.success(), "Should fail after all retries exhausted");
+            assertEquals(6, callCount.get(), "Should run lint(1) + 5 test attempts");
+            assertEquals(42, result.exitCode(), "Should return exit code from last attempt");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesBlankLintSkipsToTests(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                assertEquals("test-cmd", command, "Only test command should be run");
+                return "test ok";
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "", "test-cmd", 5, Map.of(), null);
+
+            assertTrue(result.success(), "Should succeed");
+            assertEquals(1, callCount.get(), "Should only run the test command");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesBlankTestReturnsSuccessAfterLint(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                return "lint ok";
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "", 5, Map.of(), null);
+
+            assertTrue(result.success(), "Should succeed when lint passes and no test command");
+            assertEquals(1, callCount.get(), "Should only run lint");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesStreamsOutputForEachAttempt(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                int n = callCount.incrementAndGet();
+                if (command.equals("lint-cmd")) {
+                    outputConsumer.accept("lint output");
+                    return "lint ok";
+                }
+                outputConsumer.accept("test-attempt-" + (n - 1));
+                throw new Environment.FailureException("fail", "fail", 1);
+            };
+
+            var streamedLines = new ArrayList<String>();
+            var result =
+                    BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 3, Map.of(), streamedLines::add);
+
+            assertFalse(result.success());
+            assertTrue(streamedLines.contains("lint output"), "Should stream lint output");
+            assertTrue(streamedLines.contains("test-attempt-1"), "Should stream first test attempt");
+            assertTrue(streamedLines.contains("test-attempt-2"), "Should stream second test attempt");
+            assertTrue(streamedLines.contains("test-attempt-3"), "Should stream third test attempt");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesUsesCustomMaxRetries(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                if (command.equals("lint-cmd")) return "ok";
+                throw new Environment.FailureException("fail", "fail", 1);
+            };
+
+            BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 7, Map.of(), null);
+
+            assertEquals(8, callCount.get(), "Should run lint(1) + 7 test attempts");
         } finally {
             Environment.shellCommandRunnerFactory = originalFactory;
         }

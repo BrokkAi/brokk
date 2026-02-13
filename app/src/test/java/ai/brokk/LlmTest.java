@@ -8,7 +8,7 @@ import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
-import ai.brokk.util.BuildOutputPreprocessor;
+import ai.brokk.util.BuildOutputProcessor;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -249,7 +249,7 @@ public class LlmTest {
                 """;
 
         // Call the preprocessor which uses the LLM to extract errors
-        String result = BuildOutputPreprocessor.processForLlm(buildOutput, cm);
+        String result = BuildOutputProcessor.processForLlm(buildOutput, cm);
 
         System.out.println("=== Extracted errors ===");
         System.out.println(result);

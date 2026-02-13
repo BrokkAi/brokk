@@ -1,15 +1,12 @@
 package ai.brokk.prompts;
 
 import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.SyntaxAwareConfig;
-import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
-import ai.brokk.TaskResult.TaskMeta;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
@@ -240,7 +237,7 @@ public class CodePrompts {
         }
 
         var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, suppressedTypes);
-        messages.addAll(getHistoryMessages(ctx, taskMeta));
+        messages.addAll(WorkspacePrompts.getHistoryMessages(ctx, taskMeta));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
         messages.addAll(taskMessages);
@@ -379,47 +376,6 @@ public class CodePrompts {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-    }
-
-    public List<ChatMessage> getHistoryMessages(Context ctx, TaskMeta currentMeta) {
-        var taskHistory = ctx.getTaskHistory();
-        var messages = new ArrayList<ChatMessage>();
-
-        // Merge compressed messages into a single taskhistory message
-        var compressed = taskHistory.stream()
-                .filter(TaskEntry::isCompressed)
-                .map(TaskEntry::toString)
-                .collect(Collectors.joining("\n\n"));
-        if (!compressed.isEmpty()) {
-            messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
-            messages.add(new AiMessage("Ok, I see the history."));
-        }
-
-        // Uncompressed messages: process for tool and S/R block redaction
-        taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
-            var entryRawMessages = castNonNull(e.log()).messages();
-            if (entryRawMessages.isEmpty()) {
-                return;
-            }
-
-            // Determine the messages to include from the entry
-            var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
-                    ? entryRawMessages
-                    : entryRawMessages.subList(0, entryRawMessages.size() - 1);
-
-            var entryMeta = e.meta();
-
-            var currentPrimaryModel = currentMeta.primaryModel();
-            var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
-
-            // Redact tool calls if the primary models differ
-            boolean redactToolCalls =
-                    entryPrimaryModel != null && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
-
-            messages.addAll(redactHistoryMessages(relevantEntryMessages, redactToolCalls));
-        });
-
-        return messages;
     }
 
     public enum InstructionsFlags {

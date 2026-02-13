@@ -358,6 +358,69 @@ JSON
 - **Fallback behavior**: Falls back to regular PR comment if inline comment fails (HTTP 422)
 - **Read-only to local repo**: Does not modify local files or make commits
 
+## ISSUE_DIAGNOSE Mode: Analyze a GitHub Issue
+
+ISSUE_DIAGNOSE mode analyzes a GitHub issue (including all comments and images) and posts a diagnosis comment without making code changes. This is designed for a two-phase workflow where the bot first analyzes and posts its understanding, then waits for user approval before proceeding to fix.
+
+### How ISSUE_DIAGNOSE Works
+
+When you submit an ISSUE_DIAGNOSE job, the system:
+1. Fetches the issue details (title, body, all comments, attached images) via the GitHub API
+2. Captures any images from the issue into the LLM context
+3. Runs an analysis using the planner model to understand the issue
+4. Posts a diagnosis comment to the issue with a hidden marker (`<!-- brokk:diagnosis:v1 timestamp="..." -->`)
+5. Completes without creating branches, making code changes, or opening PRs
+
+The diagnosis comment includes:
+- A structured analysis of the issue
+- Next steps prompting the user to reply with `@BrokkBot solve` to proceed
+
+### Configuration
+
+ISSUE_DIAGNOSE mode requires:
+- `plannerModel`: The LLM model for analyzing the issue
+- GitHub issue metadata (passed via tags):
+  - `github_token`: GitHub personal access token with repo access
+  - `repo_owner`: Repository owner (user or organization)
+  - `repo_name`: Repository name
+  - `issue_number`: Issue number to analyze
+
+ISSUE_DIAGNOSE mode **ignores** `codeModel` since it performs analysis only, not code generation.
+
+### Example: Diagnose an Issue
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: diagnose-001" \
+  --data @- <<'JSON'
+{
+  "taskInput": "",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-4",
+  "tags": {
+    "mode": "ISSUE_DIAGNOSE",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "issue_number": "42"
+  }
+}
+JSON
+```
+
+### Two-Phase Workflow
+
+ISSUE_DIAGNOSE is designed to work with ISSUE (solve) mode in a two-phase workflow:
+
+1. **Phase 1: Diagnose** — Run ISSUE_DIAGNOSE to analyze the issue and post a diagnosis comment
+2. **User Review** — User reviews the diagnosis, optionally adds steering comments
+3. **Phase 2: Solve** — Run ISSUE mode to implement the fix (detects existing diagnosis and skips re-posting)
+
+This workflow allows human oversight before code changes are made.
+
 ## ISSUE_WRITER Mode: Create a GitHub Issue
 
 ISSUE_WRITER mode is a headless workflow that uses repository discovery to draft a high-quality GitHub issue and then creates it via the GitHub API.
@@ -399,24 +462,25 @@ JSON
 
 ## ISSUE Mode: Automated Issue Resolution with Build Verification (and optional quick mode)
 
-ISSUE mode enables end-to-end resolution of GitHub Issues. The executor fetches the issue content, creates a branch, decomposes the work into tasks, applies changes, and—by default—verifies changes with build/test/lint checks before delivering them (e.g., creating a Pull Request). ISSUE mode also supports a "quick" or skip-verification variant that omits verification and review loops for faster, lower-cost runs.
+ISSUE mode enables end-to-end resolution of GitHub Issues. The executor fetches the issue content (including all comments and images), creates a branch, decomposes the work into tasks, applies changes, and—by default—verifies changes with build/test/lint checks before delivering them (e.g., creating a Pull Request). ISSUE mode also supports a "quick" or skip-verification variant that omits verification and review loops for faster, lower-cost runs.
 
 ### How ISSUE Works (default — full verification)
 
 When you submit an ISSUE job using the default behavior (omitting `skipVerification` or setting it to `false`), the system follows these steps:
 
-1. Fetch Issue: Retrieves the title and body of the GitHub issue.
-2. Branch Creation: Creates and checks out a new branch named like `brokk/issue-{number}`, guaranteeing uniqueness by appending a suffix if needed.
-3. Task Planning: Uses the `plannerModel` to decompose the issue into an ordered set of actionable tasks.
-4. Execution & Per-Task Verification:
+1. Fetch Issue: Retrieves the full issue details including title, body, all comments, and attached images via the GitHub API. Images are captured into the LLM context for analysis.
+2. Analysis & Diagnosis: Runs a fresh analysis of the issue using the planner model. If no prior diagnosis comment exists (detected by the `<!-- brokk:diagnosis:v1` marker), posts a diagnosis comment for transparency. If a diagnosis already exists (e.g., from a prior ISSUE_DIAGNOSE run), skips posting to avoid duplicates.
+3. Branch Creation: Creates and checks out a new branch named like `brokk/issue-{number}`, guaranteeing uniqueness by appending a suffix if needed.
+4. Task Planning: Uses the `plannerModel` to decompose the issue into an ordered set of actionable tasks.
+5. Execution & Per-Task Verification:
    - Implementation: ArchitectAgent implements each task using `plannerModel` and `codeModel`.
    - Build Verification: After implementing a task, the executor runs the configured build/lint/test verification for that task.
    - Per-task self-correction: If verification fails, the executor performs one (single) automated fix attempt for the task and then re-runs verification. If verification still fails, the job reports failure and halts.
    - Note: Per-task verification is governed by `buildSettings.maxBuildAttempts` (per-task retry budget).
-5. Final Gate & Delivery:
+6. Final Gate & Delivery:
    - After all tasks pass per-task verification, the executor runs final checks (full tests + lint).
    - If delivery is enabled (default), the executor commits, pushes, and opens a Pull Request on GitHub. You can disable PR creation by setting the `issue_delivery` tag to `none` in the job payload.
-6. Cleanup: Restore original branch and remove temporary issue branches as appropriate (best-effort).
+7. Cleanup: Restore original branch and remove temporary issue branches as appropriate (best-effort).
 
 ### Quick Mode: skipVerification (optional for ISSUE jobs)
 
