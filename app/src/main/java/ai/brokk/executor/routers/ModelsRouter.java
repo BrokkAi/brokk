@@ -4,7 +4,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import com.sun.net.httpserver.HttpExchange;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.logging.log4j.LogManager;

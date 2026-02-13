@@ -82,9 +82,7 @@ def _normalize_model_catalog(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return normalized
 
 
-def _reasoning_options_for_model(
-    model_name: str, catalog: list[dict[str, Any]]
-) -> list[str]:
+def _reasoning_options_for_model(model_name: str, catalog: list[dict[str, Any]]) -> list[str]:
     _ = model_name
     _ = catalog
     # Keep a stable, explicit reasoning set in the combined model dropdown.
@@ -143,8 +141,7 @@ def _build_available_models(catalog: list[dict[str, Any]]) -> list[tuple[str, st
         available.append((model_id, model_id))
         variants = _model_variants_for_model(model_id, catalog)
         available.extend(
-            (f"{model_id}/{variant}", f"{model_id} ({variant})")
-            for variant in variants
+            (f"{model_id}/{variant}", f"{model_id} ({variant})") for variant in variants
         )
     return available
 
@@ -602,9 +599,7 @@ async def run_acp_server(
         original_build_agent_router = acp_agent_router.build_agent_router
 
         def patched_build_agent_router(agent: Any, use_unstable_protocol: bool = False) -> Any:
-            router = original_build_agent_router(
-                agent, use_unstable_protocol=use_unstable_protocol
-            )
+            router = original_build_agent_router(agent, use_unstable_protocol=use_unstable_protocol)
             router.route_request(
                 AGENT_METHODS["session_set_config_option"],
                 SetSessionConfigOptionRequest,
@@ -659,9 +654,7 @@ async def run_acp_server(
             if current_model not in model_names and model_names:
                 current_model = model_names[0]
                 self._model_by_session[session_id] = current_model
-            current_reasoning = self._reasoning_by_session.get(
-                session_id, DEFAULT_REASONING_LEVEL
-            )
+            current_reasoning = self._reasoning_by_session.get(session_id, DEFAULT_REASONING_LEVEL)
             reasoning_options = _reasoning_options_for_model(current_model, catalog)
             if current_reasoning not in reasoning_options:
                 current_reasoning = "default"
@@ -695,8 +688,7 @@ async def run_acp_server(
                 )
             return SessionModelState(
                 available_models=[
-                    ModelInfo(model_id=value, name=label)
-                    for value, label in variants
+                    ModelInfo(model_id=value, name=label) for value, label in variants
                 ],
                 current_model_id=current_model_id,
             )
@@ -720,9 +712,7 @@ async def run_acp_server(
                 ),
             ]
             if self._is_zed:
-                current_model = self._model_by_session.get(
-                    session_id, DEFAULT_MODEL_SELECTION
-                )
+                current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
                 current_reasoning = self._reasoning_by_session.get(
                     session_id, DEFAULT_REASONING_LEVEL
                 )
@@ -944,9 +934,7 @@ async def run_acp_server(
             if planner_model_id not in available_models:
                 planner_model_id = next(iter(available_models), DEFAULT_MODEL_SELECTION)
             code_model = (
-                kwargs.get("code_model")
-                or kwargs.get("codeModel")
-                or "gemini-3-flash-preview"
+                kwargs.get("code_model") or kwargs.get("codeModel") or "gemini-3-flash-preview"
             )
             reasoning_level = (
                 kwargs.get("reasoning_level")

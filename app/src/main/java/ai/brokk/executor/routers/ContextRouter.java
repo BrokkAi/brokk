@@ -174,23 +174,35 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                     .orElse(null);
             if (fragment == null) {
                 SimpleHttpServer.sendJsonResponse(
-                        exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Fragment not found: " + fragmentId));
+                        exchange,
+                        404,
+                        ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Fragment not found: " + fragmentId));
                 return;
             }
 
+            // Non-blocking accessors: prefer renderNowOr to avoid blocking handler threads.
             Path filePath = null;
             if (fragment.getType().isPath()) {
-                filePath = fragment.files().join().stream()
-                        .map(pf -> pf.absPath())
-                        .findFirst()
-                        .orElse(null);
+                // Use a non-blocking renderNowOr(Set.of()) to obtain currently-available backing files.
+                var filesNow = fragment.files().renderNowOr(Set.of());
+                filePath =
+                        filesNow.stream().findFirst().map(ProjectFile::absPath).orElse(null);
             }
 
-            var text = fragment.isText() ? fragment.text().join() : "(binary fragment)";
-            var uri = filePath != null
-                    ? filePath.toUri().toString()
-                    : "brokk://context/fragment/" + fragment.id();
-            var mimeType = filePath != null ? mimeTypeForPath(filePath) : mimeTypeForStyle(fragment.syntaxStyle().join());
+            // Use non-blocking access for text; avoid join() which may block.
+            String text = fragment.isText() ? fragment.text().renderNowOr("(binary fragment)") : "(binary fragment)";
+
+            // Build URI: prefer file backing if available, otherwise use brokk:// context URI.
+            var uri = filePath != null ? filePath.toUri().toString() : "brokk://context/fragment/" + fragment.id();
+
+            // Derive mime type from path when available; otherwise use syntaxStyle via non-blocking accessor.
+            String mimeType;
+            if (filePath != null) {
+                mimeType = mimeTypeForPath(filePath);
+            } else {
+                var style = fragment.syntaxStyle().renderNowOr("");
+                mimeType = mimeTypeForStyle(style);
+            }
 
             SimpleHttpServer.sendJsonResponse(
                     exchange, Map.of("id", fragment.id(), "uri", uri, "mimeType", mimeType, "text", text));

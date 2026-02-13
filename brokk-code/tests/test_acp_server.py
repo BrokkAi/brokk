@@ -84,8 +84,7 @@ def test_normalize_model_catalog_and_reasoning_options() -> None:
         "disable",
     ]
     assert (
-        _sanitize_reasoning_level_for_model("gemini-3-flash-preview", "high", catalog)
-        == "default"
+        _sanitize_reasoning_level_for_model("gemini-3-flash-preview", "high", catalog) == "default"
     )
 
 
