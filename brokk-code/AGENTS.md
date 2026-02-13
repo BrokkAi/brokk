@@ -17,6 +17,7 @@ This project acts as a client that communicates with the Java-based Brokk execut
 - The TUI spawns the Java executor as a subprocess.
 - It authenticates using a bearer token generated at startup.
 - It streams job events and updates the UI based on state hints from the executor.
+- For ACP mode startup, create an executor session before calling `wait_ready()`. The readiness check can fail indefinitely without an active session.
 
 ## Code Style & Standards
 
