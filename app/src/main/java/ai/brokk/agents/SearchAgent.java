@@ -102,7 +102,7 @@ public class SearchAgent {
         }
     }
 
-    private static final int SUMMARIZE_THRESHOLD = 1_000;
+    private static final int SUMMARIZE_THRESHOLD = 2_000;
 
     private final IContextManager cm;
     private final StreamingChatModel model;
@@ -1339,21 +1339,46 @@ public class SearchAgent {
                 relevant code snippets that may be needed later. DO NOT speculate; only use the provided content.
                 """);
 
-        var user = new UserMessage(
-                """
-                <goal>
+        String contentToSummarize = rawResult;
+        boolean wasTruncated = false;
+
+        while (contentToSummarize.length() > 100) {
+            var user = new UserMessage(
+                    """
+                    <goal>
+                    %s
+                    </goal>
+                    <relevance_criteria>
+                    %s
+                    </relevance_criteria>
+                    <tool name="%s">
+                    %s
+                    </tool>
+                    """
+                            .formatted(query, reasoning == null ? "" : reasoning, request.name(), contentToSummarize));
+
+            Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
+
+            if (sr.error() instanceof dev.langchain4j.exception.ContextTooLargeException) {
+                contentToSummarize = contentToSummarize.substring(0, contentToSummarize.length() / 2);
+                wasTruncated = true;
+                continue;
+            }
+
+            if (sr.error() != null) {
+                return rawResult;
+            }
+
+            return """
+                [HARNESS NOTE: the tool output was very large and has been summarized with respect to the `reasoning` you gave in the tool call.]
                 %s
-                </goal>
-                <reasoning>
-                %s
-                </reasoning>
-                <tool name="%s">
-                %s
-                </tool>
-                """
-                        .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
-        Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
-        return (sr.error() != null) ? rawResult : sr.text();
+                %s"""
+                    .formatted(
+                            wasTruncated ? "[HARNESS NOTE] Input was truncated due to context limits.\n" : "",
+                            sr.text());
+        }
+
+        return rawResult;
     }
 
     private static Map<String, Object> getArgumentsMap(ToolExecutionRequest request) {
