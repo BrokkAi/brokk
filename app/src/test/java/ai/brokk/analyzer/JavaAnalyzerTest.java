@@ -1734,6 +1734,74 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testExtractSignatureWithVarargs() throws IOException {
+        String code =
+                """
+                public class VarargsTest {
+                    public void noArgs() {}
+                    public void oneArg(String s) {}
+                    public void varargs(String... args) {}
+                    public void mixedVarargs(int x, String... args) {}
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "VarargsTest.java").build()) {
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // noArgs should have signature "()"
+            var noArgsDefs = analyzer.getDefinitions("VarargsTest.noArgs");
+            assertEquals(1, noArgsDefs.size());
+            assertEquals("()", noArgsDefs.iterator().next().signature());
+
+            // oneArg should have signature "(String)"
+            var oneArgDefs = analyzer.getDefinitions("VarargsTest.oneArg");
+            assertEquals(1, oneArgDefs.size());
+            assertEquals("(String)", oneArgDefs.iterator().next().signature());
+
+            // varargs should have signature "(String[])" - normalized to array notation
+            var varargsDefs = analyzer.getDefinitions("VarargsTest.varargs");
+            assertEquals(1, varargsDefs.size());
+            assertEquals("(String[])", varargsDefs.iterator().next().signature());
+
+            // mixedVarargs should have signature "(int, String[])"
+            var mixedDefs = analyzer.getDefinitions("VarargsTest.mixedVarargs");
+            assertEquals(1, mixedDefs.size());
+            assertEquals("(int, String[])", mixedDefs.iterator().next().signature());
+        }
+    }
+
+    @Test
+    public void testVarargsOverloadDistinction() throws IOException {
+        String code =
+                """
+                public class VarargsOverload {
+                    public void process(String single) {}
+                    public void process(String... multiple) {}
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "VarargsOverload.java").build()) {
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // Overloads should be detected with distinct signatures: (String) vs (String[])
+            var defs = analyzer.getDefinitions("VarargsOverload.process");
+            assertEquals(2, defs.size(), "Should detect both overloads");
+
+            var signatures = defs.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+            assertTrue(signatures.contains("(String)"), "Should find process(String)");
+            assertTrue(signatures.contains("(String[])"), "Should find process(String...) as (String[])");
+
+            // Verify both are present as direct children of the class
+            var classCu = analyzer.getDefinitions("VarargsOverload").iterator().next();
+            var children = analyzer.getDirectChildren(classCu);
+            var processMethods = children.stream()
+                    .filter(cu -> cu.identifier().equals("process"))
+                    .toList();
+            assertEquals(2, processMethods.size(), "Class should have both process methods as children");
+        }
+    }
+
+    @Test
     public void testFindNearestDeclaration_MethodParameter() throws IOException {
         String content =
                 """

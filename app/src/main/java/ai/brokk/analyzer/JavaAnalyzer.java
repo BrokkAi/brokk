@@ -1329,6 +1329,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
     }
 
+    /** Extracts parameter type signature for method/constructor overload distinction. */
     @Override
     protected @Nullable String extractSignature(
             String captureName, TSNode definitionNode, SourceContent sourceContent) {
@@ -1346,13 +1347,34 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         List<String> params = new ArrayList<>();
         for (int i = 0; i < parametersNode.getNamedChildCount(); i++) {
             TSNode param = parametersNode.getNamedChild(i);
-            if (param == null || param.isNull() || !FORMAL_PARAMETER.equals(param.getType())) {
+            if (param == null || param.isNull()) {
                 continue;
             }
 
-            TSNode typeNode = param.getChildByFieldName("type");
+            String paramType = param.getType();
+            TSNode typeNode = null;
+            if (FORMAL_PARAMETER.equals(paramType)) {
+                typeNode = param.getChildByFieldName("type");
+            } else if (SPREAD_PARAMETER.equals(paramType)) {
+                // In tree-sitter-java, spread_parameter doesn't have a 'type' field,
+                // the type node is usually the first named child.
+                typeNode = param.getNamedChild(0);
+            }
+
             if (typeNode != null && !typeNode.isNull()) {
                 String typeText = sourceContent.substringFrom(typeNode).strip();
+
+                // Varargs are arrays at bytecode level; normalize to array notation for signature distinction.
+                boolean isVarargsParam = SPREAD_PARAMETER.equals(paramType)
+                        || sourceContent.substringFrom(param).contains("...")
+                        || typeText.endsWith("...");
+
+                if (isVarargsParam) {
+                    if (typeText.endsWith("...")) {
+                        typeText = typeText.substring(0, typeText.length() - 3).strip();
+                    }
+                    typeText += "[]";
+                }
                 params.add(stripGenericTypeArguments(typeText));
             }
         }

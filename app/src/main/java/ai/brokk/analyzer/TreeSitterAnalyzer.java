@@ -1738,15 +1738,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // For functions, CodeUnit.equals already includes signature (and fqName), so overloads with different
         // signatures will not be treated as duplicates.
         // For classes (and other non-function units), duplicates are still detected by fqName only.
-        CodeUnit existingDuplicate = cu.isFunction()
-                ? localTopLevelCUs.stream()
-                        .filter(existing -> existing.equals(cu))
-                        .findFirst()
-                        .orElse(null)
-                : localTopLevelCUs.stream()
-                        .filter(existing -> existing.fqName().equals(cu.fqName()))
-                        .findFirst()
-                        .orElse(null);
+        CodeUnit existingDuplicate = localTopLevelCUs.stream()
+                .filter(existing -> existing.equals(cu))
+                .findFirst()
+                .orElse(null);
 
         // Early exit if exact CodeUnit already present (same fqName, kind, source, AND signature)
         // unless it's a duplicate that should be replaced.
@@ -1844,6 +1839,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         .add(cu);
             }
 
+        } else if (isBenignDuplicate(existingDuplicate, cu)) {
+            log.trace("Ignoring benign duplicate {} (e.g. TS declaration merging)", cu.fqName());
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             log.trace("Ignoring duplicate {} per language policy", cu.fqName());
         } else {
@@ -1943,15 +1940,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // For functions, CodeUnit.equals already includes signature (and fqName), so overloads with different
         // signatures will not be treated as duplicates.
         // For classes (and other non-function units), duplicates are still detected by fqName only.
-        CodeUnit existingDuplicate = cu.isFunction()
-                ? kids.stream()
-                        .filter(existing -> existing.equals(cu))
-                        .findFirst()
-                        .orElse(null)
-                : kids.stream()
-                        .filter(existing -> existing.fqName().equals(cu.fqName()))
-                        .findFirst()
-                        .orElse(null);
+        CodeUnit existingDuplicate = kids.stream()
+                .filter(existing -> existing.equals(cu))
+                .findFirst()
+                .orElse(null);
 
         // Early exit if exact CodeUnit already present
         // unless it's a duplicate that should be replaced.
@@ -2017,9 +2009,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
             // Replace logically identical children (e.g., Python's "last wins")
-            List<CodeUnit> toRemove = cu.isFunction()
-                    ? kids.stream().filter(k -> k.equals(existingDuplicate)).toList()
-                    : kids.stream().filter(k -> k.fqName().equals(cu.fqName())).toList();
+            List<CodeUnit> toRemove =
+                    kids.stream().filter(k -> k.equals(existingDuplicate)).toList();
 
             if (!toRemove.isEmpty()) {
                 toRemove.forEach(oldCu -> removeCodeUnitAndDescendants(
@@ -2042,6 +2033,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
                         .add(cu);
             }
+        } else if (isBenignDuplicate(existingDuplicate, cu)) {
+            log.trace("Ignoring benign duplicate child {} (e.g. TS declaration merging)", cu.fqName());
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, cu.source())) {
             log.trace("Skipping duplicate child '{}' per language policy", cu.fqName());
         } else {
@@ -2368,9 +2361,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
             @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
 
-            // Create a lookup key that includes signature for functions to allow overloads
-            String cuLookupKey =
-                    (codeUnitSignature != null) ? enhancedFqName + "(" + codeUnitSignature + ")" : enhancedFqName;
+            // Create a lookup key that includes signature and location for functions to allow overloads
+            // with same normalized signatures to be processed as distinct definitions.
+            String cuLookupKey = (codeUnitSignature != null)
+                    ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
+                    : enhancedFqName;
 
             CodeUnit existingCUforKeyLookup = localCuByFqName.get(cuLookupKey);
             if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {

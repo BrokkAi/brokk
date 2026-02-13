@@ -786,13 +786,11 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
     @Override
     protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
-        // For function+namespace declaration merging, keep the first one (typically the function)
+        // For TypeScript declaration merging (e.g. function + namespace), we want to process both
+        // so that children of both are captured. The base class will merge them into a single FQN
+        // entry because shouldMergeSignaturesForSameFqn() is true.
         if (isBenignDuplicate(existing, candidate)) {
-            log.trace(
-                    "TypeScript declaration merging detected for {} (function + namespace). Keeping {} kind.",
-                    existing.fqName(),
-                    existing.isFunction() ? "function" : "namespace");
-            return true; // Ignore the duplicate (keep first one)
+            return false;
         }
 
         // Default behavior for other duplicates
