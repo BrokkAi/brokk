@@ -138,16 +138,22 @@ fun findUvExecutable(): String? {
         // Not found in PATH, try common locations
     }
 
-    // Common Homebrew locations on macOS
+    val userHome = System.getProperty("user.home")
+
+    // Common Homebrew, standalone installer, and Windows locations
     val candidates = listOf(
-        "/opt/homebrew/bin/uv",  // Apple Silicon
-        "/usr/local/bin/uv",     // Intel Mac / Linux Homebrew
-        System.getProperty("user.home") + "/.local/bin/uv",  // pipx / uv self-install
-        System.getProperty("user.home") + "/.cargo/bin/uv"   // cargo install
+        "/opt/homebrew/bin/uv",                      // Apple Silicon Homebrew
+        "/usr/local/bin/uv",                         // Intel Mac / Linux Homebrew
+        "$userHome/.local/bin/uv",                   // Standalone installer (Unix default)
+        "$userHome/.cargo/bin/uv",                   // Cargo install
+        "$userHome/Library/Application Support/uv/bin/uv", // macOS alternative
+        "/usr/bin/uv",                               // Linux package managers
+        "$userHome/.local/bin/uv.exe",               // Windows standalone (common)
+        "$userHome/AppData/Roaming/uv/bin/uv.exe"    // Windows alternative
     )
 
     for (candidate in candidates) {
-        val file = File(candidate)
+        val file = File(candidate.replace("~", userHome)).absoluteFile
         if (file.exists() && file.canExecute()) {
             return candidate
         }
