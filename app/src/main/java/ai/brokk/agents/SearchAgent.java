@@ -125,6 +125,12 @@ public class SearchAgent {
     SearchState currentState;
     private SearchState checkpointState;
 
+    public enum DropMode {
+        DROP_ONLY,
+        DROP_ENCOURAGED,
+        NORMAL
+    }
+
     private final Set<ContextFragment> originalPinnedFragments;
     private final List<ContextFragment> droppedFragments = new ArrayList<>();
 
@@ -285,18 +291,18 @@ public class SearchAgent {
             performAutoScan();
         }
 
-        boolean dropOnlyMode = false;
         @Nullable PendingTerminal pendingTerminal = null;
+        DropMode dropMode = calculateDropMode(currentState.context());
 
         while (true) {
             SearchState stateAtTurnStart = currentState;
 
             if (pendingTerminal != null) {
-                assert dropOnlyMode;
+                assert dropMode == DropMode.DROP_ONLY;
                 assert hasDroppableFragments(currentState.context());
             }
 
-            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropOnlyMode, pendingTerminal);
+            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropMode, pendingTerminal);
             var outcome = sta.executeTurn();
 
             switch (outcome) {
@@ -306,12 +312,10 @@ public class SearchAgent {
                 case TurnOutcome.Overflow overflow -> {
                     assert pendingTerminal == null;
                     if (currentState.equals(checkpointState)) {
-                        // our checkpoint is bad, this can happen if the initial context given to SearchAgent is too
-                        // large
                         return errorResult(
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.LLM_CONTEXT_SIZE,
-                                        "Context limit exceeded before search started"),
+                                        "Context limit exceeded and cannot be recovered by checkpoint restore or pruning."),
                                 currentState.context());
                     }
 
@@ -320,28 +324,32 @@ public class SearchAgent {
                             "Context limit exceeded. Restoring last successful checkpoint and entering recovery mode.");
 
                     currentState = checkpointState;
-                    if (!hasDroppableFragments(currentState.context())) {
+                    if (!isPruningWorthwhile(currentState.context(), false)) {
                         return errorResult(
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.LLM_CONTEXT_SIZE,
-                                        "Context limit exceeded, but no fragments are droppable after restoring to the last checkpoint; cannot recover by pruning."),
+                                        "Context limit exceeded; no substantial fragments are available to drop."),
                                 currentState.context());
                     }
-
-                    dropOnlyMode = true;
+                    dropMode = DropMode.DROP_ONLY;
                 }
                 case TurnOutcome.AutoScan autoScan -> {
-                    assert !dropOnlyMode;
+                    assert dropMode != DropMode.DROP_ONLY;
                     performAutoScan();
                 }
                 case TurnOutcome.Continue c -> {
-                    currentState = new SearchState(
+                    SearchState nextState = new SearchState(
                             c.contextAfterTurn(),
                             c.sessionMessagesAfterTurn(),
                             stateAtTurnStart.context(),
                             stateAtTurnStart.presentedRelatedFiles());
-                    checkpointState = stateAtTurnStart;
-                    dropOnlyMode = false;
+                    currentState = nextState;
+
+                    // if we just ran a drop-only turn, reset checkpoint to current state: this means that if we
+                    // are still overflowed after the drop-only, next turn will exit instead of
+                    // (almost certainly futily) retrying drop-only
+                    checkpointState = dropMode == DropMode.DROP_ONLY ? nextState : stateAtTurnStart;
+                    dropMode = calculateDropMode(c.contextAfterTurn());
                 }
                 case TurnOutcome.PendingTerminal pt -> {
                     currentState = new SearchState(
@@ -350,7 +358,7 @@ public class SearchAgent {
                             stateAtTurnStart.lastTurnContext(),
                             stateAtTurnStart.presentedRelatedFiles());
                     pendingTerminal = pt.pendingTerminal();
-                    dropOnlyMode = true;
+                    dropMode = DropMode.DROP_ONLY;
                 }
                 default -> throw new AssertionError("Unexpected outcome " + outcome);
             }
@@ -412,10 +420,31 @@ public class SearchAgent {
         droppedFragments.addAll(delta.removedFragments());
     }
 
-    List<String> calculateAllowedToolNames(Context context, boolean dropOnlyMode) {
-        if (dropOnlyMode) {
+    private DropMode calculateDropMode(Context context) {
+        if (!hasDroppableFragments(context)) {
+            return DropMode.NORMAL;
+        }
+
+        long workspaceTokens = context.allFragments()
+                .filter(f1 -> f1.getType().includeInProjectGuide())
+                .mapToLong(f -> (long)
+                        Math.ceil(1.2 * Messages.getApproximateTokens(f.text().join())))
+                .sum();
+        var maxInputTokens = cm.getService().getMaxInputTokens(model);
+        double pct = (double) workspaceTokens / maxInputTokens * 100.0;
+
+        if (pct > 90) {
+            return DropMode.DROP_ONLY;
+        } else if (pct > 60) {
+            return DropMode.DROP_ENCOURAGED;
+        }
+        return DropMode.NORMAL;
+    }
+
+    List<String> calculateAllowedToolNames(Context context, DropMode dropMode) {
+        if (dropMode == DropMode.DROP_ONLY) {
             assert hasDroppableFragments(context); // caller should have verified
-            return List.of("dropWorkspaceFragments");
+            return List.of("dropWorkspaceFragments", "addFileSummariesToWorkspace", "addClassSummariesToWorkspace");
         }
 
         // start with the global search tools
@@ -496,7 +525,7 @@ public class SearchAgent {
 
         var scanModel = getScanModel();
         var wst = new WorkspaceTools(context);
-        var toolProvider = new SingleTurnAgent(this, currentState, false, null);
+        var toolProvider = new SingleTurnAgent(this, currentState, DropMode.NORMAL, null);
         var tr = createToolRegistry(wst, toolProvider);
 
         var messages = SearchPrompts.instance.buildPruningPrompt(context, goal);
@@ -634,7 +663,7 @@ public class SearchAgent {
     // public for ToolRegistry
     public static final class SingleTurnAgent {
         private final SearchAgent agent;
-        private final boolean dropOnlyMode;
+        private final DropMode dropMode;
         private final @Nullable PendingTerminal pendingTerminal;
 
         private Context context; // mutable
@@ -647,10 +676,10 @@ public class SearchAgent {
         private SingleTurnAgent(
                 SearchAgent agent,
                 SearchState stateAtTurnStart,
-                boolean dropOnlyMode,
+                DropMode dropMode,
                 @Nullable PendingTerminal pendingTerminal) {
             this.agent = agent;
-            this.dropOnlyMode = dropOnlyMode;
+            this.dropMode = dropMode;
             this.pendingTerminal = pendingTerminal;
 
             this.context = stateAtTurnStart.context();
@@ -798,18 +827,14 @@ public class SearchAgent {
 
                     context = agent.resetPinsToOriginal(context);
                     var pending = new PendingTerminal(termExec);
+
                     // take an extra turn to drop fragments after making the terminal decision ONLY IF
                     // - we didn't already drop this turn, AND
                     // - there's a bunch of autopinned fragments that could have been stopping a drop this turn
                     // ... in short, we trust the agent to drop appropriately, but if it maybe wanted to drop
                     // but couldn't, we give it a final opportunity to do so.
-                    boolean worthDropping = context.allFragments()
-                                    .filter(f -> context.isPinned(f) && !agent.isPinnedBySystem(f))
-                                    .mapToLong(f -> Messages.getApproximateTokens(
-                                            f.text().join()))
-                                    .sum()
-                            > 20_000;
-                    if (worthDropping && !categoriesSeen.contains(ToolCategory.WORKSPACE_HYGIENE)) {
+                    if (agent.isPruningWorthwhile(context, true)
+                            && !categoriesSeen.contains(ToolCategory.WORKSPACE_HYGIENE)) {
                         return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                     }
                     return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
@@ -839,6 +864,14 @@ public class SearchAgent {
                 agent.currentState = agent.currentState.withPresentedRelatedFiles(updatedRelated);
             }
 
+            // update pins before generating prompt
+            if (dropMode == DropMode.DROP_ONLY) {
+                context = agent.resetPinsToOriginal(context);
+                assert agent.hasDroppableFragments(context);
+            } else {
+                context = agent.applyPinning(context, lastTurnContext);
+            }
+
             var messages = SearchPrompts.instance.buildPrompt(
                     context,
                     agent.model,
@@ -847,19 +880,8 @@ public class SearchAgent {
                     agent.getObjective(),
                     agent.mcpTools,
                     sessionMessages,
-                    related);
-
-            if (dropOnlyMode) {
-                context = agent.resetPinsToOriginal(context);
-                messages = new ArrayList<>(messages);
-
-                assert agent.hasDroppableFragments(context);
-                messages.add(
-                        new UserMessage(
-                                "The Workspace has exceeded the context limit. You MUST use 'dropWorkspaceFragments' to remove irrelevant or redundant fragments before you can continue."));
-            } else {
-                context = agent.applyPinning(context, lastTurnContext);
-            }
+                    related,
+                    dropMode);
 
             @Nullable UserMessage extraUserMessage = null;
 
@@ -867,8 +889,8 @@ public class SearchAgent {
             List<String> agentTerminalTools;
 
             if (pendingTerminal == null) {
-                allowedToolNames = agent.calculateAllowedToolNames(context, dropOnlyMode);
-                agentTerminalTools = dropOnlyMode ? List.of() : agent.calculateTerminalTools();
+                allowedToolNames = agent.calculateAllowedToolNames(context, dropMode);
+                agentTerminalTools = dropMode == DropMode.DROP_ONLY ? List.of() : agent.calculateTerminalTools();
             } else {
                 messages = new ArrayList<>(messages);
                 extraUserMessage = new UserMessage(
@@ -1098,7 +1120,19 @@ public class SearchAgent {
     }
 
     boolean hasDroppableFragments(Context context) {
-        return context.allFragments().anyMatch(f -> !originalPinnedFragments.contains(f));
+        return context.allFragments().anyMatch(f -> !isPinnedBySystem(f));
+    }
+
+    /**
+     * Determines if the context contains enough dropable fragments
+     * that stripping them would meaningfully reduce context pressure.
+     */
+    private boolean isPruningWorthwhile(Context context, boolean autoPinnedOnly) {
+        return context.allFragments()
+                        .filter(f -> !isPinnedBySystem(f) && (!autoPinnedOnly || context.isPinned(f)))
+                        .mapToLong(f -> Messages.getApproximateTokens(f.text().join()))
+                        .sum()
+                > 20_000;
     }
 
     private boolean isPinnedBySystem(ContextFragment cf) {

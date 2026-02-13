@@ -548,10 +548,10 @@ public class SearchPrompts {
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
             List<ChatMessage> sessionMessages,
-            Map<ProjectFile, String> relatedSymbols) {
+            Map<ProjectFile, String> relatedSymbols,
+            ai.brokk.agents.SearchAgent.DropMode dropMode) {
 
         var cm = context.getContextManager();
-        var inputLimit = cm.getService().getMaxInputTokens(model);
 
         // Determine viewing policy based on search objective
         boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
@@ -559,8 +559,7 @@ public class SearchPrompts {
 
         // Build workspace messages in insertion order with viewing policy applied
         var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
-        // Fudge factor for langchain4j's tokenizer undercounts most modern models. Use ceil to avoid undercounting.
-        long workspaceTokens = (long) Math.ceil(1.2 * Messages.getApproximateMessageTokens(workspaceMessages));
+        long workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
 
         var messages = new ArrayList<ChatMessage>();
 
@@ -595,30 +594,32 @@ public class SearchPrompts {
             messages.add(new AiMessage("Acknowledged. I will explicitly add only what is relevant."));
         }
 
-        // Workspace size warning
+        // Workspace size warning (and drop-only recovery notice)
+        var maxInputTokens = cm.getService().getMaxInputTokens(model);
+        double pct = (double) workspaceTokens / maxInputTokens * 100.0;
         String warning = "";
-        if (inputLimit > 0) {
-            double pct = (double) workspaceTokens / inputLimit * 100.0;
-            if (pct > 90.0) {
+
+        switch (dropMode) {
+            case DROP_ONLY ->
                 warning =
                         """
-                        <workspace-size-warning>
-                        CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
-                        You MUST reduce Workspace size immediately before any further exploration.
-                        Replace full text with summaries and drop non-essential fragments first.
-                        </workspace-size-warning>
-                        """
-                                .formatted(pct, workspaceTokens, inputLimit);
-            } else if (pct > 60.0) {
+                    <workspace-size-warning>
+                    CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
+                    You MUST reduce Workspace size immediately before any further exploration.
+                    Replace full text with summaries and drop non-essential fragments first.
+                    </workspace-size-warning>
+                    """
+                                .formatted(pct, workspaceTokens, maxInputTokens);
+            case DROP_ENCOURAGED ->
                 warning =
                         """
-                        <workspace-size-warning>
-                        NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
-                        Prefer summaries and prune aggressively before expanding further.
-                        </workspace-size-warning>
-                        """
-                                .formatted(pct, workspaceTokens, inputLimit);
-            }
+                    <workspace-size-warning>
+                    NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
+                    Prefer summaries and prune aggressively before expanding further.
+                    </workspace-size-warning>
+                    """
+                                .formatted(pct, workspaceTokens, maxInputTokens);
+            case NORMAL -> {}
         }
 
         boolean needsBuildSetup = (objective == Objective.LUTZ || objective == Objective.TASKS_ONLY)

@@ -37,7 +37,7 @@ class SearchAgentToolTest {
         assertTrue(
                 agent.hasDroppableFragments(context),
                 "Workspace should have droppable fragments after adding a new one");
-        List<String> allowed = agent.calculateAllowedToolNames(context, false);
+        List<String> allowed = agent.calculateAllowedToolNames(context, SearchAgent.DropMode.NORMAL);
         assertTrue(allowed.contains("dropWorkspaceFragments"), "Allowed tools should include drop tool");
     }
 
