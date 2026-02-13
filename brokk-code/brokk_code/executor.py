@@ -589,6 +589,19 @@ class ExecutorManager:
             await self._handle_http_error(e, endpoint)
             raise  # Should not be reached
 
+    async def get_models(self) -> Dict[str, Any]:
+        """Returns runtime-available model information from the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/models")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/models")
+            raise  # Should not be reached
+
     async def drop_context_fragments(self, fragment_ids: List[str]) -> Dict[str, Any]:
         """Drops specific fragments from context by ID."""
         if not self._http_client:

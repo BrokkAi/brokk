@@ -15,6 +15,8 @@ BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
 DEFAULT_MODEL_SELECTION = "gpt-5.2"
 DEFAULT_REASONING_LEVEL = "low"
+THOUGHT_LEVEL_CONFIG_ID = "thought_level"
+DEFAULT_VARIANT_VALUE = "default"
 
 
 def normalize_mode(mode: Optional[str]) -> str:
@@ -37,6 +39,151 @@ def resolve_model_selection(model_selection: Optional[str]) -> tuple[str, Option
     if normalized_reasoning not in REASONING_LEVEL_IDS:
         return model_id.strip() or "gpt-5.2", None
     return model_id.strip() or "gpt-5.2", normalized_reasoning
+
+
+def _fallback_model_catalog() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": model_id,
+            "location": model_id,
+            "supportsReasoningEffort": True,
+            "supportsReasoningDisable": True,
+        }
+        for model_id in BASE_MODEL_IDS
+    ]
+
+
+def _normalize_model_catalog(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    models = payload.get("models", [])
+    if not isinstance(models, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for model in models:
+        if not isinstance(model, dict):
+            continue
+        name = model.get("name")
+        if not isinstance(name, str):
+            continue
+        stripped_name = name.strip()
+        if not stripped_name or stripped_name in seen:
+            continue
+        seen.add(stripped_name)
+        normalized.append(
+            {
+                "name": stripped_name,
+                "location": str(model.get("location", stripped_name)),
+                "supportsReasoningEffort": bool(model.get("supportsReasoningEffort", False)),
+                "supportsReasoningDisable": bool(model.get("supportsReasoningDisable", False)),
+            }
+        )
+    return normalized
+
+
+def _reasoning_options_for_model(
+    model_name: str, catalog: list[dict[str, Any]]
+) -> list[str]:
+    _ = model_name
+    _ = catalog
+    # Keep a stable, explicit reasoning set in the combined model dropdown.
+    # ACP clients can then always surface `default` and `disable`.
+    return ["default", "low", "medium", "high", "disable"]
+
+
+def _sanitize_reasoning_level_for_model(
+    model_name: str, reasoning_level: str, catalog: list[dict[str, Any]]
+) -> str:
+    normalized = reasoning_level if reasoning_level in REASONING_LEVEL_IDS else "default"
+    entry = next((m for m in catalog if m.get("name") == model_name), None)
+    if not isinstance(entry, dict):
+        return normalized
+
+    supports_effort = bool(entry.get("supportsReasoningEffort"))
+    supports_disable = bool(entry.get("supportsReasoningDisable"))
+    if not supports_effort and normalized != "default":
+        return "default"
+    if normalized == "disable" and not supports_disable:
+        return "default"
+    return normalized
+
+
+def _model_options(
+    catalog: list[dict[str, Any]],
+) -> list[tuple[str, str]]:
+    options: list[tuple[str, str]] = []
+    for model in catalog:
+        if not isinstance(model, dict):
+            continue
+        model_name = str(model.get("name", "")).strip()
+        if not model_name:
+            continue
+        options.append((model_name, model_name))
+    return options
+
+
+def _model_variants_for_model(model_name: str, catalog: list[dict[str, Any]]) -> list[str]:
+    entry = next((m for m in catalog if m.get("name") == model_name), None)
+    if not isinstance(entry, dict):
+        return []
+    supports_effort = bool(entry.get("supportsReasoningEffort"))
+    supports_disable = bool(entry.get("supportsReasoningDisable"))
+    if not supports_effort:
+        return []
+    variants = ["low", "medium", "high"]
+    if supports_disable:
+        variants.append("disable")
+    return variants
+
+
+def _build_available_models(catalog: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    available: list[tuple[str, str]] = []
+    for model_id, _ in _model_options(catalog):
+        available.append((model_id, model_id))
+        variants = _model_variants_for_model(model_id, catalog)
+        available.extend(
+            (f"{model_id}/{variant}", f"{model_id} ({variant})")
+            for variant in variants
+        )
+    return available
+
+
+def _format_model_id_with_variant(
+    model_id: str, variant: Optional[str], available_variants: list[str]
+) -> str:
+    if not variant or variant == DEFAULT_VARIANT_VALUE:
+        return model_id
+    if variant not in available_variants:
+        return model_id
+    return f"{model_id}/{variant}"
+
+
+def _parse_model_selection(
+    model_selection: str, catalog: list[dict[str, Any]]
+) -> tuple[Optional[str], Optional[str]]:
+    raw = (model_selection or "").strip()
+    if not raw:
+        return (None, None)
+    if raw.startswith("model/"):
+        raw = raw[len("model/") :].strip()
+    if raw.startswith("reasoning/"):
+        level = raw[len("reasoning/") :].strip().lower()
+        return (None, level if level in REASONING_LEVEL_IDS else None)
+
+    available_models = {model_id for model_id, _ in _model_options(catalog)}
+    if raw in available_models:
+        return (raw, None)
+
+    if "/" in raw:
+        segments = raw.split("/")
+        candidate_variant = segments[-1].strip().lower()
+        base_model = "/".join(segments[:-1]).strip()
+        if base_model in available_models:
+            available_variants = _model_variants_for_model(base_model, catalog)
+            if candidate_variant in available_variants:
+                return (base_model, candidate_variant)
+
+    return (raw, None)
 
 
 def extract_prompt_text(prompt: Any) -> str:
@@ -473,15 +620,69 @@ async def run_acp_server(
             self._model_by_session: dict[str, str] = {}
             self._reasoning_by_session: dict[str, str] = {}
             self._cwd_by_session: dict[str, str] = {}
+            self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
 
-        def _config_options_for_session(self, session_id: str) -> list[Any]:
-            current_mode = self._mode_by_session.get(session_id, "LUTZ")
-            current_model = self._model_by_session.get(
-                session_id, DEFAULT_MODEL_SELECTION
-            )
+        async def _refresh_model_catalog(self, session_id: str) -> None:
+            try:
+                await bridge.ensure_ready()
+                payload = await bridge.executor.get_models()
+                normalized = _normalize_model_catalog(payload)
+                self._model_catalog_by_session[session_id] = (
+                    normalized if normalized else _fallback_model_catalog()
+                )
+            except Exception:
+                logger.info(
+                    "Model discovery unavailable; using fallback catalog",
+                    exc_info=True,
+                )
+                self._model_catalog_by_session[session_id] = _fallback_model_catalog()
+
+        def _catalog_for_session(self, session_id: str) -> list[dict[str, Any]]:
+            return self._model_catalog_by_session.get(session_id, _fallback_model_catalog())
+
+        def _current_model_selection(self, session_id: str) -> str:
+            catalog = self._catalog_for_session(session_id)
+            model_names = [str(m.get("name")) for m in catalog if isinstance(m, dict)]
+            current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
+            if current_model not in model_names and model_names:
+                current_model = model_names[0]
+                self._model_by_session[session_id] = current_model
             current_reasoning = self._reasoning_by_session.get(
                 session_id, DEFAULT_REASONING_LEVEL
             )
+            reasoning_options = _reasoning_options_for_model(current_model, catalog)
+            if current_reasoning not in reasoning_options:
+                current_reasoning = "default"
+                self._reasoning_by_session[session_id] = current_reasoning
+            model_options = _model_options(catalog)
+            option_values = {value for value, _ in model_options}
+            if current_model not in option_values and model_options:
+                current_model = model_options[0][0]
+                self._model_by_session[session_id] = current_model
+            return current_model
+
+        def _model_state_for_session(self, session_id: str) -> SessionModelState:
+            catalog = self._catalog_for_session(session_id)
+            variants = _build_available_models(catalog)
+            if not variants:
+                variants = [(DEFAULT_MODEL_SELECTION, DEFAULT_MODEL_SELECTION)]
+            current_model = self._current_model_selection(session_id)
+            current_reasoning = self._reasoning_by_session.get(session_id, DEFAULT_REASONING_LEVEL)
+            current_model_id = _format_model_id_with_variant(
+                current_model,
+                current_reasoning,
+                _model_variants_for_model(current_model, catalog),
+            )
+            return SessionModelState(
+                available_models=[
+                    ModelInfo(model_id=value, name=label)
+                    for value, label in variants
+                ],
+                current_model_id=current_model_id,
+            )
+
+        def _config_options_for_session(self, session_id: str) -> list[Any]:
+            current_mode = self._mode_by_session.get(session_id, "LUTZ")
             return [
                 SessionConfigOption.model_validate(
                     {
@@ -497,35 +698,23 @@ async def run_acp_server(
                         ],
                     }
                 ),
-                SessionConfigOption.model_validate(
-                    {
-                        "type": "select",
-                        "id": "model",
-                        "name": "Model",
-                        "description": "Choose which model Brokk should use",
-                        "category": "model",
-                        "currentValue": current_model,
-                        "options": [
-                            SessionConfigSelectOption(value=model_id, name=model_id)
-                            for model_id in BASE_MODEL_IDS
-                        ],
-                    }
-                ),
-                SessionConfigOption.model_validate(
-                    {
-                        "type": "select",
-                        "id": "reasoning_effort",
-                        "name": "Reasoning Effort",
-                        "description": "Choose how much reasoning effort the model should use",
-                        "category": "model",
-                        "currentValue": current_reasoning,
-                        "options": [
-                            SessionConfigSelectOption(value=level, name=level.title())
-                            for level in REASONING_LEVEL_IDS
-                        ],
-                    }
-                )
             ]
+
+        def _variant_meta_for_session(self, session_id: str) -> dict[str, Any]:
+            model_id = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
+            variant = self._reasoning_by_session.get(session_id, DEFAULT_REASONING_LEVEL)
+            if variant == DEFAULT_VARIANT_VALUE:
+                variant = None
+            available_variants = _model_variants_for_model(
+                model_id, self._catalog_for_session(session_id)
+            )
+            return {
+                "brokk": {
+                    "modelId": model_id,
+                    "variant": variant,
+                    "availableVariants": available_variants,
+                }
+            }
 
         def on_connect(self, client: Any) -> None:
             self.client = client
@@ -555,6 +744,8 @@ async def run_acp_server(
             self._model_by_session[session_id] = DEFAULT_MODEL_SELECTION
             self._reasoning_by_session[session_id] = DEFAULT_REASONING_LEVEL
             self._cwd_by_session[session_id] = cwd
+            await self._refresh_model_catalog(session_id)
+            model_state = self._model_state_for_session(session_id)
             return NewSessionResponse(
                 session_id=session_id,
                 modes=SessionModeState(
@@ -565,14 +756,9 @@ async def run_acp_server(
                     ],
                     current_mode_id="LUTZ",
                 ),
-                models=SessionModelState(
-                    available_models=[
-                        ModelInfo(model_id=model_id, name=model_id)
-                        for model_id in BASE_MODEL_IDS
-                    ],
-                    current_model_id=DEFAULT_MODEL_SELECTION,
-                ),
+                models=model_state,
                 config_options=self._config_options_for_session(session_id),
+                _meta=self._variant_meta_for_session(session_id),
             )
 
         async def load_session(
@@ -586,6 +772,8 @@ async def run_acp_server(
             if session_id not in self._mode_by_session:
                 return None
             self._cwd_by_session[session_id] = cwd
+            await self._refresh_model_catalog(session_id)
+            model_state = self._model_state_for_session(session_id)
             return LoadSessionResponse(
                 modes=SessionModeState(
                     available_modes=[
@@ -595,16 +783,9 @@ async def run_acp_server(
                     ],
                     current_mode_id=self._mode_by_session.get(session_id, "LUTZ"),
                 ),
-                models=SessionModelState(
-                    available_models=[
-                        ModelInfo(model_id=model_id, name=model_id)
-                        for model_id in BASE_MODEL_IDS
-                    ],
-                    current_model_id=self._model_by_session.get(
-                        session_id, DEFAULT_MODEL_SELECTION
-                    ),
-                ),
+                models=model_state,
                 config_options=self._config_options_for_session(session_id),
+                _meta=self._variant_meta_for_session(session_id),
             )
 
         async def list_sessions(
@@ -640,11 +821,20 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> SetSessionModelResponse:
             del kwargs
-            selected_model, selected_reasoning = resolve_model_selection(model_id)
-            self._model_by_session[session_id] = selected_model or DEFAULT_MODEL_SELECTION
+            catalog = self._catalog_for_session(session_id)
+            selected_model, selected_reasoning = _parse_model_selection(model_id, catalog)
+            if selected_model is None and selected_reasoning is None:
+                selected_model, selected_reasoning = resolve_model_selection(model_id)
+            available = {str(m.get("name")) for m in catalog}
+            fallback_model = next(iter(available), DEFAULT_MODEL_SELECTION)
+            self._model_by_session[session_id] = (
+                selected_model if selected_model in available else fallback_model
+            )
             if selected_reasoning:
                 self._reasoning_by_session[session_id] = selected_reasoning
-            return SetSessionModelResponse()
+            else:
+                self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
+            return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
 
         async def set_session_config_option(
             self,
@@ -657,12 +847,17 @@ async def run_acp_server(
             if config_id == "mode" and value:
                 self._mode_by_session[session_id] = normalize_mode(value)
             elif config_id == "model" and value:
-                self._model_by_session[session_id] = value
-            elif config_id == "reasoning_effort" and value in REASONING_LEVEL_IDS:
+                selected_model, selected_reasoning = resolve_model_selection(value)
+                self._model_by_session[session_id] = selected_model
+                if selected_reasoning:
+                    self._reasoning_by_session[session_id] = selected_reasoning
+            elif (
+                config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort"}
+                and value in REASONING_LEVEL_IDS
+            ):
                 self._reasoning_by_session[session_id] = value
-            return SetSessionConfigOptionResponse(
-                config_options=self._config_options_for_session(session_id)
-            )
+            options = self._config_options_for_session(session_id)
+            return SetSessionConfigOptionResponse(config_options=options)
 
         async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
@@ -672,7 +867,14 @@ async def run_acp_server(
                 or self._model_by_session.get(session_id)
                 or DEFAULT_MODEL_SELECTION
             )
+            catalog = self._catalog_for_session(session_id)
+            parsed_model, parsed_reasoning = _parse_model_selection(str(planner_model), catalog)
+            if parsed_model:
+                planner_model = parsed_model
             planner_model_id, selected_reasoning_level = resolve_model_selection(planner_model)
+            available_models = {str(m.get("name")) for m in catalog}
+            if planner_model_id not in available_models:
+                planner_model_id = next(iter(available_models), DEFAULT_MODEL_SELECTION)
             code_model = (
                 kwargs.get("code_model")
                 or kwargs.get("codeModel")
@@ -681,9 +883,13 @@ async def run_acp_server(
             reasoning_level = (
                 kwargs.get("reasoning_level")
                 or kwargs.get("reasoningLevel")
+                or parsed_reasoning
                 or selected_reasoning_level
                 or self._reasoning_by_session.get(session_id)
                 or "low"
+            )
+            reasoning_level = _sanitize_reasoning_level_for_model(
+                planner_model_id, str(reasoning_level), catalog
             )
             reasoning_level_code = (
                 kwargs.get("reasoning_level_code") or kwargs.get("reasoningLevelCode") or "disable"

@@ -6,7 +6,13 @@ from brokk_code.acp_server import (
     DEFAULT_REASONING_LEVEL,
     REASONING_LEVEL_IDS,
     BrokkAcpBridge,
+    _build_available_models,
     _extract_session_id_for_cancel,
+    _model_variants_for_model,
+    _normalize_model_catalog,
+    _parse_model_selection,
+    _reasoning_options_for_model,
+    _sanitize_reasoning_level_for_model,
     build_context_chip_blocks,
     extract_prompt_text,
     map_executor_event_to_session_update,
@@ -41,6 +47,104 @@ def test_resolve_model_selection_variant_and_plain() -> None:
     assert resolve_model_selection(DEFAULT_MODEL_SELECTION) == (DEFAULT_MODEL_SELECTION, None)
     assert resolve_model_selection("gpt-5.2#r=low") == ("gpt-5.2", "low")
     assert resolve_model_selection("gemini-3-flash-preview") == ("gemini-3-flash-preview", None)
+
+
+def test_normalize_model_catalog_and_reasoning_options() -> None:
+    catalog = _normalize_model_catalog(
+        {
+            "models": [
+                {
+                    "name": "gpt-5.2",
+                    "location": "openai/gpt-5.2",
+                    "supportsReasoningEffort": True,
+                    "supportsReasoningDisable": True,
+                },
+                {
+                    "name": "gemini-3-flash-preview",
+                    "location": "google/gemini-3-flash-preview",
+                    "supportsReasoningEffort": False,
+                    "supportsReasoningDisable": False,
+                },
+            ]
+        }
+    )
+    assert [m["name"] for m in catalog] == ["gpt-5.2", "gemini-3-flash-preview"]
+    assert _reasoning_options_for_model("gpt-5.2", catalog) == [
+        "default",
+        "low",
+        "medium",
+        "high",
+        "disable",
+    ]
+    assert _reasoning_options_for_model("gemini-3-flash-preview", catalog) == [
+        "default",
+        "low",
+        "medium",
+        "high",
+        "disable",
+    ]
+    assert (
+        _sanitize_reasoning_level_for_model("gemini-3-flash-preview", "high", catalog)
+        == "default"
+    )
+
+
+def test_build_available_models_includes_model_variants_without_default_duplication() -> None:
+    catalog = _normalize_model_catalog(
+        {
+            "models": [
+                {
+                    "name": "gpt-5.2",
+                    "supportsReasoningEffort": True,
+                    "supportsReasoningDisable": True,
+                },
+                {
+                    "name": "gemini-3-flash-preview",
+                    "supportsReasoningEffort": False,
+                    "supportsReasoningDisable": False,
+                },
+            ]
+        }
+    )
+    assert _model_variants_for_model("gpt-5.2", catalog) == ["low", "medium", "high", "disable"]
+    assert _model_variants_for_model("gemini-3-flash-preview", catalog) == []
+    options = _build_available_models(catalog)
+    assert [value for value, _ in options] == [
+        "gpt-5.2",
+        "gpt-5.2/low",
+        "gpt-5.2/medium",
+        "gpt-5.2/high",
+        "gpt-5.2/disable",
+        "gemini-3-flash-preview",
+    ]
+    assert [name for _, name in options] == [
+        "gpt-5.2",
+        "gpt-5.2 (low)",
+        "gpt-5.2 (medium)",
+        "gpt-5.2 (high)",
+        "gpt-5.2 (disable)",
+        "gemini-3-flash-preview",
+    ]
+    assert "gpt-5.2/default" not in [value for value, _ in options]
+    assert all("#r=" not in value for value, _ in options)
+
+
+def test_parse_model_selection_routes_model_and_variant() -> None:
+    catalog = _normalize_model_catalog(
+        {
+            "models": [
+                {
+                    "name": "gpt-5.2",
+                    "supportsReasoningEffort": True,
+                    "supportsReasoningDisable": True,
+                },
+            ]
+        }
+    )
+    assert _parse_model_selection("gpt-5.2", catalog) == ("gpt-5.2", None)
+    assert _parse_model_selection("gpt-5.2/high", catalog) == ("gpt-5.2", "high")
+    assert _parse_model_selection("gpt-5.2/default", catalog) == ("gpt-5.2/default", None)
+    assert _parse_model_selection("model/gpt-5.2", catalog) == ("gpt-5.2", None)
 
 
 def test_extract_prompt_text_from_blocks() -> None:
