@@ -158,6 +158,9 @@ class EditBlockUtilsTest {
         var lines = new String[] {unixCandidate, "<<<<<<< SEARCH"};
         var result = EditBlockUtils.findFilenameNearby(lines, 1, projectFiles, null);
 
-        assertEquals(unixCandidate, result, "The candidate path should match after normalization regardless of system separators");
+        assertEquals(
+                unixCandidate,
+                result,
+                "The candidate path should match after normalization regardless of system separators");
     }
 }
