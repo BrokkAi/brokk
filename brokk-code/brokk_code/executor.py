@@ -433,8 +433,14 @@ class ExecutorManager:
         reasoning_level_code: Optional[str] = None,
         mode: str = "LUTZ",
         tags: Optional[Dict[str, str]] = None,
+        session_id: Optional[str] = None,
     ) -> str:
-        """Submits a new job to the executor."""
+        """Submits a new job to the executor.
+
+        Backwards-compatible: session_id is optional. If provided (or if
+        self.session_id was previously set via create_session/import_session_zip),
+        the header 'X-Session-Id' will be included on the POST to /v1/jobs.
+        """
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
@@ -459,6 +465,11 @@ class ExecutorManager:
             payload["reasoningLevelCode"] = reasoning_level_code
 
         headers = {"Idempotency-Key": str(uuid.uuid4())}
+        # Prefer explicit argument, fall back to manager-level session_id if present.
+        effective_session_id = session_id or self.session_id
+        if effective_session_id:
+            headers["X-Session-Id"] = effective_session_id
+
         resp = await self._http_client.post("/v1/jobs", json=payload, headers=headers)
         resp.raise_for_status()
         return resp.json()["jobId"]

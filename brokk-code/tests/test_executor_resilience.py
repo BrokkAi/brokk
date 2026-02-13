@@ -143,6 +143,87 @@ async def test_get_models_success():
 
 
 @pytest.mark.asyncio
+async def test_submit_job_includes_x_session_id_when_passed_explicitly():
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    # Prepare a successful response for post
+    post_resp = MagicMock(spec=httpx.Response)
+    post_resp.status_code = 201
+    post_resp.json.return_value = {"jobId": "job-explicit"}
+    post_resp.raise_for_status.return_value = None
+
+    captured = {}
+
+    async def post_side_effect(url, **kwargs):
+        captured["url"] = url
+        captured["headers"] = kwargs.get("headers", {})
+        return post_resp
+
+    mock_client.post.side_effect = post_side_effect
+
+    job_id = await manager.submit_job("abc", "gpt-5.2", session_id="explicit-session-123")
+    assert job_id == "job-explicit"
+    assert captured["url"] == "/v1/jobs"
+    assert "X-Session-Id" in captured["headers"]
+    assert captured["headers"]["X-Session-Id"] == "explicit-session-123"
+
+
+@pytest.mark.asyncio
+async def test_submit_job_includes_x_session_id_when_manager_has_session():
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    # set manager-level session id
+    manager.session_id = "manager-session-456"
+
+    post_resp = MagicMock(spec=httpx.Response)
+    post_resp.status_code = 201
+    post_resp.json.return_value = {"jobId": "job-manager"}
+    post_resp.raise_for_status.return_value = None
+
+    captured = {}
+
+    async def post_side_effect(url, **kwargs):
+        captured["headers"] = kwargs.get("headers", {})
+        return post_resp
+
+    mock_client.post.side_effect = post_side_effect
+
+    job_id = await manager.submit_job("abc", "gpt-5.2")
+    assert job_id == "job-manager"
+    assert "X-Session-Id" in captured["headers"]
+    assert captured["headers"]["X-Session-Id"] == "manager-session-456"
+
+
+@pytest.mark.asyncio
+async def test_submit_job_omits_x_session_id_when_none_available():
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    post_resp = MagicMock(spec=httpx.Response)
+    post_resp.status_code = 201
+    post_resp.json.return_value = {"jobId": "job-none"}
+    post_resp.raise_for_status.return_value = None
+
+    captured = {}
+
+    async def post_side_effect(url, **kwargs):
+        captured["headers"] = kwargs.get("headers", {})
+        return post_resp
+
+    mock_client.post.side_effect = post_side_effect
+
+    job_id = await manager.submit_job("abc", "gpt-5.2")
+    assert job_id == "job-none"
+    # X-Session-Id should not be present
+    assert "X-Session-Id" not in captured["headers"]
+
+
+@pytest.mark.asyncio
 async def test_get_tasklist_generic_http_error():
     """Test that get_tasklist handles non-404 HTTP errors consistently."""
     manager = ExecutorManager()

@@ -417,7 +417,7 @@ class BrokkAcpBridge:
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
-        await self._ensure_session(session_id)
+        executor_session_id = await self._ensure_session(session_id)
 
         prompt_text = extract_prompt_text(prompt)
         if not prompt_text:
@@ -430,6 +430,7 @@ class BrokkAcpBridge:
             reasoning_level=reasoning_level,
             reasoning_level_code=reasoning_level_code,
             mode=mode,
+            session_id=executor_session_id,
         )
         self._active_job_by_session[session_id] = job_id
 

@@ -308,6 +308,7 @@ async def test_prompt_emits_context_snapshot_after_stream() -> None:
         async def wait_ready(self) -> bool:
             return True
 
+        # Accept session_id kwarg for compatibility with new API.
         async def submit_job(
             self,
             task_input: str,
@@ -316,7 +317,10 @@ async def test_prompt_emits_context_snapshot_after_stream() -> None:
             reasoning_level: str | None = None,
             reasoning_level_code: str | None = None,
             mode: str = "LUTZ",
+            session_id: str | None = None,
         ) -> str:
+            # For this test the executor session should match the created session.
+            assert session_id == "session-1"
             return "job-1"
 
         async def stream_events(self, job_id: str):
@@ -413,7 +417,9 @@ async def test_prompt_emits_discarded_context_as_json_markdown_text() -> None:
             reasoning_level: str | None = None,
             reasoning_level_code: str | None = None,
             mode: str = "LUTZ",
+            session_id: str | None = None,
         ) -> str:
+            assert session_id == "session-1"
             return "job-1"
 
         async def stream_events(self, job_id: str):
@@ -504,7 +510,9 @@ async def test_prompt_emits_summary_as_list_item_with_resource_and_tokens() -> N
             reasoning_level: str | None = None,
             reasoning_level_code: str | None = None,
             mode: str = "LUTZ",
+            session_id: str | None = None,
         ) -> str:
+            assert session_id == "session-1"
             return "job-1"
 
         async def stream_events(self, job_id: str):
