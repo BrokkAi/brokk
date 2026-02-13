@@ -311,30 +311,6 @@ public final class TreeSitterStateIO {
         }
     }
 
-    /**
-     * DTO entry for ProjectFile -> Set<CodeUnit> (imports).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
-
-    /**
-     * DTO entry for ProjectFile -> Set<ProjectFile> (reverse imports).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ReverseImportEntryDto(ProjectFileDto key, List<ProjectFileDto> value) {}
-
-    /**
-     * DTO entry for CodeUnit -> List<CodeUnit> (supertypes).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SupertypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
-
-    /**
-     * DTO entry for CodeUnit -> Set<CodeUnit> (subtypes).
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SubtypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
-
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
         long startMs = System.currentTimeMillis();
@@ -437,127 +413,10 @@ public final class TreeSitterStateIO {
         // Allow minor/patch differences for now; provide a migrate hook
         var migratedDto = migrate(dto, fromVer, CURRENT_SCHEMA);
 
-        // Parse optional legacy graphs if present in the raw JSON
-        Map<CodeUnit, List<CodeUnit>> legacySupertypes = parseLegacySupertypes(root.get("supertypes"));
-        Map<CodeUnit, Set<CodeUnit>> legacySubtypes = parseLegacySubtypes(root.get("subtypes"));
-        Map<ProjectFile, Set<CodeUnit>> legacyImports = parseLegacyImports(root.get("imports"));
-        Map<ProjectFile, Set<ProjectFile>> legacyReverseImports = parseLegacyReverseImports(root.get("reverseImports"));
-
         var state = fromDto(migratedDto);
         long durMs = System.currentTimeMillis() - startMs;
         log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, fromVer);
         return Optional.of(state);
-    }
-
-    /**
-     * Parse legacy supertypes array shape into a map CodeUnit -> List<CodeUnit>.
-     * Expected element shape: { "key": <CodeUnitDto>, "value": [<CodeUnitDto>, ...] }
-     */
-    private static Map<CodeUnit, List<CodeUnit>> parseLegacySupertypes(@Nullable JsonNode node) {
-        if (node == null || !node.isArray()) return Map.of();
-        Map<CodeUnit, List<CodeUnit>> out = new HashMap<>();
-        for (JsonNode entry : node) {
-            JsonNode keyNode = entry.get("key");
-            JsonNode valueNode = entry.get("value");
-            if (keyNode == null || valueNode == null || !valueNode.isArray()) continue;
-            try {
-                var keyDto = SMILE_MAPPER.treeToValue(keyNode, CodeUnitDto.class);
-                if (keyDto == null) continue;
-                CodeUnit key = fromDto(keyDto);
-
-                List<CodeUnit> vals = new ArrayList<>();
-                for (JsonNode v : valueNode) {
-                    var cdto = SMILE_MAPPER.treeToValue(v, CodeUnitDto.class);
-                    if (cdto != null) vals.add(fromDto(cdto));
-                }
-                out.put(key, vals);
-            } catch (IOException e) {
-                log.debug("Failed to parse legacy supertype entry: {}", e.getMessage());
-            }
-        }
-        return out;
-    }
-
-    /**
-     * Parse legacy subtypes array shape into a map CodeUnit -> Set<CodeUnit>.
-     */
-    private static Map<CodeUnit, Set<CodeUnit>> parseLegacySubtypes(@Nullable JsonNode node) {
-        if (node == null || !node.isArray()) return Map.of();
-        Map<CodeUnit, Set<CodeUnit>> out = new HashMap<>();
-        for (JsonNode entry : node) {
-            JsonNode keyNode = entry.get("key");
-            JsonNode valueNode = entry.get("value");
-            if (keyNode == null || valueNode == null || !valueNode.isArray()) continue;
-            try {
-                var keyDto = SMILE_MAPPER.treeToValue(keyNode, CodeUnitDto.class);
-                if (keyDto == null) continue;
-                CodeUnit key = fromDto(keyDto);
-                Set<CodeUnit> vals = new HashSet<>();
-                for (JsonNode v : valueNode) {
-                    var cdto = SMILE_MAPPER.treeToValue(v, CodeUnitDto.class);
-                    if (cdto != null) vals.add(fromDto(cdto));
-                }
-                out.put(key, vals);
-            } catch (IOException e) {
-                log.debug("Failed to parse legacy subtype entry: {}", e.getMessage());
-            }
-        }
-        return out;
-    }
-
-    /**
-     * Parse legacy imports array shape into a map ProjectFile -> Set<CodeUnit>.
-     * Expected entry shape: { "key": <ProjectFileDto>, "value": [<CodeUnitDto>, ...] }
-     */
-    private static Map<ProjectFile, Set<CodeUnit>> parseLegacyImports(@Nullable JsonNode node) {
-        if (node == null || !node.isArray()) return Map.of();
-        Map<ProjectFile, Set<CodeUnit>> out = new HashMap<>();
-        for (JsonNode entry : node) {
-            JsonNode keyNode = entry.get("key");
-            JsonNode valueNode = entry.get("value");
-            if (keyNode == null || valueNode == null || !valueNode.isArray()) continue;
-            try {
-                var pfdto = SMILE_MAPPER.treeToValue(keyNode, ProjectFileDto.class);
-                if (pfdto == null) continue;
-                ProjectFile key = fromDto(pfdto);
-                Set<CodeUnit> vals = new HashSet<>();
-                for (JsonNode v : valueNode) {
-                    var cdto = SMILE_MAPPER.treeToValue(v, CodeUnitDto.class);
-                    if (cdto != null) vals.add(fromDto(cdto));
-                }
-                out.put(key, vals);
-            } catch (IOException e) {
-                log.debug("Failed to parse legacy import entry: {}", e.getMessage());
-            }
-        }
-        return out;
-    }
-
-    /**
-     * Parse legacy reverseImports array shape into a map ProjectFile -> Set<ProjectFile>.
-     */
-    private static Map<ProjectFile, Set<ProjectFile>> parseLegacyReverseImports(@Nullable JsonNode node) {
-        if (node == null || !node.isArray()) return Map.of();
-        Map<ProjectFile, Set<ProjectFile>> out = new HashMap<>();
-        for (JsonNode entry : node) {
-            JsonNode keyNode = entry.get("key");
-            JsonNode valueNode = entry.get("value");
-            if (keyNode == null || valueNode == null || !valueNode.isArray()) continue;
-            try {
-                var pfdto = SMILE_MAPPER.treeToValue(keyNode, ProjectFileDto.class);
-                if (pfdto == null) continue;
-                ProjectFile key = fromDto(pfdto);
-                Set<ProjectFile> vals = new HashSet<>();
-                for (JsonNode v : valueNode) {
-                    var pfd = SMILE_MAPPER.treeToValue(v, ProjectFileDto.class);
-                    if (pfd != null) vals.add(fromDto(pfd));
-                }
-                out.put(key, vals);
-            } catch (IOException e) {
-                log.debug("Failed to parse legacy reverse import entry: {}", e.getMessage());
-            }
-        }
-        return out;
     }
 
     /* ================= Converters ================= */
