@@ -1761,6 +1761,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         if (existingDuplicate == null) {
+            if (crossKindDuplicate != null && isBenignDuplicate(crossKindDuplicate, cu)) {
+                log.trace("Merging benign cross-kind duplicate: {}", cu.fqName());
+                mergeCodeUnitProperties(
+                        crossKindDuplicate,
+                        cu,
+                        localChildren,
+                        localSignatures,
+                        localSourceRanges,
+                        localHasBody,
+                        localCodeUnitsBySymbol,
+                        localCuByFqName);
+                return;
+            }
+
             // No duplicate, add normally
             localTopLevelCUs.add(cu);
             localCodeUnitsBySymbol
@@ -1846,7 +1860,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
 
         } else if (isBenignDuplicate(existingDuplicate, cu)) {
-            log.trace("Ignoring benign duplicate {} (e.g. TS declaration merging)", cu.fqName());
+            mergeCodeUnitProperties(
+                    existingDuplicate,
+                    cu,
+                    localChildren,
+                    localSignatures,
+                    localSourceRanges,
+                    localHasBody,
+                    localCodeUnitsBySymbol,
+                    localCuByFqName);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             log.trace("Ignoring duplicate {} per language policy", cu.fqName());
         } else if (crossKindDuplicate != null && shouldIgnoreDuplicate(crossKindDuplicate, cu, file)) {
@@ -1871,6 +1893,68 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Recursively removes a CodeUnit and all its descendants from the analysis maps.
      * Used when replacing duplicates to ensure children of the old definition don't appear in results.
      */
+    private void mergeCodeUnitProperties(
+            CodeUnit target,
+            CodeUnit source,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
+            Map<String, CodeUnit> localCuByFqName) {
+
+        log.trace("Merging properties from {} into {}", source.fqName(), target.fqName());
+
+        // Move and deduplicate children
+        List<CodeUnit> sourceChildren = localChildren.remove(source);
+        if (sourceChildren != null) {
+            List<CodeUnit> targetChildren = localChildren.computeIfAbsent(target, k -> new ArrayList<>());
+            for (CodeUnit child : sourceChildren) {
+                if (!targetChildren.contains(child)) {
+                    targetChildren.add(child);
+                }
+            }
+        }
+
+        // Move and deduplicate signatures
+        List<String> sourceSigs = localSignatures.remove(source);
+        if (sourceSigs != null) {
+            List<String> targetSigs = localSignatures.computeIfAbsent(target, k -> new ArrayList<>());
+            for (String sig : sourceSigs) {
+                if (!targetSigs.contains(sig)) {
+                    targetSigs.add(sig);
+                }
+            }
+        }
+
+        // Move ranges
+        List<Range> sourceRanges = localSourceRanges.remove(source);
+        if (sourceRanges != null) {
+            localSourceRanges.computeIfAbsent(target, k -> new ArrayList<>()).addAll(sourceRanges);
+        }
+
+        // OR the hasBody flag
+        boolean sourceHasBody = localHasBody.remove(source) != null && localHasBody.getOrDefault(source, false);
+        if (sourceHasBody) {
+            localHasBody.put(target, true);
+        }
+
+        // Update FQN mapping to target
+        localCuByFqName.put(source.fqName(), target);
+
+        // Remove source from symbol index (only source instance, keep target)
+        Set<CodeUnit> byId = localCodeUnitsBySymbol.get(source.identifier());
+        if (byId != null) {
+            byId.remove(source);
+        }
+        if (!source.shortName().equals(source.identifier())) {
+            Set<CodeUnit> byShort = localCodeUnitsBySymbol.get(source.shortName());
+            if (byShort != null) {
+                byShort.remove(source);
+            }
+        }
+    }
+
     private void removeCodeUnitAndDescendants(
             CodeUnit cu,
             Map<CodeUnit, List<CodeUnit>> localChildren,
@@ -1960,6 +2044,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         if (existingDuplicate == null) {
+            // Search for cross-kind duplicates in the same children list
+            CodeUnit crossKindDuplicate = kids.stream()
+                    .filter(existing -> existing.fqName().equals(cu.fqName()) && existing.kind() != cu.kind())
+                    .findFirst()
+                    .orElse(null);
+
+            if (crossKindDuplicate != null && isBenignDuplicate(crossKindDuplicate, cu)) {
+                log.trace("Merging benign cross-kind child duplicate: {}", cu.fqName());
+                mergeCodeUnitProperties(
+                        crossKindDuplicate,
+                        cu,
+                        localChildren,
+                        localSignatures,
+                        localSourceRanges,
+                        localHasBody,
+                        localCodeUnitsBySymbol,
+                        localCuByFqName);
+                return;
+            }
+
             kids.add(cu);
             localCodeUnitsBySymbol
                     .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
@@ -2042,7 +2146,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         .add(cu);
             }
         } else if (isBenignDuplicate(existingDuplicate, cu)) {
-            log.trace("Ignoring benign duplicate child {} (e.g. TS declaration merging)", cu.fqName());
+            mergeCodeUnitProperties(
+                    existingDuplicate,
+                    cu,
+                    localChildren,
+                    localSignatures,
+                    localSourceRanges,
+                    localHasBody,
+                    localCodeUnitsBySymbol,
+                    localCuByFqName);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, cu.source())) {
             log.trace("Skipping duplicate child '{}' per language policy", cu.fqName());
         } else {
