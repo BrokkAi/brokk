@@ -2005,8 +2005,47 @@ public class GitRepo implements Closeable, IGitRepo {
         return new ArrayList<>(commits);
     }
 
-    /** One commit in a file’s history together with the path the file had inside that commit. */
-    public record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
+    /**
+     * Retrieves git history for a path (file, directory, or empty for repo-wide).
+     */
+    @Override
+    public List<CommitInfo> getGitLog(String path, int limit) throws GitAPIException {
+        if (path.isEmpty()) {
+            return listCommitsDetailed("", limit);
+        }
+
+        // Canonicalize the path relative to project root
+        var canonicalPath = Path.of(path).normalize();
+        var absPath = projectRoot.resolve(canonicalPath);
+
+        // Check if the path is a file that exists or is tracked
+        var projectFile = new ProjectFile(projectRoot, canonicalPath);
+        boolean isTrackedFile = getTrackedFiles().contains(projectFile);
+        boolean isExistingFile = java.nio.file.Files.isRegularFile(absPath);
+        boolean isDirectory = java.nio.file.Files.isDirectory(absPath);
+
+        if (isTrackedFile || isExistingFile) {
+            return getFileHistory(projectFile, limit);
+        } else if (isDirectory) {
+            return getPathLog(toUnixPath(canonicalPath), limit);
+        }
+
+        // Path doesn't exist as file or directory - try as a path prefix in git log
+        return getPathLog(toRepoRelativePath(projectFile), limit);
+    }
+
+    private List<CommitInfo> getPathLog(String repoRelPath, int limit) throws GitAPIException {
+        var logCommand = git.log().addPath(repoRelPath);
+        if (limit < Integer.MAX_VALUE) {
+            logCommand.setMaxCount(limit);
+        }
+
+        var results = new ArrayList<CommitInfo>();
+        for (var revCommit : logCommand.call()) {
+            results.add(fromRevCommit(revCommit));
+        }
+        return results;
+    }
 
     /**
      * Like {`getFileHistory`} but also returns, for each commit, the path the file had *in that commit* (following

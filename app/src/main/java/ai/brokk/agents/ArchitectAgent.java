@@ -78,7 +78,11 @@ public class ArchitectAgent {
     private record SearchTask(ToolExecutionRequest request, Future<SearchTaskResult> future) {}
 
     // Result of executing a single search request: both the tool execution result and the SearchAgent result
-    private record SearchTaskResult(ToolExecutionResult toolResult, TaskResult taskResult) {}
+    private record SearchTaskResult(
+            ToolExecutionResult toolResult, TaskResult taskResult, SearchPrompts.Objective objective) {}
+
+    // Lightweight carrier for the thread-local: just the SearchAgent result and objective (no tool result)
+    private record SearchAgentOutput(TaskResult taskResult, SearchPrompts.Objective objective) {}
 
     private record PlanningTurn(
             ToolRegistry toolRegistry,
@@ -119,7 +123,14 @@ public class ArchitectAgent {
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
 
-    private static final ThreadLocal<TaskResult> threadlocalSearchResult = new ThreadLocal<>();
+    private static final ThreadLocal<SearchAgentOutput> threadlocalSearchResult = new ThreadLocal<>();
+
+    private static SearchPrompts.Objective parseSearchObjective(String mode) {
+        return switch (mode.toUpperCase(Locale.ROOT)) {
+            case "ANSWER" -> SearchPrompts.Objective.ANSWER_ONLY;
+            default -> SearchPrompts.Objective.WORKSPACE_ONLY;
+        };
+    }
 
     /**
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
@@ -454,11 +465,7 @@ public class ArchitectAgent {
             throws ToolRegistry.FatalLlmException {
         logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
 
-        SearchPrompts.Objective objective =
-                switch (mode.toUpperCase(Locale.ROOT)) {
-                    case "ANSWER" -> SearchPrompts.Objective.ANSWER_ONLY;
-                    default -> SearchPrompts.Objective.WORKSPACE_ONLY;
-                };
+        var objective = parseSearchObjective(mode);
 
         // Acquire echo lock - only first caller gets to stream output
         boolean shouldEcho = searchAgentEchoInUse.compareAndSet(false, true);
@@ -477,7 +484,7 @@ public class ArchitectAgent {
             var result = searchAgent.execute();
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
-            threadlocalSearchResult.set(result);
+            threadlocalSearchResult.set(new SearchAgentOutput(result, objective));
 
             if (result.stopDetails().reason() == StopReason.LLM_ERROR) {
                 throw new ToolRegistry.FatalLlmException(result.stopDetails().explanation());
@@ -488,7 +495,9 @@ public class ArchitectAgent {
                 return result.stopDetails().toString();
             }
 
-            var stringResult = "Search complete";
+            var stringResult = objective == SearchPrompts.Objective.WORKSPACE_ONLY
+                    ? "Workspace updated"
+                    : result.stopDetails().explanation();
             logger.debug(stringResult);
             return stringResult;
         } finally {
@@ -734,9 +743,9 @@ public class ArchitectAgent {
                         // Ensure a clean slate for this thread before invoking the tool
                         threadlocalSearchResult.remove();
                         var toolResult = trForSearchBatch.executeTool(req);
-                        var saResult = requireNonNull(threadlocalSearchResult.get());
+                        var saOutput = requireNonNull(threadlocalSearchResult.get());
                         logger.debug("Finished SearchAgent task for request: {}", req.name());
-                        return new SearchTaskResult(toolResult, saResult);
+                        return new SearchTaskResult(toolResult, saOutput.taskResult(), saOutput.objective());
                     };
                     var taskDescription = "SearchAgent: " + LogDescription.getShortDescription(req.arguments());
                     var future = cm.submitBackgroundTask(taskDescription, task);
@@ -772,8 +781,10 @@ public class ArchitectAgent {
                         }
 
                         // Merge contexts deterministically
-                        combinedContext =
-                                combinedContext.union(searchOutcome.taskResult().context());
+                        if (searchOutcome.objective() == SearchPrompts.Objective.WORKSPACE_ONLY) {
+                            combinedContext = combinedContext.union(
+                                    searchOutcome.taskResult().context());
+                        }
 
                         // Count failures by SearchAgent stop reason
                         if (searchOutcome.taskResult().stopDetails().reason() != StopReason.SUCCESS) {

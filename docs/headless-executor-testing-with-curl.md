@@ -1,5 +1,7 @@
 # Brokk Headless Executor API: curl Examples
 
+This document is the canonical home for curl-based request and response examples.
+
 Before creating jobs, ensure your payloads include a `plannerModel`. Every request to `POST /v1/jobs` must provide one.
 `codeModel` remains optional, but keep in mind that even in CODE mode the API still requires `plannerModel` for
 validation, while only `codeModel` influences CODE-mode execution.
@@ -669,6 +671,40 @@ JSON
 - Generates LLM-powered code review
 - Posts summary comment and inline line comments to the PR
 - Skips duplicate comments; falls back to PR comment if inline fails
+- `codeModel` is ignored (no code generation)
+
+### ISSUE_DIAGNOSE Mode (Analyze GitHub Issue)
+
+ISSUE_DIAGNOSE mode performs read-only diagnosis of an existing GitHub issue using repository context and publishes findings back to GitHub as comments/analysis artifacts.
+
+#### Standard Endpoint with Tags
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "taskInput": "",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ISSUE_DIAGNOSE",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "issue_number": "42"
+  }
+}
+JSON
+```
+
+**Key characteristics:**
+- Read-only to the local repo (no edits, commits, or branch operations)
+- Focused on analysis and diagnosis of an existing issue
+- Requires `plannerModel` and GitHub tags: `github_token`, `repo_owner`, `repo_name`, `issue_number`
 - `codeModel` is ignored (no code generation)
 
 ### ISSUE_WRITER Mode (Create GitHub Issue)
