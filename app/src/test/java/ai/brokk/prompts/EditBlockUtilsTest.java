@@ -13,6 +13,7 @@ class EditBlockUtilsTest {
     @Test
     void findFilenameNearby_acceptsCommentPrefixedFilename() {
         var filename = "app/src/main/java/io/github/jbellis/brokk/analyzer/Language.java";
+        var filepath = Path.of(filename);
         var lines =
                 ("""
             // %s
@@ -22,11 +23,11 @@ class EditBlockUtilsTest {
             some after
             >>>>>>> REPLACE
             """)
-                        .formatted(filename)
+                        .formatted(filepath)
                         .split("\n");
         int headIndex = 1; // index of the "<<<<<<< SEARCH" line
         Set<ProjectFile> projectFiles =
-                Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), Path.of(filename)));
+                Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
 
         var result = EditBlockUtils.findFilenameNearby(lines, headIndex, projectFiles, null);
         assertEquals(filename, result.replace(File.separator, "/"));
@@ -48,10 +49,11 @@ class EditBlockUtilsTest {
     @Test
     void findFilenameNearby_prefersExactProjectPathMatch() {
         var filename = "app/src/main/java/io/github/jbellis/brokk/analyzer/Language.java";
-        var lines = new String[] {filename, "<<<<<<< SEARCH"};
+        var filepath = Path.of(filename);
+        var lines = new String[] {filepath.toString(), "<<<<<<< SEARCH"};
         int headIndex = 1;
         Set<ProjectFile> projectFiles =
-                Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), Path.of(filename)));
+                Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
 
         var result = EditBlockUtils.findFilenameNearby(lines, headIndex, projectFiles, null);
         assertEquals(filename, result.replace(File.separator, "/"));
@@ -60,10 +62,11 @@ class EditBlockUtilsTest {
     @Test
     void findFilenameNearby_readsFilenameTwoLinesUpWhenFenced() {
         var filename = "app/src/main/java/io/github/jbellis/brokk/analyzer/Language.java";
-        var lines = new String[] {filename, "```", "<<<<<<< SEARCH"};
+        var filepath = Path.of(filename);
+        var lines = new String[] {filepath.toString(), "```", "<<<<<<< SEARCH"};
         int headIndex = 2;
         Set<ProjectFile> projectFiles =
-                Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), Path.of(filename)));
+                Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
 
         var result = EditBlockUtils.findFilenameNearby(lines, headIndex, projectFiles, null);
         assertEquals(filename, result.replace(File.separator, "/"));
@@ -87,9 +90,10 @@ class EditBlockUtilsTest {
     void findFilenameNearby_doesNotRedirectToExistingFileByBasename() {
         Path root = Path.of("").toAbsolutePath();
         // LLM wants to create b/Foo.java, but a/Foo.java also exists
-        var lines = new String[] {"b/Foo.java", "<<<<<<< SEARCH"};
+        var filepath = Path.of("b/Foo.java");
+        var lines = new String[] {filepath.toString(), "<<<<<<< SEARCH"};
         Set<ProjectFile> projectFiles =
-                Set.of(new ProjectFile(root, Path.of("a/Foo.java")), new ProjectFile(root, Path.of("b/Foo.java")));
+                Set.of(new ProjectFile(root, Path.of("a/Foo.java")), new ProjectFile(root, filepath));
 
         var result = EditBlockUtils.findFilenameNearby(lines, 1, projectFiles, null);
 
