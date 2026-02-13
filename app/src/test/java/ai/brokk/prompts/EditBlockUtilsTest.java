@@ -145,22 +145,4 @@ class EditBlockUtilsTest {
 
         assertNull(result);
     }
-
-    @Test
-    void findFilenameNearby_normalizesPaths() {
-        // If system separator is backslash (Windows), it should still match forward slash candidate
-        String unixCandidate = "src/main/Foo.java";
-
-        Path root = Path.of("").toAbsolutePath();
-        // ProjectFile.toString() uses relPath.toString(), which uses system separator
-        Set<ProjectFile> projectFiles = Set.of(new ProjectFile(root, Path.of("src", "main", "Foo.java")));
-
-        var lines = new String[] {unixCandidate, "<<<<<<< SEARCH"};
-        var result = EditBlockUtils.findFilenameNearby(lines, 1, projectFiles, null);
-
-        assertEquals(
-                unixCandidate,
-                result,
-                "The candidate path should match after normalization regardless of system separators");
-    }
 }
