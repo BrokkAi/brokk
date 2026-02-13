@@ -224,15 +224,15 @@ public interface IGitRepo {
     }
 
     /**
-     * Retrieves the git history for a specific file or directory path, capped at the given limit.
+     * Retrieves the git log for a specific file or directory path, capped at the given limit.
      * An empty path returns the repository-wide log.
      *
      * @param path relative path to a file or directory (empty string for repo-wide log)
      * @param limit maximum number of entries to return
-     * @return list of history entries
+     * @return list of commits
      * @throws GitAPIException if a Git error occurs
      */
-    default List<FileHistoryEntry> getGitLog(String path, int limit) throws GitAPIException {
+    default List<CommitInfo> getGitLog(String path, int limit) throws GitAPIException {
         throw new UnsupportedOperationException();
     }
 

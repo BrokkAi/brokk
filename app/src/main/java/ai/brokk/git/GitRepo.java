@@ -2009,11 +2009,9 @@ public class GitRepo implements Closeable, IGitRepo {
      * Retrieves git history for a path (file, directory, or empty for repo-wide).
      */
     @Override
-    public List<FileHistoryEntry> getGitLog(String path, int limit) throws GitAPIException {
+    public List<CommitInfo> getGitLog(String path, int limit) throws GitAPIException {
         if (path.isEmpty()) {
-            return listCommitsDetailed("", limit).stream()
-                    .map(c -> new FileHistoryEntry(c, null))
-                    .toList();
+            return listCommitsDetailed("", limit);
         }
 
         // Canonicalize the path relative to project root
@@ -2027,8 +2025,7 @@ public class GitRepo implements Closeable, IGitRepo {
         boolean isDirectory = java.nio.file.Files.isDirectory(absPath);
 
         if (isTrackedFile || isExistingFile) {
-            var entries = getFileHistoryWithPaths(projectFile);
-            return entries.size() > limit ? entries.subList(0, limit) : entries;
+            return getFileHistory(projectFile, limit);
         } else if (isDirectory) {
             return getPathLog(toUnixPath(canonicalPath), limit);
         }
@@ -2037,15 +2034,15 @@ public class GitRepo implements Closeable, IGitRepo {
         return getPathLog(toRepoRelativePath(projectFile), limit);
     }
 
-    private List<FileHistoryEntry> getPathLog(String repoRelPath, int limit) throws GitAPIException {
+    private List<CommitInfo> getPathLog(String repoRelPath, int limit) throws GitAPIException {
         var logCommand = git.log().addPath(repoRelPath);
         if (limit < Integer.MAX_VALUE) {
             logCommand.setMaxCount(limit);
         }
 
-        var results = new ArrayList<FileHistoryEntry>();
+        var results = new ArrayList<CommitInfo>();
         for (var revCommit : logCommand.call()) {
-            results.add(new FileHistoryEntry(fromRevCommit(revCommit), null));
+            results.add(fromRevCommit(revCommit));
         }
         return results;
     }
