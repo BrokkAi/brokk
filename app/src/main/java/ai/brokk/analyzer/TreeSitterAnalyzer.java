@@ -1815,7 +1815,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     "Replacing duplicate CodeUnit: existing='{}', candidate='{}'",
                     existingDuplicate.fqName(),
                     cu.fqName());
-            localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+
+            if (cu.isFunction()) {
+                localTopLevelCUs.removeIf(existing -> existing.equals(existingDuplicate));
+            } else {
+                localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+            }
 
             removeCodeUnitAndDescendants(
                     existingDuplicate,
@@ -2006,9 +2011,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
-            // Replace all same-FQN children (e.g., Python's "last wins")
-            List<CodeUnit> toRemove =
-                    kids.stream().filter(k -> k.fqName().equals(cu.fqName())).toList();
+            // Replace logically identical children (e.g., Python's "last wins")
+            List<CodeUnit> toRemove = cu.isFunction()
+                    ? kids.stream().filter(k -> k.equals(existingDuplicate)).toList()
+                    : kids.stream().filter(k -> k.fqName().equals(cu.fqName())).toList();
+
             if (!toRemove.isEmpty()) {
                 toRemove.forEach(oldCu -> removeCodeUnitAndDescendants(
                         oldCu,
