@@ -462,7 +462,7 @@ public class ArchitectAgent {
             @P(
                             "The search mode: WORKSPACE to direct SearchAgent to add relevant fragments to the Workspace; ANSWER to answer the question and leave the Workspace untouched")
                     String mode)
-            throws ToolRegistry.FatalLlmException {
+            throws ToolRegistry.FatalLlmException, InterruptedException {
         logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
 
         var objective = parseSearchObjective(mode);
@@ -480,8 +480,15 @@ public class ArchitectAgent {
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
             var searchAgent = new SearchAgent(
-                    context, query, planningModel, objective, scope, saIo, SearchAgent.ScanConfig.noAppend());
+                    context.clearHistory(),
+                    query,
+                    planningModel,
+                    objective,
+                    scope,
+                    saIo,
+                    SearchAgent.ScanConfig.noAppend());
             var result = searchAgent.execute();
+            result = result.withContext(cm.compressHistory(result.context()));
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
             threadlocalSearchResult.set(new SearchAgentOutput(result, objective));
