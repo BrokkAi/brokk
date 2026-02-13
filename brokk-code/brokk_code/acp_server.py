@@ -1,3 +1,5 @@
+import asyncio
+import json
 import logging
 import sys
 import uuid
@@ -9,6 +11,9 @@ from brokk_code.executor import ExecutorError, ExecutorManager
 logger = logging.getLogger(__name__)
 
 VALID_MODES = {"LUTZ", "ASK", "SEARCH"}
+BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
+REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
+DEFAULT_MODEL_SELECTION = "gpt-5.2#r=low"
 
 
 def normalize_mode(mode: Optional[str]) -> str:
@@ -18,6 +23,29 @@ def normalize_mode(mode: Optional[str]) -> str:
     if upper in VALID_MODES:
         return upper
     return "LUTZ"
+
+
+def build_model_variants() -> list[tuple[str, str]]:
+    variants: list[tuple[str, str]] = []
+    for model_id in BASE_MODEL_IDS:
+        for reasoning in REASONING_LEVEL_IDS:
+            variants.append(
+                (f"{model_id}#r={reasoning}", f"{model_id} ({reasoning})")
+            )
+    return variants
+
+
+def resolve_model_selection(model_selection: Optional[str]) -> tuple[str, Optional[str]]:
+    raw = (model_selection or "").strip()
+    if not raw:
+        return "gpt-5.2", None
+    if "#r=" not in raw:
+        return raw, None
+    model_id, reasoning = raw.split("#r=", 1)
+    normalized_reasoning = reasoning.strip().lower()
+    if normalized_reasoning not in REASONING_LEVEL_IDS:
+        return model_id.strip() or "gpt-5.2", None
+    return model_id.strip() or "gpt-5.2", normalized_reasoning
 
 
 def extract_prompt_text(prompt: Any) -> str:
@@ -39,7 +67,9 @@ def extract_prompt_text(prompt: Any) -> str:
 
 
 def map_executor_event_to_session_update(
-    event: dict[str, Any], update_agent_message_text: Callable[[str], Any]
+    event: dict[str, Any],
+    update_agent_message_text: Callable[[str], Any],
+    update_agent_thought_text: Optional[Callable[[str], Any]] = None,
 ) -> Optional[Any]:
     event_type = event.get("type")
     data = event.get("data", {})
@@ -59,7 +89,17 @@ def map_executor_event_to_session_update(
         msg = data.get("message", "")
         if not msg:
             return None
+        if update_agent_thought_text:
+            return update_agent_thought_text(f"[{level}] {msg}")
         return update_agent_message_text(f"\n[{level}] {msg}\n")
+
+    if event_type == "STATE_HINT":
+        message = data.get("message")
+        if isinstance(message, str) and message.strip():
+            if update_agent_thought_text:
+                return update_agent_thought_text(message.strip())
+            return update_agent_message_text(f"\n[STATE] {message.strip()}\n")
+        return None
 
     return None
 
@@ -85,6 +125,129 @@ def _extract_session_id_for_cancel(args: tuple[Any, ...], kwargs: dict[str, Any]
                 return sid
 
     return None
+
+
+def _format_chip(fragment: dict[str, Any]) -> str:
+    chip_kind = str(fragment.get("chip_kind", fragment.get("chipKind", "OTHER")))
+    description = str(fragment.get("shortDescription", "Unknown"))
+    text = f"{chip_kind} {description}"
+
+    tokens = fragment.get("tokens", 0)
+    if isinstance(tokens, int) and tokens > 0:
+        text += f" {tokens:,}t"
+    if fragment.get("pinned"):
+        text += " [PIN]"
+    return text
+
+
+def _estimate_chip_width(fragment: dict[str, Any]) -> int:
+    # Matches the simple width estimation behavior used by the TUI context panel.
+    return len(_format_chip(fragment)) + 4
+
+
+def _chip_kind(fragment: dict[str, Any]) -> str:
+    return str(fragment.get("chip_kind", fragment.get("chipKind", "OTHER"))).upper()
+
+
+def _chip_kind_rank(kind: str) -> int:
+    ranks = {
+        "EDIT": 0,
+        "SUMMARY": 1,
+        "HISTORY": 2,
+        "TASK_LIST": 3,
+        "OTHER": 4,
+        "INVALID": 5,
+    }
+    return ranks.get(kind, 99)
+
+
+def _chip_kind_label(kind: str) -> str:
+    labels = {
+        "EDIT": "Editable Context",
+        "SUMMARY": "Summaries",
+        "HISTORY": "History",
+        "TASK_LIST": "Task List",
+        "OTHER": "Other Context",
+        "INVALID": "Invalid Context",
+    }
+    return labels.get(kind, kind.title())
+
+
+def _chip_kind_purpose(kind: str) -> str:
+    purposes = {
+        "EDIT": "Directly editable source/context",
+        "SUMMARY": "Read-only summaries for reference",
+        "HISTORY": "Prior conversation and run history",
+        "TASK_LIST": "Structured plan/checklist context",
+        "OTHER": "Additional supporting context",
+        "INVALID": "Stale or invalid fragments",
+    }
+    return purposes.get(kind, "Context fragments")
+
+
+def _is_discarded_context(block: dict[str, Any]) -> bool:
+    description = str(block.get("short_description", "")).strip().lower()
+    return description == "discarded context"
+
+
+def _discarded_context_markdown(block: dict[str, Any]) -> str:
+    payload = {
+        "title": block.get("short_description", "Discarded Context"),
+        "chipKind": block.get("chip_kind", "OTHER"),
+        "content": block.get("text", ""),
+    }
+    return "```json\n" + json.dumps(payload, indent=2) + "\n```\n"
+
+
+def _snapshot_items_table(blocks: list[dict[str, Any]]) -> str:
+    lines = [
+        "| Item | Tokens |",
+        "| --- | ---: |",
+    ]
+    for block in blocks:
+        item = str(block.get("short_description", "Unknown")).replace("|", "\\|").strip()
+        tokens = int(block.get("tokens", 0) or 0)
+        lines.append(f"| @{item} | {tokens:,} |")
+    return "\n".join(lines) + "\n"
+
+
+def build_context_chip_blocks(
+    context_data: dict[str, Any], fragment_resources: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    fragments = context_data.get("fragments", [])
+    blocks_with_rank: list[tuple[int, int, dict[str, Any]]] = []
+    if not isinstance(fragments, list) or not fragments:
+        return []
+
+    for i, fragment in enumerate(fragments):
+        fragment_id = fragment.get("id")
+        kind = _chip_kind(fragment)
+        if isinstance(fragment_id, str) and fragment_id:
+            payload = fragment_resources.get(fragment_id)
+            if isinstance(payload, dict):
+                uri = payload.get("uri")
+                mime_type = payload.get("mimeType")
+                text = payload.get("text")
+                if isinstance(uri, str) and isinstance(mime_type, str) and isinstance(text, str):
+                    blocks_with_rank.append(
+                        (
+                            _chip_kind_rank(kind),
+                            i,
+                            {
+                                "uri": uri,
+                                "mime_type": mime_type,
+                                "text": text,
+                                "chip_kind": kind,
+                                "short_description": str(
+                                    fragment.get("shortDescription", "Unknown")
+                                ),
+                                "tokens": int(fragment.get("tokens", 0) or 0),
+                            },
+                        )
+                    )
+
+    blocks_with_rank.sort(key=lambda item: (item[0], item[1]))
+    return [item[2] for item in blocks_with_rank]
 
 
 class BrokkAcpBridge:
@@ -124,6 +287,8 @@ class BrokkAcpBridge:
         reasoning_level_code: Optional[str],
         send_update: Callable[[str, Any], Awaitable[Any]],
         update_agent_message_text: Callable[[str], Any],
+        update_agent_thought_text: Optional[Callable[[str], Any]],
+        build_context_snapshot_update: Callable[[str, str, str], Any],
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
@@ -145,9 +310,77 @@ class BrokkAcpBridge:
 
         try:
             async for event in self.executor.stream_events(job_id):
-                update = map_executor_event_to_session_update(event, update_agent_message_text)
+                update = map_executor_event_to_session_update(
+                    event,
+                    update_agent_message_text,
+                    update_agent_thought_text,
+                )
                 if update:
                     await send_update(session_id, update)
+            try:
+                context_data = await self.executor.get_context()
+                fragment_resources: dict[str, dict[str, Any]] = {}
+                fragments = context_data.get("fragments", [])
+                if isinstance(fragments, list):
+                    fragment_ids = [
+                        fragment.get("id")
+                        for fragment in fragments
+                        if isinstance(fragment, dict) and isinstance(fragment.get("id"), str)
+                    ]
+                    if fragment_ids:
+                        results = await asyncio.gather(
+                            *[
+                                self.executor.get_context_fragment(fragment_id)
+                                for fragment_id in fragment_ids
+                            ],
+                            return_exceptions=True,
+                        )
+                        for fragment_id, result in zip(fragment_ids, results):
+                            if isinstance(result, dict):
+                                fragment_resources[fragment_id] = result
+                blocks = build_context_chip_blocks(context_data, fragment_resources)
+                if blocks:
+                    used_tokens = int(context_data.get("usedTokens", 0) or 0)
+                    max_tokens = int(context_data.get("maxTokens", 0) or 0)
+                    await send_update(
+                        session_id,
+                        update_agent_message_text(
+                            "\n\n### Context Snapshot\n"
+                            f"{len(blocks)} resources | {used_tokens:,}/{max_tokens:,} tokens\n"
+                        ),
+                    )
+                    await send_update(
+                        session_id,
+                        update_agent_message_text(_snapshot_items_table(blocks)),
+                    )
+                current_kind: Optional[str] = None
+                for block in blocks:
+                    kind = str(block["chip_kind"])
+                    if kind != current_kind:
+                        current_kind = kind
+                        await send_update(
+                            session_id,
+                            update_agent_message_text(
+                                f"\n#### {_chip_kind_label(kind)}\n"
+                                f"_Purpose: {_chip_kind_purpose(kind)}_\n"
+                            ),
+                        )
+                    await send_update(
+                        session_id,
+                        update_agent_message_text(_discarded_context_markdown(block))
+                        if _is_discarded_context(block)
+                        else build_context_snapshot_update(
+                            str(block["uri"]),
+                            str(block["mime_type"]),
+                            str(block["text"]),
+                        ),
+                    )
+                    await send_update(session_id, update_agent_message_text("\n"))
+            except Exception as e:
+                await send_update(
+                    session_id,
+                    update_agent_message_text(f"[INFO] Context snapshot unavailable: {e}"),
+                )
         finally:
             active = self._active_job_by_session.get(session_id)
             if active == job_id:
@@ -178,8 +411,12 @@ async def run_acp_server(
             PromptResponse,
             SetSessionModelResponse,
             SetSessionModeResponse,
+            embedded_text_resource,
+            resource_block,
             run_agent,
+            update_agent_message,
             update_agent_message_text,
+            update_agent_thought_text,
         )
         from acp.schema import (
             AgentCapabilities,
@@ -213,6 +450,7 @@ async def run_acp_server(
             self._mode_by_session: dict[str, str] = {}
             self._model_by_session: dict[str, str] = {}
             self._cwd_by_session: dict[str, str] = {}
+            self._available_model_variants = build_model_variants()
 
         def on_connect(self, client: Any) -> None:
             self.client = client
@@ -239,7 +477,7 @@ async def run_acp_server(
             del mcp_servers, kwargs
             session_id = str(uuid.uuid4())
             self._mode_by_session[session_id] = "LUTZ"
-            self._model_by_session[session_id] = "gpt-5.2"
+            self._model_by_session[session_id] = DEFAULT_MODEL_SELECTION
             self._cwd_by_session[session_id] = cwd
             return NewSessionResponse(
                 session_id=session_id,
@@ -253,13 +491,10 @@ async def run_acp_server(
                 ),
                 models=SessionModelState(
                     available_models=[
-                        ModelInfo(model_id="gpt-5.2", name="gpt-5.2"),
-                        ModelInfo(
-                            model_id="gemini-3-flash-preview",
-                            name="gemini-3-flash-preview",
-                        ),
+                        ModelInfo(model_id=model_id, name=name)
+                        for model_id, name in self._available_model_variants
                     ],
-                    current_model_id="gpt-5.2",
+                    current_model_id=DEFAULT_MODEL_SELECTION,
                 ),
             )
 
@@ -285,13 +520,12 @@ async def run_acp_server(
                 ),
                 models=SessionModelState(
                     available_models=[
-                        ModelInfo(model_id="gpt-5.2", name="gpt-5.2"),
-                        ModelInfo(
-                            model_id="gemini-3-flash-preview",
-                            name="gemini-3-flash-preview",
-                        ),
+                        ModelInfo(model_id=model_id, name=name)
+                        for model_id, name in self._available_model_variants
                     ],
-                    current_model_id=self._model_by_session.get(session_id, "gpt-5.2"),
+                    current_model_id=self._model_by_session.get(
+                        session_id, DEFAULT_MODEL_SELECTION
+                    ),
                 ),
             )
 
@@ -328,7 +562,7 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> SetSessionModelResponse:
             del kwargs
-            self._model_by_session[session_id] = model_id or "gpt-5.2"
+            self._model_by_session[session_id] = model_id or DEFAULT_MODEL_SELECTION
             return SetSessionModelResponse()
 
         async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
@@ -337,14 +571,20 @@ async def run_acp_server(
                 kwargs.get("planner_model")
                 or kwargs.get("plannerModel")
                 or self._model_by_session.get(session_id)
-                or "gpt-5.2"
+                or DEFAULT_MODEL_SELECTION
             )
+            planner_model_id, selected_reasoning_level = resolve_model_selection(planner_model)
             code_model = (
                 kwargs.get("code_model")
                 or kwargs.get("codeModel")
                 or "gemini-3-flash-preview"
             )
-            reasoning_level = kwargs.get("reasoning_level") or kwargs.get("reasoningLevel") or "low"
+            reasoning_level = (
+                kwargs.get("reasoning_level")
+                or kwargs.get("reasoningLevel")
+                or selected_reasoning_level
+                or "low"
+            )
             reasoning_level_code = (
                 kwargs.get("reasoning_level_code") or kwargs.get("reasoningLevelCode") or "disable"
             )
@@ -354,12 +594,22 @@ async def run_acp_server(
                 prompt=prompt,
                 session_id=session_id,
                 mode=mode,
-                planner_model=planner_model,
+                planner_model=planner_model_id,
                 code_model=code_model,
                 reasoning_level=reasoning_level,
                 reasoning_level_code=reasoning_level_code,
                 send_update=self.client.session_update,
                 update_agent_message_text=update_agent_message_text,
+                update_agent_thought_text=update_agent_thought_text,
+                build_context_snapshot_update=lambda uri, mime_type, text: update_agent_message(
+                    resource_block(
+                        embedded_text_resource(
+                            uri=uri,
+                            text=text,
+                            mime_type=mime_type,
+                        )
+                    )
+                ),
             )
             return PromptResponse(stop_reason="end_turn")
 

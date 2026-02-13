@@ -6,6 +6,7 @@ import tarfile
 import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -570,6 +571,22 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/context")
+            raise  # Should not be reached
+
+    async def get_context_fragment(self, fragment_id: str) -> Dict[str, Any]:
+        """Returns embedded-resource content for a context fragment by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not fragment_id or not fragment_id.strip():
+            raise ExecutorError("fragment_id must not be blank")
+
+        endpoint = f"/v1/context/fragments/{quote(fragment_id, safe='')}"
+        try:
+            resp = await self._http_client.get(endpoint)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, endpoint)
             raise  # Should not be reached
 
     async def drop_context_fragments(self, fragment_ids: List[str]) -> Dict[str, Any]:

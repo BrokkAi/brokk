@@ -13,6 +13,9 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.util.Messages;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
+import java.net.URLConnection;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -48,6 +51,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         if (method.equals("GET")) {
             if (normalizedPath.equals("/v1/context")) {
                 handleGetContext(exchange);
+                return;
+            } else if (normalizedPath.startsWith("/v1/context/fragments/")) {
+                handleGetContextFragment(exchange, normalizedPath);
                 return;
             } else if (normalizedPath.equals("/v1/tasklist")) {
                 handleGetTaskList(exchange);
@@ -138,6 +144,95 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Failed to retrieve context", e));
         }
+    }
+
+    private void handleGetContextFragment(HttpExchange exchange, String normalizedPath) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
+            return;
+        }
+
+        var prefix = "/v1/context/fragments/";
+        var encodedId = normalizedPath.substring(prefix.length());
+        if (encodedId.isBlank()) {
+            RouterUtil.sendValidationError(exchange, "fragmentId is required");
+            return;
+        }
+
+        String fragmentId;
+        try {
+            fragmentId = URLDecoder.decode(encodedId, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, "fragmentId is not valid URL encoding");
+            return;
+        }
+
+        try {
+            var live = contextManager.liveContext();
+            var fragment = live.allFragments()
+                    .filter(f -> f.id().equals(fragmentId))
+                    .findFirst()
+                    .orElse(null);
+            if (fragment == null) {
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Fragment not found: " + fragmentId));
+                return;
+            }
+
+            Path filePath = null;
+            if (fragment.getType().isPath()) {
+                filePath = fragment.files().join().stream()
+                        .map(pf -> pf.absPath())
+                        .findFirst()
+                        .orElse(null);
+            }
+
+            var text = fragment.isText() ? fragment.text().join() : "(binary fragment)";
+            var uri = filePath != null
+                    ? filePath.toUri().toString()
+                    : "brokk://context/fragment/" + fragment.id();
+            var mimeType = filePath != null ? mimeTypeForPath(filePath) : mimeTypeForStyle(fragment.syntaxStyle().join());
+
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, Map.of("id", fragment.id(), "uri", uri, "mimeType", mimeType, "text", text));
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/context/fragments/{id}", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to retrieve context fragment", e));
+        }
+    }
+
+    private String mimeTypeForPath(Path path) {
+        try {
+            var detected = Files.probeContentType(path);
+            if (detected != null && !detected.isBlank()) {
+                return detected;
+            }
+        } catch (IOException e) {
+            logger.debug("Could not probe content type for {}: {}", path, e.toString());
+        }
+        var guessed = URLConnection.guessContentTypeFromName(path.getFileName().toString());
+        return guessed != null && !guessed.isBlank() ? guessed : "text/plain";
+    }
+
+    private String mimeTypeForStyle(String syntaxStyle) {
+        var style = syntaxStyle.strip().toLowerCase();
+        return switch (style) {
+            case "markdown", "md" -> "text/markdown";
+            case "json" -> "application/json";
+            case "xml" -> "application/xml";
+            case "yaml", "yml" -> "application/x-yaml";
+            case "java" -> "text/x-java-source";
+            case "python", "py" -> "text/x-python";
+            case "javascript", "js" -> "text/javascript";
+            case "typescript", "ts" -> "text/typescript";
+            case "kotlin", "kt" -> "text/x-kotlin";
+            case "html" -> "text/html";
+            case "css" -> "text/css";
+            case "shell", "bash", "sh" -> "text/x-shellscript";
+            case "go" -> "text/x-go";
+            case "rust", "rs" -> "text/x-rustsrc";
+            default -> "text/plain";
+        };
     }
 
     private void handlePostContextDrop(HttpExchange exchange) throws IOException {
