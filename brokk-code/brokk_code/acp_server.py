@@ -11,6 +11,7 @@ from brokk_code.executor import ExecutorError, ExecutorManager
 logger = logging.getLogger(__name__)
 
 VALID_MODES = {"LUTZ", "ASK", "CODE"}
+MODE_OPTIONS = ("LUTZ", "CODE", "ASK")
 BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
 DEFAULT_MODEL_SELECTION = "gpt-5.2"
@@ -415,6 +416,7 @@ class BrokkAcpBridge:
         update_agent_message_text: Callable[[str], Any],
         update_agent_thought_text: Optional[Callable[[str], Any]],
         build_context_snapshot_update: Callable[[str, str, str], Any],
+        use_short_description_context: bool = False,
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
@@ -485,6 +487,11 @@ class BrokkAcpBridge:
                             update_agent_message_text(f"\n#### {_chip_kind_label(kind)}\n"),
                         )
                     is_resource_list_kind = kind in {"EDIT", "SUMMARY"}
+                    snapshot_text = (
+                        str(block["short_description"])
+                        if use_short_description_context
+                        else str(block["text"])
+                    )
                     if is_resource_list_kind and not _is_discarded_context(block):
                         await send_update(session_id, update_agent_message_text("- "))
                         await send_update(
@@ -492,7 +499,7 @@ class BrokkAcpBridge:
                             build_context_snapshot_update(
                                 str(block["uri"]),
                                 str(block["mime_type"]),
-                                str(block["text"]),
+                                snapshot_text,
                             ),
                         )
                         await send_update(
@@ -507,7 +514,7 @@ class BrokkAcpBridge:
                         else build_context_snapshot_update(
                             str(block["uri"]),
                             str(block["mime_type"]),
-                            str(block["text"]),
+                            snapshot_text,
                         ),
                     )
                     await send_update(session_id, update_agent_message_text("\n"))
@@ -536,6 +543,7 @@ async def run_acp_server(
     jar_path: Optional[Path],
     executor_version: Optional[str],
     executor_snapshot: bool,
+    ide: str = "intellij",
 ) -> None:
     try:
         from acp import (
@@ -578,6 +586,7 @@ async def run_acp_server(
         ) from e
 
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+    logger.info("Starting ACP server with IDE profile: %s", ide)
 
     executor = ExecutorManager(
         workspace_dir=workspace_dir,
@@ -613,6 +622,8 @@ async def run_acp_server(
 
     _patch_acp_router_for_session_config_option()
 
+    ide_profile = ide.strip().lower() if isinstance(ide, str) else "intellij"
+
     class BrokkAcpAgent(Agent):
         def __init__(self) -> None:
             self.client: Optional[Any] = None
@@ -621,6 +632,7 @@ async def run_acp_server(
             self._reasoning_by_session: dict[str, str] = {}
             self._cwd_by_session: dict[str, str] = {}
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
+            self._is_zed = ide_profile == "zed"
 
         async def _refresh_model_catalog(self, session_id: str) -> None:
             try:
@@ -663,16 +675,24 @@ async def run_acp_server(
 
         def _model_state_for_session(self, session_id: str) -> SessionModelState:
             catalog = self._catalog_for_session(session_id)
-            variants = _build_available_models(catalog)
-            if not variants:
-                variants = [(DEFAULT_MODEL_SELECTION, DEFAULT_MODEL_SELECTION)]
             current_model = self._current_model_selection(session_id)
-            current_reasoning = self._reasoning_by_session.get(session_id, DEFAULT_REASONING_LEVEL)
-            current_model_id = _format_model_id_with_variant(
-                current_model,
-                current_reasoning,
-                _model_variants_for_model(current_model, catalog),
-            )
+            if self._is_zed:
+                variants = _model_options(catalog)
+                if not variants:
+                    variants = [(DEFAULT_MODEL_SELECTION, DEFAULT_MODEL_SELECTION)]
+                current_model_id = current_model
+            else:
+                variants = _build_available_models(catalog)
+                if not variants:
+                    variants = [(DEFAULT_MODEL_SELECTION, DEFAULT_MODEL_SELECTION)]
+                current_reasoning = self._reasoning_by_session.get(
+                    session_id, DEFAULT_REASONING_LEVEL
+                )
+                current_model_id = _format_model_id_with_variant(
+                    current_model,
+                    current_reasoning,
+                    _model_variants_for_model(current_model, catalog),
+                )
             return SessionModelState(
                 available_models=[
                     ModelInfo(model_id=value, name=label)
@@ -683,7 +703,7 @@ async def run_acp_server(
 
         def _config_options_for_session(self, session_id: str) -> list[Any]:
             current_mode = self._mode_by_session.get(session_id, "LUTZ")
-            return [
+            options = [
                 SessionConfigOption.model_validate(
                     {
                         "type": "select",
@@ -694,11 +714,59 @@ async def run_acp_server(
                         "currentValue": current_mode,
                         "options": [
                             SessionConfigSelectOption(value=mode, name=mode)
-                            for mode in sorted(VALID_MODES)
+                            for mode in MODE_OPTIONS
                         ],
                     }
                 ),
             ]
+            if self._is_zed:
+                current_model = self._model_by_session.get(
+                    session_id, DEFAULT_MODEL_SELECTION
+                )
+                current_reasoning = self._reasoning_by_session.get(
+                    session_id, DEFAULT_REASONING_LEVEL
+                )
+                model_options = _model_options(self._catalog_for_session(session_id))
+                options.append(
+                    SessionConfigOption.model_validate(
+                        {
+                            "type": "select",
+                            "id": "model",
+                            "name": "Model",
+                            "description": "Choose model",
+                            "category": "model",
+                            "currentValue": current_model,
+                            "options": [
+                                SessionConfigSelectOption(value=model_id, name=model_name)
+                                for model_id, model_name in model_options
+                            ],
+                        }
+                    )
+                )
+                reasoning_options = _reasoning_options_for_model(
+                    current_model, self._catalog_for_session(session_id)
+                )
+                options.append(
+                    SessionConfigOption.model_validate(
+                        {
+                            "type": "select",
+                            "id": "reasoning",
+                            "name": "Reasoning",
+                            "description": "Choose reasoning level",
+                            "category": "model",
+                            "currentValue": (
+                                current_reasoning
+                                if current_reasoning in reasoning_options
+                                else "default"
+                            ),
+                            "options": [
+                                SessionConfigSelectOption(value=level, name=level)
+                                for level in reasoning_options
+                            ],
+                        }
+                    )
+                )
+            return options
 
         def _variant_meta_for_session(self, session_id: str) -> dict[str, Any]:
             model_id = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
@@ -751,8 +819,8 @@ async def run_acp_server(
                 modes=SessionModeState(
                     available_modes=[
                         SessionMode(id="LUTZ", name="LUTZ"),
-                        SessionMode(id="ASK", name="ASK"),
                         SessionMode(id="CODE", name="CODE"),
+                        SessionMode(id="ASK", name="ASK"),
                     ],
                     current_mode_id="LUTZ",
                 ),
@@ -778,8 +846,8 @@ async def run_acp_server(
                 modes=SessionModeState(
                     available_modes=[
                         SessionMode(id="LUTZ", name="LUTZ"),
-                        SessionMode(id="ASK", name="ASK"),
                         SessionMode(id="CODE", name="CODE"),
+                        SessionMode(id="ASK", name="ASK"),
                     ],
                     current_mode_id=self._mode_by_session.get(session_id, "LUTZ"),
                 ),
@@ -832,7 +900,7 @@ async def run_acp_server(
             )
             if selected_reasoning:
                 self._reasoning_by_session[session_id] = selected_reasoning
-            else:
+            elif not self._is_zed:
                 self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
             return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
 
@@ -852,7 +920,7 @@ async def run_acp_server(
                 if selected_reasoning:
                     self._reasoning_by_session[session_id] = selected_reasoning
             elif (
-                config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort"}
+                config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort", "reasoning"}
                 and value in REASONING_LEVEL_IDS
             ):
                 self._reasoning_by_session[session_id] = value
@@ -907,15 +975,22 @@ async def run_acp_server(
                 send_update=self.client.session_update,
                 update_agent_message_text=update_agent_message_text,
                 update_agent_thought_text=update_agent_thought_text,
-                build_context_snapshot_update=lambda uri, mime_type, text: update_agent_message(
-                    resource_block(
-                        embedded_text_resource(
-                            uri=uri,
-                            text=text,
-                            mime_type=mime_type,
+                build_context_snapshot_update=(
+                    (lambda uri, mime_type, text: update_agent_message_text(text))
+                    if ide_profile == "intellij"
+                    else (
+                        lambda uri, mime_type, text: update_agent_message(
+                            resource_block(
+                                embedded_text_resource(
+                                    uri=uri,
+                                    text=text,
+                                    mime_type=mime_type,
+                                )
+                            )
                         )
                     )
                 ),
+                use_short_description_context=(ide_profile == "intellij"),
             )
             return PromptResponse(stop_reason="end_turn")
 

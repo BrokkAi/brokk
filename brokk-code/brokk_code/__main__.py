@@ -64,6 +64,13 @@ def main():
         dest="resume_session",
         help="Synonym for --no-resume",
     )
+    parser.add_argument(
+        "--ide",
+        type=str,
+        choices=["intellij", "zed"],
+        default="intellij",
+        help="ACP client profile to target (default: intellij)",
+    )
     args = parser.parse_args()
 
     workspace_path = Path(args.workspace).resolve()
@@ -85,6 +92,7 @@ def main():
                 jar_path=jar_path,
                 executor_version=args.executor_version,
                 executor_snapshot=args.executor_snapshot,
+                ide=args.ide,
             )
         )
         return

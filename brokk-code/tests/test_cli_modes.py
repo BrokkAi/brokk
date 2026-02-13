@@ -50,3 +50,25 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
 
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["executor_snapshot"] is False
+    assert captured["kwargs"]["ide"] == "intellij"
+
+
+def test_main_acp_routes_to_server_with_ide(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+    fake_acp_module = ModuleType("brokk_code.acp_server")
+
+    async def fake_run_acp_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    fake_acp_module.run_acp_server = fake_run_acp_server
+    monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk-code", "acp", "--workspace", str(tmp_path), "--ide", "zed"],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["ide"] == "zed"
