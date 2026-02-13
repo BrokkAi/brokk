@@ -142,7 +142,7 @@ public final class FuzzyUsageFinder {
         }
 
         // --- Precise Java Analysis Path ---
-        if (!FUZZY_USAGES_ONLY && includesJava(lang)) {
+        if (!FUZZY_USAGES_ONLY && lang.contains(Languages.JAVA)) {
             // When in MultiLanguage mode, filter to only Java files for JDT analysis
             Set<ProjectFile> javaCandidateFiles = candidateFiles;
             if (lang instanceof Language.MultiLanguage) {
@@ -418,12 +418,5 @@ public final class FuzzyUsageFinder {
         }
         var files = project.getAllFiles();
         return files.isEmpty();
-    }
-
-    /**
-     * Checks if the given language includes Java (either directly or as part of MultiLanguage).
-     */
-    private static boolean includesJava(Language lang) {
-        return lang.contains(Languages.JAVA);
     }
 }
