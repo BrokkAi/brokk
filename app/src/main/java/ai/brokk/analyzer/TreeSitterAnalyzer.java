@@ -1743,6 +1743,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 .findFirst()
                 .orElse(null);
 
+        // For cross-kind declaration merging (e.g., TS function + namespace),
+        // also look for any existing CodeUnit with the same fqName but different kind
+        CodeUnit crossKindDuplicate = null;
+        if (existingDuplicate == null) {
+            crossKindDuplicate = localTopLevelCUs.stream()
+                    .filter(existing -> existing.fqName().equals(cu.fqName()) && existing.kind() != cu.kind())
+                    .findFirst()
+                    .orElse(null);
+        }
+
         // Early exit if exact CodeUnit already present (same fqName, kind, source, AND signature)
         // unless it's a duplicate that should be replaced.
         if (localTopLevelCUs.contains(cu)
@@ -1843,6 +1853,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             log.trace("Ignoring benign duplicate {} (e.g. TS declaration merging)", cu.fqName());
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             log.trace("Ignoring duplicate {} per language policy", cu.fqName());
+        } else if (crossKindDuplicate != null && shouldIgnoreDuplicate(crossKindDuplicate, cu, file)) {
+            log.trace("Ignoring cross-kind duplicate {} per language policy", cu.fqName());
         } else {
             // If it's not ignored and not replaced, we add it (e.g. for overloads)
             localTopLevelCUs.add(cu);
