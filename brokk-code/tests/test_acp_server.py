@@ -33,7 +33,7 @@ def test_normalize_mode_defaults_and_known_values() -> None:
     assert normalize_mode(None) == "LUTZ"
     assert normalize_mode("") == "LUTZ"
     assert normalize_mode("ask") == "ASK"
-    assert normalize_mode("search") == "SEARCH"
+    assert normalize_mode("code") == "CODE"
     assert normalize_mode("lutz") == "LUTZ"
     assert normalize_mode("invalid") == "LUTZ"
 

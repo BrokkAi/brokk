@@ -10,7 +10,7 @@ from brokk_code.executor import ExecutorError, ExecutorManager
 
 logger = logging.getLogger(__name__)
 
-VALID_MODES = {"LUTZ", "ASK", "SEARCH"}
+VALID_MODES = {"LUTZ", "ASK", "CODE"}
 BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
 DEFAULT_MODEL_SELECTION = "gpt-5.2"
@@ -752,7 +752,7 @@ async def run_acp_server(
                     available_modes=[
                         SessionMode(id="LUTZ", name="LUTZ"),
                         SessionMode(id="ASK", name="ASK"),
-                        SessionMode(id="SEARCH", name="SEARCH"),
+                        SessionMode(id="CODE", name="CODE"),
                     ],
                     current_mode_id="LUTZ",
                 ),
@@ -779,7 +779,7 @@ async def run_acp_server(
                     available_modes=[
                         SessionMode(id="LUTZ", name="LUTZ"),
                         SessionMode(id="ASK", name="ASK"),
-                        SessionMode(id="SEARCH", name="SEARCH"),
+                        SessionMode(id="CODE", name="CODE"),
                     ],
                     current_mode_id=self._mode_by_session.get(session_id, "LUTZ"),
                 ),
