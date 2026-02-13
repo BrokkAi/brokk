@@ -42,11 +42,7 @@ export WORKSPACE_DIR="/path/to/workspace"
 
 To download a previously stored session zip, issue a GET request to the session sub-path.
 
-```bash
-curl -sS -X GET "http://localhost:8080/v1/sessions/<session-id>" \
-  -H "Authorization: Bearer my-secret-token" \
-  -o "<session-id>.zip"
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ## ASK Mode: Read-Only Answer From Current Workspace Context
 
@@ -91,46 +87,11 @@ ASK mode **ignores** `codeModel` since it does not perform code generation.
 
 Basic ASK (no pre-scan):
 
-```bash
-# Submit a standard ASK query (no pre-scan)
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ask-query-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Where is the UserService class defined? Show me its public methods and explain what this class does.",
-  "autoCommit": false,
-  "autoCompress": true,
-  "plannerModel": "gpt-4",
-  "tags": {
-    "mode": "ASK"
-  }
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ASK with pre-scan:
 
-```bash
-# Submit an ASK query and request a repository pre-scan (Context Engine).
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ask-prescan-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Find UserService and summarize its responsibilities and public methods.",
-  "autoCommit": false,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "preScan": true,
-  "tags": {
-    "mode": "ASK"
-  }
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 Note: In the current implementation, ASK pre-scan always uses the project's default scan model, regardless of `scanModel`.
 
@@ -138,10 +99,7 @@ Note: In the current implementation, ASK pre-scan always uses the project's defa
 
 After submitting any ASK job, stream events to observe discovery and results:
 
-```bash
-curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
-  -H "Authorization: Bearer my-secret-token" | tail -f
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ## SEARCH Mode: Read-Only Repository Scan (explicit scan model)
 
@@ -167,24 +125,7 @@ Key points:
 
 ### Example: SEARCH with explicit scan model
 
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer ${AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ${IDEMP_KEY}" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Find all usages of AuthenticationManager and summarize where it's referenced.",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-5",
-  "scanModel": "gpt-5-mini",
-  "tags": {
-    "mode": "SEARCH"
-  }
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 **Notes:**
 - `plannerModel` remains required by the API and is used for validating the job request; SEARCH will use `scanModel` (if present) as the actual scanning model.
@@ -228,44 +169,7 @@ LUTZ mode requires:
 
 ### Example Workflow
 
-```bash
-# 1. Create a session
-curl -sS -X POST "http://localhost:8080/v1/sessions" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  --data @- <<'JSON'
-{
-  "name": "LUTZ Planning Session"
-}
-JSON
-# Returns: { "sessionId": "<session-id>" }
-
-# 2. Submit a LUTZ job with a complex objective
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: lutz-job-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Add comprehensive error handling to the UserService class and ensure all exceptions are properly logged.",
-  "autoCommit": true,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "codeModel": "gpt-5-mini",
-  "tags": {
-    "mode": "LUTZ"
-  }
-}
-JSON
-# Returns: { "jobId": "<job-id>", "state": "RUNNING", ... }
-
-# 3. Stream events to see planning and execution
-curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
-  -H "Authorization: Bearer my-secret-token" | tail -f
-# Events will show:
-# - Planning phase: SearchAgent generating subtasks
-# - Execution phase: ArchitectAgent executing each task, progress updates
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ### Event Stream Semantics
 
@@ -307,47 +211,13 @@ REVIEW mode **ignores** `codeModel` and `scanModel` since it performs review, no
 
 The easiest way to create a PR review job is via the dedicated endpoint:
 
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs/pr-review" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: review-001" \
-  --data @- <<'JSON'
-{
-  "owner": "myorg",
-  "repo": "myrepo",
-  "prNumber": 123,
-  "githubToken": "ghp_xxxxxxxxxxxx",
-  "plannerModel": "gpt-4"
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ### Example: Using Tags with Standard Job Endpoint
 
 Alternatively, use the standard `/v1/jobs` endpoint with mode tags:
 
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: review-002" \
-  --data @- <<'JSON'
-{
-  "taskInput": "",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-4",
-  "tags": {
-    "mode": "REVIEW",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo",
-    "pr_number": "123"
-  }
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ### Key Characteristics of REVIEW Mode
 
@@ -389,27 +259,7 @@ ISSUE_DIAGNOSE mode **ignores** `codeModel` since it performs analysis only, not
 
 ### Example: Diagnose an Issue
 
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: diagnose-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-4",
-  "tags": {
-    "mode": "ISSUE_DIAGNOSE",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo",
-    "issue_number": "42"
-  }
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ### Two-Phase Workflow
 
@@ -439,26 +289,7 @@ ISSUE_WRITER is read-only to the local repo (no file modifications or commits), 
 
 ### Example: Create an issue via POST /v1/jobs
 
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-writer-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Create an issue describing the NPE when AuthenticationProvider receives a null user, including evidence from the codebase.",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-5",
-  "tags": {
-    "mode": "ISSUE_WRITER",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo"
-  }
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ## ISSUE Mode: Automated Issue Resolution with Build Verification (and optional quick mode)
 
@@ -525,64 +356,13 @@ ISSUE mode requires:
 
 This example shows `/v1/jobs/issue` with `skipVerification=true`. Compared to the default, this tells the executor to skip per-task and final verification and review loops — it will still create the branch, apply changes, and may open a PR if delivery is enabled.
 
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-quick-001" \
-  --data @- <<'JSON'
-{
-  "owner": "myorg",
-  "repo": "myrepo",
-  "issueNumber": 42,
-  "githubToken": "ghp_xxxxxxxxxxxx",
-  "plannerModel": "gpt-4",
-  "codeModel": "gpt-4",
-  "maxIssueFixAttempts": 20,
-  "buildSettings": {
-    "buildLintCommand": "./gradlew classes",
-    "testAllCommand": "./gradlew test",
-    "environmentVariables": {
-      "JAVA_HOME": "/usr/lib/jvm/java-21"
-    },
-    "maxBuildAttempts": 5
-  },
-  "skipVerification": true
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ### Example: Generic POST /v1/jobs with tags and skipVerification
 
 You may also submit ISSUE jobs via the generic `/v1/jobs` endpoint. For ISSUE-mode jobs, include `tags.mode = "ISSUE"`. The optional top-level `skipVerification` boolean is accepted in the job payload but is only honored when `tags.mode == "ISSUE"`.
 
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-quick-002" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Ignored for ISSUE mode; issue body drives the work.",
-  "plannerModel": "gpt-4",
-  "codeModel": "gpt-4",
-  "buildSettings": {
-    "buildLintCommand": "./gradlew classes",
-    "testAllCommand": "./gradlew test",
-    "maxBuildAttempts": 3
-  },
-  "maxIssueFixAttempts": 20,
-  "skipVerification": true,
-  "tags": {
-    "mode": "ISSUE",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo",
-    "issue_number": "42"
-  }
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ### Notes on behavior and observability
 
@@ -681,28 +461,7 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
 
 ##### Example: ARCHITECT with reasoningLevel + temperature
 
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: architect-overrides-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Refactor the auth module to improve logging and error messages.",
-  "autoCommit": true,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "codeModel": "gpt-5-mini",
-  "reasoningLevel": "HIGH",
-  "reasoningLevelCode": "MEDIUM",
-  "temperature": 0.2,
-  "temperatureCode": 0.0,
-  "tags": {
-    "mode": "ARCHITECT"
-  }
-}
-JSON
-```
+For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 - **`POST /v1/jobs/issue`** - Create an issue resolution job (convenience endpoint)
   - Requires `Idempotency-Key` header
