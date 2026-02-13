@@ -2,6 +2,8 @@
 
 The Headless Executor runs Brokk sessions in a server mode, controllable via HTTP+JSON API. It's designed for remote execution, CI/CD pipelines, and programmatic task automation.
 
+For end-to-end request examples (sessions, jobs, events, and mode-specific payloads), see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
+
 ## Configuration
 
 The executor requires the following configuration, provided via **environment variables** or **command-line arguments** (arguments take precedence):
@@ -37,12 +39,6 @@ export AUTH_TOKEN="my-secret-token"
 export WORKSPACE_DIR="/path/to/workspace"
 ./gradlew :app:runHeadlessExecutor
 ```
-
-## Download a Session Zip
-
-To download a previously stored session zip, issue a GET request to the session sub-path.
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ## ASK Mode: Read-Only Answer From Current Workspace Context
 
@@ -83,23 +79,11 @@ ASK mode requires:
 
 ASK mode **ignores** `codeModel` since it does not perform code generation.
 
-### Example Workflows
-
-Basic ASK (no pre-scan):
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
-
-ASK with pre-scan:
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
+### ASK execution notes
 
 Note: In the current implementation, ASK pre-scan always uses the project's default scan model, regardless of `scanModel`.
 
-#### Streaming results
-
-After submitting any ASK job, stream events to observe discovery and results:
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
+For concrete ASK request/streaming examples, use the curl examples document linked at the top of this page.
 
 ## SEARCH Mode: Read-Only Repository Scan (explicit scan model)
 
@@ -122,10 +106,6 @@ Key points:
 - **File search**: Search for files by name or content patterns
 - **Git history**: Search commit messages for context about changes
 - **Related code**: Automatically find related classes and dependencies
-
-### Example: SEARCH with explicit scan model
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 **Notes:**
 - `plannerModel` remains required by the API and is used for validating the job request; SEARCH will use `scanModel` (if present) as the actual scanning model.
@@ -167,10 +147,6 @@ LUTZ mode requires:
 | **Workflow** | Direct execution of user tasks | SearchAgent → task gen → Architect execution |
 | **Best For** | Single-step objectives, quick iterations | Complex multi-step goals, structured decomposition |
 
-### Example Workflow
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
-
 ### Event Stream Semantics
 
 LUTZ jobs emit events following this pattern:
@@ -206,18 +182,6 @@ REVIEW mode requires:
   - `pr_number`: Pull request number
 
 REVIEW mode **ignores** `codeModel` and `scanModel` since it performs review, not code generation.
-
-### Example: Using the Convenience Endpoint
-
-The easiest way to create a PR review job is via the dedicated endpoint:
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
-
-### Example: Using Tags with Standard Job Endpoint
-
-Alternatively, use the standard `/v1/jobs` endpoint with mode tags:
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ### Key Characteristics of REVIEW Mode
 
@@ -257,10 +221,6 @@ ISSUE_DIAGNOSE mode requires:
 
 ISSUE_DIAGNOSE mode **ignores** `codeModel` since it performs analysis only, not code generation.
 
-### Example: Diagnose an Issue
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
-
 ### Two-Phase Workflow
 
 ISSUE_DIAGNOSE is designed to work with ISSUE (solve) mode in a two-phase workflow:
@@ -286,10 +246,6 @@ ISSUE_WRITER requires:
   - `repo_name`
 
 ISSUE_WRITER is read-only to the local repo (no file modifications or commits), but it creates a GitHub issue.
-
-### Example: Create an issue via POST /v1/jobs
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ## ISSUE Mode: Automated Issue Resolution with Build Verification (and optional quick mode)
 
@@ -351,18 +307,6 @@ ISSUE mode requires:
 - `buildSettings` (optional): JSON object to configure verification commands and per-task `maxBuildAttempts` (used only in full verification mode).
 - `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap) — used only in full verification mode. Default: 20.
 - `skipVerification` (optional boolean): When present and `true` (only honored for ISSUE jobs), runs the quick/skip-verification flow described above. Default: `false`.
-
-### Example: Convenience Endpoint with skipVerification (quick mode)
-
-This example shows `/v1/jobs/issue` with `skipVerification=true`. Compared to the default, this tells the executor to skip per-task and final verification and review loops — it will still create the branch, apply changes, and may open a PR if delivery is enabled.
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
-
-### Example: Generic POST /v1/jobs with tags and skipVerification
-
-You may also submit ISSUE jobs via the generic `/v1/jobs` endpoint. For ISSUE-mode jobs, include `tags.mode = "ISSUE"`. The optional top-level `skipVerification` boolean is accepted in the job payload but is only honored when `tags.mode == "ISSUE"`.
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ### Notes on behavior and observability
 
@@ -459,9 +403,7 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
   - Must be between `0.0` and `2.0` (inclusive).
   - If omitted or null, the executor uses the model/service default temperature for the code model.
 
-##### Example: ARCHITECT with reasoningLevel + temperature
-
-For curl examples, see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
+#### Convenience endpoints and job inspection
 
 - **`POST /v1/jobs/issue`** - Create an issue resolution job (convenience endpoint)
   - Requires `Idempotency-Key` header
