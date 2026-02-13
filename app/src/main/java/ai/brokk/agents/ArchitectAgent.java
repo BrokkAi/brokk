@@ -231,12 +231,15 @@ public class ArchitectAgent {
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
+        var initialContext = context;
         var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        // Update local context with the CodeAgent's resulting context
-        var initialContext = context;
-        context = scope.append(result);
+        // Update architect context with the CodeAgent's resulting context, preserving the Architect history
+        context = result.context()
+                .withHistory(context.getTaskHistory())
+                .addHistoryEntry(result.context().getTaskHistory().getLast());
+        scope.append(context);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
 
@@ -247,6 +250,9 @@ public class ArchitectAgent {
                     .sorted()
                     .collect(Collectors.joining(", "));
             resultString += " Changed fragments: " + (fileList.isEmpty() ? "None" : fileList);
+            if (!fileList.isEmpty()) {
+                resultString += "\n\nThe changes made are reflected in the Workspace.";
+            }
 
             logger.debug("callCodeAgent finished successfully");
             codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
@@ -366,7 +372,8 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-        context = scope.append(resultWithMessages(StopReason.SUCCESS, goal));
+        context = context.addHistoryEntry(messages, TaskResult.Type.ARCHITECT, planningModel, goal);
+        scope.append(context);
     }
 
     @Tool(
@@ -558,9 +565,9 @@ public class ArchitectAgent {
         context = searchAgent.scanContext();
 
         // Run Architect proper
-        var archResult = this.execute();
-        context = scope.append(archResult);
-        return archResult.withContext(context);
+        TaskResult archResult = this.execute();
+        scope.append(archResult);
+        return archResult;
     }
 
     /**
@@ -819,25 +826,10 @@ public class ArchitectAgent {
                 combinedContext = combinedContext.union(context);
 
                 // Post-batch message with workspace merge summary
-                printSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
-
-                // Build the final history entry using the full transcript
-                // Fallback in case no SA result was produced (should be rare)
-                if (baseSaResult != null) {
-                    // Create a single history entry using the base SA's metadata/description,
-                    // but with the combined context and the full transcript.
-                    var combinedResult = new TaskResult(
-                            cm,
-                            baseSaResult.actionDescription(),
-                            io.getLlmRawMessages(),
-                            combinedContext,
-                            baseSaResult.stopDetails(),
-                            Objects.requireNonNullElse(
-                                    baseSaResult.meta(),
-                                    new TaskResult.TaskMeta(
-                                            TaskResult.Type.SEARCH, ModelConfig.from(planningModel, cm.getService()))));
-                    context = scope.append(combinedResult);
-                }
+                outputSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
+                context = context.addHistoryEntry(
+                        io.getLlmRawMessages(), TaskResult.Type.SEARCH, planningModel, "Multiple concurrent searches");
+                scope.append(context);
 
                 // Reset batch size after all SAs are finished
                 currentBatchSize = 0;
@@ -866,7 +858,7 @@ public class ArchitectAgent {
         }
 
         // All turns exhausted (including the terminal turn); return what we have
-        return resultWithMessages(StopReason.SUCCESS);
+        return resultWithMessages(StopReason.TURN_LIMIT);
     }
 
     @Blocking
@@ -1052,14 +1044,8 @@ public class ArchitectAgent {
     }
 
     private TaskResult codeAgentSuccessResult() {
-        // we've already added the code agent's result to history and we don't have anything extra to add to that here
-        return new TaskResult(
-                cm,
-                "Architect finished work for: " + goal,
-                io.getLlmRawMessages(),
-                context,
-                new TaskResult.StopDetails(StopReason.SUCCESS),
-                taskMeta());
+        // messages are alerady appended to context by callCodeaAgent
+        return new TaskResult(context, new TaskResult.StopDetails(StopReason.SUCCESS));
     }
 
     private TaskResult.TaskMeta taskMeta() {
@@ -1068,13 +1054,8 @@ public class ArchitectAgent {
 
     private TaskResult resultWithMessages(StopReason reason, String message) {
         // include the messages we exchanged with the LLM for any planning steps since we ran a sub-agent
-        return new TaskResult(
-                cm,
-                message,
-                io.getLlmRawMessages(),
-                context,
-                new TaskResult.StopDetails(reason),
-                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
+        context = context.addHistoryEntry(io.getLlmRawMessages(), TaskResult.Type.ARCHITECT, planningModel, message);
+        return new TaskResult(context, new TaskResult.StopDetails(reason));
     }
 
     private TaskResult resultWithMessages(StopReason reason) {
@@ -1106,7 +1087,7 @@ public class ArchitectAgent {
      * Prints a concise summary after a batch of SearchAgents complete, including whether Workspace changed.
      * Only prints when batchSize > 1 to avoid noisy UX for single searches.
      */
-    private void printSearchBatchSummary(Context baseContext, Context mergedContext, int batchSize, int failedCount) {
+    private void outputSearchBatchSummary(Context baseContext, Context mergedContext, int batchSize, int failedCount) {
         if (batchSize <= 1) {
             return;
         }

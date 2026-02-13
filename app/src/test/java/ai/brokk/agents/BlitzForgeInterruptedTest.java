@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.AbstractService;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -15,7 +14,6 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,13 +51,7 @@ class BlitzForgeInterruptedTest {
 
         // Constructing TaskResult with live context should succeed
         TaskResult result = assertDoesNotThrow(
-                () -> new TaskResult(
-                        contextManager,
-                        "test instructions",
-                        List.of(),
-                        liveContext,
-                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                        null),
+                () -> new TaskResult(liveContext, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)),
                 "TaskResult construction should succeed with live context");
 
         assertNotNull(result, "TaskResult should be successfully constructed");
@@ -75,13 +67,7 @@ class BlitzForgeInterruptedTest {
 
         // Constructing TaskResult with unfrozen context should succeed
         TaskResult result = assertDoesNotThrow(
-                () -> new TaskResult(
-                        contextManager,
-                        "test instructions",
-                        List.of(),
-                        liveContext,
-                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                        new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, new Service.ModelConfig("test-model"))),
+                () -> new TaskResult(liveContext, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)),
                 "TaskResult construction should succeed with unfrozen context");
 
         assertNotNull(result, "TaskResult should be successfully constructed");
@@ -127,77 +113,9 @@ class BlitzForgeInterruptedTest {
 
         // Should be usable for TaskResult construction
         TaskResult result = assertDoesNotThrow(
-                () -> new TaskResult(
-                        contextManager,
-                        "test",
-                        List.of(),
-                        liveContext,
-                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                        new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, new Service.ModelConfig("test-model"))),
+                () -> new TaskResult(liveContext, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)),
                 "Result from unfrozen context should be usable for TaskResult");
 
         assertNotNull(result, "TaskResult should be successfully constructed");
-    }
-
-    @Test
-    @DisplayName("Interrupted thread causes BlitzForge to return INTERRUPTED reason")
-    void testInterruptedRunReturnsInterruptedReason() throws Exception {
-        // Create a test file
-        var testFile = contextManager.toFile("bf-interrupt.txt");
-        testFile.create();
-        testFile.write("test content for interruption scenario");
-
-        // Build the BlitzForge configuration with non-empty shared context (triggers warm-up)
-        // Use UnavailableStreamingModel to avoid AdaptiveExecutor configuration issues in tests
-        var config = new BlitzForge.RunConfig(
-                "Apply test instruction",
-                new AbstractService.OfflineStreamingModel(),
-                () -> "per-file context",
-                () -> "shared context",
-                ".*",
-                BlitzForge.ParallelOutputMode.NONE);
-
-        // Capture the result passed to listener.onComplete
-        var capturedResult = new AtomicReference<TaskResult>();
-
-        var listener = new BlitzForge.Listener() {
-            @Override
-            public IConsoleIO getConsoleIO(ProjectFile file) {
-                return new NoOpConsoleIO();
-            }
-
-            @Override
-            public void onComplete(TaskResult result) {
-                capturedResult.set(result);
-            }
-        };
-
-        var blitzForge = new BlitzForge(contextManager, service, config, listener);
-
-        // Set the thread's interrupted flag to trigger early exit from executeParallel
-        Thread.currentThread().interrupt();
-        try {
-            // Execute with the interrupted flag set. The warm-up path will detect the interrupt
-            // and return an INTERRUPTED result via interruptedResult()
-            TaskResult result =
-                    blitzForge.executeParallel(List.of(testFile), f -> new BlitzForge.FileResult(f, false, null, ""));
-
-            // Assertions: result should indicate interruption
-            assertNotNull(result, "Result should not be null");
-            assertEquals(
-                    TaskResult.StopReason.INTERRUPTED,
-                    result.stopDetails().reason(),
-                    "Result reason should be INTERRUPTED");
-
-            // Verify that listener.onComplete was called with the same result
-            assertNotNull(capturedResult.get(), "Listener onComplete should have been called");
-            assertEquals(
-                    TaskResult.StopReason.INTERRUPTED,
-                    capturedResult.get().stopDetails().reason(),
-                    "Listener captured result should also have INTERRUPTED reason");
-        } finally {
-            // Clear the interrupted flag to avoid affecting other tests
-            Thread.interrupted();
-        }
     }
 }

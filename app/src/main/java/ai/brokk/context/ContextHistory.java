@@ -15,6 +15,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -348,7 +349,7 @@ public class ContextHistory {
         return UndoResult.success(toUndo, changedFiles);
     }
 
-    private void undoFileDeletions(IConsoleIO io, IProject project, AnnotatedContext popped) {
+    private static void undoFileDeletions(IConsoleIO io, IProject project, AnnotatedContext popped) {
         if (popped.entryInfo == null) return;
         var info = popped.entryInfo;
         if (info.deletedFiles().isEmpty()) {
@@ -378,7 +379,7 @@ public class ContextHistory {
                         IConsoleIO.NotificationRole.INFO,
                         "Restored and staged files: "
                                 + trackedToStage.stream().map(Object::toString).collect(Collectors.joining(", ")));
-            } catch (Exception e) {
+            } catch (GitAPIException e) {
                 var msg = "Failed to stage restored files during undo: " + e.getMessage();
                 io.toolError(msg, "Undo Error");
                 logger.error(msg, e);
@@ -598,7 +599,7 @@ public class ContextHistory {
     }
 
     @Blocking
-    private Set<ProjectFile> applySnapshotToWorkspace(Context snapshot, IConsoleIO io) {
+    public static Set<ProjectFile> applySnapshotToWorkspace(Context snapshot, IConsoleIO io) {
         // Phase 0: wait once up front
         try {
             snapshot.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);

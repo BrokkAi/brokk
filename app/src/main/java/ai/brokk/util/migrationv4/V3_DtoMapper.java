@@ -76,9 +76,11 @@ public class V3_DtoMapper {
 
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
+        // HistoryFragment is no longer allowed in the Context proper (only TaskFragment is)
         var combined = Streams.concat(
                         Streams.concat(editableFragments.stream(), readonlyFragments.stream()),
                         virtualFragments.stream())
+                .filter(cf -> !(cf instanceof ContextFragments.HistoryFragment))
                 .toList();
 
         return Context.createWithId(ctxId, mgr, combined, taskHistory, Set.of(), Set.of());

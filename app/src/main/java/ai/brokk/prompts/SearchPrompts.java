@@ -39,6 +39,7 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher focused on answering questions about this codebase.",
                 "Your goal is to gather enough context to answer the user's question accurately and cite evidence from the repo.",
                 "a comprehensive Markdown answer (via answer(String))",
+                "",
                 false) {
             @Override
             public Set<Terminal> terminals() {
@@ -50,6 +51,7 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher focused on turning goals into implementation tasks.",
                 "Your goal is to gather enough context to produce a clear, minimal, incremental task list for the Code Agent.",
                 "a task list for the Code Agent (via createOrReplaceTaskList(...))",
+                "",
                 true) {
             @Override
             public Set<Terminal> terminals() {
@@ -61,6 +63,11 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher that can answer, plan, or hand off implementation.",
                 "Your goal is to gather enough context to either answer the question, produce a task list, or invoke the Code Agent for a small change.",
                 "one of: answer, task list, or Code Agent invocation",
+                """
+                - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
+                - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
+                - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks); do not attempt to write code yet.
+                """,
                 true) {
             @Override
             public Set<Terminal> terminals() {
@@ -72,6 +79,7 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher and librarian.",
                 "Your goal is to prepare the Workspace for the Code Agent by finding and curating the minimum sufficient context.",
                 "a curated Workspace ready for the Code Agent",
+                "",
                 true) {
             @Override
             public Set<Terminal> terminals() {
@@ -79,10 +87,22 @@ public class SearchPrompts {
             }
         },
         ISSUE_DESCRIPTION(
-                "issue_description",
+                "problem_report",
                 "You are the Search Agent, a code researcher focused on describing issues with precision.",
                 "Your goal is to gather enough context to describe the issue and produce a formal issue report with evidence from the repo.",
                 "a high-quality GitHub issue (via describeIssue(String, String))",
+                """
+                Deliver a high-quality GitHub issue using the describeIssue(String title, String body) tool.
+
+                Requirements:
+                  - "title": concise, specific issue title.
+                  - "body": GitHub-flavored Markdown describing the problem and impact.
+                    It MUST include evidence/references to code, such as:
+                      - file paths
+                      - identifiers/symbol names
+                      - fragment ids when available
+                    It MAY include a section like "## Agent Instructions" inside the body as well.
+                """,
                 false) {
             @Override
             public Set<Terminal> terminals() {
@@ -94,6 +114,7 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher.",
                 "Your goal is to gather enough context for the Code Agent to implement the requested change.",
                 "a curated Workspace ready for the Code Agent",
+                "",
                 true) {
             @Override
             public Set<Terminal> terminals() {
@@ -105,13 +126,21 @@ public class SearchPrompts {
         private final String identity;
         private final String mission;
         private final String deliverable;
+        private final String taskInstructions;
         private final boolean includeHandoff;
 
-        Objective(String tag, String identity, String mission, String deliverable, boolean includeHandoff) {
+        Objective(
+                String tag,
+                String identity,
+                String mission,
+                String deliverable,
+                String taskInstructions,
+                boolean includeHandoff) {
             this.tag = tag;
             this.identity = identity;
             this.mission = mission;
             this.deliverable = deliverable;
+            this.taskInstructions = taskInstructions;
             this.includeHandoff = includeHandoff;
         }
 
@@ -129,6 +158,10 @@ public class SearchPrompts {
 
         public String deliverable() {
             return deliverable;
+        }
+
+        public String taskInstructions() {
+            return taskInstructions;
         }
 
         public boolean includeHandoff() {
@@ -250,6 +283,7 @@ public class SearchPrompts {
     private record DirectiveData(
             String goal,
             String objectiveTag,
+            String taskInstructions,
             boolean isEmptyProject,
             boolean needsBuildSetup,
             String warning,
@@ -397,17 +431,8 @@ public class SearchPrompts {
                 </{{objectiveTag}}>
 
                 <search-objective>
-                {{#if (eq (lower objectiveTag) "issue_description")~}}
-                Deliver a high-quality GitHub issue using the describeIssue(String title, String body) tool.
-
-                Requirements:
-                  - "title": concise, specific issue title.
-                  - "body": GitHub-flavored Markdown describing the problem and impact.
-                    It MUST include evidence/references to code, such as:
-                      - file paths
-                      - identifiers/symbol names
-                      - fragment ids when available
-                    It MAY include a section like "## Agent Instructions" inside the body as well.
+                {{#if taskInstructions~}}
+                {{taskInstructions}}
                 {{~/if}}
 
                 {{#if terminalTasks~}}
@@ -426,13 +451,6 @@ public class SearchPrompts {
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.
                   - Full sources: when you need complete implementation details.
-                {{~/if}}
-
-                {{#if (eq (lower objectiveTag) "query_or_instructions")~}}
-                Then:
-                  - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
-                  - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
-                  - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks); do not attempt to write code yet.
                 {{~/if}}
                 </search-objective>
 
@@ -548,10 +566,10 @@ public class SearchPrompts {
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
             List<ChatMessage> sessionMessages,
-            Map<ProjectFile, String> relatedSymbols) {
+            Map<ProjectFile, String> relatedSymbols,
+            ai.brokk.agents.SearchAgent.DropMode dropMode) {
 
         var cm = context.getContextManager();
-        var inputLimit = cm.getService().getMaxInputTokens(model);
 
         // Determine viewing policy based on search objective
         boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
@@ -559,8 +577,7 @@ public class SearchPrompts {
 
         // Build workspace messages in insertion order with viewing policy applied
         var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
-        // Fudge factor for langchain4j's tokenizer undercounts most modern models. Use ceil to avoid undercounting.
-        long workspaceTokens = (long) Math.ceil(1.2 * Messages.getApproximateMessageTokens(workspaceMessages));
+        long workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
 
         var messages = new ArrayList<ChatMessage>();
 
@@ -595,30 +612,32 @@ public class SearchPrompts {
             messages.add(new AiMessage("Acknowledged. I will explicitly add only what is relevant."));
         }
 
-        // Workspace size warning
+        // Workspace size warning (and drop-only recovery notice)
+        var maxInputTokens = cm.getService().getMaxInputTokens(model);
+        double pct = (double) workspaceTokens / maxInputTokens * 100.0;
         String warning = "";
-        if (inputLimit > 0) {
-            double pct = (double) workspaceTokens / inputLimit * 100.0;
-            if (pct > 90.0) {
+
+        switch (dropMode) {
+            case DROP_ONLY ->
                 warning =
                         """
-                        <workspace-size-warning>
-                        CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
-                        You MUST reduce Workspace size immediately before any further exploration.
-                        Replace full text with summaries and drop non-essential fragments first.
-                        </workspace-size-warning>
-                        """
-                                .formatted(pct, workspaceTokens, inputLimit);
-            } else if (pct > 60.0) {
+                    <workspace-size-warning>
+                    CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
+                    You MUST reduce Workspace size immediately before any further exploration.
+                    Replace full text with summaries and drop non-essential fragments first.
+                    </workspace-size-warning>
+                    """
+                                .formatted(pct, workspaceTokens, maxInputTokens);
+            case DROP_ENCOURAGED ->
                 warning =
                         """
-                        <workspace-size-warning>
-                        NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
-                        Prefer summaries and prune aggressively before expanding further.
-                        </workspace-size-warning>
-                        """
-                                .formatted(pct, workspaceTokens, inputLimit);
-            }
+                    <workspace-size-warning>
+                    NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
+                    Prefer summaries and prune aggressively before expanding further.
+                    </workspace-size-warning>
+                    """
+                                .formatted(pct, workspaceTokens, maxInputTokens);
+            case NORMAL -> {}
         }
 
         boolean needsBuildSetup = (objective == Objective.LUTZ || objective == Objective.TASKS_ONLY)
@@ -628,6 +647,7 @@ public class SearchPrompts {
         var data = new DirectiveData(
                 goal,
                 objective.tag(),
+                objective.taskInstructions().strip(),
                 cm.getProject().isEmptyProject(),
                 needsBuildSetup,
                 warning,

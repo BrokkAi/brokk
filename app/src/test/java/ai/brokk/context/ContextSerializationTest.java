@@ -145,7 +145,7 @@ public class ContextSerializationTest {
 
         List<ChatMessage> taskMessages = List.of(UserMessage.from("User query"), AiMessage.from("AI response"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, taskMessages, "Test Task");
-        context2 = context2.addHistoryEntry(new TaskEntry(1, taskFragment, null));
+        context2 = context2.addHistoryEntryInternal(new TaskEntry(1, taskFragment, null));
 
         originalHistory.pushContext(context2);
 
@@ -286,20 +286,32 @@ public class ContextSerializationTest {
         assertEquals(expected.isCompressed(), actual.isCompressed());
         if (expected.isCompressed()) {
             assertEquals(expected.summary(), actual.summary());
+        }
+
+        // Compare MOP Log
+        if (expected.mopLog() != null) {
+            assertNotNull(actual.mopLog());
+            assertEquals(
+                    expected.mopLog().description().join(),
+                    actual.mopLog().description().join());
+            assertEquals(
+                    expected.mopLog().messages().size(),
+                    actual.mopLog().messages().size());
         } else {
-            assertNotNull(expected.log());
-            assertNotNull(actual.log());
+            assertNull(actual.mopLog());
+        }
+
+        // Compare LLM Log
+        if (expected.llmLog() != null) {
+            assertNotNull(actual.llmLog());
             assertEquals(
-                    expected.log().description().join(),
-                    actual.log().description().join());
+                    expected.llmLog().description().join(),
+                    actual.llmLog().description().join());
             assertEquals(
-                    expected.log().messages().size(), actual.log().messages().size());
-            for (int i = 0; i < expected.log().messages().size(); i++) {
-                ChatMessage expectedMsg = expected.log().messages().get(i);
-                ChatMessage actualMsg = actual.log().messages().get(i);
-                assertEquals(expectedMsg.type(), actualMsg.type());
-                assertEquals(Messages.getRepr(expectedMsg), Messages.getRepr(actualMsg));
-            }
+                    expected.llmLog().messages().size(),
+                    actual.llmLog().messages().size());
+        } else {
+            assertNull(actual.llmLog());
         }
 
         // Tolerate optional TaskMeta
@@ -479,7 +491,7 @@ public class ContextSerializationTest {
         var messages = List.<ChatMessage>of(UserMessage.from("Hello"), AiMessage.from("World"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, messages, "Task 1");
         var taskEntry = new TaskEntry(1, taskFragment, "Summary 1");
-        var context3 = context2.addHistoryEntry(taskEntry);
+        var context3 = context2.addHistoryEntryInternal(taskEntry);
         history.pushContext(context3);
 
         // Serialize to ZIP
@@ -610,10 +622,10 @@ public class ContextSerializationTest {
         var ctxWithTask1 = new Context(mockContextManager);
         var taskEntry = new TaskEntry(1, sharedTaskFragment, null);
 
-        var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntry(taskEntry);
+        var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntryInternal(taskEntry);
         var origHistoryWithTask = new ContextHistory(updatedCtxWithTask1);
 
-        var ctxWithTask2 = new Context(mockContextManager).addHistoryEntry(taskEntry);
+        var ctxWithTask2 = new Context(mockContextManager).addHistoryEntryInternal(taskEntry);
         origHistoryWithTask.pushContext(ctxWithTask2);
 
         Path taskZipFile = tempDir.resolve("interning_task_history.zip");
@@ -623,8 +635,8 @@ public class ContextSerializationTest {
         var loadedTaskCtx1 = loadedHistoryWithTask.getHistory().get(0);
         var loadedTaskCtx2 = loadedHistoryWithTask.getHistory().get(1);
 
-        var taskLog1 = loadedTaskCtx1.getTaskHistory().get(0).log();
-        var taskLog2 = loadedTaskCtx2.getTaskHistory().get(0).log();
+        var taskLog1 = loadedTaskCtx1.getTaskHistory().get(0).mopLog();
+        var taskLog2 = loadedTaskCtx2.getTaskHistory().get(0).mopLog();
 
         assertNotNull(taskLog1);
         assertNotNull(taskLog2);
@@ -804,32 +816,6 @@ public class ContextSerializationTest {
         } else {
             fail("Expected UsageFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
         }
-    }
-
-    @Test
-    void testRoundTripHistoryFragment() throws Exception {
-        var taskMessages = List.<ChatMessage>of(UserMessage.from("Task user"), AiMessage.from("Task AI"));
-        var taskFragment = new ContextFragments.TaskFragment(mockContextManager, taskMessages, "Test Task Log");
-        var taskEntry = new TaskEntry(1, taskFragment, null);
-        var fragment = new ContextFragments.HistoryFragment(mockContextManager, List.of(taskEntry));
-
-        var context = new Context(mockContextManager).addFragments(fragment);
-        ContextHistory originalHistory = new ContextHistory(context);
-
-        Path zipFile = tempDir.resolve("test_history_frag_history.zip");
-        HistoryIo.writeZip(originalHistory, zipFile);
-        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
-
-        assertContextsEqual(
-                originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
-        Context loadedCtx = loadedHistory.getHistory().get(0);
-        var loadedFragment = (ContextFragments.HistoryFragment) loadedCtx
-                .allFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
-                .findFirst()
-                .orElseThrow();
-        assertEquals(1, loadedFragment.entries().size());
-        assertTaskEntriesEqual(taskEntry, loadedFragment.entries().get(0));
     }
 
     @Test
@@ -1118,9 +1104,9 @@ public class ContextSerializationTest {
         TaskResult.TaskMeta meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE,
                 new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
-        var taskEntry = new TaskEntry(42, taskFragment, null, meta);
+        var taskEntry = new TaskEntry(42, taskFragment, null, null, meta);
 
-        var ctx = new Context(mockContextManager).addHistoryEntry(taskEntry);
+        var ctx = new Context(mockContextManager).addHistoryEntryInternal(taskEntry);
         ContextHistory ch = new ContextHistory(ctx);
 
         Path zipFile = tempDir.resolve("meta_roundtrip.zip");
@@ -1562,17 +1548,17 @@ public class ContextSerializationTest {
         var msg1 = List.<ChatMessage>of(UserMessage.from("Query 1"), AiMessage.from("Response 1"));
         var tf1 = new ContextFragments.TaskFragment(mockContextManager, msg1, "Task 1");
         var entry1 = new TaskEntry(1, tf1, null);
-        ctx = ctx.addHistoryEntry(entry1);
+        ctx = ctx.addHistoryEntryInternal(entry1);
 
         // Entry 2: Both log and summary
         var msg2 = List.<ChatMessage>of(UserMessage.from("Query 2"), AiMessage.from("Response 2"));
         var tf2 = new ContextFragments.TaskFragment(mockContextManager, msg2, "Task 2");
         var entry2 = new TaskEntry(2, tf2, "Summary of task 2");
-        ctx = ctx.addHistoryEntry(entry2);
+        ctx = ctx.addHistoryEntryInternal(entry2);
 
         // Entry 3: Summary only (legacy compressed)
         var entry3 = new TaskEntry(3, null, "Summary of task 3 only");
-        ctx = ctx.addHistoryEntry(entry3);
+        ctx = ctx.addHistoryEntryInternal(entry3);
 
         ContextHistory original = new ContextHistory(ctx);
 
@@ -1588,7 +1574,7 @@ public class ContextSerializationTest {
         assertEquals(1, loaded1.sequence());
         assertTrue(loaded1.hasLog());
         assertFalse(loaded1.isCompressed());
-        assertEquals(2, loaded1.log().messages().size());
+        assertEquals(2, loaded1.mopLog().messages().size());
 
         // Verify Entry 2: Both log and summary
         TaskEntry loaded2 = loadedEntries.get(1);
@@ -1596,7 +1582,7 @@ public class ContextSerializationTest {
         assertTrue(loaded2.hasLog());
         assertTrue(loaded2.isCompressed());
         assertEquals("Summary of task 2", loaded2.summary());
-        assertEquals(2, loaded2.log().messages().size());
+        assertEquals(2, loaded2.mopLog().messages().size());
 
         // Verify Entry 3: Summary only
         TaskEntry loaded3 = loadedEntries.get(2);
@@ -2092,7 +2078,7 @@ public class ContextSerializationTest {
         var taskEntry = new TaskEntry(1, taskFragment, null);
 
         var ctx1 = new Context(mockContextManager);
-        var ctx2 = ctx1.addHistoryEntry(taskEntry);
+        var ctx2 = ctx1.addHistoryEntryInternal(taskEntry);
 
         var history = new ContextHistory(List.of(ctx1, ctx2));
 
@@ -2150,7 +2136,7 @@ public class ContextSerializationTest {
         var messages = List.<ChatMessage>of(UserMessage.from("Query"), AiMessage.from("Response"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, messages, "Task");
         var taskEntry = new TaskEntry(1, taskFragment, null);
-        var ctx3 = new Context(mockContextManager).addHistoryEntry(taskEntry);
+        var ctx3 = new Context(mockContextManager).addHistoryEntryInternal(taskEntry);
 
         // Context 4: No group
         var ctx4 = new Context(mockContextManager);

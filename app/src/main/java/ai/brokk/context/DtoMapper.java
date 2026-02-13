@@ -104,10 +104,15 @@ public class DtoMapper {
                                 taskRefDto.primaryModelReasoning());
                     }
 
-                    // Load log and summary independently (both can coexist)
+                    // Load logs and summary independently (all can coexist)
                     ContextFragments.TaskFragment logFragment = null;
                     if (taskRefDto.logId() != null) {
                         logFragment = (ContextFragments.TaskFragment) fragmentCache.get(taskRefDto.logId());
+                    }
+
+                    ContextFragments.TaskFragment llmLogFragment = null;
+                    if (taskRefDto.llmLogId() != null) {
+                        llmLogFragment = (ContextFragments.TaskFragment) fragmentCache.get(taskRefDto.llmLogId());
                     }
 
                     String summary = null;
@@ -115,11 +120,7 @@ public class DtoMapper {
                         summary = contentReader.readContent(taskRefDto.summaryContentId());
                     }
 
-                    // At least one must be present
-                    if (logFragment != null || summary != null) {
-                        return new TaskEntry(taskRefDto.sequence(), logFragment, summary, meta);
-                    }
-                    return null;
+                    return new TaskEntry(taskRefDto.sequence(), logFragment, llmLogFragment, summary, meta);
                 })
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -147,7 +148,8 @@ public class DtoMapper {
                             : null;
                     return new TaskEntryRefDto(
                             te.sequence(),
-                            te.hasLog() ? castNonNull(te.log()).id() : null,
+                            te.mopLog() != null ? te.mopLog().id() : null,
+                            te.llmLog() != null ? te.llmLog().id() : null,
                             te.isCompressed() ? writer.writeContent(castNonNull(te.summary()), null) : null,
                             type,
                             pmName,
@@ -182,7 +184,6 @@ public class DtoMapper {
             Map<String, TaskFragmentDto> taskDtos,
             IContextManager mgr,
             @Nullable Map<String, byte[]> imageBytesMap,
-            Map<String, ContextFragment> fragmentCacheForRecursion,
             ContentReader contentReader) {
         if (referencedDtos.containsKey(idToResolve)) {
             var dto = referencedDtos.get(idToResolve);
@@ -198,15 +199,7 @@ public class DtoMapper {
                 logger.info("Skipping deprecated BuildFragment during deserialization: {}", idToResolve);
                 return null;
             }
-            return _buildVirtualFragment(
-                    castNonNull(dto),
-                    mgr,
-                    imageBytesMap,
-                    fragmentCacheForRecursion,
-                    referencedDtos,
-                    virtualDtos,
-                    taskDtos,
-                    contentReader);
+            return _buildVirtualFragment(castNonNull(dto), mgr, imageBytesMap, contentReader);
         }
         if (taskDtos.containsKey(idToResolve)) {
             return _buildTaskFragment(castNonNull(taskDtos.get(idToResolve)), mgr, contentReader);
@@ -256,10 +249,6 @@ public class DtoMapper {
             @Nullable VirtualFragmentDto dto,
             IContextManager mgr,
             @Nullable Map<String, byte[]> imageBytesMap,
-            Map<String, ContextFragment> fragmentCacheForRecursion,
-            Map<String, ReferencedFragmentDto> allReferencedDtos,
-            Map<String, VirtualFragmentDto> allVirtualDtos,
-            Map<String, TaskFragmentDto> allTaskDtos,
             ContentReader reader) {
         if (dto == null) return null;
         return switch (dto) {
@@ -350,20 +339,6 @@ public class DtoMapper {
                         text,
                         SpecialTextType.BUILD_RESULTS.description(),
                         SpecialTextType.BUILD_RESULTS.syntaxStyle());
-            }
-            case HistoryFragmentDto historyDto -> {
-                var historyEntries = historyDto.history().stream()
-                        .map(te -> _fromTaskEntryDto(
-                                te,
-                                mgr,
-                                fragmentCacheForRecursion,
-                                allReferencedDtos,
-                                allVirtualDtos,
-                                allTaskDtos,
-                                imageBytesMap,
-                                reader))
-                        .toList();
-                yield new ContextFragments.HistoryFragment(historyDto.id(), mgr, historyEntries);
             }
         };
     }
@@ -483,12 +458,6 @@ public class DtoMapper {
                 }
                 yield new CodeFragmentDto(cf.id(), cf.getFullyQualifiedName(), snapshotId);
             }
-            case ContextFragments.HistoryFragment hf -> {
-                var historyDto = hf.entries().stream()
-                        .map(te -> toTaskEntryDto(te, writer))
-                        .toList();
-                yield new HistoryFragmentDto(hf.id(), historyDto);
-            }
             default -> {
                 logger.warn(
                         "Unsupported VirtualFragment type for DTO conversion '{}', dropping",
@@ -496,18 +465,6 @@ public class DtoMapper {
                 yield null;
             }
         };
-    }
-
-    private static TaskEntryDto toTaskEntryDto(TaskEntry entry, ContentWriter writer) {
-        TaskFragmentDto logDto = null;
-        if (entry.hasLog()) {
-            logDto = toTaskFragmentDto(castNonNull(entry.log()), writer);
-        }
-        String summaryContentId = null;
-        if (entry.isCompressed()) {
-            summaryContentId = writer.writeContent(castNonNull(entry.summary()), null);
-        }
-        return new TaskEntryDto(entry.sequence(), logDto, summaryContentId);
     }
 
     @Blocking
@@ -593,41 +550,6 @@ public class DtoMapper {
                 new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString(), null);
         return new CodeUnitDto(
                 pfd, codeUnit.kind().name(), codeUnit.packageName(), codeUnit.shortName(), codeUnit.signature());
-    }
-
-    private static TaskEntry _fromTaskEntryDto(
-            TaskEntryDto dto,
-            IContextManager mgr,
-            Map<String, ContextFragment> fragmentCacheForRecursion,
-            Map<String, ReferencedFragmentDto> allReferencedDtos,
-            Map<String, VirtualFragmentDto> allVirtualDtos,
-            Map<String, TaskFragmentDto> allTaskDtos,
-            @Nullable Map<String, byte[]> imageBytesMap,
-            ContentReader reader) {
-        // Load the log if present
-        ContextFragments.TaskFragment taskFragment = null;
-        if (dto.log() != null) {
-            taskFragment = (ContextFragments.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
-                    dto.log().id(),
-                    id -> resolveAndBuildFragment(
-                            id,
-                            allReferencedDtos,
-                            allVirtualDtos,
-                            allTaskDtos,
-                            mgr,
-                            imageBytesMap,
-                            fragmentCacheForRecursion,
-                            reader));
-        }
-
-        // Load the summary if present
-        String summary = null;
-        if (dto.summaryContentId() != null) {
-            summary = reader.readContent(dto.summaryContentId());
-        }
-
-        // Both can coexist; at least one must be present
-        return new TaskEntry(dto.sequence(), taskFragment, summary);
     }
 
     private static CodeUnit fromCodeUnitDto(CodeUnitDto dto, IContextManager mgr) {

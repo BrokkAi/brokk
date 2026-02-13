@@ -215,7 +215,7 @@ public class ContextHistoryTest {
                 contextManager, List.of(new UserMessage("Test task")), "Test Session");
         var taskEntry = new TaskEntry(1, taskFragment, null);
         CompletableFuture.completedFuture("Action");
-        var contextWithHistory = initialContext.addHistoryEntry(taskEntry);
+        var contextWithHistory = initialContext.addHistoryEntryInternal(taskEntry);
         history.pushContext(contextWithHistory);
 
         var diffs = history.getDiffService().diff(contextWithHistory).join();

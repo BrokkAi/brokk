@@ -1943,10 +1943,8 @@ public class ContextFragments {
                     FragmentUtils.calculateContentHash(
                             FragmentType.HISTORY,
                             "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
-                            TaskEntry.formatMessages(history.stream()
-                                    .flatMap(e -> e.isCompressed()
-                                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                            : castNonNull(e.log()).messages().stream())
+                            Messages.format(history.stream()
+                                    .flatMap(e -> e.mopMessages().stream())
                                     .toList()),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             HistoryFragment.class.getName()),
@@ -1960,10 +1958,10 @@ public class ContextFragments {
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(history.stream()
+                    ContentSnapshot.textSnapshot(Messages.format(history.stream()
                             .flatMap(e -> e.isCompressed()
                                     ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                    : castNonNull(e.log()).messages().stream())
+                                    : castNonNull(e.mopLog()).messages().stream())
                             .toList())));
             this.history = List.copyOf(history);
         }
@@ -2001,7 +1999,7 @@ public class ContextFragments {
                     FragmentUtils.calculateContentHash(
                             FragmentType.TASK,
                             description,
-                            TaskEntry.formatMessages(messages),
+                            Messages.format(messages),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             TaskFragment.class.getName()),
                     contextManager,
@@ -2012,6 +2010,10 @@ public class ContextFragments {
 
         public TaskFragment(String id, IContextManager contextManager, List<ChatMessage> messages, String description) {
             this(id, contextManager, messages, description, true);
+        }
+
+        public TaskFragment(IContextManager contextManager, String description) {
+            this(contextManager, contextManager.getIo().getLlmRawMessages(), description, true);
         }
 
         public TaskFragment(
@@ -2025,7 +2027,7 @@ public class ContextFragments {
                     description,
                     description,
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(messages)));
+                    ContentSnapshot.textSnapshot(Messages.format(messages)));
             this.messages = List.copyOf(messages);
             this.escapeHtml = escapeHtml;
         }

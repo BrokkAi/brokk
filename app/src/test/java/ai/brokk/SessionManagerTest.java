@@ -257,14 +257,15 @@ public class SessionManagerTest {
         if (expected.isCompressed()) {
             assertEquals(expected.summary(), actual.summary());
         } else {
-            assertNotNull(expected.log());
-            assertNotNull(actual.log());
-            assertEquals(expected.log().description(), actual.log().description());
+            assertNotNull(expected.mopLog());
+            assertNotNull(actual.mopLog());
+            assertEquals(expected.mopLog().description(), actual.mopLog().description());
             assertEquals(
-                    expected.log().messages().size(), actual.log().messages().size());
-            for (int i = 0; i < expected.log().messages().size(); i++) {
-                ChatMessage expectedMsg = expected.log().messages().get(i);
-                ChatMessage actualMsg = actual.log().messages().get(i);
+                    expected.mopLog().messages().size(),
+                    actual.mopLog().messages().size());
+            for (int i = 0; i < expected.mopLog().messages().size(); i++) {
+                ChatMessage expectedMsg = expected.mopLog().messages().get(i);
+                ChatMessage actualMsg = actual.mopLog().messages().get(i);
                 assertEquals(expectedMsg.type(), actualMsg.type());
                 assertEquals(Messages.getRepr(expectedMsg), Messages.getRepr(actualMsg));
             }
@@ -436,13 +437,13 @@ public class SessionManagerTest {
 
         // Create history with exactly 3 AI responses
         var history = new ContextHistory(new Context(mockContextManager));
+        Context context = new Context(mockContextManager);
         for (int i = 0; i < 3; i++) {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
             var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
-            Context context = new Context(mockContextManager);
             var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, new AbstractService.ModelConfig("test-model"));
-            var ctx = context.addHistoryEntry(new TaskEntry(i + 1, tf, null, meta));
-            history.pushContext(ctx);
+            context = context.addHistoryEntry(tf, meta);
+            history.pushContext(context);
         }
 
         sessionManager.saveHistory(history, sessionId);

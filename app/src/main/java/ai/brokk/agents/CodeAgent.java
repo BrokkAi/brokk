@@ -136,8 +136,7 @@ public class CodeAgent {
     }
 
     /**
-     * Executes the coding task against the given context, suppressing the conversation history
-     * for the duration of the task.
+     * Executes the coding task against the given context, suppressing the conversation history.
      */
     @Blocking
     TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
@@ -145,8 +144,7 @@ public class CodeAgent {
             // special case no-history to avoid changing Context identity unnecessarily
             return runTaskInternal(context, List.of(), userInput, options);
         } else {
-            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
-                    .withHistory(context.getTaskHistory());
+            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options);
         }
     }
 
@@ -461,10 +459,9 @@ public class CodeAgent {
         }
 
         // create the Result for history
-        String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
-                ? userInput
-                : userInput + " [" + stopDetails.reason().name() + "]";
-        var tr = new TaskResult(contextManager, finalActionDescription, cs.taskMessages, context, stopDetails, meta);
+        context = context.addHistoryEntry(
+                io.getLlmRawMessages(), cs.taskMessages, TaskResult.Type.CODE, model, userInput);
+        var tr = new TaskResult(context, stopDetails);
         logger.debug("Task result: {}", tr);
         return tr;
     }
@@ -559,7 +556,6 @@ public class CodeAgent {
 
         // Build the prompt messages
         var messages = QuickEditPrompts.instance.collectMessages(fileContents, relatedCode, styleGuide);
-        int messageHistoryStart = messages.size();
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
 
@@ -620,16 +616,19 @@ public class CodeAgent {
                             + diagnosticMessages));
             report("Quick Edit: Syntax errors detected, retrying...");
         }
-
-        var quickMeta = new TaskResult.TaskMeta(
-                TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
-        return new TaskResult(
-                contextManager,
-                "Quick Edit: " + file.getFileName(),
-                messages.subList(messageHistoryStart, messages.size()),
-                context,
-                stopDetails,
-                quickMeta);
+        context = context.copyAndRefresh(Set.of(file))
+                .addHistoryEntry(
+                        List.of(
+                                new UserMessage(instructions),
+                                new AiMessage(
+                                        stopDetails.reason() == TaskResult.StopReason.SUCCESS
+                                                ? "Quick Edit applied"
+                                                : stopDetails.explanation())),
+                        messages,
+                        TaskResult.Type.CODE,
+                        model,
+                        instructions);
+        return new TaskResult(context, stopDetails);
     }
 
     /**

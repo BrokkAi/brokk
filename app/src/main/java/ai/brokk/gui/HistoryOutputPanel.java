@@ -1579,8 +1579,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var last = history.getLast();
-        CompletableFuture<String> captureTextFuture =
-                (last.log() != null) ? last.log().text().future() : CompletableFuture.completedFuture(last.summary());
+        CompletableFuture<String> captureTextFuture = (last.mopLog() != null)
+                ? last.mopLog().text().future()
+                : CompletableFuture.completedFuture(last.summary());
 
         captureTextFuture.thenAccept(captureText -> {
             if (captureText.isBlank()) {
@@ -1783,7 +1784,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var lastEntry = taskHistory.getLast();
-        var log = lastEntry.log();
+        var log = lastEntry.mopLog();
         if (log == null) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review content found in context.");
             return;

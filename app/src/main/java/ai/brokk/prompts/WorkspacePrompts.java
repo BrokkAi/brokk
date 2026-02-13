@@ -143,7 +143,7 @@ public final class WorkspacePrompts {
 
         // Uncompressed messages: process for tool and S/R block redaction
         taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
-            var entryRawMessages = castNonNull(e.log()).messages();
+            var entryRawMessages = castNonNull(e.llmLog()).messages();
             if (entryRawMessages.isEmpty()) {
                 return;
             }
