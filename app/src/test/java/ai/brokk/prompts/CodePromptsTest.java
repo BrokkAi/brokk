@@ -25,12 +25,14 @@ class CodePromptsTest {
 
     private String createMinimalMessage(String filename, String search, String replace) {
         return """
+               ```
                %s
                <<<<<<< SEARCH
                %s
                =======
                %s
                >>>>>>> REPLACE
+               ```
                """
                 .formatted(filename, search, replace);
     }
