@@ -145,7 +145,10 @@ class ContextRouterTest {
         assertEquals(fragmentId, body.get("id"));
         assertEquals("brokk://context/fragment/" + fragmentId, body.get("uri"));
         assertEquals("text/plain", body.get("mimeType"));
-        assertTrue(((String) body.get("text")).contains("hello from chip"));
+
+        String text = (String) body.get("text");
+        assertTrue(text.contains("hello from chip"), "Text should contain pasted content, but was: " + text);
+        assertTrue(!text.equals("(binary fragment)"), "Text should not be the placeholder");
     }
 
     @Test
