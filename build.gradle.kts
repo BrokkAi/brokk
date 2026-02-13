@@ -202,13 +202,13 @@ tasks.register<Exec>("brokkCodeRuffCheck") {
     }
 }
 
-tasks.register<Exec>("brokkCodePytest") {
+tasks.register<Exec>("pytest") {
     description = "Runs brokk-code tests using pytest"
     group = "verification"
     workingDir = file("brokk-code")
 
     val uv = uvExecutable ?: "uv"
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "pytest") else listOf(uv, "run", "--group", "dev", "python", "-m", "pytest"))
+    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "--no-header") else listOf(uv, "run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "--no-header"))
 
     inputs.dir("brokk-code/brokk_code")
     inputs.dir("brokk-code/tests")
