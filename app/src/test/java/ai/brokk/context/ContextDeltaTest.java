@@ -149,13 +149,65 @@ class ContextDeltaTest {
     }
 
     @Test
-    void testDelta_detectsUpdatedSpecialFragment() {
-        var ctx1 = new Context(contextManager).withSpecial(SpecialTextType.SEARCH_NOTES, "Old Notes");
-        var ctx2 = ctx1.withSpecial(SpecialTextType.SEARCH_NOTES, "New Notes");
+    void testDelta_taskListOnlyChange() {
+        var ctx1 = new Context(contextManager)
+                .withSpecial(SpecialTextType.TASK_LIST, "{\"bigPicture\":\"Old BP\",\"tasks\":[]}");
+        var ctx2 = ctx1.withSpecial(SpecialTextType.TASK_LIST, "{\"bigPicture\":\"New BP\",\"tasks\":[]}");
 
         var delta = ContextDelta.between(ctx1, ctx2).join();
 
+        assertFalse(delta.isEmpty(), "Delta should be non-empty for task list change");
         assertEquals(1, delta.updatedSpecialFragments().size());
+        assertEquals(
+                SpecialTextType.TASK_LIST,
+                delta.updatedSpecialFragments().getFirst().specialType().orElseThrow());
+
+        String description = delta.description(contextManager).join();
+        assertNotEquals("(No changes)", description);
+        assertTrue(description.contains("Update Task List"), "Description should mention Task List update");
+    }
+
+    @Test
+    void testDelta_otherSpecialFragmentOnlyChange() {
+        var ctx1 = new Context(contextManager).withSpecial(SpecialTextType.BUILD_RESULTS, "Success");
+        var ctx2 = ctx1.withSpecial(SpecialTextType.BUILD_RESULTS, "Failure");
+
+        var delta = ContextDelta.between(ctx1, ctx2).join();
+
+        assertFalse(delta.isEmpty(), "Delta should be non-empty for build results change");
+        assertEquals(1, delta.updatedSpecialFragments().size());
+        assertEquals(
+                SpecialTextType.BUILD_RESULTS,
+                delta.updatedSpecialFragments().getFirst().specialType().orElseThrow());
+
+        String description = delta.description(contextManager).join();
+        assertTrue(
+                description.contains("Update Latest Build Results"), "Description should mention Build Results update");
+    }
+
+    @Test
+    void testDelta_nonSpecialContentChange() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Main.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("version 1");
+        var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var ctx1 = new Context(contextManager).addFragments(List.of(frag1));
+
+        // Update content on disk
+        pf.write("version 2");
+        // Fresh fragment instance for same source
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        // We simulate a refresh where the fragment with same source has different content
+        var ctx2 = ctx1.removeFragments(List.of(frag1)).addFragments(List.of(frag2));
+
+        var delta = ContextDelta.between(ctx1, ctx2).join();
+
+        assertFalse(delta.isEmpty(), "Delta should not be empty when content changes");
+        assertEquals(1, delta.modifiedFragments().size());
+        assertFalse(delta.description(contextManager).join().contains("(No changes)"));
+        assertTrue(delta.description(contextManager).join().contains("Modify Main.java"));
     }
 
     @Test
@@ -204,22 +256,37 @@ class ContextDeltaTest {
         var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertEquals(1, delta.addedFragments().size(), "Special fragment should appear as added");
-        assertTrue(delta.updatedSpecialFragments().isEmpty(), "Should not be in updated list when added");
         assertFalse(delta.isEmpty());
+        assertTrue(delta.description(contextManager).join().contains("Add Code Notes"));
     }
 
     @Test
-    void testDelta_detectsRemovedSpecialFragment() {
-        var ctx1 = new Context(contextManager).withSpecial(SpecialTextType.SEARCH_NOTES, "Notes");
+    void testDelta_detectsRemovedSpecialFragment() throws Exception {
+        // We add a dummy fragment to ensure the context isn't empty after removal,
+        // which prevents the delta from being classified as a 'sessionReset'.
+        var pf = new ProjectFile(tempDir, "src/Keep.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("class Keep {}");
+        var keep = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var ctx1 = new Context(contextManager)
+                .addFragments(List.of(keep))
+                .withSpecial(SpecialTextType.SEARCH_NOTES, "Notes");
+
         var specialFrag =
                 ctx1.getSpecial(SpecialTextType.SEARCH_NOTES.description()).orElseThrow();
+        // Remove only the special fragment
         var ctx2 = ctx1.removeFragments(List.of(specialFrag));
 
         var delta = ContextDelta.between(ctx1, ctx2).join();
 
+        assertFalse(delta.sessionReset(), "Should not be a session reset because 'keep' remains");
         assertEquals(1, delta.removedFragments().size(), "Special fragment should appear as removed");
-        assertTrue(delta.updatedSpecialFragments().isEmpty(), "Should not be in updated list when removed");
         assertFalse(delta.isEmpty());
+        String description = delta.description(contextManager).join();
+        assertTrue(
+                description.contains("Remove Code Notes"),
+                "Description should mention removal of Code Notes: " + description);
     }
 
     @Test

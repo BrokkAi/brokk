@@ -6,7 +6,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.concurrent.ComputedValue;
-import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.util.StringDiskCache;
 import java.util.ArrayList;
@@ -94,8 +93,11 @@ public record ContextDelta(
 
         boolean clearedHistory = from.taskHistory.size() > to.taskHistory.size() && to.taskHistory.isEmpty();
 
-        // 1. Check for updated special fragments
+        // 1. Check for special fragments content changes.
+        // We track these explicitly so description logic can give them better names.
+        // Added/Removed specials are already handled by the general 'added'/'removed' lists.
         var updatedSpecials = new ArrayList<ContextFragments.StringFragment>();
+
         for (SpecialTextType type : SpecialTextType.values()) {
             var fromSpecial = from.getSpecial(type.description());
             var toSpecial = to.getSpecial(type.description());
@@ -157,9 +159,7 @@ public record ContextDelta(
             return ComputedValue.completed("(No changes)");
         }
 
-        var executor = ExecutorsUtil.newVirtualThreadExecutor("delta-desc-", 1);
-        return new ComputedValue<>(LoggingFuture.supplyCallableAsync(() -> descriptionInternal(icm), executor)
-                .whenComplete((r, e) -> executor.shutdown()));
+        return new ComputedValue<>(LoggingFuture.supplyCallableVirtual(() -> descriptionInternal(icm)));
     }
 
     @Blocking
@@ -205,10 +205,17 @@ public record ContextDelta(
             parts.add(buildActionDescription("Unprotect", unprotectedFragments));
         }
         for (var sf : updatedSpecialFragments) {
-            parts.add("Update " + sf.specialType().orElseThrow().description());
+            String desc = sf.specialType().orElseThrow().description();
+            parts.add("Update " + desc);
         }
-        if (parts.isEmpty() && !modifiedFragments.isEmpty()) {
-            parts.add("Load External Changes");
+
+        if (!modifiedFragments.isEmpty()) {
+            parts.add(buildActionDescription("Modify", modifiedFragments));
+        }
+
+        if (parts.isEmpty() && !isEmpty()) {
+            // Fallback for any unexpected state where the delta is not empty but no parts were added.
+            parts.add("Workspace changes");
         }
 
         return parts.isEmpty() ? "(No changes detected)" : String.join("; ", parts);
