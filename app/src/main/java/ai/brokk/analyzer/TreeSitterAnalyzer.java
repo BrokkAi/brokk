@@ -1734,13 +1734,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, CodeUnit> localCuByFqName,
             ProjectFile file) {
 
-        // Find existing CodeUnit with same fqName.
-        // For functions, we allow multiple units with the same fqName as long as they have different signatures.
-        CodeUnit existingDuplicate = localTopLevelCUs.stream()
-                .filter(existing -> existing.fqName().equals(cu.fqName())
-                        && (!cu.isFunction() || Objects.equals(existing.signature(), cu.signature())))
-                .findFirst()
-                .orElse(null);
+        // Find existing CodeUnit with the same logical identity.
+        // For functions, CodeUnit.equals already includes signature (and fqName), so overloads with different
+        // signatures
+        // will not be treated as duplicates.
+        // For classes (and other non-function units), duplicates are still detected by fqName only.
+        CodeUnit existingDuplicate = cu.isFunction()
+                ? localTopLevelCUs.stream().filter(cu::equals).findFirst().orElse(null)
+                : localTopLevelCUs.stream()
+                        .filter(existing -> existing.fqName().equals(cu.fqName()))
+                        .findFirst()
+                        .orElse(null);
 
         // Early exit if exact CodeUnit already present (same fqName, kind, source, AND signature)
         // unless it's a duplicate that should be replaced.
@@ -1928,13 +1932,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
             Map<String, CodeUnit> localCuByFqName) {
 
-        // Look for an existing child with the same FQN.
-        // For functions, we allow multiple units with the same fqName as long as they have different signatures.
-        CodeUnit existingDuplicate = kids.stream()
-                .filter(existing -> existing.fqName().equals(cu.fqName())
-                        && (!cu.isFunction() || Objects.equals(existing.signature(), cu.signature())))
-                .findFirst()
-                .orElse(null);
+        // Find existing CodeUnit with the same logical identity.
+        // For functions, CodeUnit.equals already includes signature (and fqName), so overloads with different
+        // signatures will not be treated as duplicates.
+        // For classes (and other non-function units), duplicates are still detected by fqName only.
+        CodeUnit existingDuplicate = cu.isFunction()
+                ? kids.stream().filter(cu::equals).findFirst().orElse(null)
+                : kids.stream()
+                        .filter(existing -> existing.fqName().equals(cu.fqName()))
+                        .findFirst()
+                        .orElse(null);
 
         // Early exit if exact CodeUnit already present
         // unless it's a duplicate that should be replaced.
