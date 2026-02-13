@@ -287,6 +287,7 @@ public class SearchPrompts {
             boolean isEmptyProject,
             boolean needsBuildSetup,
             String warning,
+            int turnsLeftAfterThisTurn,
             String workspaceToc,
             boolean isWorkspaceObjective,
             boolean isIssueDiagnosis,
@@ -474,6 +475,10 @@ public class SearchPrompts {
                 <tool-instructions>
                 Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
+                {{#if (eq turnsLeftAfterThisTurn 1)~}}
+                [HARNESS NOTE This is the penultimate turn. If you need any final information from non-terminal tools, request it now because you will only have one more turn after this.]
+                {{~/if}}
+
                 Pruning mandate (do this now):
                   - Prune in parallel with exploration.
                   - Drop irrelevant/noise fragments now with dropWorkspaceFragments.
@@ -567,7 +572,8 @@ public class SearchPrompts {
             List<McpPrompts.McpTool> mcpTools,
             List<ChatMessage> sessionMessages,
             Map<ProjectFile, String> relatedSymbols,
-            ai.brokk.agents.SearchAgent.DropMode dropMode) {
+            ai.brokk.agents.SearchAgent.DropMode dropMode,
+            int turnsLeftAfterThisTurn) {
 
         var cm = context.getContextManager();
 
@@ -651,6 +657,7 @@ public class SearchPrompts {
                 cm.getProject().isEmptyProject(),
                 needsBuildSetup,
                 warning,
+                turnsLeftAfterThisTurn,
                 WorkspacePrompts.formatToc(context, suppressed),
                 objective == Objective.WORKSPACE_ONLY,
                 objective == Objective.ISSUE_DESCRIPTION,

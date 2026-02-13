@@ -295,7 +295,7 @@ public class SearchAgent {
         @Nullable PendingTerminal pendingTerminal = null;
         DropMode dropMode = calculateDropMode(currentState.context());
 
-        for (int turn = 0; turn < MAX_TOTAL_TURNS; turn++) {
+        for (int turn = 0; turn < MAX_TOTAL_TURNS; ) {
             SearchState stateAtTurnStart = currentState;
 
             if (pendingTerminal != null) {
@@ -303,7 +303,14 @@ public class SearchAgent {
                 assert hasDroppableFragments(currentState.context());
             }
 
-            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropMode, pendingTerminal);
+            // Pending terminals are finalized at the loop level on the final iteration to avoid
+            // any prompt/tool-registry preparation (and especially an extra LLM call) when we
+            // have no remaining turns.
+            if (turn == MAX_TOTAL_TURNS - 1 && pendingTerminal != null) {
+                return finalizePendingTerminal(pendingTerminal, currentState.context());
+            }
+
+            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropMode, pendingTerminal, turn, MAX_TOTAL_TURNS);
             var outcome = sta.executeTurn();
 
             switch (outcome) {
@@ -332,11 +339,21 @@ public class SearchAgent {
                                         "Context limit exceeded; no substantial fragments are available to drop."),
                                 currentState.context());
                     }
+
+                    // If we overflow on the final turn, re-run the final turn from the restored checkpoint.
+                    // (Otherwise we'd immediately hit TURN_LIMIT without any chance to recover.)
+                    if (turn == MAX_TOTAL_TURNS - 1) {
+                        dropMode = calculateDropMode(currentState.context());
+                        continue;
+                    }
+
                     dropMode = DropMode.DROP_ONLY;
+                    turn++;
                 }
                 case TurnOutcome.AutoScan autoScan -> {
                     assert dropMode != DropMode.DROP_ONLY;
                     performAutoScan();
+                    turn++;
                 }
                 case TurnOutcome.Continue c -> {
                     SearchState nextState = new SearchState(
@@ -351,6 +368,7 @@ public class SearchAgent {
                     // (almost certainly futily) retrying drop-only
                     checkpointState = dropMode == DropMode.DROP_ONLY ? nextState : stateAtTurnStart;
                     dropMode = calculateDropMode(c.contextAfterTurn());
+                    turn++;
                 }
                 case TurnOutcome.PendingTerminal pt -> {
                     currentState = new SearchState(
@@ -360,6 +378,7 @@ public class SearchAgent {
                             stateAtTurnStart.presentedRelatedFiles());
                     pendingTerminal = pt.pendingTerminal();
                     dropMode = DropMode.DROP_ONLY;
+                    turn++;
                 }
                 default -> throw new AssertionError("Unexpected outcome " + outcome);
             }
@@ -528,7 +547,7 @@ public class SearchAgent {
 
         var scanModel = getScanModel();
         var wst = new WorkspaceTools(context);
-        var toolProvider = new SingleTurnAgent(this, currentState, DropMode.NORMAL, null);
+        var toolProvider = new SingleTurnAgent(this, currentState, DropMode.NORMAL, null, 0, MAX_TOTAL_TURNS);
         var tr = createToolRegistry(wst, toolProvider);
 
         var messages = SearchPrompts.instance.buildPruningPrompt(context, goal);
@@ -668,6 +687,8 @@ public class SearchAgent {
         private final SearchAgent agent;
         private final DropMode dropMode;
         private final @Nullable PendingTerminal pendingTerminal;
+        private final int turnNumber;
+        private final int maxTurns;
 
         private Context context; // mutable
         private final @Nullable Context lastTurnContext;
@@ -680,10 +701,17 @@ public class SearchAgent {
                 SearchAgent agent,
                 SearchState stateAtTurnStart,
                 DropMode dropMode,
-                @Nullable PendingTerminal pendingTerminal) {
+                @Nullable PendingTerminal pendingTerminal,
+                int turnNumber,
+                int maxTurns) {
+            assert maxTurns > 0;
+            assert turnNumber >= 0 && turnNumber < maxTurns;
+
             this.agent = agent;
             this.dropMode = dropMode;
             this.pendingTerminal = pendingTerminal;
+            this.turnNumber = turnNumber;
+            this.maxTurns = maxTurns;
 
             this.context = stateAtTurnStart.context();
             this.lastTurnContext = stateAtTurnStart.lastTurnContext();
@@ -867,13 +895,17 @@ public class SearchAgent {
                 agent.currentState = agent.currentState.withPresentedRelatedFiles(updatedRelated);
             }
 
+            DropMode effectiveDropMode = isFinalTurn() ? DropMode.NORMAL : dropMode;
+
             // update pins before generating prompt
-            if (dropMode == DropMode.DROP_ONLY) {
+            if (effectiveDropMode == DropMode.DROP_ONLY) {
                 context = agent.resetPinsToOriginal(context);
                 assert agent.hasDroppableFragments(context);
             } else {
                 context = agent.applyPinning(context, lastTurnContext);
             }
+
+            int turnsLeftAfterThisTurn = maxTurns - turnNumber - 1;
 
             var messages = SearchPrompts.instance.buildPrompt(
                     context,
@@ -884,7 +916,8 @@ public class SearchAgent {
                     agent.mcpTools,
                     sessionMessages,
                     related,
-                    dropMode);
+                    effectiveDropMode,
+                    turnsLeftAfterThisTurn);
 
             @Nullable UserMessage extraUserMessage = null;
 
@@ -892,8 +925,9 @@ public class SearchAgent {
             List<String> agentTerminalTools;
 
             if (pendingTerminal == null) {
-                allowedToolNames = agent.calculateAllowedToolNames(context, dropMode);
-                agentTerminalTools = dropMode == DropMode.DROP_ONLY ? List.of() : agent.calculateTerminalTools();
+                allowedToolNames = agent.calculateAllowedToolNames(context, effectiveDropMode);
+                agentTerminalTools =
+                        effectiveDropMode == DropMode.DROP_ONLY ? List.of() : agent.calculateTerminalTools();
             } else {
                 messages = new ArrayList<>(messages);
                 extraUserMessage = new UserMessage(
@@ -908,6 +942,10 @@ public class SearchAgent {
                     .toList();
             var toolSpecs = tr.getTools(allAllowed);
             return new TurnPrompt(messages, toolSpecs, extraUserMessage);
+        }
+
+        private boolean isFinalTurn() {
+            return turnNumber == maxTurns - 1;
         }
 
         private ToolExecutionResult executeTool(ToolExecutionRequest req) throws InterruptedException {
