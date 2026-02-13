@@ -1736,11 +1736,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // Find existing CodeUnit with the same logical identity.
         // For functions, CodeUnit.equals already includes signature (and fqName), so overloads with different
-        // signatures
-        // will not be treated as duplicates.
+        // signatures will not be treated as duplicates.
         // For classes (and other non-function units), duplicates are still detected by fqName only.
         CodeUnit existingDuplicate = cu.isFunction()
-                ? localTopLevelCUs.stream().filter(cu::equals).findFirst().orElse(null)
+                ? localTopLevelCUs.stream()
+                        .filter(existing -> existing.equals(cu))
+                        .findFirst()
+                        .orElse(null)
                 : localTopLevelCUs.stream()
                         .filter(existing -> existing.fqName().equals(cu.fqName()))
                         .findFirst()
@@ -1942,7 +1944,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // signatures will not be treated as duplicates.
         // For classes (and other non-function units), duplicates are still detected by fqName only.
         CodeUnit existingDuplicate = cu.isFunction()
-                ? kids.stream().filter(cu::equals).findFirst().orElse(null)
+                ? kids.stream()
+                        .filter(existing -> existing.equals(cu))
+                        .findFirst()
+                        .orElse(null)
                 : kids.stream()
                         .filter(existing -> existing.fqName().equals(cu.fqName()))
                         .findFirst()

@@ -1330,21 +1330,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
-        // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
-        if (!CaptureNames.CLASS_DEFINITION.equals(classCaptureName)) {
-            return null;
-        }
-
-        // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
-        // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)
-        String constructorName = enclosingClass.identifier();
-        String shortName = enclosingClass.shortName() + "." + constructorName;
-
-        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
-    }
-
-    @Override
     protected @Nullable String extractSignature(
             String captureName, TSNode definitionNode, SourceContent sourceContent) {
         if (!CaptureNames.METHOD_DEFINITION.equals(captureName)
@@ -1373,6 +1358,21 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         }
 
         return params.stream().collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    @Override
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
+        if (!CaptureNames.CLASS_DEFINITION.equals(classCaptureName)) {
+            return null;
+        }
+
+        // Convention: shortName is "EnclosingClass.shortName + "." + EnclosingClass.identifier()"
+        // e.g. for class "Foo" in package "p", shortName is "Foo.Foo" (FQN p.Foo.Foo)
+        String constructorName = enclosingClass.identifier();
+        String shortName = enclosingClass.shortName() + "." + constructorName;
+
+        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
     }
 
     @Override
