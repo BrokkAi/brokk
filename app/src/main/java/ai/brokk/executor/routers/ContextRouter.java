@@ -18,6 +18,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -179,6 +180,11 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                         404,
                         ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Fragment not found: " + fragmentId));
                 return;
+            }
+
+            // Bounded wait for computed fragments to stabilize CI and handle async materialization.
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                cf.await(Duration.ofMillis(500));
             }
 
             // Non-blocking accessors: prefer renderNowOr to avoid blocking handler threads.
