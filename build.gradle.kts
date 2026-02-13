@@ -129,27 +129,46 @@ tasks.register("tidy") {
 }
 
 fun findUvExecutable(): String? {
-    // Try simple command first (works if uv is in PATH)
+    val userHome = System.getProperty("user.home")
+    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+
+    // Try to find uv in PATH and resolve its absolute path
     try {
-        if (ProcessBuilder("uv", "--version").start().waitFor() == 0) {
-            return "uv"
+        val whichCommand = if (isWindows) listOf("where", "uv") else listOf("which", "uv")
+        val whichProcess = ProcessBuilder(whichCommand)
+            .directory(rootDir)
+            .start()
+        whichProcess.waitFor()
+        if (whichProcess.exitValue() == 0) {
+            val resolvedPath = whichProcess.inputStream.bufferedReader().readText().trim()
+                .lines().firstOrNull()?.trim() // 'where' on Windows may return multiple lines
+            if (!resolvedPath.isNullOrBlank()) {
+                val file = File(resolvedPath)
+                if (file.exists() && file.canExecute()) {
+                    return file.absolutePath
+                }
+            }
         }
     } catch (e: Exception) {
-        // Not found in PATH, try common locations
+        // which/where failed, fall through to manual search
     }
 
-    // Common Homebrew locations on macOS
+    // Common Homebrew, standalone installer, and Windows locations
     val candidates = listOf(
-        "/opt/homebrew/bin/uv",  // Apple Silicon
-        "/usr/local/bin/uv",     // Intel Mac / Linux Homebrew
-        System.getProperty("user.home") + "/.local/bin/uv",  // pipx / uv self-install
-        System.getProperty("user.home") + "/.cargo/bin/uv"   // cargo install
+        "/opt/homebrew/bin/uv", // Apple Silicon Homebrew
+        "/usr/local/bin/uv", // Intel Mac / Linux Homebrew
+        "$userHome/.local/bin/uv", // Standalone installer (Unix default)
+        "$userHome/.cargo/bin/uv", // Cargo install
+        "$userHome/Library/Application Support/uv/bin/uv", // macOS alternative
+        "/usr/bin/uv", // Linux package managers
+        "$userHome/.local/bin/uv.exe", // Windows standalone (common)
+        "$userHome/AppData/Roaming/uv/bin/uv.exe" // Windows alternative
     )
 
     for (candidate in candidates) {
-        val file = File(candidate)
+        val file = File(candidate).absoluteFile
         if (file.exists() && file.canExecute()) {
-            return candidate
+            return file.absolutePath
         }
     }
 
@@ -167,8 +186,8 @@ tasks.register<Exec>("brokkCodeRuffFormat") {
     group = "formatting"
     workingDir = file("brokk-code")
 
-    val uv = uvExecutable ?: "uv"
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "ruff", "format") else listOf(uv, "run", "--group", "dev", "python", "-m", "ruff", "format"))
+    executable = uvExecutable
+    args("run", "--group", "dev", "python", "-m", "ruff", "format")
 
     inputs.dir("brokk-code/brokk_code")
     inputs.file("brokk-code/pyproject.toml")
@@ -187,8 +206,8 @@ tasks.register<Exec>("brokkCodeRuffCheck") {
     group = "verification"
     workingDir = file("brokk-code")
 
-    val uv = uvExecutable ?: "uv"
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "ruff", "check") else listOf(uv, "run", "--group", "dev", "python", "-m", "ruff", "check"))
+    executable = uvExecutable
+    args("run", "--group", "dev", "python", "-m", "ruff", "check")
 
     inputs.dir("brokk-code/brokk_code")
     inputs.file("brokk-code/pyproject.toml")
@@ -207,8 +226,8 @@ tasks.register<Exec>("pytest") {
     group = "verification"
     workingDir = file("brokk-code")
 
-    val uv = uvExecutable ?: "uv"
-    commandLine(if (System.getProperty("os.name").lowercase().contains("windows")) listOf("uv.exe", "run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "--no-header") else listOf(uv, "run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "--no-header"))
+    executable = uvExecutable
+    args("run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "--no-header")
 
     inputs.dir("brokk-code/brokk_code")
     inputs.dir("brokk-code/tests")
