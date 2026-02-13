@@ -424,12 +424,6 @@ public final class FuzzyUsageFinder {
      * Checks if the given language includes Java (either directly or as part of MultiLanguage).
      */
     private static boolean includesJava(Language lang) {
-        if (lang.equals(Languages.JAVA)) {
-            return true;
-        }
-        if (lang instanceof Language.MultiLanguage multi) {
-            return multi.getLanguages().contains(Languages.JAVA);
-        }
-        return false;
+        return lang.contains(Languages.JAVA);
     }
 }

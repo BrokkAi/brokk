@@ -161,6 +161,14 @@ public interface Language {
     }
 
     /**
+     * Checks if this language is equivalent to, or contains, the other language.
+     * Default implementation delegates to equals().
+     */
+    default boolean contains(Language other) {
+        return this.equals(other);
+    }
+
+    /**
      * Checks if the given path is likely already analyzed as part of the project's primary sources. This is used to
      * warn the user if they try to import a directory that might be redundant. The path provided is expected to be
      * absolute.
@@ -245,6 +253,12 @@ public interface Language {
         @Override
         public ImportSupport getDependencyImportSupport() {
             throw new UnsupportedOperationException(); // should only be called on single languages
+        }
+
+        @Override
+        public boolean contains(Language other) {
+            if (this.equals(other)) return true;
+            return languages.stream().anyMatch(l -> l.contains(other));
         }
 
         @Override
