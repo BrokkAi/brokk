@@ -855,9 +855,8 @@ public class EditBlock {
         } else {
             Set<String> sources = analyzer.getDefinitions(fqName).stream()
                     .filter(CodeUnit::isFunction)
-                    .findFirst()
-                    .map(cu -> analyzer.getSources(cu, true))
-                    .orElse(Set.of());
+                    .flatMap(cu -> analyzer.getSources(cu, true).stream())
+                    .collect(Collectors.toSet());
             if (sources.isEmpty()) {
                 var suggestions = analyzer.searchDefinitions(shortName).stream()
                         .map(CodeUnit::fqName)

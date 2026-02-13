@@ -131,13 +131,14 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Get source code for a code unit by fully qualified name. Currently, only methods and classes are supported.
+     * Get source code for a code unit by fully qualified name. Currently, only methods and classes are supported. For
+     * overloaded methods, will combine sources for these as far as their fqNames match.
      */
     public static Optional<String> getSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
                 .filter(cu -> cu.isFunction() || cu.isClass())
-                .findFirst()
-                .flatMap(cu -> analyzer.getSource(cu, includeComments));
+                .flatMap(cu -> analyzer.getSource(cu, includeComments).stream())
+                .reduce((srcA, srcB) -> srcA + "\n\n" + srcB);
     }
 
     /**
@@ -146,9 +147,9 @@ public class AnalyzerUtil {
     public static List<CodeUnit> getMembersInClass(IAnalyzer analyzer, String fqClass) {
         return analyzer.getDefinitions(fqClass).stream()
                 .filter(CodeUnit::isClass)
-                .findFirst()
                 .map(analyzer::getMembersInClass)
-                .orElse(List.of());
+                .flatMap(List::stream)
+                .toList();
     }
 
     /**

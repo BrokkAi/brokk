@@ -1345,6 +1345,37 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    protected @Nullable String extractSignature(
+            String captureName, TSNode definitionNode, SourceContent sourceContent) {
+        if (!CaptureNames.METHOD_DEFINITION.equals(captureName)
+                && !CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName)) {
+            return null;
+        }
+
+        TSNode parametersNode =
+                definitionNode.getChildByFieldName(getLanguageSyntaxProfile().parametersFieldName());
+        if (parametersNode == null || parametersNode.isNull()) {
+            return "()";
+        }
+
+        List<String> params = new ArrayList<>();
+        for (int i = 0; i < parametersNode.getNamedChildCount(); i++) {
+            TSNode param = parametersNode.getNamedChild(i);
+            if (param == null || param.isNull() || !FORMAL_PARAMETER.equals(param.getType())) {
+                continue;
+            }
+
+            TSNode typeNode = param.getChildByFieldName("type");
+            if (typeNode != null && !typeNode.isNull()) {
+                String typeText = sourceContent.substringFrom(typeNode).strip();
+                params.add(stripGenericTypeArguments(typeText));
+            }
+        }
+
+        return params.stream().collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.

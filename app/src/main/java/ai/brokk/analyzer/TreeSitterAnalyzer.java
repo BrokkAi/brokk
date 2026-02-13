@@ -1734,9 +1734,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, CodeUnit> localCuByFqName,
             ProjectFile file) {
 
-        // Find existing CodeUnit with same fqName
+        // Find existing CodeUnit with same fqName.
+        // For functions, we allow multiple units with the same fqName as long as they have different signatures.
         CodeUnit existingDuplicate = localTopLevelCUs.stream()
-                .filter(existing -> existing.fqName().equals(cu.fqName()))
+                .filter(existing -> existing.fqName().equals(cu.fqName())
+                        && (!cu.isFunction() || Objects.equals(existing.signature(), cu.signature())))
                 .findFirst()
                 .orElse(null);
 
@@ -1926,9 +1928,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
             Map<String, CodeUnit> localCuByFqName) {
 
-        // Look for an existing child with the same FQN (overloads may exist with different signatures)
+        // Look for an existing child with the same FQN.
+        // For functions, we allow multiple units with the same fqName as long as they have different signatures.
         CodeUnit existingDuplicate = kids.stream()
-                .filter(k -> k.fqName().equals(cu.fqName()))
+                .filter(existing -> existing.fqName().equals(cu.fqName())
+                        && (!cu.isFunction() || Objects.equals(existing.signature(), cu.signature())))
                 .findFirst()
                 .orElse(null);
 
@@ -2343,8 +2347,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
 
             String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
+            @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
 
-            CodeUnit existingCUforKeyLookup = localCuByFqName.get(enhancedFqName);
+            // Create a lookup key that includes signature for functions to allow overloads
+            String cuLookupKey =
+                    (codeUnitSignature != null) ? enhancedFqName + "(" + codeUnitSignature + ")" : enhancedFqName;
+
+            CodeUnit existingCUforKeyLookup = localCuByFqName.get(cuLookupKey);
             if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
                 cu = existingCUforKeyLookup;
                 log.trace("Reusing existing CodeUnit for function overload: {}", cu.fqName());
@@ -2362,9 +2371,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         cu.kind());
             }
 
-            @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
-
-            if (!enhancedFqName.equals(cu.fqName()) || codeUnitSignature != null) {
+            if (!enhancedFqName.equals(cu.fqName()) || !Objects.equals(codeUnitSignature, cu.signature())) {
                 String enhancedShortName = enhancedFqName;
                 if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
                     enhancedShortName =
@@ -2457,7 +2464,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 }
             }
 
-            localCuByFqName.put(cu.fqName(), cu);
+            localCuByFqName.put(cuLookupKey, cu);
             cuToCaptureName.put(cu, primaryCaptureName);
             localChildren.putIfAbsent(cu, new ArrayList<>());
 

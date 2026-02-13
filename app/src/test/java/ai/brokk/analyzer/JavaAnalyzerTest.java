@@ -312,25 +312,30 @@ public class JavaAnalyzerTest {
         final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "D");
         assertTrue(maybeFile.isPresent());
         final var file = maybeFile.get();
-        final var classes = analyzer.getDeclarations(file);
+        final var declarations = analyzer.getDeclarations(file);
 
-        final var expected = Set.of(
-                // Classes
-                CodeUnit.cls(file, "", "D"),
-                CodeUnit.cls(file, "", "D.DSub"),
-                CodeUnit.cls(file, "", "D.DSubStatic"),
-                // Methods
-                CodeUnit.fn(file, "", "D.D"),
-                CodeUnit.fn(file, "", "D.DSub.DSub"),
-                CodeUnit.fn(file, "", "D.DSubStatic.DSubStatic"),
-                CodeUnit.fn(file, "", "D.methodD1"),
-                CodeUnit.fn(file, "", "D.methodD2"),
-                // Fields
-                CodeUnit.field(file, "", "D.field1"),
-                CodeUnit.field(file, "", "D.field2"));
-        assertEquals(expected, classes);
+        final var declStrings = declarations.stream()
+                .map(cu -> cu.kind() + ":" + cu.fqName())
+                .sorted()
+                .toList();
+
+        final var expectedStrings = Stream.of(
+                        "CLASS:D",
+                        "CLASS:D.DSub",
+                        "CLASS:D.DSubStatic",
+                        "FUNCTION:D.D",
+                        "FUNCTION:D.DSub.DSub",
+                        "FUNCTION:D.DSubStatic.DSubStatic",
+                        "FUNCTION:D.methodD1",
+                        "FUNCTION:D.methodD2",
+                        "FIELD:D.field1",
+                        "FIELD:D.field2")
+                .sorted()
+                .toList();
+        assertEquals(expectedStrings, declStrings);
 
         // Verify identifier() returns innermost name for nested classes
+        final var classes = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toSet());
         var dSubOpt =
                 classes.stream().filter(cu -> cu.fqName().equals("D.DSub")).findFirst();
         assertTrue(dSubOpt.isPresent());
@@ -345,17 +350,20 @@ public class JavaAnalyzerTest {
     public void declarationsInPackagedFileTest() {
         final var file = new ProjectFile(testProject.getRoot(), "Packaged.java");
         final var declarations = analyzer.getDeclarations(file);
-        final var expected = Set.of(
-                // Module
-                CodeUnit.module(file, "io.github.jbellis", "brokk"),
-                // Class
-                CodeUnit.cls(file, "io.github.jbellis.brokk", "Foo"),
-                // Method
-                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar"),
-                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.Foo")
-                // No fields in Packaged.java
-                );
-        assertEquals(expected, declarations);
+
+        final var declStrings = declarations.stream()
+                .map(cu -> cu.kind() + ":" + cu.fqName())
+                .sorted()
+                .toList();
+
+        final var expectedStrings = Stream.of(
+                        "MODULE:io.github.jbellis.brokk",
+                        "CLASS:io.github.jbellis.brokk.Foo",
+                        "FUNCTION:io.github.jbellis.brokk.Foo.bar",
+                        "FUNCTION:io.github.jbellis.brokk.Foo.Foo")
+                .sorted()
+                .toList();
+        assertEquals(expectedStrings, declStrings);
 
         // Verify identifier() for packaged class
         var fooOpt = declarations.stream()
@@ -441,53 +449,50 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getMembersInClassTest() {
-        final var members =
-                AnalyzerUtil.getMembersInClass(analyzer, "D").stream().sorted().toList();
-        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "D");
-        assertTrue(maybeFile.isPresent());
-        final var file = maybeFile.get();
+        final var members = AnalyzerUtil.getMembersInClass(analyzer, "D");
 
-        final var expected = Stream.of(
-                        // Methods
-                        CodeUnit.fn(file, "", "D.D"),
-                        CodeUnit.fn(file, "", "D.methodD1"),
-                        CodeUnit.fn(file, "", "D.methodD2"),
-                        // Fields
-                        CodeUnit.field(file, "", "D.field1"),
-                        CodeUnit.field(file, "", "D.field2"),
-                        // Classes
-                        CodeUnit.cls(file, "", "D.DSubStatic"),
-                        CodeUnit.cls(file, "", "D.DSub"))
+        // Use stable string representation for comparison as analyzer-produced units may carry signatures
+        final var memberStrings = members.stream()
+                .map(cu -> cu.kind() + ":" + cu.fqName())
                 .sorted()
                 .toList();
-        assertEquals(expected, members);
+
+        final var expectedStrings = Stream.of(
+                        "FUNCTION:D.D",
+                        "CLASS:D.DSub",
+                        "CLASS:D.DSubStatic",
+                        "FIELD:D.field1",
+                        "FIELD:D.field2",
+                        "FUNCTION:D.methodD1",
+                        "FUNCTION:D.methodD2")
+                .sorted()
+                .toList();
+
+        assertEquals(expectedStrings, memberStrings);
     }
 
     @Test
     public void getDirectClassChildren() {
         final var maybeClassD = analyzer.getDefinitions("D").stream().findFirst();
         assertTrue(maybeClassD.isPresent());
-        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "D");
-        assertTrue(maybeFile.isPresent());
 
-        final var children =
-                analyzer.getDirectChildren(maybeClassD.get()).stream().sorted().toList();
-        final var file = maybeFile.get();
-
-        final var expected = Stream.of(
-                        // Classes
-                        CodeUnit.cls(file, "", "D.DSub"),
-                        CodeUnit.cls(file, "", "D.DSubStatic"),
-                        // Methods
-                        CodeUnit.fn(file, "", "D.D"),
-                        CodeUnit.fn(file, "", "D.methodD1"),
-                        CodeUnit.fn(file, "", "D.methodD2"),
-                        // Fields
-                        CodeUnit.field(file, "", "D.field1"),
-                        CodeUnit.field(file, "", "D.field2"))
+        final var children = analyzer.getDirectChildren(maybeClassD.get());
+        final var childStrings = children.stream()
+                .map(cu -> cu.kind() + ":" + cu.fqName())
                 .sorted()
                 .toList();
-        assertEquals(expected, children);
+
+        final var expectedStrings = Stream.of(
+                        "FUNCTION:D.D",
+                        "CLASS:D.DSub",
+                        "CLASS:D.DSubStatic",
+                        "FIELD:D.field1",
+                        "FIELD:D.field2",
+                        "FUNCTION:D.methodD1",
+                        "FUNCTION:D.methodD2")
+                .sorted()
+                .toList();
+        assertEquals(expectedStrings, childStrings);
     }
 
     @Test
@@ -1191,15 +1196,17 @@ public class JavaAnalyzerTest {
         var file = maybeFile.get();
 
         // 1. Exact match for a method
-        // method1 is lines 14-16 in A.java (approx based on getSkeleton test data)
-        // Let's use a safe line number from middle of method1
-        int method1Line = analyzer.getStartLineForCodeUnit(CodeUnit.fn(file, "", "A.method1"));
+        var method1Cu =
+                analyzer.getDefinitions("A.method1").stream().findFirst().orElseThrow();
+        int method1Line = analyzer.getStartLineForCodeUnit(method1Cu);
         var cu1 = analyzer.enclosingCodeUnit(file, method1Line, method1Line);
         assertTrue(cu1.isPresent());
         assertEquals("A.method1", cu1.get().fqName());
 
         // 2. Range spanning from method7 to its containing class AInnerInner
-        var cu7 = CodeUnit.fn(file, "", "A.AInner.AInnerInner.method7");
+        var cu7 = analyzer.getDefinitions("A.AInner.AInnerInner.method7").stream()
+                .findFirst()
+                .orElseThrow();
         int method7Start = analyzer.getStartLineForCodeUnit(cu7);
         // method7 is very short, just a few lines.
         var cu2 = analyzer.enclosingCodeUnit(file, method7Start, method7Start + 1);
@@ -1207,8 +1214,10 @@ public class JavaAnalyzerTest {
         assertEquals("A.AInner.AInnerInner.method7", cu2.get().fqName());
 
         // 3. Range spanning multiple methods returns the containing class
-        var cuMethod1 = CodeUnit.fn(file, "", "A.method1");
-        var cuMethod2 = CodeUnit.fn(file, "", "A.method2");
+        var cuMethod1 =
+                analyzer.getDefinitions("A.method1").stream().findFirst().orElseThrow();
+        var cuMethod2 =
+                analyzer.getDefinitions("A.method2").stream().findFirst().orElseThrow();
         int m1Start = analyzer.getStartLineForCodeUnit(cuMethod1);
         int m2Start = analyzer.getStartLineForCodeUnit(cuMethod2);
 
