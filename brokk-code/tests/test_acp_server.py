@@ -3,11 +3,11 @@ from pathlib import Path
 from brokk_code.acp_server import (
     BASE_MODEL_IDS,
     DEFAULT_MODEL_SELECTION,
+    DEFAULT_REASONING_LEVEL,
     REASONING_LEVEL_IDS,
     BrokkAcpBridge,
     _extract_session_id_for_cancel,
     build_context_chip_blocks,
-    build_model_variants,
     extract_prompt_text,
     map_executor_event_to_session_update,
     normalize_mode,
@@ -32,14 +32,14 @@ def test_normalize_mode_defaults_and_known_values() -> None:
     assert normalize_mode("invalid") == "LUTZ"
 
 
-def test_build_model_variants_contains_reasoning_variants() -> None:
-    variants = build_model_variants()
-    assert (f"{BASE_MODEL_IDS[0]}#r=low", f"{BASE_MODEL_IDS[0]} (low)") in variants
-    assert len(variants) == len(BASE_MODEL_IDS) * len(REASONING_LEVEL_IDS)
+def test_model_and_reasoning_constants() -> None:
+    assert DEFAULT_MODEL_SELECTION in BASE_MODEL_IDS
+    assert DEFAULT_REASONING_LEVEL in REASONING_LEVEL_IDS
 
 
 def test_resolve_model_selection_variant_and_plain() -> None:
-    assert resolve_model_selection(DEFAULT_MODEL_SELECTION) == ("gpt-5.2", "low")
+    assert resolve_model_selection(DEFAULT_MODEL_SELECTION) == (DEFAULT_MODEL_SELECTION, None)
+    assert resolve_model_selection("gpt-5.2#r=low") == ("gpt-5.2", "low")
     assert resolve_model_selection("gemini-3-flash-preview") == ("gemini-3-flash-preview", None)
 
 
@@ -279,14 +279,13 @@ async def test_prompt_emits_context_snapshot_after_stream() -> None:
     assert len(updates) == 6
     assert updates[0][1]["text"] == "abc"
     assert "Context Snapshot" in updates[1][1]["text"]
-    assert "| @main.py | 50 |" in updates[2][1]["text"]
-    assert "Editable Context" in updates[3][1]["text"]
-    assert "Purpose:" in updates[3][1]["text"]
+    assert "Editable Context" in updates[2][1]["text"]
+    assert updates[3][1]["text"] == "- "
     assert updates[4][1]["kind"] == "embedded_resource"
     assert updates[4][1]["uri"] == "file:///repo/main.py"
     assert updates[4][1]["mimeType"] == "text/x-python"
     assert updates[4][1]["text"] == "print('hi')\n"
-    assert updates[5][1]["text"] == "\n"
+    assert updates[5][1]["text"] == " | 50\n"
 
 
 async def test_prompt_emits_discarded_context_as_json_markdown_text() -> None:
@@ -378,6 +377,98 @@ async def test_prompt_emits_discarded_context_as_json_markdown_text() -> None:
     assert len(json_blocks) == 1
     assert '"title": "Discarded Context"' in json_blocks[0]
     assert '"content": "dropped items here"' in json_blocks[0]
-    table_blocks = [u[1]["text"] for u in updates if "| Item | Tokens |" in u[1].get("text", "")]
-    assert len(table_blocks) == 1
-    assert "| @Discarded Context | 10 |" in table_blocks[0]
+
+
+async def test_prompt_emits_summary_as_list_item_with_resource_and_tokens() -> None:
+    updates: list[tuple[str, dict[str, str]]] = []
+
+    class StubExecutor:
+        workspace_dir = Path(".").resolve()
+
+        async def start(self) -> None:
+            pass
+
+        async def create_session(self, name: str = "ignored") -> str:
+            return "session-1"
+
+        async def wait_ready(self) -> bool:
+            return True
+
+        async def submit_job(
+            self,
+            task_input: str,
+            planner_model: str,
+            code_model: str | None = None,
+            reasoning_level: str | None = None,
+            reasoning_level_code: str | None = None,
+            mode: str = "LUTZ",
+        ) -> str:
+            return "job-1"
+
+        async def stream_events(self, job_id: str):
+            yield {"type": "LLM_TOKEN", "data": {"token": "abc"}}
+
+        async def get_context(self) -> dict[str, object]:
+            return {
+                "usedTokens": 250,
+                "maxTokens": 1000,
+                "fragments": [
+                    {
+                        "id": "frag-s",
+                        "chipKind": "SUMMARY",
+                        "shortDescription": "Summary of worker.go",
+                        "tokens": 12,
+                    }
+                ],
+            }
+
+        async def get_context_fragment(self, fragment_id: str) -> dict[str, object]:
+            assert fragment_id == "frag-s"
+            return {
+                "id": "frag-s",
+                "uri": "brokk://context/fragment/frag-s",
+                "mimeType": "text/plain",
+                "text": "summary text",
+            }
+
+    async def send_update(session_id: str, update: dict[str, str]) -> None:
+        updates.append((session_id, update))
+
+    def update_agent_message_text(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_message_chunk", "text": text}
+
+    def update_agent_thought_text(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_thought_chunk", "text": text}
+
+    def build_context_snapshot_update(uri: str, mime_type: str, text: str) -> dict[str, str]:
+        return {
+            "sessionUpdate": "agent_message_chunk",
+            "uri": uri,
+            "mimeType": mime_type,
+            "text": text,
+            "kind": "embedded_resource",
+        }
+
+    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    await bridge.prompt(
+        prompt=[{"type": "text", "text": "hello"}],
+        session_id="acp-session-1",
+        mode="LUTZ",
+        planner_model="gpt-5.2",
+        code_model="gemini-3-flash-preview",
+        reasoning_level="low",
+        reasoning_level_code="disable",
+        send_update=send_update,
+        update_agent_message_text=update_agent_message_text,
+        update_agent_thought_text=update_agent_thought_text,
+        build_context_snapshot_update=build_context_snapshot_update,
+    )
+
+    assert len(updates) == 6
+    assert updates[0][1]["text"] == "abc"
+    assert "Context Snapshot" in updates[1][1]["text"]
+    assert "Summaries" in updates[2][1]["text"]
+    assert updates[3][1]["text"] == "- "
+    assert updates[4][1]["kind"] == "embedded_resource"
+    assert updates[4][1]["text"] == "summary text"
+    assert updates[5][1]["text"] == " | 12\n"

@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 VALID_MODES = {"LUTZ", "ASK", "SEARCH"}
 BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
-DEFAULT_MODEL_SELECTION = "gpt-5.2#r=low"
+DEFAULT_MODEL_SELECTION = "gpt-5.2"
+DEFAULT_REASONING_LEVEL = "low"
 
 
 def normalize_mode(mode: Optional[str]) -> str:
@@ -23,16 +24,6 @@ def normalize_mode(mode: Optional[str]) -> str:
     if upper in VALID_MODES:
         return upper
     return "LUTZ"
-
-
-def build_model_variants() -> list[tuple[str, str]]:
-    variants: list[tuple[str, str]] = []
-    for model_id in BASE_MODEL_IDS:
-        for reasoning in REASONING_LEVEL_IDS:
-            variants.append(
-                (f"{model_id}#r={reasoning}", f"{model_id} ({reasoning})")
-            )
-    return variants
 
 
 def resolve_model_selection(model_selection: Optional[str]) -> tuple[str, Optional[str]]:
@@ -199,18 +190,6 @@ def _discarded_context_markdown(block: dict[str, Any]) -> str:
     return "```json\n" + json.dumps(payload, indent=2) + "\n```\n"
 
 
-def _snapshot_items_table(blocks: list[dict[str, Any]]) -> str:
-    lines = [
-        "| Item | Tokens |",
-        "| --- | ---: |",
-    ]
-    for block in blocks:
-        item = str(block.get("short_description", "Unknown")).replace("|", "\\|").strip()
-        tokens = int(block.get("tokens", 0) or 0)
-        lines.append(f"| @{item} | {tokens:,} |")
-    return "\n".join(lines) + "\n"
-
-
 def build_context_chip_blocks(
     context_data: dict[str, Any], fragment_resources: dict[str, dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -349,10 +328,6 @@ class BrokkAcpBridge:
                             f"{len(blocks)} resources | {used_tokens:,}/{max_tokens:,} tokens\n"
                         ),
                     )
-                    await send_update(
-                        session_id,
-                        update_agent_message_text(_snapshot_items_table(blocks)),
-                    )
                 current_kind: Optional[str] = None
                 for block in blocks:
                     kind = str(block["chip_kind"])
@@ -360,11 +335,24 @@ class BrokkAcpBridge:
                         current_kind = kind
                         await send_update(
                             session_id,
-                            update_agent_message_text(
-                                f"\n#### {_chip_kind_label(kind)}\n"
-                                f"_Purpose: {_chip_kind_purpose(kind)}_\n"
+                            update_agent_message_text(f"\n#### {_chip_kind_label(kind)}\n"),
+                        )
+                    is_resource_list_kind = kind in {"EDIT", "SUMMARY"}
+                    if is_resource_list_kind and not _is_discarded_context(block):
+                        await send_update(session_id, update_agent_message_text("- "))
+                        await send_update(
+                            session_id,
+                            build_context_snapshot_update(
+                                str(block["uri"]),
+                                str(block["mime_type"]),
+                                str(block["text"]),
                             ),
                         )
+                        await send_update(
+                            session_id,
+                            update_agent_message_text(f" | {int(block['tokens'])}\n"),
+                        )
+                        continue
                     await send_update(
                         session_id,
                         update_agent_message_text(_discarded_context_markdown(block))
@@ -418,16 +406,24 @@ async def run_acp_server(
             update_agent_message_text,
             update_agent_thought_text,
         )
+        from acp.agent import connection as acp_agent_connection
+        from acp.agent import router as acp_agent_router
+        from acp.meta import AGENT_METHODS
         from acp.schema import (
             AgentCapabilities,
             Implementation,
             ListSessionsResponse,
             ModelInfo,
+            SessionConfigOption,
+            SessionConfigSelectOption,
             SessionInfo,
             SessionMode,
             SessionModelState,
             SessionModeState,
+            SetSessionConfigOptionRequest,
+            SetSessionConfigOptionResponse,
         )
+        from acp.utils import normalize_result
     except ImportError as e:
         raise RuntimeError(
             "ACP mode requires the official ACP Python SDK. "
@@ -444,13 +440,92 @@ async def run_acp_server(
     )
     bridge = BrokkAcpBridge(executor)
 
+    def _patch_acp_router_for_session_config_option() -> None:
+        if getattr(acp_agent_router, "_brokk_session_config_patch", False):
+            return
+        original_build_agent_router = acp_agent_router.build_agent_router
+
+        def patched_build_agent_router(agent: Any, use_unstable_protocol: bool = False) -> Any:
+            router = original_build_agent_router(
+                agent, use_unstable_protocol=use_unstable_protocol
+            )
+            router.route_request(
+                AGENT_METHODS["session_set_config_option"],
+                SetSessionConfigOptionRequest,
+                agent,
+                "set_session_config_option",
+                adapt_result=normalize_result,
+                unstable=True,
+            )
+            return router
+
+        acp_agent_router.build_agent_router = patched_build_agent_router
+        # AgentSideConnection captured a module-level symbol; patch it too.
+        acp_agent_connection.build_agent_router = patched_build_agent_router
+        acp_agent_router._brokk_session_config_patch = True
+
+    _patch_acp_router_for_session_config_option()
+
     class BrokkAcpAgent(Agent):
         def __init__(self) -> None:
             self.client: Optional[Any] = None
             self._mode_by_session: dict[str, str] = {}
             self._model_by_session: dict[str, str] = {}
+            self._reasoning_by_session: dict[str, str] = {}
             self._cwd_by_session: dict[str, str] = {}
-            self._available_model_variants = build_model_variants()
+
+        def _config_options_for_session(self, session_id: str) -> list[Any]:
+            current_mode = self._mode_by_session.get(session_id, "LUTZ")
+            current_model = self._model_by_session.get(
+                session_id, DEFAULT_MODEL_SELECTION
+            )
+            current_reasoning = self._reasoning_by_session.get(
+                session_id, DEFAULT_REASONING_LEVEL
+            )
+            return [
+                SessionConfigOption.model_validate(
+                    {
+                        "type": "select",
+                        "id": "mode",
+                        "name": "Mode",
+                        "description": "Choose Brokk operating mode",
+                        "category": "session",
+                        "currentValue": current_mode,
+                        "options": [
+                            SessionConfigSelectOption(value=mode, name=mode)
+                            for mode in sorted(VALID_MODES)
+                        ],
+                    }
+                ),
+                SessionConfigOption.model_validate(
+                    {
+                        "type": "select",
+                        "id": "model",
+                        "name": "Model",
+                        "description": "Choose which model Brokk should use",
+                        "category": "model",
+                        "currentValue": current_model,
+                        "options": [
+                            SessionConfigSelectOption(value=model_id, name=model_id)
+                            for model_id in BASE_MODEL_IDS
+                        ],
+                    }
+                ),
+                SessionConfigOption.model_validate(
+                    {
+                        "type": "select",
+                        "id": "reasoning_effort",
+                        "name": "Reasoning Effort",
+                        "description": "Choose how much reasoning effort the model should use",
+                        "category": "model",
+                        "currentValue": current_reasoning,
+                        "options": [
+                            SessionConfigSelectOption(value=level, name=level.title())
+                            for level in REASONING_LEVEL_IDS
+                        ],
+                    }
+                )
+            ]
 
         def on_connect(self, client: Any) -> None:
             self.client = client
@@ -478,6 +553,7 @@ async def run_acp_server(
             session_id = str(uuid.uuid4())
             self._mode_by_session[session_id] = "LUTZ"
             self._model_by_session[session_id] = DEFAULT_MODEL_SELECTION
+            self._reasoning_by_session[session_id] = DEFAULT_REASONING_LEVEL
             self._cwd_by_session[session_id] = cwd
             return NewSessionResponse(
                 session_id=session_id,
@@ -491,11 +567,12 @@ async def run_acp_server(
                 ),
                 models=SessionModelState(
                     available_models=[
-                        ModelInfo(model_id=model_id, name=name)
-                        for model_id, name in self._available_model_variants
+                        ModelInfo(model_id=model_id, name=model_id)
+                        for model_id in BASE_MODEL_IDS
                     ],
                     current_model_id=DEFAULT_MODEL_SELECTION,
                 ),
+                config_options=self._config_options_for_session(session_id),
             )
 
         async def load_session(
@@ -520,13 +597,14 @@ async def run_acp_server(
                 ),
                 models=SessionModelState(
                     available_models=[
-                        ModelInfo(model_id=model_id, name=name)
-                        for model_id, name in self._available_model_variants
+                        ModelInfo(model_id=model_id, name=model_id)
+                        for model_id in BASE_MODEL_IDS
                     ],
                     current_model_id=self._model_by_session.get(
                         session_id, DEFAULT_MODEL_SELECTION
                     ),
                 ),
+                config_options=self._config_options_for_session(session_id),
             )
 
         async def list_sessions(
@@ -562,8 +640,29 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> SetSessionModelResponse:
             del kwargs
-            self._model_by_session[session_id] = model_id or DEFAULT_MODEL_SELECTION
+            selected_model, selected_reasoning = resolve_model_selection(model_id)
+            self._model_by_session[session_id] = selected_model or DEFAULT_MODEL_SELECTION
+            if selected_reasoning:
+                self._reasoning_by_session[session_id] = selected_reasoning
             return SetSessionModelResponse()
+
+        async def set_session_config_option(
+            self,
+            config_id: str,
+            session_id: str,
+            value: str,
+            **kwargs: Any,
+        ) -> SetSessionConfigOptionResponse:
+            del kwargs
+            if config_id == "mode" and value:
+                self._mode_by_session[session_id] = normalize_mode(value)
+            elif config_id == "model" and value:
+                self._model_by_session[session_id] = value
+            elif config_id == "reasoning_effort" and value in REASONING_LEVEL_IDS:
+                self._reasoning_by_session[session_id] = value
+            return SetSessionConfigOptionResponse(
+                config_options=self._config_options_for_session(session_id)
+            )
 
         async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
@@ -583,6 +682,7 @@ async def run_acp_server(
                 kwargs.get("reasoning_level")
                 or kwargs.get("reasoningLevel")
                 or selected_reasoning_level
+                or self._reasoning_by_session.get(session_id)
                 or "low"
             )
             reasoning_level_code = (
@@ -617,6 +717,6 @@ async def run_acp_server(
             await bridge.cancel(*args, **kwargs)
 
     try:
-        await run_agent(BrokkAcpAgent())
+        await run_agent(BrokkAcpAgent(), use_unstable_protocol=True)
     finally:
         await executor.stop()
