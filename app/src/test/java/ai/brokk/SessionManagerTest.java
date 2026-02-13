@@ -440,7 +440,7 @@ public class SessionManagerTest {
         Context context = new Context(mockContextManager);
         for (int i = 0; i < 3; i++) {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
-            var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
+            var tf = new ContextFragments.TaskFragment(msgs, "Task " + i);
             var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, new AbstractService.ModelConfig("test-model"));
             context = context.addHistoryEntry(tf, meta);
             history.pushContext(context);

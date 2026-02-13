@@ -938,8 +938,8 @@ public class Context {
         var mc = AbstractService.ModelConfig.from(model, contextManager.getService());
         return addHistoryEntryInternal(new TaskEntry(
                 getTaskHistory().size(),
-                new ContextFragments.TaskFragment(contextManager, mopMessages, instructions),
-                new ContextFragments.TaskFragment(contextManager, llmMessages, instructions),
+                new ContextFragments.TaskFragment(mopMessages, instructions),
+                new ContextFragments.TaskFragment(llmMessages, instructions),
                 null,
                 new TaskResult.TaskMeta(type, mc)));
     }

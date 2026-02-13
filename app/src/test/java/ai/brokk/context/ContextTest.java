@@ -311,7 +311,7 @@ class ContextTest {
 
         // Add a history entry
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
-        var log = new ContextFragments.TaskFragment(contextManager, msgs, "Log");
+        var log = new ContextFragments.TaskFragment(msgs, "Log");
         var entry = new TaskEntry(1, log, null);
         ctx = ctx.addHistoryEntryInternal(entry);
 
@@ -541,7 +541,7 @@ class ContextTest {
     void testIsFileContentEmpty_withTaskFragment() {
         var ctx = new Context(contextManager);
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
+        var taskFrag = new ContextFragments.TaskFragment(msgs, "task");
         ctx = ctx.addFragments(taskFrag);
         assertTrue(ctx.isFileContentEmpty(), "Context with only TASK fragments should report no file content");
     }

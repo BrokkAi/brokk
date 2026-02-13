@@ -2173,7 +2173,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
-        var taskFragment = new ContextFragments.TaskFragment(this, messages, input);
+        var taskFragment = new ContextFragments.TaskFragment(messages, input);
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, taskFragment, null));
 
         // rename the session if needed

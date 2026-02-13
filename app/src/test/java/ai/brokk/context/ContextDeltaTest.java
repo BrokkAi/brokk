@@ -94,7 +94,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager);
 
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
+        var taskFrag = new ContextFragments.TaskFragment(msgs, "task");
         var entry = new TaskEntry(1, taskFrag, null);
         var ctx2 = ctx1.addHistoryEntryInternal(entry);
 
@@ -115,7 +115,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).addFragments(List.of(frag));
 
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
+        var taskFrag = new ContextFragments.TaskFragment(msgs, "task");
         var entry = new TaskEntry(1, taskFrag, null);
         var ctxWithHistory = ctx1.addHistoryEntryInternal(entry);
         var ctxCleared = ctxWithHistory.clearHistory();
@@ -133,7 +133,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager);
         // Create an uncompressed entry (no summary, has log)
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
+        var taskFrag = new ContextFragments.TaskFragment(msgs, "task");
         var entry1 = new TaskEntry(1, taskFrag, null);
         assertFalse(entry1.isCompressed());
         var ctx2 = ctx1.withHistory(List.of(entry1));
@@ -351,11 +351,11 @@ class ContextDeltaTest {
     void testDelta_mixedHistoryChanges_tasksAddedAndCompressed() {
         // Start with uncompressed entries
         List<ChatMessage> msgs1 = List.of(UserMessage.from("User1"), AiMessage.from("AI1"));
-        var taskFrag1 = new ContextFragments.TaskFragment(contextManager, msgs1, "task1");
+        var taskFrag1 = new ContextFragments.TaskFragment(msgs1, "task1");
         var entry1 = new TaskEntry(1, taskFrag1, null);
 
         List<ChatMessage> msgs2 = List.of(UserMessage.from("User2"), AiMessage.from("AI2"));
-        var taskFrag2 = new ContextFragments.TaskFragment(contextManager, msgs2, "task2");
+        var taskFrag2 = new ContextFragments.TaskFragment(msgs2, "task2");
         var entry2 = new TaskEntry(2, taskFrag2, null);
 
         var ctx1 = new Context(contextManager).withHistory(List.of(entry1, entry2));
@@ -363,7 +363,7 @@ class ContextDeltaTest {
         // Compress first entry and add a new one
         var entry1Compressed = TaskEntry.fromCompressed(1, "Compressed task1");
         List<ChatMessage> msgs3 = List.of(UserMessage.from("User3"), AiMessage.from("AI3"));
-        var taskFrag3 = new ContextFragments.TaskFragment(contextManager, msgs3, "task3");
+        var taskFrag3 = new ContextFragments.TaskFragment(msgs3, "task3");
         var entry3 = new TaskEntry(3, taskFrag3, null);
 
         var ctx2 = ctx1.withHistory(List.of(entry1Compressed, entry2, entry3));

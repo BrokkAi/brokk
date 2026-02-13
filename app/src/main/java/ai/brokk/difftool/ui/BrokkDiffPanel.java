@@ -695,7 +695,7 @@ public class BrokkDiffPanel extends JPanel
         // Build resulting Context by adding any changed files that are not already editable in the top context
         var resultingCtx = currentContext
                 .addFragments(contextManager.toPathFragments(changedFiles))
-                .addHistoryEntry(new ContextFragments.TaskFragment(contextManager, messages, actionDescription), null);
+                .addHistoryEntry(new ContextFragments.TaskFragment(messages, actionDescription), null);
 
         var result = TaskResult.humanResult(actionDescription, resultingCtx, TaskResult.StopReason.SUCCESS);
 

@@ -1984,17 +1984,16 @@ public class ContextFragments {
 
     public static class TaskFragment extends AbstractStaticFragment implements OutputFragment {
         private final List<ChatMessage> messages;
-        private final boolean escapeHtml;
+        private final boolean escapeHtml; // TODO wire this up or delete it, currently used by GitIssuesTab
 
         /**
          * @param description the user instructions or action goal
          */
-        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
-            this(contextManager, messages, description, true);
+        public TaskFragment(List<ChatMessage> messages, String description) {
+            this(messages, description, true);
         }
 
-        public TaskFragment(
-                IContextManager contextManager, List<ChatMessage> messages, String description, boolean escapeHtml) {
+        public TaskFragment(List<ChatMessage> messages, String description, boolean escapeHtml) {
             this(
                     FragmentUtils.calculateContentHash(
                             FragmentType.TASK,
@@ -2002,26 +2001,20 @@ public class ContextFragments {
                             Messages.format(messages),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             TaskFragment.class.getName()),
-                    contextManager,
                     messages,
                     description,
                     escapeHtml);
         }
 
-        public TaskFragment(String id, IContextManager contextManager, List<ChatMessage> messages, String description) {
-            this(id, contextManager, messages, description, true);
+        public TaskFragment(String id, List<ChatMessage> messages, String description) {
+            this(id, messages, description, true);
         }
 
         public TaskFragment(IContextManager contextManager, String description) {
-            this(contextManager, contextManager.getIo().getLlmRawMessages(), description, true);
+            this(contextManager.getIo().getLlmRawMessages(), description, true);
         }
 
-        public TaskFragment(
-                String id,
-                IContextManager contextManager,
-                List<ChatMessage> messages,
-                String description,
-                boolean escapeHtml) {
+        public TaskFragment(String id, List<ChatMessage> messages, String description, boolean escapeHtml) {
             super(
                     id,
                     description,

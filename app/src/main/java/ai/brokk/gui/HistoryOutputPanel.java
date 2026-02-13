@@ -1389,7 +1389,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         pendingHistory = null;
 
         // Set an explicit empty main TaskEntry (new-task placeholder) and display the staged history
-        var emptyMainFragment = new ContextFragments.TaskFragment(contextManager, List.of(), "");
+        var emptyMainFragment = new ContextFragments.TaskFragment(List.of(), "");
         var emptyMainTask = new TaskEntry(-1, emptyMainFragment, null);
         llmStreamArea.setMainThenHistoryAsync(emptyMainTask, history);
     }
@@ -1532,7 +1532,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private void openOutputWindowStreaming() {
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
-        var tempFragment = new ContextFragments.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+        var tempFragment = new ContextFragments.TaskFragment(currentMessages, "Streaming Output...");
         var history = new ArrayList<>(contextManager.liveContext().getTaskHistory());
         history.add(new TaskEntry(-1, tempFragment, null));
 

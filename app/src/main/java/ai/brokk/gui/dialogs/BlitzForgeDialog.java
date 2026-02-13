@@ -1655,7 +1655,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 // Run the task
                 if (engineAction == Action.ASK) {
-                    var fragment = new ContextFragments.TaskFragment(cm, readOnlyMessages, instructions);
+                    var fragment = new ContextFragments.TaskFragment(readOnlyMessages, instructions);
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
                     var ctx = new Context(cm)

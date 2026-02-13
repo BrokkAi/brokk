@@ -211,8 +211,7 @@ public class ContextHistoryTest {
         var history = new ContextHistory(initialContext);
 
         // Add task history only; no file changes
-        var taskFragment = new ContextFragments.TaskFragment(
-                contextManager, List.of(new UserMessage("Test task")), "Test Session");
+        var taskFragment = new ContextFragments.TaskFragment(List.of(new UserMessage("Test task")), "Test Session");
         var taskEntry = new TaskEntry(1, taskFragment, null);
         CompletableFuture.completedFuture("Action");
         var contextWithHistory = initialContext.addHistoryEntryInternal(taskEntry);
