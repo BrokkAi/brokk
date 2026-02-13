@@ -41,6 +41,7 @@ import org.jetbrains.annotations.Nullable;
 public final class FuzzyUsageFinder {
 
     private static final Logger logger = LogManager.getLogger(FuzzyUsageFinder.class);
+    private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
     public static final int DEFAULT_MAX_FILES = 1000;
     public static final int DEFAULT_MAX_USAGES = 1000;
 
@@ -141,8 +142,16 @@ public final class FuzzyUsageFinder {
         }
 
         // --- Precise Java Analysis Path ---
-        if (lang.equals(Languages.JAVA)) {
-            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, candidateFiles, project).stream()
+        if (!FUZZY_USAGES_ONLY && includesJava(lang)) {
+            // When in MultiLanguage mode, filter to only Java files for JDT analysis
+            Set<ProjectFile> javaCandidateFiles = candidateFiles;
+            if (lang instanceof Language.MultiLanguage) {
+                javaCandidateFiles = candidateFiles.stream()
+                        .filter(f -> Languages.JAVA.getExtensions().contains(f.extension()))
+                        .collect(Collectors.toSet());
+            }
+
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, javaCandidateFiles, project).stream()
                     .filter(h -> !h.enclosing().equals(target))
                     .collect(Collectors.toSet());
 
@@ -409,5 +418,18 @@ public final class FuzzyUsageFinder {
         }
         var files = project.getAllFiles();
         return files.isEmpty();
+    }
+
+    /**
+     * Checks if the given language includes Java (either directly or as part of MultiLanguage).
+     */
+    private static boolean includesJava(Language lang) {
+        if (lang.equals(Languages.JAVA)) {
+            return true;
+        }
+        if (lang instanceof Language.MultiLanguage multi) {
+            return multi.getLanguages().contains(Languages.JAVA);
+        }
+        return false;
     }
 }
