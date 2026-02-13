@@ -26,8 +26,7 @@ class EditBlockUtilsTest {
                         .formatted(filepath)
                         .split("\n");
         int headIndex = 1; // index of the "<<<<<<< SEARCH" line
-        Set<ProjectFile> projectFiles =
-                Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
+        Set<ProjectFile> projectFiles = Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
 
         var result = EditBlockUtils.findFilenameNearby(lines, headIndex, projectFiles, null);
         assertEquals(filename, result.replace(File.separator, "/"));
@@ -52,8 +51,7 @@ class EditBlockUtilsTest {
         var filepath = Path.of(filename);
         var lines = new String[] {filepath.toString(), "<<<<<<< SEARCH"};
         int headIndex = 1;
-        Set<ProjectFile> projectFiles =
-                Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
+        Set<ProjectFile> projectFiles = Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
 
         var result = EditBlockUtils.findFilenameNearby(lines, headIndex, projectFiles, null);
         assertEquals(filename, result.replace(File.separator, "/"));
@@ -65,8 +63,7 @@ class EditBlockUtilsTest {
         var filepath = Path.of(filename);
         var lines = new String[] {filepath.toString(), "```", "<<<<<<< SEARCH"};
         int headIndex = 2;
-        Set<ProjectFile> projectFiles =
-                Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
+        Set<ProjectFile> projectFiles = Set.of(new ProjectFile(Path.of(System.getProperty("user.dir")), filepath));
 
         var result = EditBlockUtils.findFilenameNearby(lines, headIndex, projectFiles, null);
         assertEquals(filename, result.replace(File.separator, "/"));
