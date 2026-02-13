@@ -39,6 +39,7 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher focused on answering questions about this codebase.",
                 "Your goal is to gather enough context to answer the user's question accurately and cite evidence from the repo.",
                 "a comprehensive Markdown answer (via answer(String))",
+                "",
                 false) {
             @Override
             public Set<Terminal> terminals() {
@@ -50,6 +51,7 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher focused on turning goals into implementation tasks.",
                 "Your goal is to gather enough context to produce a clear, minimal, incremental task list for the Code Agent.",
                 "a task list for the Code Agent (via createOrReplaceTaskList(...))",
+                "",
                 true) {
             @Override
             public Set<Terminal> terminals() {
@@ -61,6 +63,11 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher that can answer, plan, or hand off implementation.",
                 "Your goal is to gather enough context to either answer the question, produce a task list, or invoke the Code Agent for a small change.",
                 "one of: answer, task list, or Code Agent invocation",
+                """
+                - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
+                - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
+                - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks); do not attempt to write code yet.
+                """,
                 true) {
             @Override
             public Set<Terminal> terminals() {
@@ -72,6 +79,7 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher and librarian.",
                 "Your goal is to prepare the Workspace for the Code Agent by finding and curating the minimum sufficient context.",
                 "a curated Workspace ready for the Code Agent",
+                "",
                 true) {
             @Override
             public Set<Terminal> terminals() {
@@ -79,10 +87,22 @@ public class SearchPrompts {
             }
         },
         ISSUE_DESCRIPTION(
-                "issue_description",
+                "problem_report",
                 "You are the Search Agent, a code researcher focused on describing issues with precision.",
                 "Your goal is to gather enough context to describe the issue and produce a formal issue report with evidence from the repo.",
                 "a high-quality GitHub issue (via describeIssue(String, String))",
+                """
+                Deliver a high-quality GitHub issue using the describeIssue(String title, String body) tool.
+
+                Requirements:
+                  - "title": concise, specific issue title.
+                  - "body": GitHub-flavored Markdown describing the problem and impact.
+                    It MUST include evidence/references to code, such as:
+                      - file paths
+                      - identifiers/symbol names
+                      - fragment ids when available
+                    It MAY include a section like "## Agent Instructions" inside the body as well.
+                """,
                 false) {
             @Override
             public Set<Terminal> terminals() {
@@ -94,6 +114,7 @@ public class SearchPrompts {
                 "You are the Search Agent, a code researcher.",
                 "Your goal is to gather enough context for the Code Agent to implement the requested change.",
                 "a curated Workspace ready for the Code Agent",
+                "",
                 true) {
             @Override
             public Set<Terminal> terminals() {
@@ -105,13 +126,21 @@ public class SearchPrompts {
         private final String identity;
         private final String mission;
         private final String deliverable;
+        private final String taskInstructions;
         private final boolean includeHandoff;
 
-        Objective(String tag, String identity, String mission, String deliverable, boolean includeHandoff) {
+        Objective(
+                String tag,
+                String identity,
+                String mission,
+                String deliverable,
+                String taskInstructions,
+                boolean includeHandoff) {
             this.tag = tag;
             this.identity = identity;
             this.mission = mission;
             this.deliverable = deliverable;
+            this.taskInstructions = taskInstructions;
             this.includeHandoff = includeHandoff;
         }
 
@@ -129,6 +158,10 @@ public class SearchPrompts {
 
         public String deliverable() {
             return deliverable;
+        }
+
+        public String taskInstructions() {
+            return taskInstructions;
         }
 
         public boolean includeHandoff() {
@@ -250,6 +283,7 @@ public class SearchPrompts {
     private record DirectiveData(
             String goal,
             String objectiveTag,
+            String taskInstructions,
             boolean isEmptyProject,
             boolean needsBuildSetup,
             String warning,
@@ -397,17 +431,8 @@ public class SearchPrompts {
                 </{{objectiveTag}}>
 
                 <search-objective>
-                {{#if (eq (lower objectiveTag) "issue_description")~}}
-                Deliver a high-quality GitHub issue using the describeIssue(String title, String body) tool.
-
-                Requirements:
-                  - "title": concise, specific issue title.
-                  - "body": GitHub-flavored Markdown describing the problem and impact.
-                    It MUST include evidence/references to code, such as:
-                      - file paths
-                      - identifiers/symbol names
-                      - fragment ids when available
-                    It MAY include a section like "## Agent Instructions" inside the body as well.
+                {{#if taskInstructions~}}
+                {{taskInstructions}}
                 {{~/if}}
 
                 {{#if terminalTasks~}}
@@ -426,13 +451,6 @@ public class SearchPrompts {
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.
                   - Full sources: when you need complete implementation details.
-                {{~/if}}
-
-                {{#if (eq (lower objectiveTag) "query_or_instructions")~}}
-                Then:
-                  - Prefer answer(String) when no code changes are needed and the Workspace already justifies the answer (or the question is codebase-independent).
-                  - Prefer callCodeAgent(String instructions, boolean deferBuild) if the requested change is small.
-                  - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks); do not attempt to write code yet.
                 {{~/if}}
                 </search-objective>
 
@@ -629,6 +647,7 @@ public class SearchPrompts {
         var data = new DirectiveData(
                 goal,
                 objective.tag(),
+                objective.taskInstructions().strip(),
                 cm.getProject().isEmptyProject(),
                 needsBuildSetup,
                 warning,
