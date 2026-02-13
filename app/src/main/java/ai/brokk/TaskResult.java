@@ -59,7 +59,9 @@ public record TaskResult(Context context, StopDetails stopDetails) {
         /** an error occurred while executing a tool */
         TOOL_ERROR,
         /** the LLM exceeded the context size limit */
-        LLM_CONTEXT_SIZE
+        LLM_CONTEXT_SIZE,
+        /** hit the mercy rule ceiling */
+        TURN_LIMIT;
     }
 
     public record StopDetails(StopReason reason, String explanation) {

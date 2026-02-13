@@ -103,6 +103,7 @@ public class SearchAgent {
     }
 
     private static final int SUMMARIZE_THRESHOLD = 2_000;
+    private static final int MAX_TOTAL_TURNS = 40;
 
     private final IContextManager cm;
     private final StreamingChatModel model;
@@ -294,7 +295,7 @@ public class SearchAgent {
         @Nullable PendingTerminal pendingTerminal = null;
         DropMode dropMode = calculateDropMode(currentState.context());
 
-        while (true) {
+        for (int turn = 0; turn < MAX_TOTAL_TURNS; turn++) {
             SearchState stateAtTurnStart = currentState;
 
             if (pendingTerminal != null) {
@@ -363,6 +364,8 @@ public class SearchAgent {
                 default -> throw new AssertionError("Unexpected outcome " + outcome);
             }
         }
+
+        return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.TURN_LIMIT), currentState.context());
     }
 
     private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider) {

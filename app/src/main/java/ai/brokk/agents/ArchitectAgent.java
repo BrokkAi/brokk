@@ -858,7 +858,7 @@ public class ArchitectAgent {
         }
 
         // All turns exhausted (including the terminal turn); return what we have
-        return resultWithMessages(StopReason.SUCCESS);
+        return resultWithMessages(StopReason.TURN_LIMIT);
     }
 
     @Blocking
