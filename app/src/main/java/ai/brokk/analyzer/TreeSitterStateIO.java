@@ -443,7 +443,7 @@ public final class TreeSitterStateIO {
         Map<ProjectFile, Set<CodeUnit>> legacyImports = parseLegacyImports(root.get("imports"));
         Map<ProjectFile, Set<ProjectFile>> legacyReverseImports = parseLegacyReverseImports(root.get("reverseImports"));
 
-        var state = fromDto(migratedDto, legacySupertypes, legacySubtypes, legacyImports, legacyReverseImports);
+        var state = fromDto(migratedDto);
         long durMs = System.currentTimeMillis() - startMs;
         log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, fromVer);
         return Optional.of(state);
@@ -626,19 +626,6 @@ public final class TreeSitterStateIO {
      * Convert DTO back into an immutable AnalyzerState snapshot.
      */
     public static TreeSitterAnalyzer.AnalyzerState fromDto(AnalyzerStateDto dto) {
-        return fromDto(dto, Map.of(), Map.of(), Map.of(), Map.of());
-    }
-
-    /**
-     * Internal helper to rebuild AnalyzerState from DTO plus optional legacy graph data.
-     */
-    public static TreeSitterAnalyzer.AnalyzerState fromDto(
-            AnalyzerStateDto dto,
-            Map<CodeUnit, List<CodeUnit>> legacySupertypes,
-            Map<CodeUnit, Set<CodeUnit>> legacySubtypes,
-            Map<ProjectFile, Set<CodeUnit>> legacyImports,
-            Map<ProjectFile, Set<ProjectFile>> legacyReverseImports) {
-
         // Rebuild symbol index PMap
         Map<String, Set<CodeUnit>> symbolIndexMap = new HashMap<>();
         for (var e : dto.symbolIndex().entrySet()) {
@@ -684,15 +671,6 @@ public final class TreeSitterStateIO {
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
 
-        // Use provided legacy graphs when available; otherwise treat them as empty cache data.
-        ImportGraph importGraph = (legacyImports.isEmpty() && legacyReverseImports.isEmpty())
-                ? ImportGraph.empty()
-                : ImportGraph.from(legacyImports, legacyReverseImports);
-
-        TypeHierarchyGraph typeHierarchyGraph = (legacySupertypes.isEmpty() && legacySubtypes.isEmpty())
-                ? TypeHierarchyGraph.empty()
-                : TypeHierarchyGraph.from(legacySupertypes, legacySubtypes);
-
         // Rebuild SymbolKeyIndex
         var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         keySet.addAll(dto.symbolKeys());
@@ -701,13 +679,7 @@ public final class TreeSitterStateIO {
 
         // Construct new immutable AnalyzerState
         return new TreeSitterAnalyzer.AnalyzerState(
-                symbolIndex,
-                codeUnitState,
-                fileState,
-                importGraph,
-                typeHierarchyGraph,
-                symbolKeyIndex,
-                dto.snapshotEpochNanos());
+                symbolIndex, codeUnitState, fileState, symbolKeyIndex, dto.snapshotEpochNanos());
     }
 
     /* ================= Helpers ================= */

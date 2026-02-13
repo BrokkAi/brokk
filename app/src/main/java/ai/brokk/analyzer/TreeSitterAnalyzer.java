@@ -172,8 +172,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             PMap<String, Set<CodeUnit>> symbolIndex,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
-            ImportGraph importGraph,
-            TypeHierarchyGraph typeHierarchyGraph,
             SymbolKeyIndex symbolKeyIndex,
             long snapshotEpochNanos) {}
 
@@ -431,8 +429,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 HashTreePMap.from(immutableSymbolIndex),
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
                 symbolKeyIndex,
                 snapshotNanos);
 
@@ -621,50 +617,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (cache.isEmpty()) {
-            return this.state;
-        }
-
-        TypeHierarchyGraph nextTypeHierarchyGraph = this.state.typeHierarchyGraph();
-        if (!cache.typeHierarchy().isEmpty()) {
-            Map<CodeUnit, List<CodeUnit>> superUpdates =
-                    new HashMap<>(this.state.typeHierarchyGraph().supertypes());
-            Map<CodeUnit, Set<CodeUnit>> subUpdates =
-                    new HashMap<>(this.state.typeHierarchyGraph().subtypes());
-
-            cache.typeHierarchy().forEachForward(superUpdates::put);
-            cache.typeHierarchy().forEachReverse((cu, newSubtypes) -> {
-                subUpdates.merge(cu, new HashSet<>(newSubtypes), (existing, added) -> {
-                    var merged = new HashSet<>(existing);
-                    merged.addAll(added);
-                    return merged;
-                });
-            });
-
-            nextTypeHierarchyGraph = TypeHierarchyGraph.from(superUpdates, subUpdates);
-        }
-
-        ImportGraph nextImportGraph = this.state.importGraph();
-        if (!cache.imports().isEmpty()) {
-            Map<ProjectFile, Set<CodeUnit>> forwardUpdates =
-                    new HashMap<>(this.state.importGraph().imports());
-            Map<ProjectFile, Set<ProjectFile>> reverseUpdates =
-                    new HashMap<>(this.state.importGraph().reverseImports());
-
-            cache.imports().forEachForward(forwardUpdates::put);
-            cache.imports().forEachReverse(reverseUpdates::put);
-
-            nextImportGraph = ImportGraph.from(forwardUpdates, reverseUpdates);
-        }
-
-        return new AnalyzerState(
-                this.state.symbolIndex(),
-                this.state.codeUnitState(),
-                this.state.fileState(),
-                nextImportGraph,
-                nextTypeHierarchyGraph,
-                this.state.symbolKeyIndex(),
-                this.state.snapshotEpochNanos());
+        return this.state;
     }
 
     @Override
@@ -747,13 +700,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Check persistent ImportGraph state
-        Set<CodeUnit> persisted = this.state.importGraph().importedCodeUnitsOf(file);
-        if (!persisted.isEmpty()) {
-            return persisted;
-        }
-
-        // 3. Compute lazily via resolveImports and cache the result
+        // 2. Compute lazily via resolveImports and cache the result
         return cache.imports().computeForwardIfAbsent(file, f -> {
             Set<CodeUnit> resolved = resolveImports(f, importStatementsOf(f));
             // Update reverse cache for BidirectionalCache manually since the populator is NO-OP
@@ -778,13 +725,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Check persistent ImportGraph state
-        Set<ProjectFile> persisted = this.state.importGraph().referencingFilesOf(file);
-        if (!persisted.isEmpty()) {
-            return persisted;
-        }
-
-        // 3. Phase 1: Filter candidates using cheap text-based matching
+        // 2. Phase 1: Filter candidates using cheap text-based matching
         List<ProjectFile> allFiles = List.copyOf(this.state.fileState().keySet());
         int totalFiles = allFiles.size();
         notifyProgressListener(0, totalFiles, "Filtering import candidates");
@@ -3478,21 +3419,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Check persistent TypeHierarchyGraph state
-        List<CodeUnit> persisted = this.state.typeHierarchyGraph().supertypesOf(cu);
-        if (!persisted.isEmpty()) {
-            // Ensure the reverse subtype index is populated in the transient cache
-            for (CodeUnit ancestor : persisted) {
-                cache.typeHierarchy().updateReverse(ancestor, existing -> {
-                    Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
-                    set.add(cu);
-                    return set;
-                });
-            }
-            return persisted;
-        }
-
-        // 3. Compute lazily (atomic per key)
+        // 2. Compute lazily (atomic per key)
         return cache.typeHierarchy().computeForwardIfAbsent(cu, k -> {
             List<CodeUnit> supertypes = computeSupertypes(k);
             // Update reverse index for BidirectionalCache manually since populator is NO-OP
@@ -3521,13 +3448,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Check persistent TypeHierarchyGraph state
-        Set<CodeUnit> persisted = this.state.typeHierarchyGraph().subtypesOf(cu);
-        if (!persisted.isEmpty()) {
-            return persisted;
-        }
-
-        // 3. Filter candidate classes by checking rawSupertypes text (cheap pre-filter)
+        // 2. Filter candidate classes by checking rawSupertypes text (cheap pre-filter)
         String targetName = cu.shortName();
         List<CodeUnit> candidates = this.state.codeUnitState().keySet().stream()
                 .filter(CodeUnit::isClass)
@@ -3891,8 +3812,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 HashTreePMap.from(immutableNextSymbolIndex),
                 HashTreePMap.from(newCodeUnitState),
                 HashTreePMap.from(newFileState),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
                 nextSymbolKeyIndex,
                 snapshotNanos);
 
@@ -4094,14 +4013,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Combined post-processing pipeline. All hierarchy computation is deferred to lazy on-demand resolution.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        return new AnalyzerState(
-                baseState.symbolIndex(),
-                baseState.codeUnitState(),
-                baseState.fileState(),
-                baseState.importGraph(),
-                baseState.typeHierarchyGraph(),
-                baseState.symbolKeyIndex(),
-                baseState.snapshotEpochNanos());
+        return baseState;
     }
 
     /* ---------- comment detection for source expansion ---------- */
