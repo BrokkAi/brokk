@@ -173,9 +173,11 @@ tasks.register<Exec>("brokkCodeRuffFormat") {
     group = "formatting"
     workingDir = file("brokk-code")
 
-    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
-    executable = uvExecutable ?: (if (isWindows) "uv.exe" else "uv")
-    args("run", "--group", "dev", "python", "-m", "ruff", "format")
+    if (isUvAvailable()) {
+        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+        executable = uvExecutable ?: (if (isWindows) "uv.exe" else "uv")
+        args("run", "--group", "dev", "python", "-m", "ruff", "format")
+    }
 
     inputs.dir("brokk-code/brokk_code")
     inputs.file("brokk-code/pyproject.toml")
@@ -194,9 +196,11 @@ tasks.register<Exec>("brokkCodeRuffCheck") {
     group = "verification"
     workingDir = file("brokk-code")
 
-    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
-    executable = uvExecutable ?: (if (isWindows) "uv.exe" else "uv")
-    args("run", "--group", "dev", "python", "-m", "ruff", "check")
+    if (isUvAvailable()) {
+        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+        executable = uvExecutable ?: (if (isWindows) "uv.exe" else "uv")
+        args("run", "--group", "dev", "python", "-m", "ruff", "check")
+    }
 
     inputs.dir("brokk-code/brokk_code")
     inputs.file("brokk-code/pyproject.toml")
@@ -215,9 +219,11 @@ tasks.register<Exec>("pytest") {
     group = "verification"
     workingDir = file("brokk-code")
 
-    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
-    executable = uvExecutable ?: (if (isWindows) "uv.exe" else "uv")
-    args("run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "--no-header")
+    if (isUvAvailable()) {
+        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+        executable = uvExecutable ?: (if (isWindows) "uv.exe" else "uv")
+        args("run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "--no-header")
+    }
 
     inputs.dir("brokk-code/brokk_code")
     inputs.dir("brokk-code/tests")
