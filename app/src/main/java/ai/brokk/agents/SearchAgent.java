@@ -218,12 +218,14 @@ public class SearchAgent {
 
         // Non-analyzer tools
         tools.add("searchSubstrings");
-        tools.add("searchGitCommitMessages");
-        tools.add("getGitLog");
-        tools.add("explainCommit");
         tools.add("searchFilenames");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
+        if (project.hasGit()) {
+            tools.add("searchGitCommitMessages");
+            tools.add("getGitLog");
+            tools.add("explainCommit");
+        }
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");

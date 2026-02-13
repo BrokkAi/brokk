@@ -467,7 +467,7 @@ public class SearchTools {
         int effectiveLimit = Math.max(1, Math.min(limit, 100));
 
         // Canonicalize: normalize the path, treat blank as empty
-        String canonicalPathString = (path == null || path.isBlank()) ? "" : path.strip();
+        String canonicalPathString = path.isBlank() ? "" : path.strip();
         if (!canonicalPathString.isEmpty()) {
             canonicalPathString =
                     Path.of(canonicalPathString).normalize().toString().replace('\\', '/');
@@ -504,14 +504,12 @@ public class SearchTools {
                 sb.append("<entry hash=\"").append(shortId).append("\"");
                 sb.append(" author=\"").append(commit.author()).append("\"");
                 sb.append(" date=\"").append(commit.date()).append("\"");
-                if (entry.path() != null) {
-                    sb.append(" path=\"").append(entry.path()).append("\"");
-                }
+                sb.append(" path=\"").append(entry.path()).append("\"");
                 sb.append(">\n");
 
                 // Rename detection: entries are ordered newest-first.
                 // If this commit's path differs from the next (newer) commit's path, it's a rename.
-                if (previousPath != null && entry.path() != null && !previousPath.equals(entry.path())) {
+                if (previousPath != null && !previousPath.equals(entry.path())) {
                     sb.append("[RENAMED] ")
                             .append(entry.path())
                             .append(" -> ")
