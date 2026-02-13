@@ -1823,11 +1823,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     existingDuplicate.fqName(),
                     cu.fqName());
 
-            if (cu.isFunction()) {
-                localTopLevelCUs.removeIf(existing -> existing.equals(existingDuplicate));
-            } else {
-                localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
-            }
+            localTopLevelCUs.removeIf(existing -> existing.equals(existingDuplicate));
 
             removeCodeUnitAndDescendants(
                     existingDuplicate,
