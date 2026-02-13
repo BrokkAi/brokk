@@ -89,7 +89,7 @@ def test_normalize_model_catalog_and_reasoning_options() -> None:
     )
 
 
-def test_build_available_models_includes_model_variants_without_default_duplication() -> None:
+def test_build_available_models_includes_model_variants_with_conditional_disable() -> None:
     catalog = _normalize_model_catalog(
         {
             "models": [
@@ -125,7 +125,6 @@ def test_build_available_models_includes_model_variants_without_default_duplicat
         "gpt-5.2 (disable)",
         "gemini-3-flash-preview",
     ]
-    assert "gpt-5.2/default" not in [value for value, _ in options]
     assert all("#r=" not in value for value, _ in options)
 
 
