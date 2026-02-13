@@ -1441,6 +1441,14 @@ public class GitRepoTest {
     }
 
     @Test
+    void testGetGitLog_EmptyPath() throws Exception {
+        createCommit("file.txt", "content", "msg");
+        var commits = repo.getGitLog("", 10);
+        assertFalse(commits.isEmpty());
+        assertEquals("msg", commits.get(0).message());
+    }
+
+    @Test
     void testSearchCommits() throws Exception {
         // Create additional commits
         createCommit("file1.txt", "content1", "First feature commit");

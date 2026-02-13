@@ -13,6 +13,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
@@ -33,6 +34,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Contains tool implementations related to code analysis and searching, designed to be registered with the
@@ -442,6 +444,141 @@ public class SearchTools {
         }
 
         return result.toString();
+    }
+
+    @Tool(
+            """
+            Retrieves the git commit log for a file or directory path, showing the history of changes.
+            Provides short commit hash, author, date, commit message, and file list for each entry.
+            Tracks file renames to help follow code evolution across different filenames.
+            Use an empty path to get the repository-wide commit log.
+            """)
+    public String getGitLog(
+            @P("File or directory path relative to the project root. Use empty string for repository-wide log.")
+                    String path,
+            @P("Maximum number of log entries to return (capped at 100).") int limit,
+            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
+                    String reasoning) {
+        if (reasoning.isBlank()) {
+            logger.warn("Missing reasoning for getGitLog call");
+        }
+
+        var repo = contextManager.getRepo();
+
+        // Cap limit at 100 and ensure at least 1
+        int effectiveLimit = Math.max(1, Math.min(limit, 100));
+
+        // Canonicalize: normalize the path, treat blank as empty
+        String canonicalPathString = path.isBlank() ? "" : path.strip();
+        if (!canonicalPathString.isEmpty()) {
+            canonicalPathString =
+                    Path.of(canonicalPathString).normalize().toString().replace('\\', '/');
+        }
+
+        try {
+            // Check if it's a file for rename tracking
+            boolean isFile = false;
+            if (!canonicalPathString.isEmpty()) {
+                var projectFile = new ProjectFile(contextManager.getProject().getRoot(), Path.of(canonicalPathString));
+                isFile = java.nio.file.Files.isRegularFile(projectFile.absPath())
+                        || repo.getTrackedFiles().contains(projectFile);
+            }
+
+            var sb = new StringBuilder();
+            sb.append("<git_log");
+            if (!canonicalPathString.isEmpty()) {
+                sb.append(" path=\"").append(canonicalPathString).append("\"");
+            }
+            sb.append(">\n");
+
+            if (isFile) {
+                List<IGitRepo.FileHistoryEntry> entries = repo instanceof GitRepo gr
+                        ? gr.getFileHistoryWithPaths(
+                                new ProjectFile(contextManager.getProject().getRoot(), Path.of(canonicalPathString)))
+                        : List.of();
+
+                if (entries.isEmpty()) {
+                    return "No history found for file: " + canonicalPathString;
+                }
+
+                ProjectFile previousPath = null;
+                for (var entry : entries.stream().limit(effectiveLimit).toList()) {
+                    appendCommitEntry(sb, repo, entry.commit(), entry.path(), previousPath);
+                    previousPath = entry.path();
+                }
+            } else {
+                var commits = repo.getGitLog(canonicalPathString, effectiveLimit);
+                if (commits.isEmpty()) {
+                    return "No history found for path: "
+                            + (canonicalPathString.isEmpty() ? "(repo root)" : canonicalPathString);
+                }
+
+                for (var commit : commits) {
+                    appendCommitEntry(sb, repo, commit, null, null);
+                }
+            }
+
+            sb.append("</git_log>");
+            return sb.toString();
+        } catch (GitAPIException e) {
+            logger.error("Error retrieving git log for path '{}': {}", path, e.getMessage(), e);
+            return "Error retrieving git log: " + e.getMessage();
+        }
+    }
+
+    private void appendCommitEntry(
+            StringBuilder sb,
+            IGitRepo repo,
+            CommitInfo commit,
+            @Nullable ProjectFile currentPath,
+            @Nullable ProjectFile nextPath) {
+        var shortId = (repo instanceof GitRepo gr)
+                ? gr.shortHash(commit.id())
+                : commit.id().substring(0, 7);
+
+        String fullMessage;
+        try {
+            fullMessage = (repo instanceof GitRepo gr) ? gr.getCommitFullMessage(commit.id()) : commit.message();
+        } catch (GitAPIException e) {
+            fullMessage = commit.message();
+        }
+
+        sb.append("<entry hash=\"").append(shortId).append("\"");
+        sb.append(" author=\"").append(commit.author()).append("\"");
+        sb.append(" date=\"").append(commit.date()).append("\"");
+        if (currentPath != null) {
+            sb.append(" path=\"").append(currentPath).append("\"");
+        }
+        sb.append(">\n");
+
+        if (nextPath != null && !nextPath.equals(currentPath)) {
+            sb.append("[RENAMED] ")
+                    .append(currentPath)
+                    .append(" -> ")
+                    .append(nextPath)
+                    .append("\n");
+        }
+
+        sb.append(fullMessage.strip()).append("\n");
+
+        List<ProjectFile> changedFiles;
+        try {
+            changedFiles = CommitInfo.changedFiles((GitRepo) repo, commit.id());
+        } catch (GitAPIException e) {
+            logger.error("Error retrieving changed files for commit {}", commit.id(), e);
+            changedFiles = List.of();
+        }
+
+        if (!changedFiles.isEmpty()) {
+            String fileCdl = changedFiles.stream()
+                    .map(ProjectFile::getFileName)
+                    .distinct()
+                    .sorted()
+                    .collect(Collectors.joining(", "));
+            sb.append("Files: ").append(fileCdl).append("\n");
+        }
+
+        sb.append("</entry>\n");
     }
 
     @Tool(

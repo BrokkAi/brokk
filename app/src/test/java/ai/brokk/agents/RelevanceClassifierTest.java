@@ -76,4 +76,17 @@ public class RelevanceClassifierTest {
         var result = RelevanceClassifier.extractScores("[0.8, not_a_number]", 2);
         assertEquals(List.of(), result);
     }
+
+    @Test
+    public void testParseRelevanceResponseAcceptsFinalMarkerWithReasoning() {
+        var parsed = RelevanceClassifier.parseRelevanceResponse("Thinking...\nTherefore:\nBRK_RELEVANT");
+        assertTrue(parsed.isPresent());
+        assertTrue(parsed.get());
+    }
+
+    @Test
+    public void testParseRelevanceResponseRejectsAmbiguousWithoutFinalDecision() {
+        var parsed = RelevanceClassifier.parseRelevanceResponse("BRK_RELEVANT but also BRK_IRRELEVANT");
+        assertTrue(parsed.isEmpty());
+    }
 }

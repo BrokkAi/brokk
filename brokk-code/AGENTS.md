@@ -28,6 +28,7 @@ This project acts as a client that communicates with the Java-based Brokk execut
 ## Testing
 
 - **Framework**: Use `pytest` for all tests.
+- **Command**: Run tests with `uv run pytest` so the project-managed environment is always used.
 - **Location**: Place tests in the `tests/` directory.
 - **Smoke Tests**: Maintain `test_smoke.py` to ensure basic app and executor manager instantiation works without starting the subprocess.
 

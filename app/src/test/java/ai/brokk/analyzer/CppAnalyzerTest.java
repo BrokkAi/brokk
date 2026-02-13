@@ -4,8 +4,10 @@ import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.*;
 
+import ai.brokk.testutil.AnalyzerCreator;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -982,6 +984,8 @@ public class CppAnalyzerTest {
 
         var decls = analyzer.getDeclarations(file);
 
+        assertFalse(decls.isEmpty(), "No declarations found in scoped_def.cpp");
+
         // Method m should be found
         assertTrue(decls.stream().anyMatch(cu -> getBaseFunctionName(cu).equals("m")), "Should find C::m");
     }
@@ -1450,112 +1454,46 @@ public class CppAnalyzerTest {
 
     @Test
     public void testHasBodyFlagAcrossHeaderAndSourceFiles() {
-        // Validate hasBody semantics across header prototype and source definition (forward_decl.h)
+        // forward_decl.h contains both a prototype and a definition:
+        // int foo();
+        // int foo() { return 1; }
+        // The analyzer should prefer the definition over the prototype
         var headerFile = testProject.getAllFiles().stream()
                 .filter(f -> f.absPath().toString().endsWith("forward_decl.h"))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("forward_decl.h not found"));
 
-        // Gather header declarations and filter for functions named 'foo'
         var headerDecls = analyzer.getDeclarations(headerFile);
         assertFalse(headerDecls.isEmpty(), "Should find declarations in forward_decl.h");
 
-        var headerCandidates = headerDecls.stream()
+        // Find all function CodeUnits named 'foo'
+        var fooCandidates = headerDecls.stream()
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> getBaseFunctionName(cu).equals("foo"))
                 .collect(Collectors.toList());
-        assertFalse(
-                headerCandidates.isEmpty(),
-                "Should find at least one function named 'foo' in header. Available: "
-                        + headerDecls.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
 
-        // Try to select a true header prototype with hasBody == false
-        CodeUnit headerProto = null;
-        for (var cu : headerCandidates) {
-            boolean hasBody = analyzer.withCodeUnitProperties(
-                    map -> map.getOrDefault(cu, TreeSitterAnalyzer.CodeUnitProperties.empty())
-                            .hasBody());
-            if (!hasBody) {
-                headerProto = cu;
-                break;
-            }
-        }
+        // Should have exactly one CodeUnit for 'foo' after duplicate resolution
+        // (the definition is preferred over the prototype)
+        assertEquals(
+                1,
+                fooCandidates.size(),
+                "Should have exactly one CodeUnit for 'foo' after duplicate resolution prefers definition");
 
-        if (headerProto != null) {
-            final var headerProtoFinal = headerProto;
-            boolean headerHasBody = analyzer.withCodeUnitProperties(
-                    map -> map.getOrDefault(headerProtoFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
-                            .hasBody());
-            assertFalse(headerHasBody, "Header prototype should have hasBody == false");
+        CodeUnit fooDef = fooCandidates.get(0);
 
-            // Search across all declarations for a definition (hasBody == true) with the same FQN
-            var allDecls = getAllDeclarations();
-            CodeUnit sourceDef = null;
-            for (var cu : allDecls) {
-                if (!cu.isFunction()) continue;
-                if (!getBaseFunctionName(cu).equals("foo")) continue;
-                if (!cu.fqName().equals(headerProto.fqName())) continue;
+        // The retained CodeUnit should be the definition (hasBody = true)
+        boolean hasBody = analyzer.withCodeUnitProperties(
+                map -> map.getOrDefault(fooDef, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                        .hasBody());
+        assertTrue(
+                hasBody,
+                "The retained 'foo' CodeUnit should have hasBody == true (definition preferred over prototype)");
 
-                final var candidateFinal = cu;
-                boolean hasBody = analyzer.withCodeUnitProperties(
-                        map -> map.getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
-                                .hasBody());
-                if (hasBody) {
-                    sourceDef = cu;
-                    break;
-                }
-            }
-
-            assertNotNull(
-                    sourceDef,
-                    "Should find a source definition with hasBody == true for 'foo' and FQN " + headerProto.fqName());
-
-            // Verify the skeleton for the source definition contains the display placeholder
-            var sourceFile = sourceDef.source();
-            var sourceSkeletons = analyzer.getSkeletons(sourceFile);
-            String srcSkel = sourceSkeletons.get(sourceDef);
-            assertNotNull(srcSkel, "Source skeleton for definition should exist");
-            assertCodeContains(srcSkel, "{...}");
-        } else {
-            // No header prototype (hasBody==false) found: header may contain definition or merges occurred
-            var allDecls = getAllDeclarations();
-            CodeUnit sourceDef = null;
-            for (var cu : allDecls) {
-                if (!cu.isFunction()) continue;
-                if (!getBaseFunctionName(cu).equals("foo")) continue;
-
-                final var candidateFinal = cu;
-                boolean hasBody = analyzer.withCodeUnitProperties(
-                        map -> map.getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
-                                .hasBody());
-                if (hasBody) {
-                    sourceDef = cu;
-                    break;
-                }
-            }
-
-            assertNotNull(
-                    sourceDef,
-                    "Could not find a definition (hasBody==true) for function 'foo' across all declarations.");
-
-            // Verify the skeleton for the found definition contains the display placeholder
-            var sourceFile = sourceDef.source();
-            var sourceSkeletons = analyzer.getSkeletons(sourceFile);
-            String srcSkel = sourceSkeletons.get(sourceDef);
-            assertNotNull(srcSkel, "Source skeleton for definition should exist");
-            assertCodeContains(srcSkel, "{...}");
-
-            // Additionally, ensure the header skeletons prefer a single function entry for 'foo'
-            var headerSkeletons = analyzer.getSkeletons(headerFile);
-            long headerFooCount = headerSkeletons.keySet().stream()
-                    .filter(CodeUnit::isFunction)
-                    .filter(k -> getBaseFunctionName(k).equals("foo"))
-                    .count();
-            assertEquals(
-                    1L,
-                    headerFooCount,
-                    "Header skeletons should prefer a single function entry for 'foo', but found: " + headerFooCount);
-        }
+        // Verify the skeleton contains the body placeholder
+        var skeletons = analyzer.getSkeletons(headerFile);
+        String skeleton = skeletons.get(fooDef);
+        assertNotNull(skeleton, "Skeleton for definition should exist");
+        assertCodeContains(skeleton, "{...}");
     }
 
     @Test
@@ -1578,5 +1516,338 @@ public class CppAnalyzerTest {
         assertTrue(
                 classUsageHits.size() >= 2,
                 "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
+    }
+
+    @Test
+    public void testClassTemplateSignatures() throws IOException {
+        String content =
+                """
+                // Forward declaration
+                template <typename T>
+                struct TemplateStruct;
+
+                // Definition of primary template
+                template <typename T>
+                struct TemplateStruct {
+                    T value;
+                };
+
+                // Different template (different parameter list)
+                template <typename T, typename U>
+                struct TemplateStruct {
+                    T t;
+                    U u;
+                };
+
+                // Non-template struct with same name
+                struct TemplateStruct {
+                    int x;
+                };
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "templates.hpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile).stream()
+                    .filter(cu -> cu.shortName().equals("TemplateStruct") && cu.kind() == CodeUnitType.CLASS)
+                    .toList();
+
+            // Assert exactly 3 distinct CodeUnits (deduplicated forward declaration and definition)
+            assertEquals(3, declarations.size(), "Should find 3 distinct versions of TemplateStruct");
+
+            var signatures = declarations.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+            assertTrue(signatures.contains("<typename T>"), "Missing signature: <typename T>");
+            assertTrue(signatures.contains("<typename T, typename U>"), "Missing signature: <typename T, typename U>");
+
+            long nullSignatures =
+                    declarations.stream().filter(cu -> cu.signature() == null).count();
+            assertEquals(1, nullSignatures, "Should find exactly one non-template struct (null signature)");
+
+            // Verify that for <typename T>, hasBody is true (collapsed the forward decl)
+            var singleT = declarations.stream()
+                    .filter(cu -> "<typename T>".equals(cu.signature()))
+                    .findFirst()
+                    .orElseThrow();
+
+            boolean hasBody = analyzer.withCodeUnitProperties(
+                    props -> props.getOrDefault(singleT, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                            .hasBody());
+            assertTrue(hasBody, "TemplateStruct<T> should have hasBody=true");
+
+            // Strengthen: Verify the skeleton contains the definition members
+            var skeleton = analyzer.getSkeleton(singleT).orElse("");
+            assertCodeContains(skeleton, "T value;", "Definition skeleton should contain member 'value'");
+        }
+    }
+
+    // New regression-oriented test: ensure getDefinitions ordering is stable and prefers definitions with bodies
+    @Test
+    public void testFunctionTemplateOverloadsDistinguished() throws IOException {
+        String content =
+                """
+                #ifndef FUNCTION_TEMPLATES_H
+                #define FUNCTION_TEMPLATES_H
+
+                // Template function with variadic template params
+                template <class... Args>
+                void process(const Args&... args) {}
+
+                // Non-template overload
+                void process(int x) {}
+
+                // Template function with single type param
+                template <typename T>
+                void process(const T& value, int count) {}
+
+                #endif
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "function_templates.h").build()) {
+            TreeSitterAnalyzer inlineAnalyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile file = project.getAllFiles().iterator().next();
+
+            var decls = inlineAnalyzer.getDeclarations(file);
+            var overloads = decls.stream()
+                    .filter(CodeUnit::isFunction)
+                    .filter(cu -> getBaseFunctionName(cu).equals("process"))
+                    .collect(Collectors.toList());
+
+            // Verify exactly 3 overloads are found
+            assertEquals(3, overloads.size(), "Should find exactly 3 overloads of process()");
+
+            var signatures = overloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+
+            // Verify each has a unique signature
+            assertEquals(3, signatures.size(), "Each process overload should have a unique signature");
+
+            // Verify specific template parameter patterns exist in signatures
+            boolean hasVariadic = signatures.stream().anyMatch(sig -> sig != null && sig.contains("<class... Args>"));
+            boolean hasSingle = signatures.stream().anyMatch(sig -> sig != null && sig.contains("<typename T>"));
+            boolean hasNonTemplate = signatures.stream().anyMatch(sig -> sig != null && sig.startsWith("("));
+
+            assertTrue(hasVariadic, "Should have variadic template signature: <class... Args>");
+            assertTrue(hasSingle, "Should have single type template signature: <typename T>");
+            assertTrue(hasNonTemplate, "Should have non-template signature (starts with '(')");
+        }
+    }
+
+    @Test
+    public void testTemplateClassConstructorDisambiguation() throws IOException {
+        String content =
+                """
+                template <typename T>
+                class Container {
+                public:
+                    Container(T value) : val(value) {}
+                private:
+                    T val;
+                };
+
+                template <typename T, typename U>
+                class PairContainer {
+                public:
+                    PairContainer(T t, U u) : first(t), second(u) {}
+                private:
+                    T first;
+                    U second;
+                };
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "ctor_templates.hpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile).stream()
+                    .filter(cu -> cu.isFunction())
+                    .toList();
+
+            // Verify both constructors exist and have distinct signatures including class templates
+            var containerCtor = declarations.stream()
+                    .filter(cu -> cu.fqName().endsWith("Container.Container"))
+                    .findFirst()
+                    .orElseThrow();
+            var pairCtor = declarations.stream()
+                    .filter(cu -> cu.fqName().endsWith("PairContainer.PairContainer"))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertNotNull(containerCtor.signature());
+            assertNotNull(pairCtor.signature());
+
+            assertTrue(
+                    containerCtor.signature().startsWith("<typename T>"),
+                    "Container constructor signature should include class template: " + containerCtor.signature());
+            assertTrue(
+                    pairCtor.signature().startsWith("<typename T, typename U>"),
+                    "PairContainer constructor signature should include class template: " + pairCtor.signature());
+        }
+    }
+
+    @Test
+    public void testTemplateClassConstructorSignatures() throws IOException {
+        String content =
+                """
+            // Primary template (forward declaration)
+            template <class IdxSeq, class... ValueTypes>
+            struct CombinedReducerValue;
+
+            // Partial specialization
+            template <size_t... Idxs, class... ValueTypes>
+            struct CombinedReducerValue<void, ValueTypes...> {
+                CombinedReducerValue() = default;
+                CombinedReducerValue(ValueTypes... args);
+            };
+
+            // Another specialization with different template params
+            template <class T>
+            struct CombinedReducerValue<T, int> {
+                CombinedReducerValue() = default;
+                CombinedReducerValue(int x);
+            };
+            """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "template_ctors.hpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile).stream()
+                    .filter(CodeUnit::isFunction)
+                    .filter(cu -> getBaseFunctionName(cu).equals("CombinedReducerValue"))
+                    .toList();
+
+            logger.debug("Found {} constructor declarations", declarations.size());
+            declarations.forEach(cu -> logger.debug("  - {} (signature: {})", cu.fqName(), cu.signature()));
+
+            // Should find constructors from both specializations
+            assertTrue(
+                    declarations.size() >= 4,
+                    "Should find at least 4 constructors (2 per specialization). Found: " + declarations.size());
+
+            // Collect all signatures
+            var signatures = declarations.stream()
+                    .map(CodeUnit::signature)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            logger.debug("Unique signatures: {}", signatures);
+
+            // Signatures should be distinct due to enclosing template params
+            // Even default constructors should have different signatures:
+            // - <size_t... Idxs, class... ValueTypes>()
+            // - <class T>()
+            assertTrue(
+                    signatures.size() >= 2,
+                    "Should have at least 2 distinct signature patterns (one per specialization). Found: "
+                            + signatures);
+
+            // Verify enclosing template params are included
+            boolean hasVariadicEnclosing = signatures.stream()
+                    .anyMatch(sig -> sig.contains("size_t... Idxs") || sig.contains("class... ValueTypes"));
+            boolean hasSingleTypeEnclosing = signatures.stream().anyMatch(sig -> sig.contains("<class T>"));
+
+            assertTrue(
+                    hasVariadicEnclosing || hasSingleTypeEnclosing,
+                    "At least one signature should include enclosing template parameters. Signatures: " + signatures);
+        }
+    }
+
+    @Test
+    public void testAnonymousParameterOverloadsWithTemplateTypes() throws IOException {
+        String content =
+                """
+                template <class T>
+                struct TestContainer {
+                    static int foo(std::vector<double*> /*a*/) { return 1; }
+                    static int foo(std::vector<int*> /*a*/) { return 2; }
+                    static int foo(std::vector<double**> /*a*/) { return 3; }
+
+                    static int bar(std::map<int, double> /*x*/) { return 1; }
+                    static int bar(std::map<int, int> /*x*/) { return 2; }
+                };
+                """;
+
+        try (var project = InlineTestProjectCreator.code(content, "anonymous_overloads.hpp")
+                .build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile);
+
+            // 1. Verify 'foo' overloads
+            var fooOverloads = declarations.stream()
+                    .filter(cu -> getBaseFunctionName(cu).equals("foo"))
+                    .toList();
+
+            assertEquals(3, fooOverloads.size(), "Should find exactly 3 overloads of 'foo'");
+
+            var fooSignatures = fooOverloads.stream()
+                    .map(CodeUnit::signature)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            assertEquals(3, fooSignatures.size(), "Each 'foo' overload should have a unique signature");
+            assertTrue(
+                    fooSignatures.stream().anyMatch(s -> s.contains("vector<double*>")),
+                    "Missing signature with vector<double*>");
+            assertTrue(
+                    fooSignatures.stream().anyMatch(s -> s.contains("vector<int*>")),
+                    "Missing signature with vector<int*>");
+            assertTrue(
+                    fooSignatures.stream().anyMatch(s -> s.contains("vector<double**>")),
+                    "Missing signature with vector<double**>");
+
+            // 2. Verify 'bar' overloads
+            var barOverloads = declarations.stream()
+                    .filter(cu -> getBaseFunctionName(cu).equals("bar"))
+                    .toList();
+
+            assertEquals(2, barOverloads.size(), "Should find exactly 2 overloads of 'bar'");
+
+            var barSignatures = barOverloads.stream()
+                    .map(CodeUnit::signature)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            assertEquals(2, barSignatures.size(), "Each 'bar' overload should have a unique signature");
+            assertTrue(
+                    barSignatures.stream().anyMatch(s -> s.contains("std::map<int,double>")),
+                    "Missing signature with std::map<int,double>");
+            assertTrue(
+                    barSignatures.stream().anyMatch(s -> s.contains("std::map<int,int>")),
+                    "Missing signature with std::map<int,int>");
+        }
+    }
+
+    @Test
+    public void testGetDefinitionsStableOrderingPrefersDefinitions() {
+        // Lookup overloads by base name via the analyzer lookup (uses normalizeFullName)
+        var defs = analyzer.getDefinitions("overloadedFunction").stream().toList();
+        assertFalse(defs.isEmpty(), "getDefinitions should return overload candidates for 'overloadedFunction'");
+
+        // There should be exactly 6 candidates across project (3 in simple_overloads.h + 3 in duplicates.h)
+        // but at minimum expect 3 present in the test resources for deterministic checks.
+        assertTrue(defs.size() >= 3, "Expected at least 3 overloadedFunction definitions in repository");
+
+        // Verify that the returned SequencedSet is stable: first element should be a definition (hasBody) when
+        // available
+        var first = defs.get(0);
+        boolean firstHasBody = analyzer.withCodeUnitProperties(
+                map -> map.getOrDefault(first, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                        .hasBody());
+        assertTrue(
+                firstHasBody,
+                "First returned definition for overloadedFunction should be a definition with body when available");
+
+        // Verify signatures are populated and unique across the set (at least among first three)
+        var sigs =
+                defs.stream().map(CodeUnit::signature).filter(Objects::nonNull).toList();
+        assertFalse(sigs.isEmpty(), "Signatures should be present for overloadedFunction candidates");
+        var unique = sigs.stream().distinct().toList();
+        assertTrue(unique.size() >= 2, "Expect at least two distinct signatures among overloads");
     }
 }
