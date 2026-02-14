@@ -1133,7 +1133,7 @@ public class SearchAgent {
         }
         return context.allFragments()
                 .filter(f1 -> f1.getType().includeInProjectGuide())
-                .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
     }
 
@@ -1153,7 +1153,7 @@ public class SearchAgent {
                         f.getType().toString(),
                         f.id(),
                         f.description().renderNowOr("(incomplete)"),
-                        f.files().renderNowOr(Set.of()).stream()
+                        f.sourceFiles().renderNowOr(Set.of()).stream()
                                 .map(pf -> pf.getRelPath().toString())
                                 .sorted()
                                 .toList()))

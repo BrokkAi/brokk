@@ -606,7 +606,7 @@ public final class BprCli implements Callable<Integer> {
                             cm.addFragments(fragment);
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
-                        default -> cm.addSummaries(fragment.files().renderNowOr(Set.of()), Set.of());
+                        default -> cm.addSummaries(fragment.sourceFiles().renderNowOr(Set.of()), Set.of());
                     }
                 }
             } else {
@@ -618,7 +618,7 @@ public final class BprCli implements Callable<Integer> {
                 var metrics = SearchMetrics.tracking();
                 // Collect files added from recommendations
                 var filesAddedPaths = recommendations.fragments().stream()
-                        .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                        .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                         .map(pf -> pf.getRelPath().toString())
                         .collect(Collectors.toSet());
                 metrics.recordContextScan(

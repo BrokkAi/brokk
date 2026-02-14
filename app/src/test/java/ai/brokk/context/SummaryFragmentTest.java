@@ -53,7 +53,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Test.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(expectedFile), files, "files() should include Test.java");
         }
     }
@@ -125,7 +125,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Children.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(children), files, "files() should include Children.java");
         }
     }
@@ -183,7 +183,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Multi.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(multi), files, "files() should include only Multi.java");
         }
     }
@@ -224,7 +224,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Child.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(child), files, "files() should include Child.java");
         }
     }
@@ -261,7 +261,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Test.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(expectedFile), files, "files() should include only Test.java");
         }
     }

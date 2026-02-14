@@ -109,12 +109,13 @@ public final class DiffService {
 
     @Blocking
     private static boolean isNewFragmentInteresting(ContextFragment fragment, IProject project, String revision) {
-        var interestingFiles = project.filterExcludedFiles(fragment.files().join());
+        var interestingFiles =
+                project.filterExcludedFiles(fragment.sourceFiles().join());
         if (interestingFiles.isEmpty()) {
             return false;
         }
 
-        return fragment.files().join().stream().anyMatch(file -> {
+        return fragment.sourceFiles().join().stream().anyMatch(file -> {
             try {
                 // If getFileContent returns an empty string for the revision, the file is not yet committed.
                 return project.getRepo().getFileContent(revision, file).isEmpty();
@@ -435,7 +436,7 @@ public final class DiffService {
             ContextFragment fragment, String diff, int linesAdded, int linesDeleted, String oldText, String newText) {
         @Blocking
         public String title() {
-            var files = fragment.files().join();
+            var files = fragment.sourceFiles().join();
             if (!files.isEmpty()) {
                 var pf = files.iterator().next();
                 return pf.getRelPath().toString();

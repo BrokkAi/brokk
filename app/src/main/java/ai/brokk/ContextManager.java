@@ -1638,7 +1638,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Set<ProjectFile> allReferenced = new HashSet<>();
         for (var f : fragments) {
             try {
-                var files = f.files().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
+                var files = f.referencedFiles().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
                 allReferenced.addAll(files);
             } catch (TimeoutException te) {
                 logger.warn("Timed out waiting for files() of fragment {}", f.id());

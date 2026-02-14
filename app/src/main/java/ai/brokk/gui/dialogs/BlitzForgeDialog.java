@@ -1250,7 +1250,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         }
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Attach files", () -> fragments.stream()
-                        .flatMap(frag -> frag.files().join().stream())
+                        .flatMap(frag -> frag.referencedFiles().join().stream())
                         .collect(Collectors.toCollection(ArrayList::new)))
                 .thenAccept(flist -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(flist)));
     }

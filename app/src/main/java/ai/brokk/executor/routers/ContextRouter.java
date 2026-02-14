@@ -191,7 +191,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             Path filePath = null;
             if (fragment.getType().isPath()) {
                 // Use a non-blocking renderNowOr(Set.of()) to obtain currently-available backing files.
-                var filesNow = fragment.files().renderNowOr(Set.of());
+                var filesNow = fragment.referencedFiles().renderNowOr(Set.of());
                 filePath =
                         filesNow.stream().findFirst().map(ProjectFile::absPath).orElse(null);
             }

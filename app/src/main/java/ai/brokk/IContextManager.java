@@ -223,7 +223,7 @@ public interface IContextManager {
         return liveContext()
                 .allFragments()
                 .filter(f -> f.getType().isPath())
-                .flatMap(cf -> cf.files().join().stream())
+                .flatMap(cf -> cf.referencedFiles().join().stream())
                 .collect(Collectors.toSet());
     }
 

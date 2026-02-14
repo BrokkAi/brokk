@@ -291,7 +291,7 @@ public class ContextFragments {
         }
 
         @Override
-        public ComputedValue<Set<ProjectFile>> files() {
+        public ComputedValue<Set<ProjectFile>> referencedFiles() {
             return derived("files", ContentSnapshot::files);
         }
 
@@ -364,7 +364,7 @@ public class ContextFragments {
         }
 
         @Override
-        public ComputedValue<Set<ProjectFile>> files() {
+        public ComputedValue<Set<ProjectFile>> referencedFiles() {
             return ComputedValue.completed("files-" + id, snapshot.files());
         }
 
@@ -468,7 +468,7 @@ public class ContextFragments {
 
         @Override
         public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return files();
+            return referencedFiles();
         }
 
         @Override
@@ -571,7 +571,7 @@ public class ContextFragments {
 
         @Override
         public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return files();
+            return referencedFiles();
         }
 
         @Override
@@ -684,7 +684,7 @@ public class ContextFragments {
 
         @Override
         public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return files();
+            return referencedFiles();
         }
 
         @Override

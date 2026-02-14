@@ -616,14 +616,14 @@ public class ContextHistory {
         snapshot.getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .forEach(fragment -> {
-                    var filesOpt = fragment.files().tryGet();
+                    var filesOpt = fragment.referencedFiles().tryGet();
                     if (filesOpt.isEmpty()) {
                         materializationWarnings.add(fragment.toString());
                         return;
                     }
 
                     var files = filesOpt.get();
-                    assert files.size() == 1 : fragment.files();
+                    assert files.size() == 1 : fragment.referencedFiles();
                     var pf = files.iterator().next();
 
                     var awaited = fragment.text().tryGet();
@@ -638,7 +638,7 @@ public class ContextHistory {
         snapshot.allFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE)
                 .forEach(fragment -> {
-                    var filesOpt = fragment.files().tryGet();
+                    var filesOpt = fragment.referencedFiles().tryGet();
                     if (filesOpt.isEmpty()) {
                         materializationWarnings.add(fragment.toString());
                         return;

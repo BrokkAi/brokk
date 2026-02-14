@@ -196,7 +196,7 @@ public class Context {
         var incomingPathFiles = expanded.stream()
                 .filter(f -> f instanceof ContextFragments.PathFragment)
                 .map(f -> (ContextFragments.PathFragment) f)
-                .flatMap(pf -> pf.files().join().stream())
+                .flatMap(pf -> pf.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
 
         // 3. Process the CURRENT fragments:
@@ -204,7 +204,7 @@ public class Context {
         //    b) Keep everything else (we will deduplicate against new inputs in the next step).
         var partitioned = this.fragments.stream().collect(Collectors.partitioningBy(f -> {
             if (f instanceof ContextFragments.SummaryFragment) {
-                var skeletonFiles = f.files().join();
+                var skeletonFiles = f.sourceFiles().join();
                 // If the skeleton's files overlap with incoming full paths, drop the skeleton.
                 return !Collections.disjoint(skeletonFiles, incomingPathFiles);
             }
@@ -258,16 +258,17 @@ public class Context {
 
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
 
         record WeightedFile(ProjectFile file, double weight) {}
 
         var weightedSeeds = fragments.stream()
-                .filter(f -> !f.files().join().isEmpty())
+                .filter(f -> !f.sourceFiles().join().isEmpty())
                 .flatMap(fragment -> {
-                    double weight = Math.sqrt(1.0 / fragment.files().join().size());
-                    return fragment.files().join().stream().map(file -> new WeightedFile(file, weight));
+                    double weight =
+                            Math.sqrt(1.0 / fragment.sourceFiles().join().size());
+                    return fragment.sourceFiles().join().stream().map(file -> new WeightedFile(file, weight));
                 })
                 .collect(Collectors.groupingBy(wf -> wf.file, HashMap::new, Collectors.summingDouble(wf -> wf.weight)));
 
@@ -471,7 +472,7 @@ public class Context {
      */
     @Blocking
     public boolean isFileContentEmpty() {
-        return fragments.stream().allMatch(f -> f.files().join().isEmpty());
+        return fragments.stream().allMatch(f -> f.sourceFiles().join().isEmpty());
     }
 
     Context addHistoryEntryInternal(TaskEntry taskEntry) {
@@ -810,7 +811,7 @@ public class Context {
         // Map each fragment to the set of ProjectFiles it contains
         var fragmentsToRefresh = new HashSet<ContextFragment>();
         for (var f : fragments) {
-            if (!Collections.disjoint(f.files().join(), maybeChanged)) {
+            if (!Collections.disjoint(f.sourceFiles().join(), maybeChanged)) {
                 fragmentsToRefresh.add(f);
             }
         }

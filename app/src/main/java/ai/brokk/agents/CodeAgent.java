@@ -212,7 +212,7 @@ public class CodeAgent {
                     .getAnalyzerWrapper()
                     .updateFiles(context.allFragments()
                             .filter(f -> f.getType().isPath())
-                            .flatMap(cf -> cf.files().join().stream())
+                            .flatMap(cf -> cf.sourceFiles().join().stream())
                             .collect(Collectors.toSet()))
                     .get();
         } catch (InterruptedException e) {
@@ -309,7 +309,7 @@ public class CodeAgent {
 
             // Incorporate any newly created files into the live context immediately
             var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
-                    .flatMap(f -> f.files().join().stream())
+                    .flatMap(f -> f.sourceFiles().join().stream())
                     .collect(Collectors.toSet());
             var newlyCreated = es.changedFiles().stream()
                     .filter(pf -> !filesInContext.contains(pf))
@@ -773,7 +773,7 @@ public class CodeAgent {
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
             var filesInContext = context.allFragments()
                     .filter(f -> f.getType().isPath())
-                    .flatMap(f -> f.files().join().stream())
+                    .flatMap(f -> f.sourceFiles().join().stream())
                     .collect(Collectors.toSet());
 
             var notInContext = Sets.difference(mentionedFiles, filesInContext);

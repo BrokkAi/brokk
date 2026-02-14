@@ -278,7 +278,10 @@ public class ContextSerializationTest {
         assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
 
         // Compare files
-        assertEquals(expected.files().join(), actual.files().join(), "Fragment files mismatch for ID " + expected.id());
+        assertEquals(
+                expected.referencedFiles().join(),
+                actual.referencedFiles().join(),
+                "Fragment files mismatch for ID " + expected.id());
     }
 
     private void assertTaskEntriesEqual(TaskEntry expected, TaskEntry actual) {
@@ -1703,7 +1706,7 @@ public class ContextSerializationTest {
                 associatedFiles);
 
         // Live fragment exposes associated files for Edit All Refs
-        assertEquals(associatedFiles, fragment.files().join());
+        assertEquals(associatedFiles, fragment.referencedFiles().join());
 
         var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
@@ -1749,7 +1752,7 @@ public class ContextSerializationTest {
                 mockContextManager, diffText, "Git diff for GitDiffSingle.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var expectedPaths = Set.of(projectFile.absPath().toString());
-        var beforePaths = fragment.files().join().stream()
+        var beforePaths = fragment.referencedFiles().join().stream()
                 .map(pf -> pf.absPath().toString())
                 .collect(Collectors.toSet());
         assertEquals(expectedPaths, beforePaths);
@@ -1770,7 +1773,7 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        var afterPaths = loadedFragment.files().join().stream()
+        var afterPaths = loadedFragment.referencedFiles().join().stream()
                 .map(pf -> pf.absPath().toString())
                 .collect(Collectors.toSet());
         assertEquals(expectedPaths, afterPaths);
@@ -1807,7 +1810,7 @@ public class ContextSerializationTest {
 
         var expectedPaths =
                 Set.of(projectFileA.absPath().toString(), projectFileB.absPath().toString());
-        var beforePaths = fragment.files().join().stream()
+        var beforePaths = fragment.referencedFiles().join().stream()
                 .map(pf -> pf.absPath().toString())
                 .collect(Collectors.toSet());
         assertEquals(expectedPaths, beforePaths);
@@ -1827,7 +1830,7 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        var afterPaths = loadedFragment.files().join().stream()
+        var afterPaths = loadedFragment.referencedFiles().join().stream()
                 .map(pf -> pf.absPath().toString())
                 .collect(Collectors.toSet());
         assertEquals(expectedPaths, afterPaths);
@@ -1854,7 +1857,7 @@ public class ContextSerializationTest {
                 mockContextManager, diffText, "Deletion diff for Deleted.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var expectedPaths = Set.of(projectFile.absPath().toString());
-        var beforePaths = fragment.files().join().stream()
+        var beforePaths = fragment.referencedFiles().join().stream()
                 .map(pf -> pf.absPath().toString())
                 .collect(Collectors.toSet());
         assertEquals(expectedPaths, beforePaths);
@@ -1874,7 +1877,7 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        var afterPaths = loadedFragment.files().join().stream()
+        var afterPaths = loadedFragment.referencedFiles().join().stream()
                 .map(pf -> pf.absPath().toString())
                 .collect(Collectors.toSet());
         assertEquals(expectedPaths, afterPaths);
@@ -1908,7 +1911,7 @@ public class ContextSerializationTest {
                 SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var expectedPaths = Set.of(newFile.absPath().toString());
-        var beforePaths = fragment.files().join().stream()
+        var beforePaths = fragment.referencedFiles().join().stream()
                 .map(pf -> pf.absPath().toString())
                 .collect(Collectors.toSet());
         assertEquals(expectedPaths, beforePaths);
@@ -1928,7 +1931,7 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        var afterPaths = loadedFragment.files().join().stream()
+        var afterPaths = loadedFragment.referencedFiles().join().stream()
                 .map(pf -> pf.absPath().toString())
                 .collect(Collectors.toSet());
         assertEquals(expectedPaths, afterPaths);
@@ -1942,7 +1945,7 @@ public class ContextSerializationTest {
                 "Plain text",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        assertTrue(fragment.files().join().isEmpty());
+        assertTrue(fragment.referencedFiles().join().isEmpty());
 
         var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
@@ -1959,7 +1962,7 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertTrue(loadedFragment.files().join().isEmpty());
+        assertTrue(loadedFragment.referencedFiles().join().isEmpty());
     }
 
     @Test
@@ -1995,7 +1998,7 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertEquals(Set.of(file1, file2), loadedFragment.files().join());
+        assertEquals(Set.of(file1, file2), loadedFragment.referencedFiles().join());
     }
 
     @Test

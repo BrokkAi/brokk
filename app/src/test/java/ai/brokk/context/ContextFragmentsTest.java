@@ -49,7 +49,7 @@ class ContextFragmentsTest {
         var fragment = new ContextFragments.StringFragment(
                 mockContextManager, pathList, "File list", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        assertEquals(Set.of(file1, file2), fragment.files().join());
+        assertEquals(Set.of(file1, file2), fragment.referencedFiles().join());
     }
 
     @Test
@@ -63,7 +63,7 @@ class ContextFragmentsTest {
         var fragment = new ContextFragments.StringFragment(
                 mockContextManager, pathList, "Mixed file list", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        assertEquals(Set.of(existingFile), fragment.files().join());
+        assertEquals(Set.of(existingFile), fragment.referencedFiles().join());
     }
 
     @Test
@@ -78,14 +78,14 @@ class ContextFragmentsTest {
 
         var stringFragment = new ContextFragments.StringFragment(
                 mockContextManager, mixed, "Mixed content", SyntaxConstants.SYNTAX_STYLE_NONE);
-        assertEquals(Set.of(file1, file2), stringFragment.files().join());
+        assertEquals(Set.of(file1, file2), stringFragment.referencedFiles().join());
 
         var pasteFragment = new ContextFragments.PasteTextFragment(
                 mockContextManager,
                 mixed,
                 CompletableFuture.completedFuture("Mixed content"),
                 CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-        assertEquals(Set.of(file1, file2), pasteFragment.files().join());
+        assertEquals(Set.of(file1, file2), pasteFragment.referencedFiles().join());
     }
 
     @Test
@@ -112,7 +112,7 @@ class ContextFragmentsTest {
         var fragment = new ContextFragments.StringFragment(
                 mockContextManager, diffText, "Diff content", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var files = fragment.files().join();
+        var files = fragment.referencedFiles().join();
         assertTrue(files.contains(projectFile), "Should contain the file from the diff");
         assertFalse(
                 files.contains(decoyFile),
@@ -133,7 +133,7 @@ class ContextFragmentsTest {
         var fragment = new ContextFragments.StringFragment(
                 mockContextManager, mixedFormats, "Mixed formats", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        assertEquals(Set.of(file), fragment.files().join());
+        assertEquals(Set.of(file), fragment.referencedFiles().join());
     }
 
     @Test
@@ -149,7 +149,8 @@ class ContextFragmentsTest {
         var fragment = new ContextFragments.StringFragment(
                 mockContextManager, pathList, "Path list with spaces", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        assertEquals(Set.of(fileWithSpace, normalFile), fragment.files().join());
+        assertEquals(
+                Set.of(fileWithSpace, normalFile), fragment.referencedFiles().join());
     }
 
     @Test
@@ -167,7 +168,7 @@ class ContextFragmentsTest {
         var fragment = new ContextFragments.PasteTextFragment(
                 mockContextManager, file.toString(), failingDescFuture, failingSyntaxFuture);
 
-        assertEquals(Set.of(file), fragment.files().join());
+        assertEquals(Set.of(file), fragment.referencedFiles().join());
         assertEquals("Paste of text content", fragment.description().join());
     }
 
@@ -182,6 +183,6 @@ class ContextFragmentsTest {
 
         var fragment = new ContextFragments.StringFragment(
                 mockContextManager, malformedDiff, "Malformed Diff", SyntaxConstants.SYNTAX_STYLE_NONE);
-        assertTrue(fragment.files().join().isEmpty(), "Files list should be empty when diff parsing fails");
+        assertTrue(fragment.referencedFiles().join().isEmpty(), "Files list should be empty when diff parsing fails");
     }
 }

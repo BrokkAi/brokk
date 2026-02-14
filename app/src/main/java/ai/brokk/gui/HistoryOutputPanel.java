@@ -1843,7 +1843,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     .setInitialFileIndex(0);
             String tabTitle = "Diff: " + actionDesc;
             if (diffs.size() == 1) {
-                var files = diffs.getFirst().fragment().files().join();
+                var files = diffs.getFirst().fragment().sourceFiles().join();
                 if (!files.isEmpty()) {
                     tabTitle = "Diff of " + files.iterator().next().getFileName();
                 }
@@ -1853,7 +1853,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             for (var de : diffs) {
                 var task = contextManager.submitBackgroundTask("Compute diff window entry for:" + de, () -> {
                     String pathDisplay;
-                    var files = de.fragment().files().join();
+                    var files = de.fragment().sourceFiles().join();
                     if (!files.isEmpty()) {
                         var pf = files.iterator().next();
                         pathDisplay = pf.getRelPath().toString();

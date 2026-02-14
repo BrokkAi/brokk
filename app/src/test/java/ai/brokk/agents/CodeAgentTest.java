@@ -1094,7 +1094,7 @@ class CodeAgentTest {
 
         var summarySummaryOnly = new ContextFragments.SummaryFragment(
                 cm, "com.example.SummaryOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        assertFalse(summarySummaryOnly.files().join().isEmpty());
+        assertFalse(summarySummaryOnly.sourceFiles().join().isEmpty());
         var summaryPpfAndSummaryEditable = new ContextFragments.SummaryFragment(
                 cm, "com.example.PpfAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
         var summaryPpfReadonly = new ContextFragments.SummaryFragment(

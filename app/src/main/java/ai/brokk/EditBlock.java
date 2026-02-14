@@ -247,7 +247,7 @@ public class EditBlock {
                 if (e instanceof NoMatchException) {
                     List<String> matchesInOtherFiles = ctx.getEditableFragments()
                             .filter(cf -> cf.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                            .flatMap(cf -> cf.files().join().stream())
+                            .flatMap(cf -> cf.sourceFiles().join().stream())
                             .filter(f -> !f.equals(file))
                             .filter(f -> {
                                 String otherContent = f.read().orElse("");
@@ -912,7 +912,7 @@ public class EditBlock {
 
         // 2. Try to map the given filename to a filename in the Context
         var editableMatches = ctx.getEditableFragments()
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .filter(f -> f.getFileName().equals(file.getFileName()))
                 .toList();
         if (editableMatches.size() == 1) {

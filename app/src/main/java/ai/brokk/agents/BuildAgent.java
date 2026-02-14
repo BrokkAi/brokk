@@ -746,12 +746,12 @@ public class BuildAgent {
         // Get ProjectFiles from editable and read-only fragments
         var projectFilesFromEditableOrReadOnly = ctx.allFragments()
                 .filter(f -> f.getType().isPath())
-                .flatMap(fragment -> fragment.files().join().stream()); // No analyzer
+                .flatMap(fragment -> fragment.sourceFiles().join().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
         var projectFilesFromSkeletons = ctx.allFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(skeletonFragment -> skeletonFragment.files().join().stream()); // No analyzer
+                .flatMap(skeletonFragment -> skeletonFragment.sourceFiles().join().stream()); // No analyzer
 
         // Combine all relevant ProjectFiles into a single set for checking against test files
         var workspaceFiles = Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)

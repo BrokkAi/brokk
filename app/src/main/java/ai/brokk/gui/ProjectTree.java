@@ -572,7 +572,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     var fileSet = Set.copyOf(targetFiles);
                     var toRemove = ctx.allFragments()
                             .filter(f -> f.getType().includeInProjectGuide())
-                            .filter(f -> f.files().join().stream().anyMatch(fileSet::contains))
+                            .filter(f -> f.referencedFiles().join().stream().anyMatch(fileSet::contains))
                             .toList();
                     return ctx.removeFragments(toRemove).copyAndRefresh(fileSet);
                 });

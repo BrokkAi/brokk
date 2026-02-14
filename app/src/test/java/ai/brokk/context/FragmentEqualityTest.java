@@ -437,7 +437,7 @@ class FragmentEqualityTest {
                     SyntaxConstants.SYNTAX_STYLE_NONE,
                     associatedFiles);
 
-            var filesFromFragment = sf.files().join();
+            var filesFromFragment = sf.referencedFiles().join();
             assertEquals(associatedFiles, filesFromFragment);
         }
 
@@ -462,7 +462,7 @@ class FragmentEqualityTest {
                     contextManager, diffText, "Git diff for GitDiffSingle.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(file.absPath().toString());
-            var actualPaths = sf.files().join().stream()
+            var actualPaths = sf.referencedFiles().join().stream()
                     .map(pf -> pf.absPath().toString())
                     .collect(Collectors.toSet());
             assertEquals(expectedPaths, actualPaths);
@@ -499,7 +499,7 @@ class FragmentEqualityTest {
 
             var expectedPaths =
                     Set.of(fileA.absPath().toString(), fileB.absPath().toString());
-            var actualPaths = sf.files().join().stream()
+            var actualPaths = sf.referencedFiles().join().stream()
                     .map(pf -> pf.absPath().toString())
                     .collect(Collectors.toSet());
             assertEquals(expectedPaths, actualPaths);
@@ -526,7 +526,7 @@ class FragmentEqualityTest {
                     contextManager, diffText, "Deletion diff for Deleted.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(file.absPath().toString());
-            var actualPaths = sf.files().join().stream()
+            var actualPaths = sf.referencedFiles().join().stream()
                     .map(pf -> pf.absPath().toString())
                     .collect(Collectors.toSet());
             assertEquals(expectedPaths, actualPaths);
@@ -560,7 +560,7 @@ class FragmentEqualityTest {
                     SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(newFile.absPath().toString());
-            var actualPaths = sf.files().join().stream()
+            var actualPaths = sf.referencedFiles().join().stream()
                     .map(pf -> pf.absPath().toString())
                     .collect(Collectors.toSet());
             assertEquals(expectedPaths, actualPaths);
@@ -574,7 +574,7 @@ class FragmentEqualityTest {
                     "Plain text",
                     SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            assertTrue(sf.files().join().isEmpty());
+            assertTrue(sf.referencedFiles().join().isEmpty());
         }
     }
 

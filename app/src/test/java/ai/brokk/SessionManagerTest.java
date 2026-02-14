@@ -246,8 +246,12 @@ public class SessionManagerTest {
                 actual.sources().join().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
                 "Fragment sources mismatch for ID " + expected.id());
         assertEquals(
-                expected.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
-                actual.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
+                expected.referencedFiles().join().stream()
+                        .map(ProjectFile::toString)
+                        .collect(Collectors.toSet()),
+                actual.referencedFiles().join().stream()
+                        .map(ProjectFile::toString)
+                        .collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
     }
 
