@@ -16,9 +16,14 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.util.Messages;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -31,10 +36,21 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathFactory;
+import net.thisptr.jackson.jq.BuiltinFunctionLoader;
+import net.thisptr.jackson.jq.JsonQuery;
+import net.thisptr.jackson.jq.Output;
+import net.thisptr.jackson.jq.Scope;
+import net.thisptr.jackson.jq.Versions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
+import org.w3c.dom.Document;
+import org.w3c.dom.NodeList;
 
 /**
  * Contains tool implementations related to code analysis and searching, designed to be registered with the
@@ -725,6 +741,221 @@ public class SearchTools {
                 })
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
+    }
+
+    @Tool(
+            """
+            Searches for a regex pattern within file contents across files matching a glob pattern.
+            Provides grep-like output with line numbers and optional context lines.
+            """)
+    public String searchFileContents(
+            @P("Java-style regex pattern to search for.") String pattern,
+            @P("Glob pattern for file paths (e.g., '**/AGENTS.md', 'src/**/*.java').") String filepath,
+            @P("Number of context lines to show around each match (0-50).") int contextLines) {
+        var project = contextManager.getProject();
+        var files = Completions.expandPath(project, filepath).stream()
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .filter(pf -> pf.isText())
+                .sorted()
+                .toList();
+
+        // Retry without leading **/ if no files found, to support matching root files
+        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
+            files = Completions.expandPath(project, filepath.substring(3)).stream()
+                    .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
+                    .filter(pf -> pf.isText())
+                    .sorted()
+                    .toList();
+        }
+
+        if (files.isEmpty()) {
+            return "No text files found matching: " + filepath;
+        }
+
+        int clampedContext = Math.max(0, Math.min(contextLines, 50));
+        var predicates = compilePatternsWithFallback(List.of(pattern));
+
+        StringBuilder result = new StringBuilder();
+        boolean anyMatch = false;
+
+        for (var file : files) {
+            var contentOpt = file.read();
+            if (contentOpt.isEmpty()) continue;
+            List<String> lines = Splitter.on(Pattern.compile("\\r?\\n")).splitToList(contentOpt.get());
+            List<Integer> matchLines = new ArrayList<>();
+
+            for (int i = 0; i < lines.size(); i++) {
+                boolean matched = false;
+                for (var p : predicates) {
+                    if (p.test(lines.get(i))) {
+                        matched = true;
+                        break;
+                    }
+                }
+                if (matched) matchLines.add(i);
+            }
+
+            if (!matchLines.isEmpty()) {
+                anyMatch = true;
+                result.append(file.toString().replace('\\', '/')).append("\n");
+                Set<Integer> printed = new HashSet<>();
+                for (int matchIdx : matchLines) {
+                    int start = Math.max(0, matchIdx - clampedContext);
+                    int end = Math.min(lines.size() - 1, matchIdx + clampedContext);
+
+                    for (int i = start; i <= end; i++) {
+                        if (printed.add(i)) {
+                            result.append(String.format("%d: %s\n", i + 1, lines.get(i)));
+                        }
+                    }
+                }
+                result.append("\n");
+            }
+        }
+
+        if (!anyMatch) {
+            return "No matches found for pattern '" + pattern + "' in files matching '" + filepath + "'";
+        }
+
+        return result.toString().trim();
+    }
+
+    @Tool(
+            """
+            Executes an XPath query against XML files.
+            The tool is namespace-agnostic by default: simple element names like 'foo' are automatically rewritten
+            to match elements regardless of their namespace prefix (using local-name() matching).
+            Returns the text content of matching nodes.
+            """)
+    public String xpathQuery(
+            @P("File path or glob pattern (e.g., 'pom.xml', '**/config/*.xml').") String filepath,
+            @P("XPath expression to evaluate.") String xpath) {
+        var project = contextManager.getProject();
+        var files = Completions.expandPath(project, filepath).stream()
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .filter(pf -> pf.isText() && "xml".equalsIgnoreCase(pf.extension()))
+                .sorted()
+                .toList();
+
+        if (files.isEmpty()) {
+            return "No XML files found matching: " + filepath;
+        }
+
+        String effectiveXpath = xpath;
+        if (!xpath.contains("local-name()")) {
+            // Rewrite simple steps: foo -> *[local-name()='foo']
+            effectiveXpath = Pattern.compile("(?<=^|/)(?![@*])([a-zA-Z0-9_-]+)(?=$|/|\\[)")
+                    .matcher(xpath)
+                    .replaceAll("*[local-name()='$1']");
+        }
+
+        StringBuilder result = new StringBuilder();
+        try {
+            var dbf = DocumentBuilderFactory.newInstance();
+            dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            dbf.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            dbf.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            dbf.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            dbf.setXIncludeAware(false);
+            dbf.setExpandEntityReferences(false);
+            dbf.setNamespaceAware(false);
+            var xpf = XPathFactory.newInstance();
+            var xpe = xpf.newXPath().compile(effectiveXpath);
+
+            for (var file : files) {
+                var contentOpt = file.read();
+                if (contentOpt.isEmpty()) continue;
+
+                Document doc = dbf.newDocumentBuilder()
+                        .parse(new ByteArrayInputStream(contentOpt.get().getBytes(StandardCharsets.UTF_8)));
+
+                NodeList nodes = (NodeList) xpe.evaluate(doc, XPathConstants.NODESET);
+                result.append("File: ")
+                        .append(file.toString().replace('\\', '/'))
+                        .append(" (")
+                        .append(nodes.getLength())
+                        .append(" matches)\n");
+
+                for (int i = 0; i < nodes.getLength(); i++) {
+                    String val = nodes.item(i).getTextContent().trim();
+                    if (!val.isEmpty()) {
+                        result.append("  [")
+                                .append(i + 1)
+                                .append("]: ")
+                                .append(val)
+                                .append("\n");
+                    }
+                }
+                result.append("\n");
+            }
+        } catch (Exception e) {
+            return "Error executing XPath: " + e.getMessage();
+        }
+
+        return result.isEmpty()
+                ? "No results for XPath query."
+                : result.toString().trim();
+    }
+
+    @Tool(
+            """
+            Executes a jq filter against JSON files using jackson-jq.
+            Results are always returned as compact JSON strings.
+            Multiple results are separated by newlines.
+            """)
+    public String jq(
+            @P("File path or glob pattern (e.g., 'package.json', '**/data/*.json').") String filepath,
+            @P("jq filter to apply.") String filter) {
+        var project = contextManager.getProject();
+        var files = Completions.expandPath(project, filepath).stream()
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .filter(pf -> pf.isText() && "json".equalsIgnoreCase(pf.extension()))
+                .sorted()
+                .toList();
+
+        if (files.isEmpty()) {
+            return "No JSON files found matching: " + filepath;
+        }
+
+        StringBuilder result = new StringBuilder();
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            JsonQuery query = JsonQuery.compile(filter, Versions.JQ_1_6);
+            Scope rootScope = Scope.newEmptyScope();
+            BuiltinFunctionLoader.getInstance().loadFunctions(Versions.JQ_1_6, rootScope);
+
+            for (var file : files) {
+                var contentOpt = file.read();
+                if (contentOpt.isEmpty()) continue;
+
+                JsonNode node = mapper.readTree(contentOpt.get());
+                List<JsonNode> out = new ArrayList<>();
+                Output output = out::add;
+
+                query.apply(Scope.newChildScope(rootScope), node, output);
+
+                if (!out.isEmpty()) {
+                    result.append("File: ")
+                            .append(file.toString().replace('\\', '/'))
+                            .append("\n");
+                    for (JsonNode res : out) {
+                        result.append(mapper.writeValueAsString(res)).append("\n");
+                    }
+                    result.append("\n");
+                }
+            }
+        } catch (Exception e) {
+            return "Error executing jq filter: " + e.getMessage();
+        }
+
+        return result.isEmpty()
+                ? "No results for jq filter."
+                : result.toString().trim();
     }
 
     @Tool(

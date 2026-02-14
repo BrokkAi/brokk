@@ -422,6 +422,60 @@ public class SearchToolsTest {
                 result.contains("Commit with [[ pattern"), "Should not contain empty commit unrelated to README.md");
     }
 
+    @Test
+    void testSearchFileContents() throws Exception {
+        Path txt = projectRoot.resolve("grep_test.txt");
+        Files.writeString(txt, "line1\nline2 MATCH\nline3\nline4");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "grep_test.txt"));
+
+        String result = searchTools.searchFileContents("MATCH", "**/grep_test.txt", 1);
+
+        assertTrue(result.contains("grep_test.txt"));
+        assertTrue(result.contains("1: line1"));
+        assertTrue(result.contains("2: line2 MATCH"));
+        assertTrue(result.contains("3: line3"));
+        assertFalse(result.contains("4: line4"));
+    }
+
+    @Test
+    void testSearchFileContents_invalidRegexFallback() throws Exception {
+        Path txt = projectRoot.resolve("grep_fallback.txt");
+        Files.writeString(txt, "content with [[ brackets");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "grep_fallback.txt"));
+
+        // "[[" is invalid regex, should fallback to contains()
+        String result = searchTools.searchFileContents("[[", "grep_fallback.txt", 0);
+
+        assertTrue(result.contains("grep_fallback.txt"));
+        assertTrue(result.contains("1: content with [[ brackets"));
+    }
+
+    @Test
+    void testXpathQuery() throws Exception {
+        Path xml = projectRoot.resolve("test.xml");
+        Files.writeString(xml, "<root xmlns:ns='uri'><ns:child>hello</ns:child></root>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test.xml"));
+
+        // Test local-name rewrite
+        String result = searchTools.xpathQuery("test.xml", "/root/child");
+
+        assertTrue(result.contains("File: test.xml"));
+        assertTrue(result.contains("hello"));
+    }
+
+    @Test
+    void testJq() throws Exception {
+        Path json = projectRoot.resolve("test.json");
+        Files.writeString(json, "{\"a\": [{\"id\": 1}, {\"id\": 2}]}");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test.json"));
+
+        String result = searchTools.jq("test.json", ".a[] | .id");
+
+        assertTrue(result.contains("File: test.json"));
+        assertTrue(result.contains("1"));
+        assertTrue(result.contains("2"));
+    }
+
     private static int countOccurrences(String text, String substring) {
         int count = 0;
         int idx = 0;

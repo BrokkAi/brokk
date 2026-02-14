@@ -226,12 +226,21 @@ public class SearchAgent {
         // Non-analyzer tools
         tools.add("findFilesContaining");
         tools.add("findFilenames");
+        tools.add("searchFileContents");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
         if (project.hasGit()) {
             tools.add("searchGitCommitMessages");
             tools.add("getGitLog");
             tools.add("explainCommit");
+        }
+
+        var allFiles = project.getAllFiles();
+        if (allFiles.stream().anyMatch(f -> f.extension().equals("xml"))) {
+            tools.add("xpathQuery");
+        }
+        if (allFiles.stream().anyMatch(f -> f.extension().equals("json"))) {
+            tools.add("jq");
         }
 
         if (!mcpTools.isEmpty()) {
@@ -1371,6 +1380,9 @@ public class SearchAgent {
                         "scanUsages",
                         "findFilesContaining",
                         "findFilenames",
+                        "searchFileContents",
+                        "xpathQuery",
+                        "jq",
                         "searchGitCommitMessages",
                         "getGitLog")
                 .contains(toolName);
