@@ -432,21 +432,14 @@ class ExceptionReporterAsyncTest {
             this.optionalFields = new HashMap<>();
             JsonNode context = exceptionReport.get("context");
             if (context != null) {
-                context.fields().forEachRemaining(entry -> {
+                context.fieldNames().forEachRemaining(name -> {
+                    JsonNode value = context.get(name);
                     // Skip the nested objects (os, jvm) - only get string fields
-                    if (entry.getValue().isTextual()) {
-                        optionalFields.put(entry.getKey(), entry.getValue().asText());
+                    if (value.isTextual()) {
+                        optionalFields.put(name, value.asText());
                     }
                 });
             }
-        }
-
-        // Legacy constructor for compatibility (not used anymore)
-        ServiceCall(String stacktrace, String clientVersion, Map<String, String> optionalFields) {
-            this.stacktrace = stacktrace;
-            this.clientVersion = clientVersion;
-            this.optionalFields = optionalFields != null ? optionalFields : Map.of();
-            this.fullReport = null;
         }
     }
 }
