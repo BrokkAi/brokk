@@ -355,9 +355,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
         try (var ioExecutor = ExecutorsUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
                 var parseExecutor = ExecutorsUtil.newFixedThreadExecutor(
-                        Runtime.getRuntime().availableProcessors(), "ts-parse-");
+                        "ts-parse-", Runtime.getRuntime().availableProcessors());
                 var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor(
-                        Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
+                        "ts-ingest-", Runtime.getRuntime().availableProcessors())) {
             for (var pf : filesToProcess) {
                 // we do our own exception handling so LoggingFuture is not appropriate here
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
@@ -3753,7 +3753,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         var progressReporter = new DebouncedProgressReporter(total, "Updating " + language.name() + " files", 100);
 
-        try (var executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
+        try (var executor = ExecutorsUtil.newFixedThreadExecutor("ts-update-", parallelism)) {
             for (var file : relevantFiles) {
                 futures.add(CompletableFuture.runAsync(
                                 () -> {
@@ -3876,7 +3876,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         int parallelism = Math.max(1, Runtime.getRuntime().availableProcessors());
         var concurrentChanged = ConcurrentHashMap.<ProjectFile>newKeySet();
 
-        try (var detectExecutor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "ts-detect-")) {
+        try (var detectExecutor = ExecutorsUtil.newFixedThreadExecutor("ts-detect-", parallelism)) {
             List<CompletableFuture<?>> futures = new ArrayList<>();
             for (ProjectFile pf : currentFiles) {
                 if (!knownFiles.contains(pf)) {

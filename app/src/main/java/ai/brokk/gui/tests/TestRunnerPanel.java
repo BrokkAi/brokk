@@ -76,7 +76,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private int maxRuns = 50;
     private final TestRunsStore runsStore;
     private boolean restoringRuns = false;
-    private final ExecutorService sessionExecutor = ExecutorsUtil.newFixedThreadExecutor(2, "TestRunner-");
+    private final ExecutorService sessionExecutor = ExecutorsUtil.newFixedThreadExecutor("TestRunner-", 2);
     private final SerialByKeyExecutor saveExecutor = new SerialByKeyExecutor(sessionExecutor);
 
     // Limit stored output size to avoid unbounded JSON growth
