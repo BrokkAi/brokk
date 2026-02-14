@@ -1521,6 +1521,55 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
+    public interface TaskProgressListener {
+        void onTaskStarting(int batchIndex, TaskList.TaskItem task);
+
+        default void onTaskFinished(int batchIndex, TaskList.TaskItem task, TaskResult result) {}
+
+        default void onTaskFailed(int batchIndex, TaskList.TaskItem task, Throwable error) {}
+
+        default void onBatchFinished(int completed) {}
+    }
+
+    /**
+     * Executes a batch of tasks sequentially.
+     */
+    public void executeTasks(
+            List<TaskList.TaskItem> tasks,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            TaskProgressListener listener)
+            throws InterruptedException {
+        int completed = 0;
+        try {
+            for (int i = 0; i < tasks.size(); i++) {
+                TaskList.TaskItem task = tasks.get(i);
+                if (task.done()) {
+                    continue;
+                }
+                listener.onTaskStarting(i, task);
+                try {
+                    TaskResult result = executeTask(task, planningModel, codeModel);
+                    listener.onTaskFinished(i, task, result);
+                    if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                        logger.info(
+                                "Batch execution stopped early: task failed with reason {}",
+                                result.stopDetails().reason());
+                        break;
+                    }
+                    completed++;
+                } catch (InterruptedException e) {
+                    throw e;
+                } catch (Exception e) {
+                    listener.onTaskFailed(i, task, e);
+                    throw e;
+                }
+            }
+        } finally {
+            listener.onBatchFinished(completed);
+        }
+    }
+
     /**
      * Execute a single task using ArchitectAgent with explicit options.
      *

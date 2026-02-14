@@ -236,6 +236,7 @@ public final class JobRunner {
         SEARCH,
         REVIEW,
         LUTZ,
+        PLAN,
         ISSUE,
         ISSUE_DIAGNOSE,
         ISSUE_WRITER
@@ -328,7 +329,7 @@ public final class JobRunner {
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
                 final StreamingChatModel architectPlannerModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
+                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.PLAN || mode == Mode.ISSUE)
                                 ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                                 : null;
                 final StreamingChatModel architectCodeModel =
@@ -374,7 +375,7 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ, PLAN, ISSUE -> service.nameOf(requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(requireNonNull(searchPlannerModel));
                             case CODE -> {
@@ -389,6 +390,7 @@ public final class JobRunner {
                             case ARCHITECT, LUTZ, ISSUE -> service.nameOf(requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
+                            case PLAN -> "(default, ignored for PLAN)";
                             case CODE -> service.nameOf(requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
@@ -396,7 +398,7 @@ public final class JobRunner {
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
-                            case ASK, SEARCH, REVIEW -> true;
+                            case ASK, SEARCH, PLAN, REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
                         };
@@ -504,6 +506,21 @@ public final class JobRunner {
                                             }
 
                                             logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
+                                        }
+                                    }
+                                    case PLAN -> {
+                                        // PLAN mode: LUTZ Phase 1+2 only (generate task list, no execution)
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
+                                            var context = cm.liveContext();
+                                            var searchAgent = new SearchAgent(
+                                                    context,
+                                                    spec.taskInput(),
+                                                    Objects.requireNonNull(
+                                                            architectPlannerModel,
+                                                            "plannerModel required for PLAN jobs"),
+                                                    SearchPrompts.Objective.TASKS_ONLY,
+                                                    scope);
+                                            scope.append(searchAgent.execute());
                                         }
                                     }
                                     case CODE -> {
