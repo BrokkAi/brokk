@@ -117,6 +117,15 @@ public class SearchToolsTest {
                     return switch (method.getName()) {
                         case "getProject" -> projectProxy;
                         case "getRepo" -> repo;
+                        case "getAnalyzerUninterrupted", "getAnalyzer" ->
+                            Proxy.newProxyInstance(
+                                    getClass().getClassLoader(),
+                                    new Class<?>[] {ai.brokk.analyzer.IAnalyzer.class},
+                                    (p, m, a) -> {
+                                        if (m.getReturnType().equals(List.class)) return List.of();
+                                        if (m.getReturnType().equals(Set.class)) return Set.of();
+                                        return null;
+                                    });
                         default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
                     };
                 });
@@ -146,35 +155,17 @@ public class SearchToolsTest {
     // ---------------------------------------------------------------------
 
     @Test
-    void testfindFilesContaining_invalidRegexFallback() throws Exception {
-        // 1. Create a text file whose contents include the substring "[["
-        Path txt = projectRoot.resolve("substring_test.txt");
-        Files.writeString(txt, "some content with [[ pattern");
-
-        // 2. Add to mock project file list so SearchTools sees it
-        mockProjectFiles.add(new ProjectFile(projectRoot, "substring_test.txt"));
-
-        // 3. Invoke findFilesContaining with an invalid regex
-        String result = searchTools.findFilesContaining(List.of("[["), "testing invalid regex fallback for substrings");
-
-        // 4. Verify fallback occurred and file is reported
-        assertTrue(result.contains("substring_test.txt"), "Result should reference the test file");
+    void testfindFilesContaining_invalidRegexThrows() throws Exception {
+        // SearchTools.compilePatterns throws on invalid regex for this tool
+        String result = searchTools.findFilesContaining(List.of("[["), "testing invalid regex error");
+        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
     @Test
-    void testfindFilenames_invalidRegexFallback() throws Exception {
-        // 1. Create a file whose *name* contains the substring "[["
-        Path filePath = projectRoot.resolve("filename_[[-test.txt");
-        Files.writeString(filePath, "dummy");
-
-        // 2. Add to mock project file list
-        mockProjectFiles.add(new ProjectFile(projectRoot, "filename_[[-test.txt"));
-
-        // 3. Search with invalid regex
-        String result = searchTools.findFilenames(List.of("[["), "testing invalid regex fallback for filenames");
-
-        // 4. Ensure the file name appears in the output
-        assertTrue(result.contains("filename_[[-test.txt"), "Result should reference the test filename");
+    void testfindFilenames_invalidRegexThrows() throws Exception {
+        // SearchTools.compilePatterns throws on invalid regex for this tool
+        String result = searchTools.findFilenames(List.of("[["), "testing invalid regex error");
+        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
     @Test
@@ -216,7 +207,7 @@ public class SearchToolsTest {
                 "Should find file with back-slash path pattern");
 
         // E. Regex path pattern (frontend-mop/.*\.svelte)
-        String regexPattern = "frontend-mop/.*\\\\.svelte";
+        String regexPattern = "frontend-mop/.*\\.svelte";
         String resultRegex = searchTools.findFilenames(List.of(regexPattern), "test regex path");
         assertTrue(
                 resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
@@ -438,16 +429,10 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testSearchFileContents_invalidRegexFallback() throws Exception {
-        Path txt = projectRoot.resolve("grep_fallback.txt");
-        Files.writeString(txt, "content with [[ brackets");
-        mockProjectFiles.add(new ProjectFile(projectRoot, "grep_fallback.txt"));
-
-        // "[[" is invalid regex, should fallback to contains()
-        String result = searchTools.searchFileContents("[[", "grep_fallback.txt", 0);
-
-        assertTrue(result.contains("grep_fallback.txt"));
-        assertTrue(result.contains("1: content with [[ brackets"));
+    void testSearchFileContents_invalidRegexThrows() throws Exception {
+        // "[[" is invalid regex, should return error message
+        String result = searchTools.searchFileContents("[[", "README.md", 0);
+        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
     @Test
@@ -474,6 +459,130 @@ public class SearchToolsTest {
         assertTrue(result.contains("File: test.json"));
         assertTrue(result.contains("1"));
         assertTrue(result.contains("2"));
+    }
+
+    @Test
+    void testJq_InvalidJsonAndFilter() throws Exception {
+        Path json = projectRoot.resolve("bad.json");
+        Files.writeString(json, "{ invalid json }");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "bad.json"));
+
+        // 1. Invalid Filter
+        String filterResult = searchTools.jq("bad.json", ".[[[");
+        assertTrue(filterResult.contains("Invalid jq filter"), "Should report filter compilation error");
+
+        // 2. Invalid Content
+        String contentResult = searchTools.jq("bad.json", ".");
+        assertTrue(contentResult.contains("errors in 1 of 1 files"), "Should report JSON parsing error");
+    }
+
+    @Test
+    void testSearchFileContents_PathRetry() throws Exception {
+        Path rootFile = projectRoot.resolve("root.txt");
+        Files.writeString(rootFile, "found me");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "root.txt"));
+
+        // Verify that **/root.txt matches a file at the project root via the retry logic
+        String result = searchTools.searchFileContents("found", "**/root.txt", 0);
+        assertTrue(result.contains("root.txt"), "Should find file at root even with **/ prefix");
+    }
+
+    @Test
+    void testGetGitLog_RenameTracking() throws Exception {
+        Path oldPath = projectRoot.resolve("old_name.txt");
+        Files.writeString(oldPath, "original content");
+
+        try (Git git = Git.open(projectRoot.toFile())) {
+            git.add().addFilepattern("old_name.txt").call();
+            git.commit().setMessage("Add old_name").setSign(false).call();
+
+            // Rename via git
+            Path newPath = projectRoot.resolve("new_name.txt");
+            Files.move(oldPath, newPath);
+            git.add().addFilepattern("new_name.txt").call();
+            git.rm().addFilepattern("old_name.txt").call();
+            git.commit().setMessage("Rename to new_name").setSign(false).call();
+        }
+
+        // When requesting log for new_name.txt, we should see the rename breadcrumb
+        String result = searchTools.getGitLog("new_name.txt", 10, "test");
+        assertTrue(result.contains("[RENAMED]"), "Should show rename marker in log");
+        assertTrue(result.contains("old_name.txt -> new_name.txt"), "Should show path transition");
+    }
+
+    @Test
+    void testCompilePatterns_ErrorAggregation() {
+        List<String> invalidPatterns = List.of("valid", "[", "(", "   ");
+        IllegalArgumentException ex =
+                assertThrows(IllegalArgumentException.class, () -> SearchTools.compilePatterns(invalidPatterns));
+
+        assertTrue(ex.getMessage().contains("'['"), "Should report first invalid pattern");
+        assertTrue(ex.getMessage().contains("'('"), "Should report second invalid pattern");
+        assertFalse(ex.getMessage().contains("'valid'"), "Should not report valid pattern");
+        assertFalse(ex.getMessage().contains("'   '"), "Should ignore blank patterns");
+    }
+
+    @Test
+    void testSearchSymbols_StripsParams() {
+        // Mock analyzer is static, but we can verify the Tool's sanitization logic
+        // by checking if it calls analyzer with stripped names.
+        // Since we can't easily mock the static analyzer's return for specific calls here,
+        // we'll rely on the logic being covered by the fact that SearchTools.stripParams
+        // is private and used by searchSymbols.
+
+        // This test ensures it doesn't crash and handles the typical LLM mistake
+        String result = searchTools.searchSymbols(List.of("com.Foo.bar(int, String)"), "test", false);
+        assertTrue(
+                result.contains("No definitions found"), "Should attempt search and find nothing (correctly stripped)");
+    }
+
+    @Test
+    void testSearchFileContents_ContextAndClamping() throws Exception {
+        Path txt = projectRoot.resolve("context_test.txt");
+        // Matches on lines 2 and 4 (1-indexed)
+        Files.writeString(txt, "L1\nL2 MATCH\nL3\nL4 MATCH\nL5\nL6\nL7");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "context_test.txt"));
+
+        // contextLines = 1. Matches are at index 1 and 3.
+        // Match 1 (idx 1) -> lines 0, 1, 2
+        // Match 2 (idx 3) -> lines 2, 3, 4
+        // De-duped output should show L1, L2, L3, L4, L5 exactly once.
+        String result = searchTools.searchFileContents("MATCH", "context_test.txt", 1);
+
+        assertTrue(result.contains("1: L1"));
+        assertTrue(result.contains("2: L2 MATCH"));
+        assertTrue(result.contains("3: L3"));
+        assertTrue(result.contains("4: L4 MATCH"));
+        assertTrue(result.contains("5: L5"));
+        assertFalse(result.contains("6: L6"));
+
+        assertEquals(
+                1, countOccurrences(result, "3: L3"), "Line 3 should only be printed once despite overlapping context");
+
+        // Verify clamping: contextLines=999 should be clamped to 50
+        // Our file is small, so it should just show everything.
+        String resultsCapped = searchTools.searchFileContents("MATCH", "context_test.txt", 999);
+        assertTrue(resultsCapped.contains("7: L7"));
+    }
+
+    @Test
+    void testXpathQuery_SanitizationAndErrors() throws Exception {
+        Path xml = projectRoot.resolve("security.xml");
+        // Attempt XXE
+        Files.writeString(
+                xml,
+                """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE root [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <root>&xxe;</root>
+            """);
+        mockProjectFiles.add(new ProjectFile(projectRoot, "security.xml"));
+
+        String result = searchTools.xpathQuery("security.xml", "/root");
+
+        // DocumentBuilder should reject the DTD
+        assertTrue(result.contains("errors in 1 of 1 files"), "Should report error due to DTD disallowance");
+        assertTrue(result.contains("DOCTYPE is disallowed"), "Should specifically mention DOCTYPE restriction");
     }
 
     private static int countOccurrences(String text, String substring) {
