@@ -383,10 +383,10 @@ public class SearchPrompts {
                           How is something used, accessed, obtained, injected, or called?
                           -> scanUsages
                           Strings, configs, markdown, comments, reflection, or unknown names?
-                          -> searchSubstrings
+                          -> findFilesContaining
                      - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
                        They do NOT surface local variables or hardcoded strings like environment variable names,
-                       system properties, or comments. If searchSubstrings finds a hit in a file but the summary
+                       system properties, or comments. If findFilesContaining finds a hit in a file but the summary
                        doesn't reveal the match, you MUST load the full file or method source to see the actual content.
                   3) The symbol-based tools only have visibility into the following file types: {{supportedTypes}}
                      Use text-based tools if you need to search other file types.
@@ -459,7 +459,7 @@ public class SearchPrompts {
                 <empty-project-notice>
                 The project appears to be empty or uninitialized (few or no source files).
                 Adapt your approach:
-                  - Prefer searching the repository structure first (e.g., `skimDirectory`, `searchFilenames`) to confirm what exists.
+                  - Prefer searching the repository structure first (e.g., `skimDirectory`, `findFilenames`) to confirm what exists.
                   - If the user's request requires new code, your role is still to prepare context and produce tasks, not to write code.
                   - For code-change requests, prefer producing a task list that starts with creating the minimal project skeleton and build/test setup.
                 </empty-project-notice>

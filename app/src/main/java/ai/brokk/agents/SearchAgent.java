@@ -224,8 +224,8 @@ public class SearchAgent {
         tools.add("addFileSummariesToWorkspace");
 
         // Non-analyzer tools
-        tools.add("searchSubstrings");
-        tools.add("searchFilenames");
+        tools.add("findFilesContaining");
+        tools.add("findFilenames");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
         if (project.hasGit()) {
@@ -521,8 +521,8 @@ public class SearchAgent {
             case "searchSymbols",
                     "getSymbolLocations",
                     "scanUsages",
-                    "searchSubstrings",
-                    "searchFilenames",
+                    "findFilesContaining",
+                    "findFilenames",
                     "searchGitCommitMessages" -> 20;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimDirectory" -> 40;
@@ -1369,8 +1369,8 @@ public class SearchAgent {
                         "getSymbolLocations",
                         "searchSymbols",
                         "scanUsages",
-                        "searchSubstrings",
-                        "searchFilenames",
+                        "findFilesContaining",
+                        "findFilenames",
                         "searchGitCommitMessages",
                         "getGitLog")
                 .contains(toolName);

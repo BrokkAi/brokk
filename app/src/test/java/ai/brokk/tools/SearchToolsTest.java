@@ -142,11 +142,11 @@ public class SearchToolsTest {
     }
 
     // ---------------------------------------------------------------------
-    //  New tests: invalid-regex fallback for searchSubstrings / searchFilenames
+    //  New tests: invalid-regex fallback for findFilesContaining / findFilenames
     // ---------------------------------------------------------------------
 
     @Test
-    void testSearchSubstrings_invalidRegexFallback() throws Exception {
+    void testfindFilesContaining_invalidRegexFallback() throws Exception {
         // 1. Create a text file whose contents include the substring "[["
         Path txt = projectRoot.resolve("substring_test.txt");
         Files.writeString(txt, "some content with [[ pattern");
@@ -154,15 +154,15 @@ public class SearchToolsTest {
         // 2. Add to mock project file list so SearchTools sees it
         mockProjectFiles.add(new ProjectFile(projectRoot, "substring_test.txt"));
 
-        // 3. Invoke searchSubstrings with an invalid regex
-        String result = searchTools.searchSubstrings(List.of("[["), "testing invalid regex fallback for substrings");
+        // 3. Invoke findFilesContaining with an invalid regex
+        String result = searchTools.findFilesContaining(List.of("[["), "testing invalid regex fallback for substrings");
 
         // 4. Verify fallback occurred and file is reported
         assertTrue(result.contains("substring_test.txt"), "Result should reference the test file");
     }
 
     @Test
-    void testSearchFilenames_invalidRegexFallback() throws Exception {
+    void testfindFilenames_invalidRegexFallback() throws Exception {
         // 1. Create a file whose *name* contains the substring "[["
         Path filePath = projectRoot.resolve("filename_[[-test.txt");
         Files.writeString(filePath, "dummy");
@@ -171,14 +171,14 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "filename_[[-test.txt"));
 
         // 3. Search with invalid regex
-        String result = searchTools.searchFilenames(List.of("[["), "testing invalid regex fallback for filenames");
+        String result = searchTools.findFilenames(List.of("[["), "testing invalid regex fallback for filenames");
 
         // 4. Ensure the file name appears in the output
         assertTrue(result.contains("filename_[[-test.txt"), "Result should reference the test filename");
     }
 
     @Test
-    void testSearchFilenames_withSubdirectories() throws Exception {
+    void testfindFilenames_withSubdirectories() throws Exception {
         // 1. Create a file with a subdirectory path
         Path subDir = projectRoot.resolve("frontend-mop").resolve("src");
         Files.createDirectories(subDir);
@@ -192,32 +192,32 @@ public class SearchToolsTest {
 
         // 3. Test cases
         // A. Full path with forward slashes
-        String resultNix = searchTools.searchFilenames(List.of(relativePathNix), "test nix path");
+        String resultNix = searchTools.findFilenames(List.of(relativePathNix), "test nix path");
         assertTrue(
                 resultNix.contains(relativePathNix) || resultNix.contains(relativePathWin),
                 "Should find file with forward-slash path");
 
         // B. File name only
-        String resultName = searchTools.searchFilenames(List.of("MOP.svelte"), "test file name");
+        String resultName = searchTools.findFilenames(List.of("MOP.svelte"), "test file name");
         assertTrue(
                 resultName.contains(relativePathNix) || resultName.contains(relativePathWin),
                 "Should find file with file name only");
 
         // C. Partial path
-        String resultPartial = searchTools.searchFilenames(List.of("src/MOP"), "test partial path");
+        String resultPartial = searchTools.findFilenames(List.of("src/MOP"), "test partial path");
         assertTrue(
                 resultPartial.contains(relativePathNix) || resultPartial.contains(relativePathWin),
                 "Should find file with partial path");
 
         // D. Full path with backslashes (Windows-style)
-        String resultWin = searchTools.searchFilenames(List.of(relativePathWin), "test windows path");
+        String resultWin = searchTools.findFilenames(List.of(relativePathWin), "test windows path");
         assertTrue(
                 resultWin.contains(relativePathNix) || resultWin.contains(relativePathWin),
                 "Should find file with back-slash path pattern");
 
         // E. Regex path pattern (frontend-mop/.*\.svelte)
         String regexPattern = "frontend-mop/.*\\\\.svelte";
-        String resultRegex = searchTools.searchFilenames(List.of(regexPattern), "test regex path");
+        String resultRegex = searchTools.findFilenames(List.of(regexPattern), "test regex path");
         assertTrue(
                 resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
                 "Should find file with regex pattern");

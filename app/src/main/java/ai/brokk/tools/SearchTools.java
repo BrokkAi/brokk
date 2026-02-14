@@ -163,7 +163,7 @@ public class SearchTools {
             """
             Search for symbols (class/function/field/module definitions) using static analysis.
             ONLY returns symbol definitions (declarations).
-            DO NOT use for usages/call sites/instantiation/access patterns — use scanUsages or searchSubstrings.
+            DO NOT use for usages/call sites/instantiation/access patterns — use scanUsages or findFilesContaining.
             Output is grouped by file, then by symbol kind within each file.
 
             - kinds: CLASS, FUNCTION, FIELD, MODULE
@@ -664,7 +664,7 @@ public class SearchTools {
                     Returns file names (paths relative to the project root) whose text contents match Java regular expression patterns.
                     This is slower than searchSymbols but can find references to external dependencies and comment strings.
                     """)
-    public String searchSubstrings(
+    public String findFilesContaining(
             @P(
                             "Java-style regex patterns to search for within file contents. Unlike searchSymbols this does not automatically include any implicit anchors or case insensitivity.")
                     List<String> patterns,
@@ -674,7 +674,7 @@ public class SearchTools {
             throw new IllegalArgumentException("Cannot search substrings: patterns list is empty");
         }
         if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for searchSubstrings call");
+            logger.warn("Missing reasoning for findFilesContaining call");
         }
 
         logger.debug("Searching file contents for patterns: {}", patterns);
@@ -684,7 +684,7 @@ public class SearchTools {
             throw new IllegalArgumentException("No valid patterns provided");
         }
 
-        var matchingFilenames = searchSubstrings(
+        var matchingFilenames = findFilesContaining(
                         patterns, contextManager.getProject().getAllFiles())
                 .stream()
                 .map(ProjectFile::toString)
@@ -699,7 +699,7 @@ public class SearchTools {
         return msg;
     }
 
-    public static Set<ProjectFile> searchSubstrings(List<String> patterns, Set<ProjectFile> filesToSearch) {
+    public static Set<ProjectFile> findFilesContaining(List<String> patterns, Set<ProjectFile> filesToSearch) {
         List<Predicate<String>> predicates = compilePatternsWithFallback(patterns);
         if (predicates.isEmpty()) {
             return Set.of();
@@ -732,7 +732,7 @@ public class SearchTools {
                     Returns filenames (relative to the project root) that match the given Java regular expression patterns.
                     Use this to find configuration files, test data, or source files when you know part of their name.
                     """)
-    public String searchFilenames(
+    public String findFilenames(
             @P("Java-style regex patterns to match against filenames.") List<String> patterns,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
@@ -740,7 +740,7 @@ public class SearchTools {
             throw new IllegalArgumentException("Cannot search filenames: patterns list is empty");
         }
         if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for searchFilenames call");
+            logger.warn("Missing reasoning for findFilenames call");
         }
 
         logger.debug("Searching filenames for patterns: {}", patterns);
@@ -774,7 +774,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the full contents of the specified files. Use this after searchFilenames, searchSubstrings or searchSymbols or when you need the content of a non-code file.
+                    Returns the full contents of the specified files. Use this after findFilenames, findFilesContaining or searchSymbols or when you need the content of a non-code file.
                     This can be expensive for large files.
                     """)
     public String getFileContents(
