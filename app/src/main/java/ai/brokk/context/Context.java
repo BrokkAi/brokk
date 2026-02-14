@@ -684,36 +684,6 @@ public class Context {
     }
 
     /**
-     * Merges this context with another context, combining their fragments while avoiding duplicates.
-     * Fragments from {@code other} that are not present in this context are added.
-     * File fragments are deduplicated by their source file; virtual fragments by their id().
-     * Task history and parsed output from this context are preserved.
-     *
-     * @param other the context to merge with
-     * @return a new context containing the union of fragments from both contexts
-     */
-    public Context union(Context other) {
-        if (this.fragments.isEmpty() && this.taskHistory.isEmpty()) {
-            return other;
-        }
-
-        Context result = this.addFragments(other.allFragments().toList());
-
-        // Merge task history, deduplicated by sequence and preserved in order
-        var mergedHistory = new ArrayList<>(this.taskHistory);
-        var existingSequences =
-                this.taskHistory.stream().map(TaskEntry::sequence).collect(Collectors.toSet());
-
-        other.taskHistory.stream()
-                .filter(entry -> !existingSequences.contains(entry.sequence()))
-                .forEach(mergedHistory::add);
-
-        mergedHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
-
-        return result.withHistory(mergedHistory);
-    }
-
-    /**
      * Returns true if the given fragment is equivalent to one already in the Context
      */
     public boolean contains(ContextFragment fragment) {

@@ -787,11 +787,16 @@ public class ArchitectAgent {
                             baseSaResult = searchOutcome.taskResult();
                         }
 
-                        // Merge contexts deterministically
+                        // Merge context fragments
+                        var outcomeContext = searchOutcome.taskResult().context();
                         if (searchOutcome.objective() == SearchPrompts.Objective.WORKSPACE_ONLY) {
-                            combinedContext = combinedContext.union(
-                                    searchOutcome.taskResult().context());
+                            combinedContext = combinedContext.addFragments(
+                                    outcomeContext.allFragments().toList());
                         }
+                        // and histories, each searchagent history will have exactly one entry
+                        assert outcomeContext.getTaskHistory().size() == 1 : outcomeContext.getTaskHistory();
+                        combinedContext = combinedContext.addHistoryEntry(
+                                outcomeContext.getTaskHistory().getLast());
 
                         // Count failures by SearchAgent stop reason
                         if (searchOutcome.taskResult().stopDetails().reason() != StopReason.SUCCESS) {
@@ -827,10 +832,6 @@ public class ArchitectAgent {
                     currentBatchSize = 0;
                     throw new InterruptedException();
                 }
-
-                // SearchAgents like to drop fragments unrelated to their mission; union our original context
-                // with the Search results
-                combinedContext = combinedContext.union(context);
 
                 // Post-batch message with workspace merge summary
                 outputSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
