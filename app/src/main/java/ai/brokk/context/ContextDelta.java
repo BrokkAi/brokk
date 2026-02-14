@@ -97,8 +97,8 @@ public record ContextDelta(
         // 1. Check for updated special fragments
         var updatedSpecials = new ArrayList<ContextFragments.StringFragment>();
         for (SpecialTextType type : SpecialTextType.values()) {
-            var fromSpecial = from.getSpecial(type.description());
-            var toSpecial = to.getSpecial(type.description());
+            var fromSpecial = from.getSpecial(type);
+            var toSpecial = to.getSpecial(type);
 
             if (fromSpecial.isPresent() && toSpecial.isPresent()) {
                 if (!fromSpecial.get().contentEquals(toSpecial.get())) {

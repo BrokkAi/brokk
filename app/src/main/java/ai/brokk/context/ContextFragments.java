@@ -381,6 +381,11 @@ public class ContextFragments {
         }
 
         @Override
+        public ComputedValue<Set<ProjectFile>> sourceFiles() {
+            return ComputedValue.completed(Set.of());
+        }
+
+        @Override
         public boolean equals(Object obj) {
             return obj instanceof AbstractStaticFragment asf && id().equals(asf.id());
         }
@@ -567,11 +572,6 @@ public class ContextFragments {
         @Override
         public ProjectFile file() {
             return file;
-        }
-
-        @Override
-        public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return referencedFiles();
         }
 
         @Override

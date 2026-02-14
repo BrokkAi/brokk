@@ -1394,14 +1394,7 @@ public class CodeAgent {
          * @return a new ConversationState with compacted taskMessages, preserving rawMessages
          */
         ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
-            var explanations = rawMessages.stream()
-                    .filter(AiMessage.class::isInstance)
-                    .map(AiMessage.class::cast)
-                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
-                            .map(AiMessage::text)
-                            .orElse(""))
-                    .filter(seg -> !seg.isBlank())
-                    .collect(Collectors.joining("\n\n"));
+            var explanations = extractReasoning(rawMessages);
             var changedFilesCdl =
                     es.changedFiles().stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
             var summaryText =
@@ -1421,6 +1414,17 @@ public class CodeAgent {
             compactedMessages.add(new AiMessage(summaryText));
             return new ConversationState(
                     rawMessages, compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
+        }
+
+        static String extractReasoning(List<ChatMessage> messages) {
+            return messages.stream()
+                    .filter(AiMessage.class::isInstance)
+                    .map(AiMessage.class::cast)
+                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
+                            .map(AiMessage::text)
+                            .orElse(""))
+                    .filter(seg -> !seg.isBlank())
+                    .collect(Collectors.joining("\n\n"));
         }
 
         /**

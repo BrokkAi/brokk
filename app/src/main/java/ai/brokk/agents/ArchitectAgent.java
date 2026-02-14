@@ -16,6 +16,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.SearchPrompts;
@@ -221,6 +222,12 @@ public class ArchitectAgent {
             throws ToolRegistry.FatalLlmException, InterruptedException {
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
+        // Remove any stale diff from a previous failed CodeAgent attempt
+        var existingChanges = context.getSpecial(SpecialTextType.CODE_AGENT_CHANGES);
+        if (existingChanges.isPresent()) {
+            context = context.removeFragments(List.of(existingChanges.get()));
+        }
+
         // Record planning history before invoking CodeAgent
         context = cm.compressHistory(context);
         addPlanningToHistory();
@@ -235,28 +242,35 @@ public class ArchitectAgent {
         var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        // Update architect context with the CodeAgent's resulting context, preserving the Architect history
-        context = result.context()
-                .withHistory(context.getTaskHistory())
-                .addHistoryEntry(result.context().getTaskHistory().getLast());
+
+        // Update architect context with the CodeAgent's fragments, preserving the Architect history
+        context = result.context().withHistory(context.getTaskHistory());
         scope.append(context);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
-            var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
             var fileList = changedFragments.stream()
                     .map(cf -> cf.shortDescription().join())
                     .sorted()
                     .collect(Collectors.joining(", "));
-            resultString += " Changed fragments: " + (fileList.isEmpty() ? "None" : fileList);
-            if (!fileList.isEmpty()) {
-                resultString += "\n\nThe changes made are reflected in the Workspace.";
-            }
 
             logger.debug("callCodeAgent finished successfully");
             codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
-            return resultString;
+            return """
+            # Status
+            %s
+
+            # Changed fragments
+            %s
+            %s
+            """
+                    .formatted(
+                            deferBuild
+                                    ? "CodeAgent finished with build deferred as requested."
+                                    : "CodeAgent finished with a successful build.",
+                            fileList.isEmpty() ? "None" : fileList,
+                            fileList.isEmpty() ? "" : "\nThe changes made are reflected in the Workspace.");
         }
 
         // For non-SUCCESS outcomes, format error feedback appropriately
@@ -271,13 +285,21 @@ public class ArchitectAgent {
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
+        // Extract and compress reasoning
+        var lastEntry = result.context().getTaskHistory().getLast();
+        var messages = new ArrayList<>(lastEntry.mopMessages());
+        var summary = cm.compressHistory(CodeAgent.ConversationState.extractReasoning(messages));
+        var reasoningSummarySuffix = "\n\n# CodeAgent reasoning summary\n\n" + summary;
+
         // Format recoverable errors with clear guidance for the LLM
-        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation());
+        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation()) + reasoningSummarySuffix;
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
-        // Offer undo if the CodeAgent failed and left changes behind
+        // Offer undo and attach diff if the CodeAgent failed and left changes behind
         if (!changedFragments.isEmpty()) {
             this.offerUndoToolNext = true;
+            String combinedDiffText = DiffService.cumulativeDiff(cm.getRepo(), initialContext, context);
+            context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
         }
 
         return resultString;
@@ -502,9 +524,16 @@ public class ArchitectAgent {
                 return result.stopDetails().toString();
             }
 
-            var stringResult = objective == SearchPrompts.Objective.WORKSPACE_ONLY
-                    ? "Workspace updated"
-                    : result.stopDetails().explanation();
+            String stringResult;
+            if (objective == SearchPrompts.Objective.WORKSPACE_ONLY) {
+                var history = result.context().getTaskHistory();
+                assert history.size() == 1 : history;
+                String summary = history.getLast().description();
+                stringResult = "Workspace updated. Summary: " + summary;
+            } else {
+                stringResult = result.stopDetails().explanation();
+            }
+
             logger.debug(stringResult);
             return stringResult;
         } finally {

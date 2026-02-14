@@ -211,8 +211,7 @@ class ContextDeltaTest {
     @Test
     void testDelta_detectsRemovedSpecialFragment() {
         var ctx1 = new Context(contextManager).withSpecial(SpecialTextType.SEARCH_NOTES, "Notes");
-        var specialFrag =
-                ctx1.getSpecial(SpecialTextType.SEARCH_NOTES.description()).orElseThrow();
+        var specialFrag = ctx1.getSpecial(SpecialTextType.SEARCH_NOTES).orElseThrow();
         var ctx2 = ctx1.removeFragments(List.of(specialFrag));
 
         var delta = ContextDelta.between(ctx1, ctx2).join();

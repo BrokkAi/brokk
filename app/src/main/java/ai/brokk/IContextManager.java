@@ -393,6 +393,11 @@ public interface IContextManager {
     }
 
     @Blocking
+    default String compressHistory(String history) throws InterruptedException {
+        return history;
+    }
+
+    @Blocking
     default CompletableFuture<String> summarizeTaskForConversation(String taskText) {
         return CompletableFuture.completedFuture(taskText);
     }

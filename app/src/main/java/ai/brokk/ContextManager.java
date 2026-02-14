@@ -2157,14 +2157,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         String summary = result.text();
-        if (summary.isBlank()) {
-            logger.warn("History compression resulted in empty summary for entry: {}", entry);
-            return entry;
-        }
-
+        assert !summary.isBlank(); // llm checks for this
         logger.debug("Compressed summary:\n{}", summary);
         // Create new entry with both original log and new summary
         return entry.withSummary(summary);
+    }
+
+    @Blocking
+    @Override
+    public String compressHistory(String history) throws InterruptedException {
+        var msgs = SummarizerPrompts.instance.compressHistory(history);
+        Llm.StreamingResult result = getLlm(
+                        serviceProvider.get().summarizeModel(), "Compress history entry", TaskResult.Type.SUMMARIZE)
+                .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
+        return result.error() == null ? history : result.text();
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */

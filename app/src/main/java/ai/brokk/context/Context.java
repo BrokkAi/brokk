@@ -612,14 +612,15 @@ public class Context {
      */
     @Blocking
     public Map<String, String> getDiscardedFragmentsNotes() {
-        return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
+        return getSpecial(SpecialTextType.DISCARDED_CONTEXT)
                 .map(sf -> SpecialTextType.deserializeDiscardedContext(sf.text().join()))
                 .orElseGet(LinkedHashMap::new);
     }
 
     // --- SpecialTextType helpers ---
 
-    public Optional<ContextFragments.StringFragment> getSpecial(String description) {
+    public Optional<ContextFragments.StringFragment> getSpecial(SpecialTextType type) {
+        String description = type.description();
         // Since special looks for self-freezing fragments, we can reliably use `renderNow`
         return allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment sf
@@ -632,7 +633,7 @@ public class Context {
     public Context withSpecial(SpecialTextType type, String content) {
         var desc = type.description();
 
-        var existing = getSpecial(desc);
+        var existing = getSpecial(type);
         if (existing.isPresent() && content.equals(existing.get().text().join())) {
             return this;
         }
@@ -704,7 +705,7 @@ public class Context {
     }
 
     public Optional<ContextFragments.StringFragment> getBuildFragment() {
-        return getSpecial(SpecialTextType.BUILD_RESULTS.description());
+        return getSpecial(SpecialTextType.BUILD_RESULTS);
     }
 
     /**
@@ -715,7 +716,7 @@ public class Context {
     @Blocking
     public Context withBuildResult(boolean success, String processedOutput) {
         if (success) {
-            var existing = getSpecial(SpecialTextType.BUILD_RESULTS.description());
+            var existing = getSpecial(SpecialTextType.BUILD_RESULTS);
             if (existing.isEmpty()) {
                 return this;
             }
@@ -735,7 +736,7 @@ public class Context {
      * Retrieves the Task List fragment if present.
      */
     public Optional<ContextFragments.StringFragment> getTaskListFragment() {
-        return getSpecial(SpecialTextType.TASK_LIST.description());
+        return getSpecial(SpecialTextType.TASK_LIST);
     }
 
     /**
@@ -784,7 +785,7 @@ public class Context {
     public Context withTaskList(TaskList.TaskListData data) {
         // If tasks are empty, remove the Task List fragment instead of creating an empty one
         if (data.tasks().isEmpty()) {
-            var existing = getSpecial(SpecialTextType.TASK_LIST.description());
+            var existing = getSpecial(SpecialTextType.TASK_LIST);
             if (existing.isEmpty()) {
                 return this; // No change needed; no fragment to remove
             }
