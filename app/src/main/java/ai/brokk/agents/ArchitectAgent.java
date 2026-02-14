@@ -510,7 +510,6 @@ public class ArchitectAgent {
                     saIo,
                     SearchAgent.ScanConfig.noAppend());
             var result = searchAgent.execute();
-            result = result.withContext(cm.compressHistory(result.context()));
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
             threadlocalSearchResult.set(new SearchAgentOutput(result, objective));
@@ -524,14 +523,41 @@ public class ArchitectAgent {
                 return result.stopDetails().toString();
             }
 
+            var lastEntry = result.context().getTaskHistory().getLast();
+            var reasoningSummary = lastEntry.description();
+
             String stringResult;
             if (objective == SearchPrompts.Objective.WORKSPACE_ONLY) {
-                var history = result.context().getTaskHistory();
-                assert history.size() == 1 : history;
-                String summary = history.getLast().description();
-                stringResult = "Workspace updated. Summary: " + summary;
+                var delta = ContextDelta.between(
+                                context.clearHistory(), result.context().clearHistory())
+                        .join();
+                var addedFragmentList = delta.addedFragments().stream()
+                        .map(f -> "- " + f.shortDescription().join())
+                        .collect(Collectors.joining("\n"));
+
+                stringResult =
+                        """
+                        # Search results
+                        Search Agent successfully completed.
+
+                        ## Reasoning summary
+                        %s
+
+                        ## Added fragments
+                        %s
+                        """
+                                .formatted(
+                                        reasoningSummary, addedFragmentList.isEmpty() ? "(None)" : addedFragmentList);
             } else {
-                stringResult = result.stopDetails().explanation();
+                stringResult =
+                        """
+                        # Search Answer
+                        %s
+
+                        ## Reasoning summary
+                        %s
+                        """
+                                .formatted(result.stopDetails().explanation(), reasoningSummary);
             }
 
             logger.debug(stringResult);
@@ -822,10 +848,6 @@ public class ArchitectAgent {
                             combinedContext = combinedContext.addFragments(
                                     outcomeContext.allFragments().toList());
                         }
-                        // and histories, each searchagent history will have exactly one entry
-                        assert outcomeContext.getTaskHistory().size() == 1 : outcomeContext.getTaskHistory();
-                        combinedContext = combinedContext.addHistoryEntry(
-                                outcomeContext.getTaskHistory().getLast());
 
                         // Count failures by SearchAgent stop reason
                         if (searchOutcome.taskResult().stopDetails().reason() != StopReason.SUCCESS) {
