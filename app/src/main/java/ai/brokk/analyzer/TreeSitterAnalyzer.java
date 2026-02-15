@@ -1718,16 +1718,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 log.trace("Replacing forward declaration with definition for: {}", cu.fqName());
                 localTopLevelCUs.remove(existingDuplicate);
 
-                if (!existingDuplicate.equals(cu)) {
-                    removeCodeUnitAndDescendants(
-                            existingDuplicate,
-                            localChildren,
-                            localSignatures,
-                            localSourceRanges,
-                            localHasBody,
-                            localCodeUnitsBySymbol,
-                            localCuByFqName);
-                }
+                removeCodeUnitAndDescendants(
+                        existingDuplicate,
+                        localChildren,
+                        localSignatures,
+                        localSourceRanges,
+                        localHasBody,
+                        localCodeUnitsBySymbol,
+                        localCuByFqName);
 
                 localTopLevelCUs.add(cu);
                 localCuByFqName.put(cu.fqName(), cu);
@@ -1751,16 +1749,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     cu.fqName());
             localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
 
-            if (!existingDuplicate.equals(cu)) {
-                removeCodeUnitAndDescendants(
-                        existingDuplicate,
-                        localChildren,
-                        localSignatures,
-                        localSourceRanges,
-                        localHasBody,
-                        localCodeUnitsBySymbol,
-                        localCuByFqName);
-            }
+            removeCodeUnitAndDescendants(
+                    existingDuplicate,
+                    localChildren,
+                    localSignatures,
+                    localSourceRanges,
+                    localHasBody,
+                    localCodeUnitsBySymbol,
+                    localCuByFqName);
 
             localTopLevelCUs.add(cu);
             localCuByFqName.put(cu.fqName(), cu);
