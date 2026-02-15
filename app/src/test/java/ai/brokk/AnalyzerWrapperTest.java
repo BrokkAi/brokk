@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -264,7 +265,7 @@ class AnalyzerWrapperTest {
      * Regression test for stale tracked-files filtering bug.
      * Demonstrates that AnalyzerWrapper.onFilesChanged skips updates for files not in getTrackedFiles().
      */
-    @org.junit.jupiter.api.Disabled("Reproduces AnalyzerWrapper tracked-files filtering bug; enable after fix")
+    @Disabled("Reproduces AnalyzerWrapper tracked-files filtering bug; enable after fix")
     @Test
     void testOnFilesChangedSkipsUpdateWhenTrackedFilesStale() throws Exception {
         var projectRoot = tempDir.resolve("project-stale");
