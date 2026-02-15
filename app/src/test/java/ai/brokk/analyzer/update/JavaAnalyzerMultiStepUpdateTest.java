@@ -138,6 +138,57 @@ public class JavaAnalyzerMultiStepUpdateTest {
     }
 
     @Test
+    void testIncrementalForwardDeclarationReplacement() throws IOException {
+        // 1. Initialize with a minimal body-less class
+        // (tree-sitter-java treats "class Target;" as malformed and may not emit a CodeUnit).
+        String initialContent = """
+                package pkg;
+                class Target {}
+                """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(initialContent, "pkg/Target.java").build()) {
+            // 2. Create analyzer and verify initial state
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            CodeUnit targetCu = analyzer.getDefinitions("pkg.Target").stream()
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Could not find pkg.Target in initial state"));
+
+            // JavaAnalyzer adds an implicit constructor for classes without one.
+            List<CodeUnit> initialChildren = analyzer.getDirectChildren(targetCu);
+            assertTrue(
+                    initialChildren.stream().allMatch(CodeUnit::isFunction),
+                    "Initial children should only be implicit constructor");
+
+            // 3. Modify to a full class definition with a method
+            ProjectFile file = new ProjectFile(project.getRoot(), "pkg/Target.java");
+            file.write(
+                    """
+                    package pkg;
+                    class Target {
+                        void method() {}
+                    }
+                    """);
+
+            // 4. Perform incremental update
+            analyzer = analyzer.update();
+
+            // 5. Retrieve updated CodeUnit
+            targetCu = analyzer.getDefinitions("pkg.Target").stream()
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Could not find pkg.Target after incremental update"));
+
+            // 6. Assert that the update logic preserved the new data (method and skeleton)
+            List<CodeUnit> children = analyzer.getDirectChildren(targetCu);
+            boolean hasMethod = children.stream().anyMatch(cu -> cu.shortName().equals("Target.method"));
+            String skeleton = analyzer.getSkeleton(targetCu).orElse("");
+
+            assertTrue(hasMethod, "Updated Target should contain 'method' as a child");
+            assertTrue(skeleton.contains("method"), "Updated Target skeleton should contain 'method'");
+        }
+    }
+
+    @Test
     void testMultiStepIncrementalUpdateWithSerializationRoundTrip(@TempDir Path tempDir) throws IOException {
         String baseClassContent =
                 """
