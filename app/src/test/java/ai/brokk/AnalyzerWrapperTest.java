@@ -2,6 +2,7 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.TestRepo;
@@ -322,6 +323,56 @@ class AnalyzerWrapperTest {
         assertTrue(
                 skeleton.contains("void b()"),
                 "Analyzer should have updated pkg.A to include method 'b' despite stale tracked-files view");
+    }
+
+    /**
+     * Contrast test for #1575: demonstrates that an explicit update via TestAnalyzerWrapper
+     * DOES work when provided the correct file set, even if the watcher path might skip it.
+     */
+    @Test
+    void testExplicitUpdateViaTestAnalyzerWrapperUpdatesAnalyzer() throws Exception {
+        var projectRoot = tempDir.resolve("project-explicit");
+        Files.createDirectories(projectRoot);
+        Path aPath = projectRoot.resolve("pkg/A.java");
+        Files.createDirectories(aPath.getParent());
+        Files.writeString(aPath, "package pkg; public class A { void a() {} }");
+
+        TestRepo repo = new TestRepo(projectRoot);
+        ProjectFile pf = new ProjectFile(projectRoot, "pkg/A.java");
+        repo.add(pf);
+
+        class ProjectWithTestRepo extends TestProject {
+            ProjectWithTestRepo(Path root) {
+                super(root, Languages.JAVA);
+            }
+
+            @Override
+            public TestRepo getRepo() {
+                return repo;
+            }
+        }
+
+        var project = new ProjectWithTestRepo(projectRoot);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
+
+        // 1. Wait for initial analyzer to be built
+        var initialAnalyzer = analyzerWrapper.get();
+        assertNotNull(initialAnalyzer);
+
+        // 2. Modify the file on disk to add method 'b'
+        Files.writeString(aPath, "package pkg; public class A { void a() {} void b() {} }");
+
+        // 3. Wrap current snapshot in TestAnalyzerWrapper for explicit update
+        ai.brokk.testutil.TestAnalyzerWrapper taw = new ai.brokk.testutil.TestAnalyzerWrapper(initialAnalyzer);
+
+        // 4. Perform explicit update
+        IAnalyzer updatedAnalyzer = taw.updateFiles(java.util.Set.of(pf)).get(5, TimeUnit.SECONDS);
+
+        // 5. Assert the result contains 'b'
+        String skeleton = AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
+        assertTrue(
+                skeleton.contains("void b()"),
+                "Explicitly updated analyzer should include method 'b' from modified file content");
     }
 
     /**
