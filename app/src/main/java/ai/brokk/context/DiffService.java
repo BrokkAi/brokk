@@ -371,6 +371,7 @@ public final class DiffService {
                             .orElse(null);
                     return diff(oldFrag, newFrag).join();
                 })
+                .filter(Objects::nonNull)
                 .map(FragmentDiff::diff)
                 .collect(Collectors.joining("\n\n"));
     }
