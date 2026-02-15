@@ -5,14 +5,19 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.analyzer.TreeSitterStateIO;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class JavaAnalyzerMultiStepUpdateTest {
 
@@ -129,6 +134,120 @@ public class JavaAnalyzerMultiStepUpdateTest {
             assertTrue(
                     importProvider.importedCodeUnitsOf(derivedFile).contains(baseClassCu),
                     "Import should still be resolved after inheritance change");
+        }
+    }
+
+    @Test
+    void testMultiStepIncrementalUpdateWithSerializationRoundTrip(@TempDir Path tempDir) throws IOException {
+        String baseClassContent =
+                """
+                package pkg1;
+                public class BaseClass {
+                    public void baseMethod() {}
+                }
+                """;
+
+        Path storagePath = tempDir.resolve("analyzer-state.bin.lz4");
+
+        try (IProject project = InlineTestProjectCreator.code(baseClassContent, "pkg1/BaseClass.java")
+                .build()) {
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+
+            // Initial Verification
+            CodeUnit baseClassCu = analyzer.getDefinitions("pkg1.BaseClass").stream()
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(analyzer.getSkeleton(baseClassCu).orElse("").contains("baseMethod"));
+
+            // --- Step 1: Add new file + serialize/deserialize ---
+            ProjectFile derivedFile = new ProjectFile(project.getRoot(), "pkg2/DerivedClass.java");
+            derivedFile.write(
+                    """
+                    package pkg2;
+                    public class DerivedClass {
+                        public void derivedMethod() {}
+                    }
+                    """);
+
+            // Save, Load, Reconstruct, Update
+            TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath);
+            var loadedState = TreeSitterStateIO.load(storagePath).orElseThrow();
+            analyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+            analyzer = analyzer.update();
+
+            // Verification
+            baseClassCu = analyzer.getDefinitions("pkg1.BaseClass").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit derivedClassCu = analyzer.getDefinitions("pkg2.DerivedClass").stream()
+                    .findFirst()
+                    .orElseThrow();
+
+            assertTrue(analyzer.getSkeleton(baseClassCu).orElse("").contains("baseMethod"));
+            assertTrue(analyzer.getSkeleton(derivedClassCu).orElse("").contains("derivedMethod"));
+
+            // --- Step 2: Add import + serialize/deserialize ---
+            derivedFile.write(
+                    """
+                    package pkg2;
+                    import pkg1.BaseClass;
+                    public class DerivedClass {
+                        public void derivedMethod() {}
+                    }
+                    """);
+
+            TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath);
+            loadedState = TreeSitterStateIO.load(storagePath).orElseThrow();
+            analyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+            analyzer = analyzer.update();
+
+            // Verification
+            baseClassCu = analyzer.getDefinitions("pkg1.BaseClass").stream()
+                    .findFirst()
+                    .orElseThrow();
+            derivedClassCu = analyzer.getDefinitions("pkg2.DerivedClass").stream()
+                    .findFirst()
+                    .orElseThrow();
+
+            ImportAnalysisProvider importProvider =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow();
+            assertTrue(importProvider.importedCodeUnitsOf(derivedFile).contains(baseClassCu));
+            assertTrue(analyzer.getSkeleton(baseClassCu).orElse("").contains("baseMethod"));
+            assertTrue(analyzer.getSkeleton(derivedClassCu).orElse("").contains("derivedMethod"));
+
+            // --- Step 3: Add inheritance + serialize/deserialize ---
+            derivedFile.write(
+                    """
+                    package pkg2;
+                    import pkg1.BaseClass;
+                    public class DerivedClass extends BaseClass {
+                        public void derivedMethod() {}
+                    }
+                    """);
+
+            TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath);
+            loadedState = TreeSitterStateIO.load(storagePath).orElseThrow();
+            analyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+            analyzer = analyzer.update();
+
+            // Final Verification
+            baseClassCu = analyzer.getDefinitions("pkg1.BaseClass").stream()
+                    .findFirst()
+                    .orElseThrow();
+            derivedClassCu = analyzer.getDefinitions("pkg2.DerivedClass").stream()
+                    .findFirst()
+                    .orElseThrow();
+
+            TypeHierarchyProvider hierarchyProvider =
+                    analyzer.as(TypeHierarchyProvider.class).orElseThrow();
+            assertTrue(hierarchyProvider.getDirectAncestors(derivedClassCu).contains(baseClassCu));
+
+            assertTrue(analyzer.getSkeleton(baseClassCu).orElse("").contains("baseMethod"));
+            assertTrue(analyzer.getSkeleton(derivedClassCu).orElse("").contains("derivedMethod"));
+            assertTrue(analyzer.as(ImportAnalysisProvider.class)
+                    .orElseThrow()
+                    .importedCodeUnitsOf(derivedFile)
+                    .contains(baseClassCu));
         }
     }
 }
