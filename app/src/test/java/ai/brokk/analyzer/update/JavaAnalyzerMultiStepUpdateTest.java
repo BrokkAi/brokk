@@ -2,6 +2,7 @@ package ai.brokk.analyzer.update;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
@@ -16,6 +17,7 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -134,6 +136,66 @@ public class JavaAnalyzerMultiStepUpdateTest {
             assertTrue(
                     importProvider.importedCodeUnitsOf(derivedFile).contains(baseClassCu),
                     "Import should still be resolved after inheritance change");
+        }
+    }
+
+    @Test
+    void testIncrementalSignatureLossWithDuplicateDeclarations() throws IOException {
+        // 1. Build an inline project with an initial valid class definition (baseline)
+        String initialContent =
+                """
+                package pkg;
+                class Target {
+                    void baseline() {}
+                }
+                """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(initialContent, "pkg/Target.java").build()) {
+            // 2. Create analyzer via AnalyzerCreator
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+
+            // Verify baseline state
+            CodeUnit targetCu =
+                    analyzer.getDefinitions("pkg.Target").stream().findFirst().orElseThrow();
+            assertTrue(
+                    analyzer.getSkeleton(targetCu).orElse("").contains("baseline"),
+                    "Baseline skeleton should contain baseline method");
+
+            // 3. Locate the ProjectFile for pkg.Target
+            ProjectFile targetFile =
+                    AnalyzerUtil.getFileFor(analyzer, "pkg.Target").orElseThrow();
+
+            // 4. Rewrite the file to contain two declarations: a forward-style one and a full definition.
+            // This pattern (malformed header + full definition) is known to trigger the replacement logic
+            // during incremental merge which might lead to signature/skeleton loss.
+            targetFile.write(
+                    """
+                    package pkg;
+                    class Target;
+                    class Target {
+                        void method() {}
+                    }
+                    """);
+
+            // 5. Call analyzer.update(Set.of(targetFile)) - explicit update path
+            analyzer = analyzer.update(Set.of(targetFile));
+
+            // 6. Re-fetch CodeUnit and assert signatures/children are present
+            targetCu = analyzer.getDefinitions("pkg.Target").stream()
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("pkg.Target disappeared after update"));
+
+            List<CodeUnit> children = analyzer.getDirectChildren(targetCu);
+            boolean hasMethod = children.stream().anyMatch(cu -> cu.shortName().equals("Target.method"));
+            String skeleton = analyzer.getSkeleton(targetCu).orElse("");
+
+            // If this fails, it indicates that the replacement of 'class Target;' with 'class Target {...}'
+            // in the same update pass caused the metadata (children/signatures) of the definition to be lost
+            // because they were merged then immediately removed/overwritten incorrectly.
+            assertTrue(hasMethod, "Updated Target should contain 'method' as a child");
+            assertTrue(skeleton.contains("method"), "Updated Target skeleton should contain 'method'");
+            assertFalse(skeleton.contains("baseline"), "Old baseline method should be gone");
         }
     }
 
