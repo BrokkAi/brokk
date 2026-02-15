@@ -3,6 +3,8 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.TestRepo;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.FileUtil;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
@@ -255,6 +257,71 @@ class AnalyzerWrapperTest {
         // Resume
         analyzerWrapper.resume();
         assertFalse(analyzerWrapper.isPause(), "Should not be paused after calling resume()");
+    }
+
+    /**
+     * Regression test for stale tracked-files filtering bug.
+     * Demonstrates that AnalyzerWrapper.onFilesChanged skips updates for files not in getTrackedFiles().
+     */
+    @org.junit.jupiter.api.Disabled("Reproduces AnalyzerWrapper tracked-files filtering bug; enable after fix")
+    @Test
+    void testOnFilesChangedSkipsUpdateWhenTrackedFilesStale() throws Exception {
+        var projectRoot = tempDir.resolve("project-stale");
+        Files.createDirectories(projectRoot);
+        Path aPath = projectRoot.resolve("pkg/A.java");
+        Files.createDirectories(aPath.getParent());
+        Files.writeString(aPath, "package pkg; public class A { void a() {} }");
+
+        TestRepo repo = new TestRepo(projectRoot);
+        ProjectFile pf = new ProjectFile(projectRoot, "pkg/A.java");
+        repo.add(pf);
+
+        // Define a local project class that returns our controlled TestRepo
+        class ProjectWithTestRepo extends TestProject {
+            ProjectWithTestRepo(Path root) {
+                super(root, Languages.JAVA);
+            }
+
+            @Override
+            public TestRepo getRepo() {
+                return repo;
+            }
+        }
+
+        var project = new ProjectWithTestRepo(projectRoot);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
+
+        // 1. Wait for initial analyzer to be built
+        var initialAnalyzer = analyzerWrapper.get();
+        assertNotNull(initialAnalyzer);
+
+        // 2. Wait for AnalyzerWrapper to be ready for watcher events (flips flag in follow-up task)
+        // We poll getNonBlocking to ensure initial setup is fully flushed.
+        long deadline = System.currentTimeMillis() + 2000;
+        while (System.currentTimeMillis() < deadline) {
+            if (analyzerWrapper.getNonBlocking() != null) break;
+            Thread.sleep(50);
+        }
+
+        // 3. Modify the file on disk
+        Files.writeString(aPath, "package pkg; public class A { void a() {} void b() {} }");
+
+        // 4. Simulate stale repo state: the file is changed but repo says it's no longer tracked
+        repo.remove(pf);
+
+        // 5. Manually trigger onFilesChanged with the changed file
+        EventBatch batch = new EventBatch();
+        batch.getFiles().add(pf);
+        analyzerWrapper.onFilesChanged(batch);
+
+        // 6. Assert the analyzer snapshot reflects the edit.
+        // On current main, this is expected to FAIL because onFilesChanged filters out 'pf'.
+        var updatedAnalyzer = analyzerWrapper.get();
+        String skeleton = AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
+
+        assertTrue(
+                skeleton.contains("void b()"),
+                "Analyzer should have updated pkg.A to include method 'b' despite stale tracked-files view");
     }
 
     /**
