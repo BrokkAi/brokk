@@ -11,7 +11,7 @@ public final class ExecutorsUtil {
 
     private ExecutorsUtil() {}
 
-    public static LoggingExecutorService newFixedThreadExecutor(int parallelism, String threadPrefix) {
+    public static LoggingExecutorService newFixedThreadExecutor(String threadPrefix, int parallelism) {
         assert parallelism >= 1 : "parallelism must be >= 1";
         var factory = new ThreadFactory() {
             private final ThreadFactory delegate = Executors.defaultThreadFactory();

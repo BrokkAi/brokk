@@ -87,7 +87,7 @@ public class ProjectPathFragmentTest {
         assertEquals(1, sources.size());
 
         // Verify files() includes only projectFile
-        var files = fragment.files().join();
+        var files = fragment.referencedFiles().join();
         assertTrue(files.stream().anyMatch(f -> f.equals(projectFile)), "Should contain primary file");
         assertEquals(1, files.size());
     }

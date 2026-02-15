@@ -172,8 +172,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             PMap<String, Set<CodeUnit>> symbolIndex,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
-            ImportGraph importGraph,
-            TypeHierarchyGraph typeHierarchyGraph,
             SymbolKeyIndex symbolKeyIndex,
             long snapshotEpochNanos) {}
 
@@ -357,9 +355,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
         try (var ioExecutor = ExecutorsUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
                 var parseExecutor = ExecutorsUtil.newFixedThreadExecutor(
-                        Runtime.getRuntime().availableProcessors(), "ts-parse-");
+                        "ts-parse-", Runtime.getRuntime().availableProcessors());
                 var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor(
-                        Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
+                        "ts-ingest-", Runtime.getRuntime().availableProcessors())) {
             for (var pf : filesToProcess) {
                 // we do our own exception handling so LoggingFuture is not appropriate here
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
@@ -427,15 +425,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var immutableSymbolIndex = new HashMap<String, Set<CodeUnit>>();
         localSymbolIndex.forEach((key, value) -> immutableSymbolIndex.put(key, Collections.unmodifiableSet(value)));
 
-        var initialState = new AnalyzerState(
-                HashTreePMap.from(immutableSymbolIndex),
-                HashTreePMap.from(localCodeUnitState),
-                HashTreePMap.from(localFileState),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
-                symbolKeyIndex,
-                snapshotNanos);
-
         // Log summary of file processing results
         int totalAttempted = totalFilesAttempted.get();
         int successful = successfullyProcessed.get();
@@ -499,14 +488,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 formatSecondsMillis(mergeWall),
                 formatSecondsMillis(totalWall));
 
-        var postProcessed = runPostProcessing(initialState);
-        this.state = postProcessed;
+        this.state = new AnalyzerState(
+                HashTreePMap.from(immutableSymbolIndex),
+                HashTreePMap.from(localCodeUnitState),
+                HashTreePMap.from(localFileState),
+                symbolKeyIndex,
+                snapshotNanos);
 
         log.debug(
                 "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
                 language.name(),
-                postProcessed.codeUnitState().size(),
-                postProcessed.fileState().size());
+                state.codeUnitState().size(),
+                state.fileState().size());
 
         // Record time of initial analysis to support mtime-based incremental updates (nanos precision)
         var initInstant = Instant.now();
@@ -621,50 +614,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (cache.isEmpty()) {
-            return this.state;
-        }
-
-        TypeHierarchyGraph nextTypeHierarchyGraph = this.state.typeHierarchyGraph();
-        if (!cache.typeHierarchy().isEmpty()) {
-            Map<CodeUnit, List<CodeUnit>> superUpdates =
-                    new HashMap<>(this.state.typeHierarchyGraph().supertypes());
-            Map<CodeUnit, Set<CodeUnit>> subUpdates =
-                    new HashMap<>(this.state.typeHierarchyGraph().subtypes());
-
-            cache.typeHierarchy().forEachForward(superUpdates::put);
-            cache.typeHierarchy().forEachReverse((cu, newSubtypes) -> {
-                subUpdates.merge(cu, new HashSet<>(newSubtypes), (existing, added) -> {
-                    var merged = new HashSet<>(existing);
-                    merged.addAll(added);
-                    return merged;
-                });
-            });
-
-            nextTypeHierarchyGraph = TypeHierarchyGraph.from(superUpdates, subUpdates);
-        }
-
-        ImportGraph nextImportGraph = this.state.importGraph();
-        if (!cache.imports().isEmpty()) {
-            Map<ProjectFile, Set<CodeUnit>> forwardUpdates =
-                    new HashMap<>(this.state.importGraph().imports());
-            Map<ProjectFile, Set<ProjectFile>> reverseUpdates =
-                    new HashMap<>(this.state.importGraph().reverseImports());
-
-            cache.imports().forEachForward(forwardUpdates::put);
-            cache.imports().forEachReverse(reverseUpdates::put);
-
-            nextImportGraph = ImportGraph.from(forwardUpdates, reverseUpdates);
-        }
-
-        return new AnalyzerState(
-                this.state.symbolIndex(),
-                this.state.codeUnitState(),
-                this.state.fileState(),
-                nextImportGraph,
-                nextTypeHierarchyGraph,
-                this.state.symbolKeyIndex(),
-                this.state.snapshotEpochNanos());
+        return this.state;
     }
 
     @Override
@@ -747,13 +697,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Check persistent ImportGraph state
-        Set<CodeUnit> persisted = this.state.importGraph().importedCodeUnitsOf(file);
-        if (!persisted.isEmpty()) {
-            return persisted;
-        }
-
-        // 3. Compute lazily via resolveImports and cache the result
+        // 2. Compute lazily via resolveImports and cache the result
         return cache.imports().computeForwardIfAbsent(file, f -> {
             Set<CodeUnit> resolved = resolveImports(f, importStatementsOf(f));
             // Update reverse cache for BidirectionalCache manually since the populator is NO-OP
@@ -778,13 +722,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Check persistent ImportGraph state
-        Set<ProjectFile> persisted = this.state.importGraph().referencingFilesOf(file);
-        if (!persisted.isEmpty()) {
-            return persisted;
-        }
-
-        // 3. Phase 1: Filter candidates using cheap text-based matching
+        // 2. Phase 1: Filter candidates using cheap text-based matching
         List<ProjectFile> allFiles = List.copyOf(this.state.fileState().keySet());
         int totalFiles = allFiles.size();
         notifyProgressListener(0, totalFiles, "Filtering import candidates");
@@ -3619,21 +3557,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Check persistent TypeHierarchyGraph state
-        List<CodeUnit> persisted = this.state.typeHierarchyGraph().supertypesOf(cu);
-        if (!persisted.isEmpty()) {
-            // Ensure the reverse subtype index is populated in the transient cache
-            for (CodeUnit ancestor : persisted) {
-                cache.typeHierarchy().updateReverse(ancestor, existing -> {
-                    Set<CodeUnit> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
-                    set.add(cu);
-                    return set;
-                });
-            }
-            return persisted;
-        }
-
-        // 3. Compute lazily (atomic per key)
+        // 2. Compute lazily (atomic per key)
         return cache.typeHierarchy().computeForwardIfAbsent(cu, k -> {
             List<CodeUnit> supertypes = computeSupertypes(k);
             // Update reverse index for BidirectionalCache manually since populator is NO-OP
@@ -3662,13 +3586,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        // 2. Check persistent TypeHierarchyGraph state
-        Set<CodeUnit> persisted = this.state.typeHierarchyGraph().subtypesOf(cu);
-        if (!persisted.isEmpty()) {
-            return persisted;
-        }
-
-        // 3. Filter candidate classes by checking rawSupertypes text (cheap pre-filter)
+        // 2. Filter candidate classes by checking rawSupertypes text (cheap pre-filter)
         String targetName = cu.shortName();
         List<CodeUnit> candidates = this.state.codeUnitState().keySet().stream()
                 .filter(CodeUnit::isClass)
@@ -3976,7 +3894,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         var progressReporter = new DebouncedProgressReporter(total, "Updating " + language.name() + " files", 100);
 
-        try (var executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
+        try (var executor = ExecutorsUtil.newFixedThreadExecutor("ts-update-", parallelism)) {
             for (var file : relevantFiles) {
                 futures.add(CompletableFuture.runAsync(
                                 () -> {
@@ -4028,15 +3946,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         var immutableNextSymbolIndex = new HashMap<String, Set<CodeUnit>>();
         newSymbolIndex.forEach((key, value) -> immutableNextSymbolIndex.put(key, Collections.unmodifiableSet(value)));
 
-        var nextState = new AnalyzerState(
-                HashTreePMap.from(immutableNextSymbolIndex),
-                HashTreePMap.from(newCodeUnitState),
-                HashTreePMap.from(newFileState),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
-                nextSymbolKeyIndex,
-                snapshotNanos);
-
         long totalMs = System.currentTimeMillis() - overallStartMs;
         long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos);
         long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos.get());
@@ -4050,8 +3959,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 reanalyzeMs,
                 totalMs);
 
-        // Re-run combined post-processing (imports + type analysis) after ingesting updates
-        var typedState = runPostProcessing(nextState);
+        var typedState = new AnalyzerState(
+                HashTreePMap.from(immutableNextSymbolIndex),
+                HashTreePMap.from(newCodeUnitState),
+                HashTreePMap.from(newFileState),
+                nextSymbolKeyIndex,
+                snapshotNanos);
 
         var filteredCache = new AnalyzerCache(this.cache, changedFiles);
         return newSnapshot(typedState, getProgressListener(), filteredCache);
@@ -4104,7 +4017,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         int parallelism = Math.max(1, Runtime.getRuntime().availableProcessors());
         var concurrentChanged = ConcurrentHashMap.<ProjectFile>newKeySet();
 
-        try (var detectExecutor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "ts-detect-")) {
+        try (var detectExecutor = ExecutorsUtil.newFixedThreadExecutor("ts-detect-", parallelism)) {
             List<CompletableFuture<?>> futures = new ArrayList<>();
             for (ProjectFile pf : currentFiles) {
                 if (!knownFiles.contains(pf)) {
@@ -4229,20 +4142,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
         return true;
-    }
-
-    /**
-     * Combined post-processing pipeline. All hierarchy computation is deferred to lazy on-demand resolution.
-     */
-    protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        return new AnalyzerState(
-                baseState.symbolIndex(),
-                baseState.codeUnitState(),
-                baseState.fileState(),
-                baseState.importGraph(),
-                baseState.typeHierarchyGraph(),
-                baseState.symbolKeyIndex(),
-                baseState.snapshotEpochNanos());
     }
 
     /* ---------- comment detection for source expansion ---------- */

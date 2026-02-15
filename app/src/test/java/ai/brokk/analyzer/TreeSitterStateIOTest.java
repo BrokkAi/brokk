@@ -174,8 +174,6 @@ public class TreeSitterStateIOTest {
                 HashTreePMap.<String, Set<CodeUnit>>empty(),
                 HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>from(stateMap),
                 HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
@@ -316,8 +314,6 @@ public class TreeSitterStateIOTest {
                 HashTreePMap.<String, Set<CodeUnit>>empty(),
                 HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
                 HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>from(Map.of(projectFile, fileProps)),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
@@ -545,44 +541,6 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void roundTripImportsAndReverseImports(@TempDir Path tempDir) throws Exception {
-        var root = tempDir.resolve("root");
-        Files.createDirectories(root);
-        var fileA = new ProjectFile(root, Path.of("A.java"));
-        var fileB = new ProjectFile(root, Path.of("B.java"));
-        var cuB = CodeUnit.cls(fileB, "com.example", "B");
-
-        var importGraph = ImportGraph.from(Map.of(fileA, Set.of(cuB)), Map.of(fileB, Set.of(fileA)));
-
-        var state = new TreeSitterAnalyzer.AnalyzerState(
-                HashTreePMap.<String, Set<CodeUnit>>empty(),
-                HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
-                HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
-                importGraph,
-                TypeHierarchyGraph.empty(),
-                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
-                System.nanoTime());
-
-        Path out = tempDir.resolve("imports.bin.lz4");
-        TreeSitterStateIO.save(state, out);
-
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent());
-        var loaded = loadedOpt.get();
-
-        // Forward/backward import graphs are treated as cache data and are no longer authoritative
-        // parts of the persisted DTO. Instead, fileState.importStatements() carries the structural
-        // information needed to rebuild import graphs. Verify that fileState was preserved and that
-        // the persisted import graph is not assumed to be present after load.
-        assertEquals(
-                state.fileState(), loaded.fileState(), "File-level import statements should persist across save/load");
-        assertTrue(
-                loaded.importGraph().imports().isEmpty()
-                        && loaded.importGraph().reverseImports().isEmpty(),
-                "ImportGraph is cache-only after load and may start empty");
-    }
-
-    @Test
     void descendantsRecoveredFromPersistedSupertypesEvenIfSubtypeGraphMissing() throws Exception {
         var builder = InlineTestProjectCreator.code(
                 """
@@ -695,10 +653,6 @@ public class TreeSitterStateIOTest {
 
         assertEquals("Test", loadedCu.shortName());
         assertEquals(1, loadedProps.ranges().size());
-
-        // Verify TypeHierarchyGraph data is still present if it was persisted in legacy map
-        var hierarchy = loadedState.typeHierarchyGraph();
-        assertTrue(hierarchy.supertypes().containsKey(loadedCu), "Hierarchy data should be loaded from legacy map");
     }
 
     @Test

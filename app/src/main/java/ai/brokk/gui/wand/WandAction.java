@@ -125,8 +125,8 @@ public class WandAction {
                     if (entry.summary() != null) {
                         return entry.summary();
                     }
-                    if (entry.log() != null) {
-                        var messages = entry.log().messages();
+                    if (entry.mopLog() != null) {
+                        var messages = entry.mopLog().messages();
                         if (!messages.isEmpty()) {
                             return "User: " + Messages.getText(messages.getFirst());
                         }

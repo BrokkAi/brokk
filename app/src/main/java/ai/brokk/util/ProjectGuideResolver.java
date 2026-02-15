@@ -213,7 +213,7 @@ public final class ProjectGuideResolver {
     public static String resolve(Context ctx, IProject project) {
         var projectFiles = ctx.allFragments()
                 .filter(cf -> cf.getType().includeInProjectGuide())
-                .flatMap(cf -> cf.files().join().stream())
+                .flatMap(cf -> cf.sourceFiles().join().stream())
                 .toList();
         return resolve(projectFiles, project);
     }

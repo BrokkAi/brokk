@@ -344,9 +344,6 @@ public class Chrome
             logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
         }
 
-        updateWorkspace();
-        updateContextHistoryTable();
-
         // Now show the window with complete layout
         frame.setVisible(true);
 

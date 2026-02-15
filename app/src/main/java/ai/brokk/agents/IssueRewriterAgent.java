@@ -52,12 +52,12 @@ public final class IssueRewriterAgent {
 
             var agent = new SearchAgent(context, goal, model, SearchPrompts.Objective.ISSUE_DESCRIPTION, scope);
             var result = agent.execute();
-            Context resultingContext = scope.append(result);
+            scope.append(result);
 
             var parsed = parseIssueResponse(result.stopDetails().explanation());
 
             String finalBodyMarkdown = maybeAnnotateDiffBlocks(parsed.bodyMarkdown());
-            return new IssueResult(parsed.title(), finalBodyMarkdown, resultingContext);
+            return new IssueResult(parsed.title(), finalBodyMarkdown, result.context());
         }
     }
 

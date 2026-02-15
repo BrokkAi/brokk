@@ -1389,7 +1389,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         pendingHistory = null;
 
         // Set an explicit empty main TaskEntry (new-task placeholder) and display the staged history
-        var emptyMainFragment = new ContextFragments.TaskFragment(contextManager, List.of(), "");
+        var emptyMainFragment = new ContextFragments.TaskFragment(List.of(), "");
         var emptyMainTask = new TaskEntry(-1, emptyMainFragment, null);
         llmStreamArea.setMainThenHistoryAsync(emptyMainTask, history);
     }
@@ -1532,7 +1532,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private void openOutputWindowStreaming() {
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
-        var tempFragment = new ContextFragments.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+        var tempFragment = new ContextFragments.TaskFragment(currentMessages, "Streaming Output...");
         var history = new ArrayList<>(contextManager.liveContext().getTaskHistory());
         history.add(new TaskEntry(-1, tempFragment, null));
 
@@ -1579,8 +1579,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var last = history.getLast();
-        CompletableFuture<String> captureTextFuture =
-                (last.log() != null) ? last.log().text().future() : CompletableFuture.completedFuture(last.summary());
+        CompletableFuture<String> captureTextFuture = (last.mopLog() != null)
+                ? last.mopLog().text().future()
+                : CompletableFuture.completedFuture(last.summary());
 
         captureTextFuture.thenAccept(captureText -> {
             if (captureText.isBlank()) {
@@ -1783,7 +1784,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var lastEntry = taskHistory.getLast();
-        var log = lastEntry.log();
+        var log = lastEntry.mopLog();
         if (log == null) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review content found in context.");
             return;
@@ -1842,7 +1843,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     .setInitialFileIndex(0);
             String tabTitle = "Diff: " + actionDesc;
             if (diffs.size() == 1) {
-                var files = diffs.getFirst().fragment().files().join();
+                var files = diffs.getFirst().fragment().sourceFiles().join();
                 if (!files.isEmpty()) {
                     tabTitle = "Diff of " + files.iterator().next().getFileName();
                 }
@@ -1852,7 +1853,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             for (var de : diffs) {
                 var task = contextManager.submitBackgroundTask("Compute diff window entry for:" + de, () -> {
                     String pathDisplay;
-                    var files = de.fragment().files().join();
+                    var files = de.fragment().sourceFiles().join();
                     if (!files.isEmpty()) {
                         var pf = files.iterator().next();
                         pathDisplay = pf.getRelPath().toString();

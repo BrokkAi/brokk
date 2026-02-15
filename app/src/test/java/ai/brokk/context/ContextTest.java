@@ -263,35 +263,15 @@ class ContextTest {
     }
 
     @Test
-    void testUnionCombinesWithoutDuplicates() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/U.java");
-        Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "class U {}");
-        var ppf1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
-
-        var s1 = new ContextFragments.StringFragment(contextManager, "Text-1", "D1", SyntaxConstants.SYNTAX_STYLE_NONE);
-        var s2 = new ContextFragments.StringFragment(contextManager, "Text-2", "D2", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-        var ctx1 = new Context(contextManager).addFragments(List.of(ppf1)).addFragments(s1);
-        var ctx2 = new Context(contextManager).addFragments(List.of(ppf1)).addFragments(s2);
-
-        var merged = ctx1.union(ctx2);
-
-        // One path (dedup), two unique virtuals
-        assertEquals(1, merged.allFragments().filter(f -> f.getType().isPath()).count());
-        assertEquals(2, merged.allFragments().filter(f -> !f.getType().isPath()).count());
-    }
-
-    @Test
     void testGetAllFragmentsInDisplayOrderIncludesHistoryFirst() {
         var s1 = new ContextFragments.StringFragment(contextManager, "T", "D", SyntaxConstants.SYNTAX_STYLE_NONE);
         var ctx = new Context(contextManager).addFragments(s1);
 
         // Add a history entry
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
-        var log = new ContextFragments.TaskFragment(contextManager, msgs, "Log");
+        var log = new ContextFragments.TaskFragment(msgs, "Log");
         var entry = new TaskEntry(1, log, null);
-        ctx = ctx.addHistoryEntry(entry);
+        ctx = ctx.addHistoryEntryInternal(entry);
 
         var all = ctx.getAllFragmentsInDisplayOrder();
         assertFalse(all.isEmpty());
@@ -519,7 +499,7 @@ class ContextTest {
     void testIsFileContentEmpty_withTaskFragment() {
         var ctx = new Context(contextManager);
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
+        var taskFrag = new ContextFragments.TaskFragment(msgs, "task");
         ctx = ctx.addFragments(taskFrag);
         assertTrue(ctx.isFileContentEmpty(), "Context with only TASK fragments should report no file content");
     }

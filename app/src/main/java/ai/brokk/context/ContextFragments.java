@@ -291,7 +291,7 @@ public class ContextFragments {
         }
 
         @Override
-        public ComputedValue<Set<ProjectFile>> files() {
+        public ComputedValue<Set<ProjectFile>> referencedFiles() {
             return derived("files", ContentSnapshot::files);
         }
 
@@ -364,7 +364,7 @@ public class ContextFragments {
         }
 
         @Override
-        public ComputedValue<Set<ProjectFile>> files() {
+        public ComputedValue<Set<ProjectFile>> referencedFiles() {
             return ComputedValue.completed("files-" + id, snapshot.files());
         }
 
@@ -378,6 +378,11 @@ public class ContextFragments {
         @Override
         public ContextFragment refreshCopy() {
             return this;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> sourceFiles() {
+            return ComputedValue.completed(Set.of());
         }
 
         @Override
@@ -468,7 +473,7 @@ public class ContextFragments {
 
         @Override
         public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return files();
+            return referencedFiles();
         }
 
         @Override
@@ -567,11 +572,6 @@ public class ContextFragments {
         @Override
         public ProjectFile file() {
             return file;
-        }
-
-        @Override
-        public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return files();
         }
 
         @Override
@@ -684,7 +684,7 @@ public class ContextFragments {
 
         @Override
         public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return files();
+            return referencedFiles();
         }
 
         @Override
@@ -1943,10 +1943,8 @@ public class ContextFragments {
                     FragmentUtils.calculateContentHash(
                             FragmentType.HISTORY,
                             "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
-                            TaskEntry.formatMessages(history.stream()
-                                    .flatMap(e -> e.isCompressed()
-                                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                            : castNonNull(e.log()).messages().stream())
+                            Messages.format(history.stream()
+                                    .flatMap(e -> e.mopMessages().stream())
                                     .toList()),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             HistoryFragment.class.getName()),
@@ -1960,10 +1958,10 @@ public class ContextFragments {
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(history.stream()
+                    ContentSnapshot.textSnapshot(Messages.format(history.stream()
                             .flatMap(e -> e.isCompressed()
                                     ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                    : castNonNull(e.log()).messages().stream())
+                                    : castNonNull(e.mopLog()).messages().stream())
                             .toList())));
             this.history = List.copyOf(history);
         }
@@ -1986,46 +1984,43 @@ public class ContextFragments {
 
     public static class TaskFragment extends AbstractStaticFragment implements OutputFragment {
         private final List<ChatMessage> messages;
-        private final boolean escapeHtml;
+        private final boolean escapeHtml; // TODO wire this up or delete it, currently used by GitIssuesTab
 
         /**
          * @param description the user instructions or action goal
          */
-        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
-            this(contextManager, messages, description, true);
+        public TaskFragment(List<ChatMessage> messages, String description) {
+            this(messages, description, true);
         }
 
-        public TaskFragment(
-                IContextManager contextManager, List<ChatMessage> messages, String description, boolean escapeHtml) {
+        public TaskFragment(List<ChatMessage> messages, String description, boolean escapeHtml) {
             this(
                     FragmentUtils.calculateContentHash(
                             FragmentType.TASK,
                             description,
-                            TaskEntry.formatMessages(messages),
+                            Messages.format(messages),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             TaskFragment.class.getName()),
-                    contextManager,
                     messages,
                     description,
                     escapeHtml);
         }
 
-        public TaskFragment(String id, IContextManager contextManager, List<ChatMessage> messages, String description) {
-            this(id, contextManager, messages, description, true);
+        public TaskFragment(String id, List<ChatMessage> messages, String description) {
+            this(id, messages, description, true);
         }
 
-        public TaskFragment(
-                String id,
-                IContextManager contextManager,
-                List<ChatMessage> messages,
-                String description,
-                boolean escapeHtml) {
+        public TaskFragment(IContextManager contextManager, String description) {
+            this(contextManager.getIo().getLlmRawMessages(), description, true);
+        }
+
+        public TaskFragment(String id, List<ChatMessage> messages, String description, boolean escapeHtml) {
             super(
                     id,
                     description,
                     description,
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(messages)));
+                    ContentSnapshot.textSnapshot(Messages.format(messages)));
             this.messages = List.copyOf(messages);
             this.escapeHtml = escapeHtml;
         }

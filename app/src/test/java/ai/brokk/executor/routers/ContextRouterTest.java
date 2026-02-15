@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.project.MainProject;
 import ai.brokk.tasks.TaskList;
@@ -125,6 +126,39 @@ class ContextRouterTest {
 
         // (b) Verify it doesn't end with a trailing colon/empty list if entries exist
         assertTrue(!msg.endsWith("invalid: "), "Message should contain the invalid entries after the colon");
+    }
+
+    @Test
+    void handleGetContextFragment_pasteText_returnsEmbeddedResourceFields() throws Exception {
+        contextManager.addPastedTextFragment("hello from chip");
+        var fragmentId = contextManager.liveContext().getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PASTE_TEXT)
+                .map(ContextFragment::id)
+                .findFirst()
+                .orElseThrow();
+
+        var exchange = TestHttpExchange.request("GET", "/v1/context/fragments/" + fragmentId);
+        contextRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals(fragmentId, body.get("id"));
+        assertEquals("brokk://context/fragment/" + fragmentId, body.get("uri"));
+        assertEquals("text/plain", body.get("mimeType"));
+
+        String text = (String) body.get("text");
+        assertTrue(text.contains("hello from chip"), "Text should contain pasted content, but was: " + text);
+        assertTrue(!text.equals("(binary fragment)"), "Text should not be the placeholder");
+    }
+
+    @Test
+    void handleGetContextFragment_unknownId_returns404() throws Exception {
+        var exchange = TestHttpExchange.request("GET", "/v1/context/fragments/not-real");
+        contextRouter.handle(exchange);
+
+        assertEquals(404, exchange.responseCode());
+        var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
+        assertEquals(ErrorPayload.Code.NOT_FOUND, payload.code());
     }
 
     private static final class TestHttpExchange extends HttpExchange {

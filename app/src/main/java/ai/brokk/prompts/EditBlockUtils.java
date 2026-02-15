@@ -135,10 +135,7 @@ public final class EditBlockUtils {
             String s = rawLine.trim();
             String candidate = stripFilename(s);
             if (candidate != null && !candidate.isBlank()) {
-                // Expect Unix/style separators
-                String normalizedCandidate = candidate.replace('\\', '/');
-                if (projectFiles.stream()
-                        .anyMatch(f -> f.toString().replace('\\', '/').equals(normalizedCandidate))) {
+                if (projectFiles.stream().anyMatch(f -> f.toString().equals(candidate))) {
                     return candidate;
                 }
             }

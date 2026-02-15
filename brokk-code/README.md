@@ -54,6 +54,16 @@ brokk-code
 python -m brokk_code
 ```
 
+### ACP Mode
+
+Run the official ACP server mode over stdio:
+
+```bash
+uv run brokk-code acp
+```
+
+This mode is headless and intended for ACP-compatible clients. The default `brokk-code` command still launches the interactive TUI.
+
 ### Options
 
 - `--workspace <path>`: Specify the workspace directory (defaults to current directory).

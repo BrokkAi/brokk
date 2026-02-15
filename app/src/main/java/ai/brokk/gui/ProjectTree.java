@@ -62,7 +62,7 @@ import org.jetbrains.annotations.Nullable;
 public class ProjectTree extends JTree implements AbstractWatchService.Listener {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
-    private static final ExecutorService IO_EXECUTOR = ExecutorsUtil.newFixedThreadExecutor(4, "ProjectTree-IO-");
+    private static final ExecutorService IO_EXECUTOR = ExecutorsUtil.newFixedThreadExecutor("ProjectTree-IO-", 4);
 
     private final IProject project;
     private final ContextManager contextManager;
@@ -572,7 +572,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     var fileSet = Set.copyOf(targetFiles);
                     var toRemove = ctx.allFragments()
                             .filter(f -> f.getType().includeInProjectGuide())
-                            .filter(f -> f.files().join().stream().anyMatch(fileSet::contains))
+                            .filter(f -> f.referencedFiles().join().stream().anyMatch(fileSet::contains))
                             .toList();
                     return ctx.removeFragments(toRemove).copyAndRefresh(fileSet);
                 });

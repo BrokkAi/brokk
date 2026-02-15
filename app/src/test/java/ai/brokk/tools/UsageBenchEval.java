@@ -92,7 +92,7 @@ public class UsageBenchEval implements Callable<Integer> {
         boolean hadFailures;
         List<ProjectEvalResult> evalResultsList;
 
-        try (LoggingExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "usage-bench")) {
+        try (LoggingExecutorService executor = ExecutorsUtil.newFixedThreadExecutor("usage-bench", parallelism)) {
             List<CompletableFuture<ProjectEvalResult>> futures = projectEntries.stream()
                     .map(entry -> executor.submit(new ProjectEvalCallable(entry)))
                     .toList();

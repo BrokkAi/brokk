@@ -72,7 +72,7 @@ class ReviewAgentTest {
 
         // Test computeCumulativeDiff directly between two commits
         var commits = repo.listCommitsBetweenBranches(initialCommit, secondCommit, false);
-        var cumulativeChanges = DiffService.computeCumulativeDiff(repo, initialCommit, secondCommit, commits);
+        var cumulativeChanges = DiffService.cumulativeDiff(repo, initialCommit, secondCommit, commits);
 
         assertNotNull(cumulativeChanges);
         assertEquals(1, cumulativeChanges.filesChanged());
@@ -94,7 +94,7 @@ class ReviewAgentTest {
         String currentCommit = repo.getCurrentCommitId();
 
         // Diff HEAD to HEAD should show no changes
-        var cumulativeChanges = DiffService.computeCumulativeDiff(repo, currentCommit, currentCommit, List.of());
+        var cumulativeChanges = DiffService.cumulativeDiff(repo, currentCommit, currentCommit, List.of());
 
         assertNotNull(cumulativeChanges);
         assertEquals(0, cumulativeChanges.filesChanged());
