@@ -1636,6 +1636,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return false;
     }
 
+    private static boolean sameLogicalIdentity(CodeUnit left, CodeUnit right) {
+        return left.kind() == right.kind()
+                && Objects.equals(left.fqName(), right.fqName())
+                && Objects.equals(left.signature(), right.signature());
+    }
+
     /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
      * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
@@ -1673,11 +1679,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             ProjectFile file) {
 
         // Find existing CodeUnit with the same logical identity.
-        // For functions, CodeUnit.equals already includes signature (and fqName), so overloads with different
-        // signatures will not be treated as duplicates.
-        // For classes (and other non-function units), duplicates are still detected by fqName only.
+        // For functions, signature is part of identity, so overloads with different signatures are distinct.
+        // For classes, signature (e.g., C++ templates) is also included when present.
         CodeUnit existingDuplicate = localTopLevelCUs.stream()
-                .filter(existing -> existing.equals(cu))
+                .filter(existing -> sameLogicalIdentity(existing, cu))
                 .findFirst()
                 .orElse(null);
 
@@ -1967,11 +1972,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, CodeUnit> localCuByFqName) {
 
         // Find existing CodeUnit with the same logical identity.
-        // For functions, CodeUnit.equals already includes signature (and fqName), so overloads with different
-        // signatures will not be treated as duplicates.
-        // For classes (and other non-function units), duplicates are still detected by fqName only.
+        // For functions, signature is part of identity, so overloads with different signatures are distinct.
+        // For classes, signature (e.g., C++ templates) is also included when present.
         CodeUnit existingDuplicate = kids.stream()
-                .filter(existing -> existing.equals(cu))
+                .filter(existing -> sameLogicalIdentity(existing, cu))
                 .findFirst()
                 .orElse(null);
 
