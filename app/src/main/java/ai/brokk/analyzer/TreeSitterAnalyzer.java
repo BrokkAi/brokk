@@ -1909,16 +1909,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 log.trace("Replacing child forward declaration with definition for: {}", cu.fqName());
                 kids.remove(existingDuplicate);
 
-                if (!existingDuplicate.equals(cu)) {
-                    removeCodeUnitAndDescendants(
-                            existingDuplicate,
-                            localChildren,
-                            localSignatures,
-                            localSourceRanges,
-                            localHasBody,
-                            localCodeUnitsBySymbol,
-                            localCuByFqName);
-                }
+                removeCodeUnitAndDescendants(
+                        existingDuplicate,
+                        localChildren,
+                        localSignatures,
+                        localSourceRanges,
+                        localHasBody,
+                        localCodeUnitsBySymbol,
+                        localCuByFqName);
 
                 kids.add(cu);
                 localCuByFqName.put(cu.fqName(), cu);
@@ -1939,18 +1937,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<CodeUnit> toRemove =
                     kids.stream().filter(k -> k.fqName().equals(cu.fqName())).toList();
             if (!toRemove.isEmpty()) {
-                toRemove.forEach(oldCu -> {
-                    if (!oldCu.equals(cu)) {
-                        removeCodeUnitAndDescendants(
-                                oldCu,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                localHasBody,
-                                localCodeUnitsBySymbol,
-                                localCuByFqName);
-                    }
-                });
+                toRemove.forEach(oldCu -> removeCodeUnitAndDescendants(
+                        oldCu,
+                        localChildren,
+                        localSignatures,
+                        localSourceRanges,
+                        localHasBody,
+                        localCodeUnitsBySymbol,
+                        localCuByFqName));
                 kids.removeAll(toRemove);
             }
             kids.add(cu);
