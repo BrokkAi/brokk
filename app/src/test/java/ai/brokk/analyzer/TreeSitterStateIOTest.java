@@ -42,7 +42,7 @@ public class TreeSitterStateIOTest {
 
         var mapper = new ObjectMapper(new SmileFactory());
         try (var os = Files.newOutputStream(out);
-                var lz4 = new net.jpountz.lz4.LZ4FrameOutputStream(os)) {
+                var lz4 = new LZ4FrameOutputStream(os)) {
             mapper.writeValue(lz4, dto);
         }
     }

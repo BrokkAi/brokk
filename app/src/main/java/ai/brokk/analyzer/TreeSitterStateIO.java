@@ -240,20 +240,7 @@ public final class TreeSitterStateIO {
             List<String> symbolKeys,
             long snapshotEpochNanos,
             @Nullable String schemaVersion,
-            @JsonProperty("languageInternalName") @Nullable String languageInternalName) {
-
-        /**
-         * Backwards-compatible constructor for callers that do not provide schemaVersion or language.
-         * Delegates to the canonical constructor with nulls.
-         */
-        public AnalyzerStateDto(
-                Map<String, List<CodeUnitDto>> symbolIndex,
-                List<CodeUnitEntryDto> codeUnitState,
-                List<FileStateEntryDto> fileState,
-                List<String> symbolKeys,
-                long snapshotEpochNanos) {
-            this(symbolIndex, codeUnitState, fileState, symbolKeys, snapshotEpochNanos, null, null);
-        }
+            @Nullable String languageInternalName) {
 
         @JsonCreator
         public AnalyzerStateDto(
