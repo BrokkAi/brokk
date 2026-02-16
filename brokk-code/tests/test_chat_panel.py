@@ -250,3 +250,39 @@ async def test_chat_input_focus_does_not_block_ctrl_u_model_select():
 
             # Verify push_screen was called, indicating the action triggered
             assert app.push_screen.called
+
+
+@pytest.mark.asyncio
+async def test_whitespace_reasoning_terminal_does_not_stick():
+    """
+    Regression test: If a reasoning token that is only whitespace is flushed as terminal,
+    the panel must not remain in reasoning mode for the next non-reasoning message.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+
+        # 1) Simulate a reasoning stream that only emits whitespace and is terminal.
+        panel.append_token("   ", "AI", is_new_message=True, is_reasoning=True, is_terminal=True)
+        await pilot.pause()
+
+        # Ensure nothing meaningful was rendered as a Thinking panel
+        combined = "".join(str(line) for line in log.lines)
+        assert "Thinking" not in combined
+
+        # 2) Now append a normal non-reasoning message and ensure it renders as Markdown
+        panel.append_token("Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=True)
+        await pilot.pause()
+
+        combined = "".join(str(line) for line in log.lines)
+        # Should contain the Markdown-rendered Hello, and still not contain a Thinking panel.
+        assert "Hello" in combined
+        assert "Thinking" not in combined

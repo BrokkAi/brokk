@@ -335,8 +335,12 @@ class ChatPanel(Vertical):
         """Renders the accumulated buffer as Markdown or a reasoning Panel."""
         log = self.query_one("#chat-log", RichLog)
 
+        # If the buffer is empty or only whitespace, clear per-message state
+        # so we don't leave a stale reasoning/typing mode active for subsequent messages.
         if not self._current_message_buffer.strip():
             self._current_message_buffer = ""
+            self._is_reasoning = False
+            self._current_message_type = None
             return
 
         if self._is_reasoning:
@@ -351,11 +355,13 @@ class ChatPanel(Vertical):
             log.write("")  # Spacer
             self._current_message_buffer = ""
             self._is_reasoning = False
+            self._current_message_type = None
         else:
             content = self._current_message_buffer.strip()
             log.write(Markdown(content))
             log.write("")  # Spacer
             self._current_message_buffer = ""
+            self._current_message_type = None
 
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""
