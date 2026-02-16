@@ -320,7 +320,9 @@ async def test_action_handle_ctrl_c_no_input_widget():
 
             def mocked_query(selector: str):
                 if selector == "#chat-input":
-                    return []
+                    empty_result = MagicMock()
+                    empty_result.results.return_value = iter([])
+                    return empty_result
                 return original_query(selector)
 
             with patch.object(app, "query", side_effect=mocked_query):
