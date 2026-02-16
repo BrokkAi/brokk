@@ -20,6 +20,9 @@ DEFAULT_MODEL_SELECTION = "gpt-5.2"
 DEFAULT_REASONING_LEVEL = "low"
 THOUGHT_LEVEL_CONFIG_ID = "thought_level"
 DEFAULT_VARIANT_VALUE = "default"
+MODEL_DISCOVERY_INITIAL_ATTEMPTS = 4
+MODEL_DISCOVERY_RECOVERY_ATTEMPTS = 2
+MODEL_DISCOVERY_INITIAL_BACKOFF_SECONDS = 0.2
 
 
 # ACP persistence dataclass and helpers. Persisted in ~/.brokk/acp_settings.json
@@ -118,6 +121,34 @@ def _fallback_model_catalog() -> list[dict[str, Any]]:
         }
         for model_id in BASE_MODEL_IDS
     ]
+
+
+async def _fetch_normalized_catalog_with_retries(
+    fetch_models_payload: Callable[[], Awaitable[dict[str, Any]]],
+    attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
+    initial_backoff_seconds: float = MODEL_DISCOVERY_INITIAL_BACKOFF_SECONDS,
+) -> Optional[list[dict[str, Any]]]:
+    for attempt in range(1, attempts + 1):
+        try:
+            payload = await fetch_models_payload()
+            normalized = _normalize_model_catalog(payload)
+            if normalized:
+                return normalized
+            logger.info(
+                "Model discovery returned no valid models on attempt %s/%s",
+                attempt,
+                attempts,
+            )
+        except Exception:
+            logger.info(
+                "Model discovery attempt %s/%s failed",
+                attempt,
+                attempts,
+                exc_info=True,
+            )
+        if attempt < attempts:
+            await asyncio.sleep(initial_backoff_seconds * (2 ** (attempt - 1)))
+    return None
 
 
 def _normalize_model_catalog(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -728,6 +759,7 @@ async def run_acp_server(
             self._reasoning_by_session: dict[str, str] = {}
             self._cwd_by_session: dict[str, str] = {}
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
+            self._catalog_is_fallback_by_session: dict[str, bool] = {}
             self._is_zed = ide_profile == "zed"
 
             # Load ACP defaults once on agent init
@@ -737,20 +769,44 @@ async def run_acp_server(
                 acp_defaults.default_reasoning or DEFAULT_REASONING_LEVEL
             )
 
-        async def _refresh_model_catalog(self, session_id: str) -> None:
-            try:
+        async def _refresh_model_catalog(
+            self,
+            session_id: str,
+            attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
+        ) -> None:
+            async def fetch_payload() -> dict[str, Any]:
                 await bridge.ensure_ready()
-                payload = await bridge.executor.get_models()
-                normalized = _normalize_model_catalog(payload)
-                self._model_catalog_by_session[session_id] = (
-                    normalized if normalized else _fallback_model_catalog()
-                )
-            except Exception:
+                return await bridge.executor.get_models()
+
+            normalized = await _fetch_normalized_catalog_with_retries(
+                fetch_payload,
+                attempts=attempts,
+            )
+            if normalized:
+                self._model_catalog_by_session[session_id] = normalized
+                self._catalog_is_fallback_by_session[session_id] = False
+                return
+
+            existing = self._model_catalog_by_session.get(session_id)
+            if existing and not self._catalog_is_fallback_by_session.get(session_id, True):
                 logger.info(
-                    "Model discovery unavailable; using fallback catalog",
-                    exc_info=True,
+                    "Model discovery unavailable; keeping previously discovered model catalog "
+                    "for session %s",
+                    session_id,
                 )
-                self._model_catalog_by_session[session_id] = _fallback_model_catalog()
+                return
+
+            logger.info("Model discovery unavailable; using fallback catalog")
+            self._model_catalog_by_session[session_id] = _fallback_model_catalog()
+            self._catalog_is_fallback_by_session[session_id] = True
+
+        async def _refresh_model_catalog_if_fallback(self, session_id: str) -> None:
+            if not self._catalog_is_fallback_by_session.get(session_id, False):
+                return
+            await self._refresh_model_catalog(
+                session_id,
+                attempts=MODEL_DISCOVERY_RECOVERY_ATTEMPTS,
+            )
 
         def _catalog_for_session(self, session_id: str) -> list[dict[str, Any]]:
             return self._model_catalog_by_session.get(session_id, _fallback_model_catalog())
@@ -1035,6 +1091,7 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> SetSessionModelResponse:
             del kwargs
+            await self._refresh_model_catalog_if_fallback(session_id)
             catalog = self._catalog_for_session(session_id)
             selected_model, selected_reasoning = _parse_model_selection(model_id, catalog)
             if selected_model is None and selected_reasoning is None:
@@ -1074,6 +1131,7 @@ async def run_acp_server(
             if config_id == "mode" and value:
                 self._mode_by_session[session_id] = normalize_mode(value)
             elif config_id == "model" and value:
+                await self._refresh_model_catalog_if_fallback(session_id)
                 selected_model, selected_reasoning = resolve_model_selection(value)
                 # Validate against catalog
                 catalog = self._catalog_for_session(session_id)
@@ -1119,6 +1177,7 @@ async def run_acp_server(
             return SetSessionConfigOptionResponse(config_options=options)
 
         async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+            await self._refresh_model_catalog_if_fallback(session_id)
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
             planner_model = (
                 kwargs.get("planner_model")
