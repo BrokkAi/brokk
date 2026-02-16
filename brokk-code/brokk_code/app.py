@@ -231,9 +231,7 @@ class BrokkApp(App):
         # We accept persisted values as-is at startup; validation against the
         # executor model catalog can occur later if needed.
         self.current_model = (
-            str(self.settings.last_model).strip()
-            if self.settings.last_model
-            else "gpt-5.2"
+            str(self.settings.last_model).strip() if self.settings.last_model else "gpt-5.2"
         )
         self.code_model = (
             str(self.settings.last_code_model).strip()

@@ -101,7 +101,10 @@ def test_settings_models_roundtrip(tmp_path, monkeypatch):
 
 
 def test_settings_load_from_older_json_without_new_keys(tmp_path, monkeypatch):
-    """Simulate an older settings.json that only contains legacy keys (theme/prompt_history_size)."""
+    """
+    Simulate an older settings.json that only contains legacy keys
+    (theme/prompt_history_size).
+    """
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     settings_dir = tmp_path / ".brokk"

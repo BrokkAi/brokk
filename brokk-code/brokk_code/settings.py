@@ -64,9 +64,7 @@ class Settings:
                 settings.theme = normalize_theme_name(settings.theme)
                 return settings
         except Exception as e:
-            logger.warning(
-                "Failed to load settings from %s: %s. Using defaults.", settings_path, e
-            )
+            logger.warning("Failed to load settings from %s: %s. Using defaults.", settings_path, e)
             return cls()
 
     def save(self) -> None:
