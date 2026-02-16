@@ -7,9 +7,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Header
+from textual.widgets import Footer, Header, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
@@ -45,6 +45,30 @@ class ContextModalScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class ModelSelectModal(ModalScreen[str]):
+    """A modal for selecting from available models."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, models: List[str]) -> None:
+        super().__init__()
+        self.models = models
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="model-select-container"):
+            yield Static("Select Model", id="model-select-title")
+            with VerticalScroll(id="model-select-list-wrap"):
+                yield ListView(
+                    *[ListItem(Static(m), id=m) for m in self.models], id="model-select-list"
+                )
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if message.item and message.item.id:
+            self.dismiss(message.item.id)
+
+
 class BrokkApp(App):
     """The main Brokk TUI application."""
 
@@ -52,6 +76,7 @@ class BrokkApp(App):
     BINDINGS = [
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+l", "toggle_context", "Context", show=True),
+        Binding("ctrl+m", "select_model", "Model", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
@@ -794,6 +819,34 @@ class BrokkApp(App):
             self.action_quit()
         else:
             chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
+
+    async def action_select_model(self) -> None:
+        chat = self._maybe_chat()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot select model.", level="ERROR"
+                )
+            return
+
+        try:
+            models_data = await self.executor.get_models()
+            available_models: List[str] = models_data.get("models", [])
+            if not available_models:
+                if chat:
+                    chat.add_system_message("No models available from executor.", level="ERROR")
+                return
+
+            def update_model(model_id: str | None) -> None:
+                if model_id:
+                    self.current_model = model_id
+                    if chat:
+                        chat.add_system_message_markup(f"Model changed to: [bold]{model_id}[/]")
+
+            self.push_screen(ModelSelectModal(available_models), update_model)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):
