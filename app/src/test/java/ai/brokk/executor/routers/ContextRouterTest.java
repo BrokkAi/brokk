@@ -22,6 +22,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -149,6 +150,25 @@ class ContextRouterTest {
         String text = (String) body.get("text");
         assertTrue(text.contains("hello from chip"), "Text should contain pasted content, but was: " + text);
         assertTrue(!text.equals("(binary fragment)"), "Text should not be the placeholder");
+
+        // Best-effort cleanup of workspace-local state created during the test (e.g., .brokk/sessions),
+        // so the test runner can delete temporary directories reliably.
+        try {
+            var brokkDir = projectRoot.resolve(".brokk");
+            if (java.nio.file.Files.exists(brokkDir)) {
+                try (var stream = java.nio.file.Files.walk(brokkDir)) {
+                    stream.sorted(Comparator.reverseOrder()).forEach(p -> {
+                        try {
+                            java.nio.file.Files.deleteIfExists(p);
+                        } catch (Exception ignored) {
+                            // Ignore - cleanup is best-effort to avoid interfering with test assertions.
+                        }
+                    });
+                }
+            }
+        } catch (Exception ignored) {
+            // Swallow cleanup errors; they should not affect test outcomes.
+        }
     }
 
     @Test
