@@ -42,6 +42,7 @@ public final class HeadlessExecutorMain {
     private final SimpleHttpServer server;
     private final ContextManager contextManager;
     private final JobStore jobStore;
+    private final JobRunner jobRunner;
     private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
     private final Thread initThread;
@@ -223,12 +224,9 @@ public final class HeadlessExecutorMain {
                 new SessionsRouter(this.contextManager, this.sessionManager, val -> this.sessionLoaded = val);
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
+        this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
         var jobsRouter = new JobsRouter(
-                this.contextManager,
-                this.jobStore,
-                new JobRunner(this.contextManager, this.jobStore),
-                this.jobReservation,
-                this.headlessInit);
+                this.contextManager, this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
         this.server.registerAuthenticatedContext("/v1/jobs", jobsRouter);
 
         var contextRouter = new ContextRouter(this.contextManager);
@@ -315,6 +313,8 @@ public final class HeadlessExecutorMain {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+
+        this.jobRunner.shutdown();
 
         try {
             this.contextManager.close();
