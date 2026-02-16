@@ -183,7 +183,8 @@ class BrokkApp(App):
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
-        # Footer/help-bar ordering: Mode, Model, Reasoning, Context, Tasks, Notifications, Settings
+        # Footer/help-bar ordering: Mode, Model, Reasoning, Context,
+        # Tasks, Notifications, Settings
         Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+u", "select_model", "Model", show=True),
