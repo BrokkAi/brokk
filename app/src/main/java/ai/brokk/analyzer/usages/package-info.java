@@ -1,4 +1,2 @@
-@NullMarked
+@org.jspecify.annotations.NullMarked
 package ai.brokk.analyzer.usages;
-
-import org.jspecify.annotations.NullMarked;
