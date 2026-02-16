@@ -571,15 +571,16 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                     var histBefore = contextManager.getContextHistory();
                     boolean hadUndoBefore = histBefore.hasUndoStates();
                     var fut = contextManager.undoContextAsync();
-                    if (fut != null) {
-                        fut.get(5, TimeUnit.SECONDS);
-                        var histAfter = contextManager.getContextHistory();
-                        // Success if we had undo states before and the history state actually changed
-                        wasUndone = hadUndoBefore && !histAfter.equals(histBefore);
-                    }
+                    fut.get(5, TimeUnit.SECONDS);
+                    var histAfter = contextManager.getContextHistory();
+                    // Success if we had undo states before and the history state actually changed
+                    wasUndone = hadUndoBefore && !histAfter.equals(histBefore);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw ie;
+                } catch (Exception e) {
+                    // Non-fatal fallback failure; log for diagnostics
+                    logger.debug("Asynchronous undo fallback failed", e);
                 }
             }
 
@@ -588,10 +589,10 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             try {
                 // We can't directly get number of steps undone from ContextManager API,
                 // but ContextHistory exposes state; this is best-effort and may be 0.
-                var hist = contextManager.getContextHistory();
                 // No direct API for last undo count, so leave as 0.
                 steps = 0;
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                logger.debug("Failed to compute undo steps", e);
             }
 
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "ok", "wasUndone", wasUndone, "steps", steps));
@@ -611,14 +612,14 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
 
             try {
                 var fut = contextManager.redoContextAsync();
-                if (fut != null) {
-                    fut.get(5, TimeUnit.SECONDS);
-                    var histAfter = contextManager.getContextHistory();
-                    wasRedone = hadRedoBefore && !histAfter.equals(histBefore);
-                }
+                fut.get(5, TimeUnit.SECONDS);
+                var histAfter = contextManager.getContextHistory();
+                wasRedone = hadRedoBefore && !histAfter.equals(histBefore);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 throw ie;
+            } catch (Exception e) {
+                logger.debug("Asynchronous redo fallback failed", e);
             }
 
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "ok", "wasRedone", wasRedone));
