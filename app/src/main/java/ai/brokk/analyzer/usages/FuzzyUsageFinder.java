@@ -535,7 +535,7 @@ public final class FuzzyUsageFinder {
     }
 
     //
-    // Helpers for the parameter-count heuristic (implementation only; NOT wired into the pipeline yet).
+    // Helpers for the parameter-count heuristic.
     //
     // These helpers implement the minimal, best-effort parsing described in the class-level comment above.
     // They are intentionally conservative and return -1 for "unknown".
