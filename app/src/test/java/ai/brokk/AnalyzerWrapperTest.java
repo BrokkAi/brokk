@@ -7,6 +7,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
+import ai.brokk.testutil.TestAnalyzerWrapper;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.FileUtil;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
@@ -366,16 +367,17 @@ class AnalyzerWrapperTest {
         Files.writeString(aPath, "package pkg; public class A { void a() {} void b() {} }");
 
         // 3. Wrap current snapshot in TestAnalyzerWrapper for explicit update
-        ai.brokk.testutil.TestAnalyzerWrapper taw = new ai.brokk.testutil.TestAnalyzerWrapper(initialAnalyzer);
+        try (TestAnalyzerWrapper taw = new TestAnalyzerWrapper(initialAnalyzer)) {
 
-        // 4. Perform explicit update
-        IAnalyzer updatedAnalyzer = taw.updateFiles(java.util.Set.of(pf)).get(5, TimeUnit.SECONDS);
+            // 4. Perform explicit update
+            IAnalyzer updatedAnalyzer = taw.updateFiles(java.util.Set.of(pf)).get(5, TimeUnit.SECONDS);
 
-        // 5. Assert the result contains 'b'
-        String skeleton = AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
-        assertTrue(
-                skeleton.contains("void b()"),
-                "Explicitly updated analyzer should include method 'b' from modified file content");
+            // 5. Assert the result contains 'b'
+            String skeleton = AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
+            assertTrue(
+                    skeleton.contains("void b()"),
+                    "Explicitly updated analyzer should include method 'b' from modified file content");
+        }
     }
 
     /**
