@@ -535,18 +535,21 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         var request = RouterUtil.parseJsonOr400(exchange, ReplaceTaskListRequest.class, "/v1/tasklist");
         if (request == null) return;
-        if (request.tasks() == null) {
+
+        var tasks = request.tasks();
+        if (tasks == null) {
             RouterUtil.sendValidationError(exchange, "tasks must not be null");
             return;
         }
 
         // Reject lists that contain explicit null elements to avoid server-side NPEs.
-        if (request.tasks().stream().anyMatch(Objects::isNull)) {
+        if (tasks.stream().anyMatch(Objects::isNull)) {
             RouterUtil.sendValidationError(exchange, "tasks must not contain null elements");
             return;
         }
 
-        var updated = new TaskList.TaskListData(request.bigPicture(), List.copyOf(request.tasks()));
+        var nonNullTasks = Objects.requireNonNull(tasks);
+        var updated = new TaskList.TaskListData(request.bigPicture(), List.copyOf(nonNullTasks));
         contextManager.pushContext(ctx -> ctx.withTaskList(updated));
         SimpleHttpServer.sendJsonResponse(exchange, contextManager.getTaskList());
     }
@@ -602,5 +605,6 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     private record AddContextTextRequest(String text) {}
 
     private record ReplaceTaskListRequest(
-            @org.jetbrains.annotations.Nullable String bigPicture, List<TaskList.TaskItem> tasks) {}
+            @org.jetbrains.annotations.Nullable String bigPicture,
+            @org.jetbrains.annotations.Nullable List<TaskList.TaskItem> tasks) {}
 }
