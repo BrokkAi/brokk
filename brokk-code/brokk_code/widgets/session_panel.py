@@ -4,9 +4,9 @@ from typing import Any, Dict, List, Optional
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
-from textual.widgets import Label, Static
+from textual.widgets import Input, Label, Static
 
 
 class SessionItem(Static):
@@ -32,7 +32,7 @@ class SessionItem(Static):
 
     def _update_display(self) -> None:
         name = self.session.get("name", "Unnamed")
-        short_id = self.session_id[:8] if self.session_id else "?"
+        full_id = self.session_id
         is_current = self.session.get("current", False)
         modified = self.session.get("modified", 0)
 
@@ -41,9 +41,9 @@ class SessionItem(Static):
 
         text = Text()
         if is_current:
-            text.append("[CURRENT] ", style="bold green")
+            text.append("* ", style="bold green")
         text.append(name, style="bold")
-        text.append(f"  ({short_id})", style="dim")
+        text.append(f"  {full_id}", style="dim")
 
         if modified:
             try:
@@ -86,13 +86,19 @@ class SessionPanel(Vertical):
         self._items_by_id: Dict[str, SessionItem] = {}
         self._ordered_ids: List[str] = []
         self._cursor_index = -1
+        self._input_mode: Optional[str] = None  # "new" or "rename"
+        self._input_session_id: str = ""
 
     def compose(self) -> ComposeResult:
-        yield Label("Sessions", id="session-title")
+        with Horizontal(id="session-header"):
+            yield Label("Sessions", id="session-title")
+            yield Label("", id="session-count")
         yield Label(
-            "Enter: Switch  N: New  R: Rename  D: Delete",
+            "Enter: Switch  N: New  R: Rename  D: Delete  Esc/Ctrl+S: Close",
             id="session-help",
         )
+        yield Label("", id="session-active-status")
+        yield Input(placeholder="Enter session name...", id="session-name-input", classes="hidden")
         with VerticalScroll(id="session-list-scroll"):
             yield Vertical(id="session-list-wrap")
 
@@ -107,13 +113,22 @@ class SessionPanel(Vertical):
         self._items_by_id = {}
         self._ordered_ids = []
 
+        count_label = self.query_one("#session-count", Label)
+        count_label.update(f"  ({len(self._sessions)})")
+
         if not self._sessions:
             self._cursor_index = -1
             list_wrap.mount(Static("No sessions", classes="session-item session-item-empty"))
+            self._update_active_status()
             return
 
         if self._cursor_index < 0:
+            # Start cursor on the current session
             self._cursor_index = 0
+            for i, s in enumerate(self._sessions):
+                if s.get("current"):
+                    self._cursor_index = i
+                    break
 
         for session in self._sessions:
             item = SessionItem(session)
@@ -129,11 +144,59 @@ class SessionPanel(Vertical):
             self._focus_cursor_item()
         else:
             self._cursor_index = -1
+        self._update_active_status()
+
+    def _update_active_status(self) -> None:
+        label = self.query_one("#session-active-status", Label)
+        cursor_id = self._cursor_id()
+        if not cursor_id:
+            label.update("")
+            return
+        session = next(
+            (s for s in self._sessions if str(s.get("id", "")) == cursor_id), None
+        )
+        if session:
+            name = session.get("name", "Unnamed")
+            current = " (current)" if session.get("current") else ""
+            label.update(f"Selected: {name}{current}")
 
     def on_session_item_pressed(self, message: SessionItem.Pressed) -> None:
         if message.session_id:
             self._set_cursor_by_id(message.session_id)
             self.post_message(self.ActionRequested("switch", session_id=message.session_id))
+
+    def on_input_submitted(self, message: Input.Submitted) -> None:
+        """Handle name input for new/rename actions."""
+        name = message.value.strip()
+        input_widget = self.query_one("#session-name-input", Input)
+        input_widget.add_class("hidden")
+        input_widget.value = ""
+
+        if not name:
+            self._input_mode = None
+            self._input_session_id = ""
+            # Re-focus the list
+            self._focus_cursor_item()
+            return
+
+        if self._input_mode == "new":
+            self.post_message(self.ActionRequested("new", name=name))
+        elif self._input_mode == "rename":
+            self.post_message(
+                self.ActionRequested("rename", session_id=self._input_session_id, name=name)
+            )
+
+        self._input_mode = None
+        self._input_session_id = ""
+
+    def _show_name_input(self, mode: str, placeholder: str, session_id: str = "") -> None:
+        self._input_mode = mode
+        self._input_session_id = session_id
+        input_widget = self.query_one("#session-name-input", Input)
+        input_widget.placeholder = placeholder
+        input_widget.value = ""
+        input_widget.remove_class("hidden")
+        input_widget.focus()
 
     def action_cursor_prev(self) -> None:
         if not self._ordered_ids:
@@ -144,6 +207,7 @@ class SessionPanel(Vertical):
             self._cursor_index = (self._cursor_index - 1) % len(self._ordered_ids)
         self._refresh_active_classes()
         self._focus_cursor_item()
+        self._update_active_status()
 
     def action_cursor_next(self) -> None:
         if not self._ordered_ids:
@@ -154,6 +218,7 @@ class SessionPanel(Vertical):
             self._cursor_index = (self._cursor_index + 1) % len(self._ordered_ids)
         self._refresh_active_classes()
         self._focus_cursor_item()
+        self._update_active_status()
 
     def action_switch_session(self) -> None:
         cursor_id = self._cursor_id()
@@ -161,12 +226,16 @@ class SessionPanel(Vertical):
             self.post_message(self.ActionRequested("switch", session_id=cursor_id))
 
     def action_new_session(self) -> None:
-        self.post_message(self.ActionRequested("new"))
+        self._show_name_input("new", "Enter name for new session...")
 
     def action_rename_session(self) -> None:
         cursor_id = self._cursor_id()
         if cursor_id:
-            self.post_message(self.ActionRequested("rename", session_id=cursor_id))
+            session = next(
+                (s for s in self._sessions if str(s.get("id", "")) == cursor_id), None
+            )
+            current_name = session.get("name", "") if session else ""
+            self._show_name_input("rename", f"Rename session (was: {current_name})...", cursor_id)
 
     def action_delete_session(self) -> None:
         cursor_id = self._cursor_id()
@@ -185,6 +254,7 @@ class SessionPanel(Vertical):
             return
         self._refresh_active_classes()
         self._focus_cursor_item()
+        self._update_active_status()
 
     def _focus_cursor_item(self) -> None:
         cursor_id = self._cursor_id()

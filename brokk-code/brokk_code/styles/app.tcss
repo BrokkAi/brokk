@@ -34,11 +34,34 @@ SessionModalScreen {
     padding: 0 1;
 }
 
+#session-header {
+    height: 1;
+    width: 100%;
+    layout: horizontal;
+    margin: 0;
+}
+
 #session-title {
     text-style: bold;
     color: $text;
     width: auto;
-    margin-bottom: 0;
+}
+
+#session-count {
+    color: $text-disabled;
+    width: auto;
+}
+
+#session-active-status {
+    width: 100%;
+    color: $accent;
+    text-style: bold;
+}
+
+#session-name-input {
+    margin: 0 0 1 0;
+    border: solid $accent;
+    height: 3;
 }
 
 #session-help {

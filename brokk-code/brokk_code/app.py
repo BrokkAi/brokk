@@ -218,7 +218,7 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
-        Binding("ctrl+s", "toggle_statusline", "Status", show=True),
+        Binding("ctrl+s", "toggle_sessions", "Sessions", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
@@ -226,7 +226,7 @@ class BrokkApp(App):
         Binding("f3", "toggle_mode", "Mode", show=False),
         Binding("ctrl+z", "undo_context", "Undo", show=False),
         Binding("ctrl+y", "redo_context", "Redo", show=False),
-        Binding("ctrl+s", "toggle_sessions", "Sessions", show=True),
+        Binding("ctrl+b", "toggle_statusline", "Status", show=False),
     ]
 
     def __init__(
@@ -1013,14 +1013,11 @@ class BrokkApp(App):
                     )
         elif base == "/session":
             if len(parts) == 1:
-                chat.add_system_message(
-                    "Session commands: /session list | new <name> | "
-                    "switch <id> | rename <id> <name> | delete <id>"
-                )
+                self.action_toggle_sessions()
             elif len(parts) >= 2:
                 action = parts[1].lower()
                 if action == "list":
-                    self.run_worker(self._list_sessions())
+                    self.action_toggle_sessions()
                 elif action == "new":
                     if len(parts) < 3:
                         chat.add_system_message("Usage: /session new <name>")
@@ -1420,11 +1417,17 @@ class BrokkApp(App):
             match message.action:
                 case "switch":
                     await self._switch_session(message.session_id)
+                    # Close modal after switching
+                    if isinstance(self.screen, SessionModalScreen):
+                        self._show_chat_token_bar()
+                        self.screen.dismiss(None)
+                    return
                 case "new":
-                    await self._create_and_switch_session("New Session")
+                    name = message.name if message.name else "New Session"
+                    await self._create_and_switch_session(name)
                 case "rename":
-                    # For now, rename to a default name; full input dialog is a future enhancement
-                    await self._rename_session(message.session_id, "Renamed Session")
+                    name = message.name if message.name else "Renamed Session"
+                    await self._rename_session(message.session_id, name)
                 case "delete":
                     await self._delete_session(message.session_id)
                 case _:
