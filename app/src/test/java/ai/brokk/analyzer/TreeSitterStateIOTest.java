@@ -764,6 +764,24 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void testLoadFromArbitraryFilenameWithDtoLanguage(@TempDir Path tempDir) throws Exception {
+        // Failing test scenario: generic filename but DTO specifies JAVA.
+        Path out = tempDir.resolve("analyzer-state.bin.lz4");
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 123L, CURRENT_SCHEMA_STR, "JAVA");
+
+        var mapper = new ObjectMapper(new SmileFactory());
+        try (var os = Files.newOutputStream(out);
+                var lz4 = new net.jpountz.lz4.LZ4FrameOutputStream(os)) {
+            mapper.writeValue(lz4, dto);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isPresent(), "Should load from arbitrary filename if DTO specifies language");
+        assertEquals(123L, loaded.get().snapshotEpochNanos());
+    }
+
+    @Test
     void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
         // Manually serialize a DTO with a different major version (1.0.0 vs current 2.x.x)
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.0.0", "JAVA");

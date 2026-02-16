@@ -364,8 +364,8 @@ public final class TreeSitterStateIO {
     /**
      * Load an AnalyzerState from the provided file in Smile format.
      *
-     * <p>The language is inferred from the filename (e.g., "java.bin.lz4" -> JAVA). If the language
-     * cannot be determined, a rebuild is forced by returning Optional.empty().
+     * <p>The language is resolved primarily from the DTO's languageInternalName, falling back to
+     * filename inference (e.g., "java.bin.lz4" -> JAVA) if missing.
      *
      * <p>Version semantics:
      * <ul>
@@ -381,23 +381,9 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         }
 
-        String fileName = file.getFileName().toString();
-        String suffix = ".bin.lz4";
-        Language language = null;
-
-        if (fileName.endsWith(suffix)) {
-            String prefix = fileName.substring(0, fileName.length() - suffix.length());
-            try {
-                language = Languages.valueOf(prefix.toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException e) {
-                log.info("Could not infer language from filename {}; forcing rebuild.", fileName, e);
-                return Optional.empty();
-            }
-        }
-
         long startMs = System.currentTimeMillis();
         try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
-            return loadFromStream(in, file, startMs, language);
+            return loadFromStream(in, file, startMs);
         } catch (EOFException e) {
             log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
             return Optional.empty();
@@ -410,12 +396,39 @@ public final class TreeSitterStateIO {
         }
     }
 
-    private static Optional<TreeSitterAnalyzer.AnalyzerState> loadFromStream(
-            InputStream in, Path file, long startMs, @Nullable Language language) throws IOException {
+    private static Optional<TreeSitterAnalyzer.AnalyzerState> loadFromStream(InputStream in, Path file, long startMs)
+            throws IOException {
         JsonNode root = SMILE_MAPPER.readTree(in);
 
         // Deserialize the canonical DTO (ignoring unknown fields)
         var dto = SMILE_MAPPER.treeToValue(root, AnalyzerStateDto.class);
+
+        // Determine language: DTO first, then filename fallback.
+        Language language = null;
+        if (dto.languageInternalName() != null) {
+            try {
+                language = Languages.valueOf(dto.languageInternalName());
+            } catch (IllegalArgumentException e) {
+                log.debug("Unknown languageInternalName '{}' in DTO at {}", dto.languageInternalName(), file);
+            }
+        }
+
+        if (language == null) {
+            String fileName = file.getFileName().toString();
+            String suffix = ".bin.lz4";
+            if (fileName.endsWith(suffix)) {
+                String prefix = fileName.substring(0, fileName.length() - suffix.length());
+                try {
+                    language = Languages.valueOf(prefix.toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    log.info("Could not infer language from filename {} or DTO; forcing rebuild.", fileName);
+                    return Optional.empty();
+                }
+            } else {
+                log.info("Could not determine language for {}; forcing rebuild.", file);
+                return Optional.empty();
+            }
+        }
 
         // Interpret schema version field (backwards-compatible)
         SemVer fromVer = null;
