@@ -1877,7 +1877,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // OR the hasBody flag
-        boolean sourceHasBody = localHasBody.remove(source) != null && localHasBody.getOrDefault(source, false);
+        Boolean removedValue = localHasBody.remove(source);
+        boolean sourceHasBody = removedValue != null && removedValue;
         if (sourceHasBody) {
             localHasBody.put(target, true);
         }
