@@ -296,8 +296,6 @@ async def test_action_handle_ctrl_c_no_input_widget():
     """
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from textual.dom_list import DOMList
-
     from brokk_code.app import BrokkApp
 
     executor = MagicMock()
@@ -322,7 +320,7 @@ async def test_action_handle_ctrl_c_no_input_widget():
 
             def mocked_query(selector: str):
                 if selector == "#chat-input":
-                    return DOMList([])
+                    return []
                 return original_query(selector)
 
             with patch.object(app, "query", side_effect=mocked_query):
