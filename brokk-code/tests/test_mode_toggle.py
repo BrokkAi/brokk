@@ -79,6 +79,34 @@ def test_mode_toggle_bindings_exist():
     assert bindings["f3"] == "toggle_mode"
 
 
+def test_no_f2_settings_binding():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: b.action for b in app.BINDINGS}
+    assert "f2" not in bindings
+
+
+def test_command_palette_display_is_settings():
+    app = BrokkApp(executor=MagicMock())
+    assert app.COMMAND_PALETTE_DISPLAY == "Settings"
+
+
+def test_ctrl_p_binding_is_settings():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
+    assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
+
+
+def test_ctrl_e_binding_is_reasoning():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
+    assert bindings["ctrl+e"] == ("select_reasoning", "Reasoning", True)
+
+
+def test_textual_command_palette_is_enabled():
+    app = BrokkApp(executor=MagicMock())
+    assert app.ENABLE_COMMAND_PALETTE is True
+
+
 def test_action_toggle_mode_handles_unknown_mode():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)

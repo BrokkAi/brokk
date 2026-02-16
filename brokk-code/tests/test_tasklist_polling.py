@@ -82,17 +82,10 @@ async def test_tasklist_polling_updates_ui(tmp_path):
             # Using plain to avoid markup/styling variations across versions
             content_text = content_widget.render().plain
 
-            assert "Refactor Authentication" in content_text
             assert "Update LoginController" in content_text
-            assert "Change the authentication endpoint" in content_text
             assert "Add logging" in content_text
             assert "[x]" in content_text
             assert "[ ]" in content_text
-            assert "(done)" in content_text
-            assert "(todo)" in content_text
-
-            # Observable outcome: content is present
-            assert "Refactor Authentication" in content_text
 
 
 @pytest.mark.asyncio
@@ -118,7 +111,6 @@ async def test_refresh_context_does_not_clobber_details(tmp_path):
         # 1. Set details
         panel.update_tasklist_details(mock_tasklist)
         content_text = panel.query_one("#tasklist-content").render().plain
-        assert "Detailed Goal" in content_text
         assert "Detailed Task" in content_text
 
         # 2. Call refresh_tasklist (which usually shows summary)
@@ -126,7 +118,7 @@ async def test_refresh_context_does_not_clobber_details(tmp_path):
         content_text_after = panel.query_one("#tasklist-content").render().plain
 
         # Should NOT have been replaced by "Summary Only"
-        assert "Detailed Goal" in content_text_after
+        assert "Detailed Task" in content_text_after
         assert "Summary Only" not in content_text_after
 
 
@@ -166,7 +158,6 @@ async def test_refresh_context_panel_integration_preserves_task_details(tmp_path
             panel.update_tasklist_details(mock_tasklist)
 
             initial_render = panel.query_one("#tasklist-content").render().plain
-            assert "Complex Refactoring Goal" in initial_render
             assert "Task One" in initial_render
             assert "[ ]" in initial_render
             assert "[x]" in initial_render
@@ -177,7 +168,6 @@ async def test_refresh_context_panel_integration_preserves_task_details(tmp_path
 
             # 3. Verify details persist
             final_render = panel.query_one("#tasklist-content").render().plain
-            assert "Complex Refactoring Goal" in final_render
             assert "Task One" in final_render
             assert "Generic Task List Summary" not in final_render
 

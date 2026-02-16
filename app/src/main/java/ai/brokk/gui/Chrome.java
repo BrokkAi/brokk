@@ -2725,7 +2725,11 @@ public class Chrome
                 || component == dependenciesPanel.getRemoveButton()
                 || component == tlp.getTaskInput()
                 || component == tlp.getGoStopButton()
+                || component == tlp.getRemoveButton()
+                || component == tlp.getToggleDoneButton()
+                || component == tlp.getClearCompletedButton()
                 || component == tlp.getTaskList()
+                || component == tlp.getTaskListScrollPane()
                 || component == hop.getHistoryTable()
                 || component == hop.getLlmStreamArea();
     }

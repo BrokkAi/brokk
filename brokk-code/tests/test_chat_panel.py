@@ -212,3 +212,77 @@ async def test_streaming_duplication_regression():
         assert count == 1, (
             f"Expected 'Hello world!' once, found {count}. Content: {content_strings}"
         )
+
+
+@pytest.mark.asyncio
+async def test_chat_input_focus_does_not_block_ctrl_u_model_select():
+    """
+    Verify model selection action still works when ChatInput has focus.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from brokk_code.app import BrokkApp
+
+    # Setup app with ready executor to avoid early return in action_select_model
+    executor = MagicMock()
+    executor.get_models = AsyncMock(return_value={"models": ["model1"]})
+    executor.stop = AsyncMock()
+    executor.session_id = None
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            chat_input = app.query_one("#chat-input")
+            assert chat_input.has_focus
+
+            # We mock push_screen to see if the action was triggered
+            app.push_screen = MagicMock()
+
+            # Trigger model selection action while input remains focused
+            await app.action_select_model()
+            await pilot.pause()
+
+            # Verify push_screen was called, indicating the action triggered
+            assert app.push_screen.called
+
+
+@pytest.mark.asyncio
+async def test_whitespace_reasoning_terminal_does_not_stick():
+    """
+    Regression test: If a reasoning token that is only whitespace is flushed as terminal,
+    the panel must not remain in reasoning mode for the next non-reasoning message.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+
+        # 1) Simulate a reasoning stream that only emits whitespace and is terminal.
+        panel.append_token("   ", "AI", is_new_message=True, is_reasoning=True, is_terminal=True)
+        await pilot.pause()
+
+        # Ensure nothing meaningful was rendered as a Thinking panel
+        combined = "".join(str(line) for line in log.lines)
+        assert "Thinking" not in combined
+
+        # 2) Now append a normal non-reasoning message and ensure it renders as Markdown
+        panel.append_token("Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=True)
+        await pilot.pause()
+
+        combined = "".join(str(line) for line in log.lines)
+        # Should contain the Markdown-rendered Hello, and still not contain a Thinking panel.
+        assert "Hello" in combined
+        assert "Thinking" not in combined

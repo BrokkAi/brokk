@@ -16,7 +16,11 @@ from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
 class ChatInput(TextArea):
     """A multiline text area for chat input that submits on Enter."""
 
-    BINDINGS = [Binding("shift+enter", "insert_newline", "Insert Newline", show=False)]
+    BINDINGS = [
+        Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
+        Binding("ctrl+u", "select_model", "Model", show=True),
+        Binding("ctrl+e", "select_reasoning", "Reasoning", show=True),
+    ]
 
     class Submitted(Message):
         """Posted when user submits the text."""
@@ -33,6 +37,16 @@ class ChatInput(TextArea):
 
     def action_insert_newline(self) -> None:
         self.insert("\n")
+
+    def action_select_model(self) -> None:
+        app = self.app
+        if app is not None:
+            app.run_worker(app.action_select_model())
+
+    def action_select_reasoning(self) -> None:
+        app = self.app
+        if app is not None:
+            app.run_worker(app.action_select_reasoning())
 
     async def _on_key(self, event: events.Key) -> None:
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
@@ -70,13 +84,10 @@ class ChatPanel(Vertical):
         self.response_pending: bool = False
         self.response_active: bool = False
         self._last_token_time: float = 0
-        self._last_flush_time: float = 0
-        self._flush_interval: float = 0.25  # seconds
         self._inactivity_timeout: float = 10.0
         self._get_now = time.time
         self._job_start_time: Optional[float] = None
         self._timer_interval = None
-        self._incremental_line_index: Optional[int] = None
 
         # History Navigation State
         self._history: list[str] = []
@@ -85,7 +96,6 @@ class ChatPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
-        yield Static(id="streaming-response", classes="hidden")
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
@@ -315,62 +325,43 @@ class ChatPanel(Vertical):
 
             self._current_message_type = message_type
             self._is_reasoning = is_reasoning
-            self._last_flush_time = now
 
         self._current_message_buffer += token
 
         if is_terminal:
             self._flush_message()
-        elif not is_reasoning:
-            # Incremental rendering for AI responses
-            should_flush = (now - self._last_flush_time) > self._flush_interval or "\n" in token
-            if should_flush:
-                self._flush_message(is_incremental=True)
-                self._last_flush_time = now
 
-    def _flush_message(self, is_incremental: bool = False) -> None:
+    def _flush_message(self) -> None:
         """Renders the accumulated buffer as Markdown or a reasoning Panel."""
         log = self.query_one("#chat-log", RichLog)
-        streaming_area = self.query_one("#streaming-response", Static)
 
+        # If the buffer is empty or only whitespace, clear per-message state
+        # so we don't leave a stale reasoning/typing mode active for subsequent messages.
         if not self._current_message_buffer.strip():
-            if not is_incremental:
-                self._current_message_buffer = ""
-                streaming_area.update("")
-                streaming_area.add_class("hidden")
+            self._current_message_buffer = ""
+            self._is_reasoning = False
+            self._current_message_type = None
             return
 
         if self._is_reasoning:
-            # Reasoning is flushed only when complete
-            if not is_incremental:
-                content = self._current_message_buffer.strip()
-                log.write(
-                    Panel(
-                        Text(content, style="grey50"),
-                        title="Thinking",
-                        border_style="grey37",
-                    )
-                )
-                log.write("")  # Spacer
-                self._current_message_buffer = ""
-                self._is_reasoning = False
-        else:
-            # AI Response
             content = self._current_message_buffer.strip()
-            if is_incremental:
-                # Update the live preview widget instead of the append-only log
-                streaming_area.remove_class("hidden")
-                streaming_area.update(Markdown(content))
-                streaming_area.scroll_end(animate=False)
-                # Auto-scroll the log to keep the bottom visible while streaming
-                log.scroll_end(animate=False)
-            else:
-                # Message is complete, hide preview and commit to log
-                streaming_area.update("")
-                streaming_area.add_class("hidden")
-                log.write(Markdown(content))
-                log.write("")  # Spacer
-                self._current_message_buffer = ""
+            log.write(
+                Panel(
+                    Text(content, style="grey50"),
+                    title="Thinking",
+                    border_style="grey37",
+                )
+            )
+            log.write("")  # Spacer
+            self._current_message_buffer = ""
+            self._is_reasoning = False
+            self._current_message_type = None
+        else:
+            content = self._current_message_buffer.strip()
+            log.write(Markdown(content))
+            log.write("")  # Spacer
+            self._current_message_buffer = ""
+            self._current_message_type = None
 
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""
