@@ -429,7 +429,8 @@ class AnalyzerWrapperTest {
             if (cachedTrackedFiles != null) {
                 return cachedTrackedFiles;
             }
-            cachedTrackedFiles = delegate.getTrackedFiles();
+            // Defensive copy to ensure staleness is preserved even if delegate returns a mutable/live set
+            cachedTrackedFiles = Set.copyOf(delegate.getTrackedFiles());
             return cachedTrackedFiles;
         }
 
