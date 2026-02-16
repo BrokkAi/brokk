@@ -685,6 +685,156 @@ class BrokkApp(App):
         except Exception as e:
             chat.add_system_message(f"Failed to edit task: {e}", level="ERROR")
 
+    def _handle_session_command(self, parts: List[str], chat: ChatPanel) -> None:
+        """Handles /session subcommands."""
+        if len(parts) == 1:
+            cur = getattr(self.executor, "session_id", None) or "(none)"
+            chat.add_system_message(f"Current session: {cur}")
+            chat.add_system_message(
+                "Session commands: /session list | new <name> | switch <id> | delete <id>"
+            )
+            return
+
+        sub = parts[1].lower()
+        if sub == "list":
+            self.run_worker(self._session_list())
+        elif sub == "new":
+            if len(parts) < 3:
+                chat.add_system_message("Usage: /session new <name>")
+                return
+            name = " ".join(parts[2:])
+            self.run_worker(self._session_new(name))
+        elif sub == "switch":
+            if len(parts) < 3:
+                chat.add_system_message("Usage: /session switch <id>")
+                return
+            sid = parts[2]
+            self.run_worker(self._session_switch(sid))
+        elif sub == "delete":
+            if len(parts) < 3:
+                chat.add_system_message("Usage: /session delete <id>")
+                return
+            sid = parts[2]
+            self.run_worker(self._session_delete(sid))
+        else:
+            chat.add_system_message(
+                "Unknown /session subcommand. Use: list | new <name> | switch <id> | delete <id>"
+            )
+
+    async def _session_list(self) -> None:
+        """Lists available sessions from executor or local cache."""
+        chat = self.query_one(ChatPanel)
+        try:
+            sessions = []
+            try:
+                remote = await self.executor.list_sessions()
+                if isinstance(remote, dict) and "sessions" in remote:
+                    sessions = remote.get("sessions", [])
+                elif isinstance(remote, list):
+                    sessions = remote
+            except Exception as e:
+                logger.debug("Failed to list remote sessions: %s", e)
+
+            if sessions:
+                chat.add_system_message("Sessions (from executor):")
+                for s in sessions:
+                    if isinstance(s, dict):
+                        sid = s.get("id") or s.get("sessionId") or s.get("session_id") or "?"
+                        name = s.get("name", "")
+                        active = s.get("active", False)
+                        marker = " [active]" if active else ""
+                        chat.add_system_message(f"  {sid}  {name}{marker}")
+                    else:
+                        chat.add_system_message(f"  {s}")
+            else:
+                from brokk_code.session_persistence import list_session_zips
+
+                local = list_session_zips(self.executor.workspace_dir)
+                if local:
+                    chat.add_system_message("Sessions (local cache):")
+                    for entry in local:
+                        chat.add_system_message(
+                            f"  {entry['session_id']}  ({entry['size']} bytes)"
+                        )
+                else:
+                    chat.add_system_message("No sessions found.")
+        except Exception as e:
+            chat.add_system_message(f"Failed to list sessions: {e}", level="ERROR")
+
+    async def _session_new(self, name: str) -> None:
+        """Creates a new session and switches to it."""
+        chat = self.query_one(ChatPanel)
+        try:
+            new_id = await self.executor.create_session(name)
+            self.executor.session_id = new_id
+
+            from brokk_code.session_persistence import save_last_session_id
+
+            save_last_session_id(self.executor.workspace_dir, new_id)
+            chat.add_system_message(f"Created and switched to session: {new_id}")
+            await self._refresh_context_panel()
+        except Exception as e:
+            chat.add_system_message(f"Failed to create session: {e}", level="ERROR")
+
+    async def _session_switch(self, session_id: str) -> None:
+        """Switches to an existing session by ID."""
+        chat = self.query_one(ChatPanel)
+        try:
+            from brokk_code.session_persistence import (
+                get_session_zip_path,
+                save_last_session_id,
+            )
+
+            zip_path = get_session_zip_path(self.executor.workspace_dir, session_id)
+            if zip_path.exists():
+                zip_bytes = zip_path.read_bytes()
+                await self.executor.import_session_zip(zip_bytes, session_id=session_id)
+
+            self.executor.session_id = session_id
+            save_last_session_id(self.executor.workspace_dir, session_id)
+            chat.add_system_message(f"Switched to session: {session_id}")
+            await self._refresh_context_panel()
+        except Exception as e:
+            chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
+
+    async def _session_delete(self, session_id: str) -> None:
+        """Deletes a session by ID."""
+        chat = self.query_one(ChatPanel)
+        try:
+            try:
+                await self.executor.delete_session(session_id)
+            except Exception as e:
+                logger.debug("Executor delete_session failed: %s", e)
+
+            from brokk_code.session_persistence import (
+                get_session_zip_path,
+                save_last_session_id,
+            )
+
+            zip_path = get_session_zip_path(self.executor.workspace_dir, session_id)
+            if zip_path.exists():
+                try:
+                    zip_path.unlink()
+                except Exception as e:
+                    logger.debug("Failed to remove local zip: %s", e)
+
+            chat.add_system_message(f"Deleted session: {session_id}")
+
+            if getattr(self.executor, "session_id", None) == session_id:
+                self.executor.session_id = None
+                try:
+                    new_id = await self.executor.create_session()
+                    self.executor.session_id = new_id
+                    save_last_session_id(self.executor.workspace_dir, new_id)
+                    chat.add_system_message(f"Created new fallback session: {new_id}")
+                except Exception as e:
+                    chat.add_system_message(
+                        f"Failed to create fallback session: {e}", level="ERROR"
+                    )
+                await self._refresh_context_panel()
+        except Exception as e:
+            chat.add_system_message(f"Failed to delete session: {e}", level="ERROR")
+
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
         Handles user input from the chat panel.
@@ -958,11 +1108,18 @@ class BrokkApp(App):
                 "  /task add <title>     - Add a task\n"
                 "  /task edit <title>    - Edit selected task title\n"
                 "  /task delete          - Delete selected task\n"
+                "  /session              - Show current session and session command help\n"
+                "  /session list         - List available sessions\n"
+                "  /session new <name>   - Create a new session\n"
+                "  /session switch <id>  - Switch to an existing session\n"
+                "  /session delete <id>  - Delete a session\n"
                 "  /info                 - Show current configuration and status\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
             )
             chat.append_message("System", help_text)
+        elif base == "/session":
+            self._handle_session_command(parts, chat)
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:

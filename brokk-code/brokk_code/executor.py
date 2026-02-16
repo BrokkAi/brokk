@@ -731,6 +731,61 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/tasklist")
             raise  # Should not be reached
 
+    async def list_sessions(self) -> Dict[str, Any]:
+        """Returns the list of sessions from the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/sessions")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/sessions")
+            raise
+
+    async def delete_session(self, session_id: str) -> None:
+        """Deletes a session by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.delete(f"/v1/sessions/{session_id}")
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed DELETE /v1/sessions/{session_id} (status={status}): {e}") from e
+
+    async def undo_context(self) -> Optional[Dict[str, Any]]:
+        """Requests undo of the last context change. Returns None if nothing to undo."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/context/undo")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 400:
+                return None
+            raise ExecutorError(f"Failed POST /v1/context/undo (status={status}): {e}") from e
+
+    async def redo_context(self) -> Optional[Dict[str, Any]]:
+        """Requests redo of the last undone context change. Returns None if nothing to redo."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/context/redo")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 400:
+                return None
+            raise ExecutorError(f"Failed POST /v1/context/redo (status={status}): {e}") from e
+
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:
