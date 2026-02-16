@@ -2,9 +2,9 @@ package ai.brokk.analyzer.usages;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -43,26 +43,12 @@ public final class ImportGraphCandidateProvider implements CandidateFileProvider
         }
 
         // 3. Identify Direct Importers
-        if (analyzer instanceof TreeSitterAnalyzer tsAnalyzer) {
-            var language = Languages.fromExtension(target.source().extension());
-            Set<ProjectFile> allFiles = analyzer.getProject().getAnalyzableFiles(language);
-
-            // We want to find files that import ANY of the candidate files (definitions or siblings)
+        analyzer.as(ImportAnalysisProvider.class).ifPresent(provider -> {
             Set<ProjectFile> sourceSet = new HashSet<>(candidates);
-
-            for (ProjectFile potentialImporter : allFiles) {
-                if (sourceSet.contains(potentialImporter)) {
-                    continue;
-                }
-                var imports = tsAnalyzer.importInfoOf(potentialImporter);
-                for (ProjectFile sourceFile : sourceSet) {
-                    if (tsAnalyzer.couldImportFile(imports, sourceFile)) {
-                        candidates.add(potentialImporter);
-                        break;
-                    }
-                }
+            for (ProjectFile sourceFile : sourceSet) {
+                candidates.addAll(provider.referencingFilesOf(sourceFile));
             }
-        }
+        });
 
         return candidates;
     }
