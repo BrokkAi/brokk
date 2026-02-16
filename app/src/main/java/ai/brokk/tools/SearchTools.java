@@ -108,12 +108,12 @@ public class SearchTools {
 
     private static final ThreadLocal<Cache<String, XPathExpression>> xpathExpressions =
             ThreadLocal.withInitial(() -> Caffeine.newBuilder()
-                    .maximumSize(4 * Runtime.getRuntime().availableProcessors())
+                    .maximumSize(4L * Runtime.getRuntime().availableProcessors())
                     .build());
 
     private static final ThreadLocal<Cache<String, Pattern>> searchPatterns =
             ThreadLocal.withInitial(() -> Caffeine.newBuilder()
-                    .maximumSize(64 * Runtime.getRuntime().availableProcessors())
+                    .maximumSize(64L * Runtime.getRuntime().availableProcessors())
                     .build());
 
     private static final ThreadLocal<ObjectMapper> jqMappers = ThreadLocal.withInitial(ObjectMapper::new);
@@ -126,7 +126,7 @@ public class SearchTools {
 
     private static final ThreadLocal<Cache<String, JsonQuery>> jqQueries =
             ThreadLocal.withInitial(() -> Caffeine.newBuilder()
-                    .maximumSize(4 * Runtime.getRuntime().availableProcessors())
+                    .maximumSize(4L * Runtime.getRuntime().availableProcessors())
                     .build());
 
     private final IContextManager contextManager; // Needed for file operations
@@ -779,7 +779,7 @@ public class SearchTools {
         try {
             compiledPatterns = compilePatterns(patterns);
         } catch (IllegalArgumentException e) {
-            return e.getMessage();
+            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
 
         if (compiledPatterns.isEmpty()) {
@@ -914,7 +914,7 @@ public class SearchTools {
         try {
             compiledPatterns = compilePatterns(List.of(pattern));
         } catch (IllegalArgumentException e) {
-            return e.getMessage();
+            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
 
         if (compiledPatterns.isEmpty()) {
@@ -1197,7 +1197,7 @@ public class SearchTools {
         try {
             compiledPatterns = compilePatterns(patterns);
         } catch (IllegalArgumentException e) {
-            return e.getMessage();
+            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
 
         if (compiledPatterns.isEmpty()) {
