@@ -60,8 +60,11 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
     if (!this.client) return;
     try {
       const resp = await this.client.getModels();
-      this.cachedModels = resp.models;
-      this.sendToWebview("modelsUpdate", { models: resp.models });
+      const modelNames = resp.models.map((m) =>
+        typeof m === "string" ? m : m.name
+      );
+      this.cachedModels = modelNames;
+      this.sendToWebview("modelsUpdate", { models: modelNames });
     } catch (e) {
       this.log?.(`Failed to fetch models: ${e}`);
     }

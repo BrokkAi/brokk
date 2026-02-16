@@ -255,8 +255,15 @@ export interface ActivityResponse {
 
 // ── Models ────────────────────────────────────────────
 
+export interface ModelInfo {
+  name: string;
+  location: string;
+  supportsReasoningEffort: boolean;
+  supportsReasoningDisable: boolean;
+}
+
 export interface ModelsResponse {
-  models: string[];
+  models: (ModelInfo | string)[];
 }
 
 // ── Errors ─────────────────────────────────────────────
