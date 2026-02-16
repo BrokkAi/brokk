@@ -226,6 +226,7 @@ public final class JobRunner {
     private final JobStore store;
 
     private record ReviewDiffResult(TaskResult taskResult, String responseText) {}
+
     private final ExecutorService runner;
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
@@ -885,7 +886,10 @@ public final class JobRunner {
                                                         reviewResult.output().messages());
                                             }
                                             if (reviewText.isBlank()) {
-                                                reviewText = reviewResult.output().text().join();
+                                                reviewText = reviewResult
+                                                        .output()
+                                                        .text()
+                                                        .join();
                                             }
 
                                             var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
@@ -2293,7 +2297,8 @@ public final class JobRunner {
                     TaskResult reviewResult = review.taskResult();
                     String reviewText = review.responseText();
                     if (reviewText.isBlank()) {
-                        reviewText = PrReviewService.extractAiTranscript(reviewResult.output().messages());
+                        reviewText = PrReviewService.extractAiTranscript(
+                                reviewResult.output().messages());
                     }
                     if (reviewText.isBlank()) {
                         reviewText = reviewResult.output().text().join();

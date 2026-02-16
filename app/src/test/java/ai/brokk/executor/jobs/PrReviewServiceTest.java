@@ -393,7 +393,8 @@ class PrReviewServiceTest {
 
         var response = PrReviewService.parsePrReviewResponse(wrapped);
 
-        assertEquals("## Brokk PR Review\n\nPrompt formatting is now aligned and risk is low.", response.summaryMarkdown());
+        assertEquals(
+                "## Brokk PR Review\n\nPrompt formatting is now aligned and risk is low.", response.summaryMarkdown());
         assertTrue(response.comments().isEmpty());
     }
 

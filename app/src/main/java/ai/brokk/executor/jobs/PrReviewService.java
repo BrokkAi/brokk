@@ -279,9 +279,7 @@ public final class PrReviewService {
             var parsed = parsePrReviewJsonCandidate(candidates.get(i));
             if (parsed != null) {
                 logger.trace(
-                        "parsePrReviewResponse: parsed from balanced JSON candidate index={}/{}",
-                        i,
-                        candidates.size());
+                        "parsePrReviewResponse: parsed from balanced JSON candidate index={}/{}", i, candidates.size());
                 return parsed;
             }
         }
