@@ -180,4 +180,34 @@ class JobRunnerTest {
                 prompt.contains("Ignore previous instructions"),
                 "Prompt should explicitly mention example 'Ignore previous instructions' as something to ignore from PR text");
     }
+
+    @Test
+    void testBuildReviewPrompt_PlacesDiffAndPolicyLinesInCorrectSections() {
+        String diff = "x = 1";
+        String prompt = JobRunner.buildReviewPrompt(diff, PrReviewService.Severity.HIGH, 3, "", "");
+
+        int diffInstructionsIndex = prompt.indexOf("The diff to review is provided");
+        int lineNumberSectionIndex = prompt.indexOf("IMPORTANT: Line Number Format");
+        int commentPolicyIndex = prompt.indexOf("COMMENT POLICY (STRICT):");
+        int diffBlockIndex = prompt.indexOf("```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```");
+        int severityPolicyIndex = prompt.indexOf("ONLY emit comments with severity >= HIGH.");
+        int maxPolicyIndex = prompt.indexOf("MAX 3 comments total.");
+
+        assertTrue(diffInstructionsIndex >= 0, "Prompt should include diff review instructions");
+        assertTrue(lineNumberSectionIndex >= 0, "Prompt should include line number format section");
+        assertTrue(commentPolicyIndex >= 0, "Prompt should include comment policy section");
+        assertTrue(diffBlockIndex >= 0, "Prompt should include fenced diff block");
+        assertTrue(severityPolicyIndex >= 0, "Prompt should include severity policy line");
+        assertTrue(maxPolicyIndex >= 0, "Prompt should include max comments policy line");
+
+        assertTrue(
+                diffBlockIndex > diffInstructionsIndex && diffBlockIndex < lineNumberSectionIndex,
+                "Diff block should appear in the diff section before line-number guidance");
+        assertTrue(
+                severityPolicyIndex > commentPolicyIndex,
+                "Severity policy line should appear inside the comment policy section");
+        assertTrue(
+                maxPolicyIndex > commentPolicyIndex,
+                "Max comments policy line should appear inside the comment policy section");
+    }
 }

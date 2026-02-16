@@ -127,8 +127,10 @@ public final class FuzzyUsageFinder {
         var isUnique = matchingCodeUnits.size() == 1;
 
         // Use a fast substring scan to prefilter candidate files by the raw identifier, not the regex
-        Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
-                List.of(identifier), analyzer.getProject().getAnalyzableFiles(lang));
+        Set<ProjectFile> filesToSearch = analyzer.getProject().getAnalyzableFiles(lang);
+        var patterns = SearchTools.compilePatterns(List.of(identifier));
+        Set<ProjectFile> candidateFiles =
+                SearchTools.findFilesContainingPatterns(patterns, filesToSearch).matches();
 
         // Apply file filter if provided (e.g., to exclude test files)
         if (fileFilter != null) {

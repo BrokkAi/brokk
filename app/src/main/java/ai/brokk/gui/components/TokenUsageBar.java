@@ -125,9 +125,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                         if (seg.isSummaryGroup) {
                             // Open combined preview for all summaries via Chrome::openFragmentPreview
                             int totalFiles = (int) seg.fragments.stream()
-                                    .flatMap(f ->
-                                            // Fast, non-blocking
-                                            f.files().renderNowOr(Set.of()).stream())
+                                    .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                                     .map(ProjectFile::toString)
                                     .distinct()
                                     .count();

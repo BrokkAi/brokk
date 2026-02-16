@@ -49,7 +49,7 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Current analyzer snapshot schema version. Bump MAJOR for incompatible changes.
-    static final SemVer CURRENT_SCHEMA = SemVer.parse("1.0.0");
+    static final SemVer CURRENT_SCHEMA = SemVer.parse("2.0.0");
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -239,20 +239,8 @@ public final class TreeSitterStateIO {
             List<FileStateEntryDto> fileState,
             List<String> symbolKeys,
             long snapshotEpochNanos,
-            @Nullable String schemaVersion) {
-
-        /**
-         * Backwards-compatible constructor for callers that do not provide schemaVersion.
-         * Delegates to the canonical constructor with schemaVersion = null.
-         */
-        public AnalyzerStateDto(
-                Map<String, List<CodeUnitDto>> symbolIndex,
-                List<CodeUnitEntryDto> codeUnitState,
-                List<FileStateEntryDto> fileState,
-                List<String> symbolKeys,
-                long snapshotEpochNanos) {
-            this(symbolIndex, codeUnitState, fileState, symbolKeys, snapshotEpochNanos, null);
-        }
+            @Nullable String schemaVersion,
+            @Nullable String languageInternalName) {
 
         @JsonCreator
         public AnalyzerStateDto(
@@ -261,13 +249,15 @@ public final class TreeSitterStateIO {
                 @JsonProperty("fileState") List<FileStateEntryDto> fileState,
                 @JsonProperty("symbolKeys") List<String> symbolKeys,
                 @JsonProperty("snapshotEpochNanos") long snapshotEpochNanos,
-                @JsonProperty("schemaVersion") @Nullable String schemaVersion) {
+                @JsonProperty("schemaVersion") @Nullable String schemaVersion,
+                @JsonProperty("languageInternalName") @Nullable String languageInternalName) {
             this.symbolIndex = symbolIndex;
             this.codeUnitState = codeUnitState;
             this.fileState = fileState;
             this.symbolKeys = symbolKeys;
             this.snapshotEpochNanos = snapshotEpochNanos;
             this.schemaVersion = schemaVersion;
+            this.languageInternalName = languageInternalName;
         }
     }
 
@@ -313,6 +303,11 @@ public final class TreeSitterStateIO {
 
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
+        save(state, file, null);
+    }
+
+    @Blocking
+    public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file, @Nullable Language language) {
         long startMs = System.currentTimeMillis();
         Path temp = null;
         Path parent = (file.getParent() != null ? file.getParent() : Path.of("."))
@@ -326,7 +321,7 @@ public final class TreeSitterStateIO {
             String suffix = ".tmp";
             temp = Files.createTempFile(parent, prefix, suffix);
 
-            var dto = toDto(state);
+            var dto = toDto(state, language);
             try (var os = Files.newOutputStream(temp);
                     var out = new LZ4FrameOutputStream(os)) {
                 SMILE_MAPPER.writeValue(out, dto);
@@ -355,12 +350,16 @@ public final class TreeSitterStateIO {
 
     /**
      * Load an AnalyzerState from the provided file in Smile format.
-     * Returns Optional.empty() if file is missing or deserialization fails.
      *
-     * Version semantics:
-     * - If the DTO contains no schemaVersion field (legacy snapshots), accept for now and proceed as-is.
-     * - If schemaVersion.major != CURRENT_SCHEMA.major -> incompatible: return Optional.empty().
-     * - If minor/patch differ, accept for now; migrate(dto, from, to) is invoked and currently no-ops.
+     * <p>The language is resolved primarily from the DTO's languageInternalName, falling back to
+     * filename inference (e.g., "java.bin.lz4" -> JAVA) if missing.
+     *
+     * <p>Version semantics:
+     * <ul>
+     *   <li>If major versions differ -> incompatible: return Optional.empty().
+     *   <li>For strict languages (JAVA, TYPESCRIPT): if snapshot < CURRENT_SCHEMA, return empty.
+     *   <li>For other languages: allow minor/patch differences and migrate.
+     * </ul>
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
@@ -368,8 +367,8 @@ public final class TreeSitterStateIO {
             log.debug("Analyzer state file does not exist: {}", file);
             return Optional.empty();
         }
-        long startMs = System.currentTimeMillis();
 
+        long startMs = System.currentTimeMillis();
         try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
             return loadFromStream(in, file, startMs);
         } catch (EOFException e) {
@@ -391,17 +390,41 @@ public final class TreeSitterStateIO {
         // Deserialize the canonical DTO (ignoring unknown fields)
         var dto = SMILE_MAPPER.treeToValue(root, AnalyzerStateDto.class);
 
+        // Determine language: DTO first, then filename fallback.
+        Language language = null;
+        if (dto.languageInternalName() != null) {
+            try {
+                language = Languages.valueOf(dto.languageInternalName());
+            } catch (IllegalArgumentException e) {
+                log.debug("Unknown languageInternalName '{}' in DTO at {}", dto.languageInternalName(), file);
+            }
+        }
+
+        if (language == null) {
+            String fileName = file.getFileName().toString();
+            String suffix = ".bin.lz4";
+            if (fileName.endsWith(suffix)) {
+                String prefix = fileName.substring(0, fileName.length() - suffix.length());
+                try {
+                    language = Languages.valueOf(prefix.toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    log.info("Could not infer language from filename {} or DTO; forcing rebuild.", fileName);
+                    return Optional.empty();
+                }
+            } else {
+                log.info("Could not determine language for {}; forcing rebuild.", file);
+                return Optional.empty();
+            }
+        }
+
         // Interpret schema version field (backwards-compatible)
-        SemVer fromVer;
-        if (dto.schemaVersion() == null) {
-            log.debug("Loaded AnalyzerState snapshot without schemaVersion; treating as legacy and accepting.");
-            fromVer = CURRENT_SCHEMA;
-        } else {
+        SemVer fromVer = null;
+        if (dto.schemaVersion() != null) {
             fromVer = SemVer.parse(dto.schemaVersion());
         }
 
         // If major versions differ, snapshot is incompatible
-        if (fromVer.major() != CURRENT_SCHEMA.major()) {
+        if (fromVer != null && fromVer.major() != CURRENT_SCHEMA.major()) {
             log.info(
                     "Analyzer snapshot at {} has incompatible schema version {} (current {}). Ignoring snapshot and will rebuild.",
                     file,
@@ -410,12 +433,25 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         }
 
-        // Allow minor/patch differences for now; provide a migrate hook
-        var migratedDto = migrate(dto, fromVer, CURRENT_SCHEMA);
+        // Check if language-specific rules require a rebuild (e.g. Java/TS fqName changes)
+        if (TreeSitterAnalyzerStateMigrator.shouldForceRebuild(language, fromVer, CURRENT_SCHEMA)) {
+            log.info(
+                    "Analyzer snapshot at {} for {} has schema version {} which requires a rebuild.",
+                    file,
+                    language != null ? language.name() : "unknown",
+                    fromVer != null ? fromVer : "legacy");
+            return Optional.empty();
+        }
+
+        // Default: use current schema if missing for non-strict languages
+        SemVer effectiveFromVer = fromVer != null ? fromVer : CURRENT_SCHEMA;
+
+        // Allow minor/patch differences for now; delegate to migrator
+        var migratedDto = TreeSitterAnalyzerStateMigrator.migrate(dto, effectiveFromVer, CURRENT_SCHEMA);
 
         var state = fromDto(migratedDto);
         long durMs = System.currentTimeMillis() - startMs;
-        log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, fromVer);
+        log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, effectiveFromVer);
         return Optional.of(state);
     }
 
@@ -425,6 +461,13 @@ public final class TreeSitterStateIO {
      * Convert live AnalyzerState to a serializable DTO.
      */
     public static AnalyzerStateDto toDto(TreeSitterAnalyzer.AnalyzerState state) {
+        return toDto(state, null);
+    }
+
+    /**
+     * Convert live AnalyzerState to a serializable DTO, including language identity.
+     */
+    public static AnalyzerStateDto toDto(TreeSitterAnalyzer.AnalyzerState state, @Nullable Language language) {
         // symbolIndex -> deep copy to DTO
         Map<String, List<CodeUnitDto>> symbolIndexCopy = new HashMap<>();
         for (var e : state.symbolIndex().entrySet()) {
@@ -478,7 +521,8 @@ public final class TreeSitterStateIO {
                 fileEntries,
                 symbolKeys,
                 state.snapshotEpochNanos(),
-                CURRENT_SCHEMA.toString());
+                CURRENT_SCHEMA.toString(),
+                language != null ? language.internalName() : null);
     }
 
     /**
@@ -665,14 +709,5 @@ public final class TreeSitterStateIO {
                 }
             }
         }
-    }
-
-    /**
-     * Hook to migrate DTOs between schema versions. Currently a no-op but structured for future migrations.
-     */
-    private static AnalyzerStateDto migrate(AnalyzerStateDto dto, SemVer from, SemVer to) {
-        // No migration required yet. Future migrations can inspect `from` and `to` and transform the DTO.
-        log.trace("Migrating DTO from {} to {}", from, to);
-        return dto;
     }
 }

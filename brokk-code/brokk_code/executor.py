@@ -6,6 +6,7 @@ import tarfile
 import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -432,8 +433,14 @@ class ExecutorManager:
         reasoning_level_code: Optional[str] = None,
         mode: str = "LUTZ",
         tags: Optional[Dict[str, str]] = None,
+        session_id: Optional[str] = None,
     ) -> str:
-        """Submits a new job to the executor."""
+        """Submits a new job to the executor.
+
+        Backwards-compatible: session_id is optional. If provided (or if
+        self.session_id was previously set via create_session/import_session_zip),
+        the header 'X-Session-Id' will be included on the POST to /v1/jobs.
+        """
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
@@ -458,6 +465,11 @@ class ExecutorManager:
             payload["reasoningLevelCode"] = reasoning_level_code
 
         headers = {"Idempotency-Key": str(uuid.uuid4())}
+        # Prefer explicit argument, fall back to manager-level session_id if present.
+        effective_session_id = session_id or self.session_id
+        if effective_session_id:
+            headers["X-Session-Id"] = effective_session_id
+
         resp = await self._http_client.post("/v1/jobs", json=payload, headers=headers)
         resp.raise_for_status()
         return resp.json()["jobId"]
@@ -570,6 +582,35 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/context")
+            raise  # Should not be reached
+
+    async def get_context_fragment(self, fragment_id: str) -> Dict[str, Any]:
+        """Returns embedded-resource content for a context fragment by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not fragment_id or not fragment_id.strip():
+            raise ExecutorError("fragment_id must not be blank")
+
+        endpoint = f"/v1/context/fragments/{quote(fragment_id, safe='')}"
+        try:
+            resp = await self._http_client.get(endpoint)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, endpoint)
+            raise  # Should not be reached
+
+    async def get_models(self) -> Dict[str, Any]:
+        """Returns runtime-available model information from the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/models")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/models")
             raise  # Should not be reached
 
     async def drop_context_fragments(self, fragment_ids: List[str]) -> Dict[str, Any]:

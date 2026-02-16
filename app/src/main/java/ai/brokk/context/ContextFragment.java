@@ -183,14 +183,13 @@ public interface ContextFragment {
     ComputedValue<Set<CodeUnit>> sources();
 
     /**
-     * Returns all repo files referenced by this fragment. This is used when we *just* want to manipulate or show actual
-     * files, rather than the code units themselves.
+     * Returns all repo files referenced by this fragment, used for "edit all" type actions in the GUI when
+     * we have a fragment that references other files (e.g. a stacktrace or a git diff).
      */
-    ComputedValue<Set<ProjectFile>> files();
+    ComputedValue<Set<ProjectFile>> referencedFiles();
 
     /**
-     * Returns all repo files referenced by this fragment. This is used when we *just* want to manipulate or show actual
-     * files, rather than the code units themselves.
+     * Returns all files whose contents are incorporated (including partially) by this fragment.
      */
     default ComputedValue<Set<ProjectFile>> sourceFiles() {
         return sources().map(ss -> ss.stream().map(CodeUnit::source).collect(Collectors.toSet()));
@@ -297,7 +296,7 @@ public interface ContextFragment {
 
         return editableFragments
                 .map(cf -> {
-                    long minMtime = cf.files().join().stream()
+                    long minMtime = cf.referencedFiles().join().stream()
                             .mapToLong(pf -> {
                                 try {
                                     return pf.mtime();

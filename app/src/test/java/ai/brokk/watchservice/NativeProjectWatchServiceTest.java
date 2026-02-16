@@ -493,13 +493,17 @@ public class NativeProjectWatchServiceTest {
     @Test
     public void testResolveGitMetaDir_MalformedGitFile() throws Exception {
         tempDir = Files.createTempDirectory("native-watcher-malformed-git");
+        System.out.println("DEBUG testMalformed: tempDir=" + tempDir);
 
         // Create .git file with malformed content (missing "gitdir: " prefix)
         Path gitFile = tempDir.resolve(".git");
         Files.writeString(gitFile, "invalid content without gitdir prefix");
+        System.out.println("DEBUG testMalformed: .git file created, isFile=" + Files.isRegularFile(gitFile) + ", isDir="
+                + Files.isDirectory(gitFile));
 
         // Service should handle this gracefully without throwing
         service = new NativeProjectWatchService(tempDir, tempDir, null, List.of());
+        System.out.println("DEBUG testMalformed: service created, gitMetaDir=" + service.gitMetaDir);
 
         AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
         AtomicReference<AbstractWatchService.EventBatch> received = new AtomicReference<>();
@@ -516,7 +520,10 @@ public class NativeProjectWatchServiceTest {
         });
 
         service.start(CompletableFuture.completedFuture(null));
+        System.out.println("DEBUG testMalformed: service started, sleeping 500ms");
         Thread.sleep(500);
+        System.out.println("DEBUG testMalformed: watcher thread alive="
+                + (service.watcherThread != null ? service.watcherThread.isAlive() : "null"));
 
         // Regular files in project should still be watched
         CountDownLatch notified = new CountDownLatch(1);
@@ -524,8 +531,13 @@ public class NativeProjectWatchServiceTest {
 
         Path sourceFile = tempDir.resolve("Source.java");
         Files.writeString(sourceFile, "public class Source {}");
+        System.out.println("DEBUG testMalformed: Source.java written, exists=" + Files.exists(sourceFile));
 
+        System.out.println("DEBUG testMalformed: waiting up to 5s for event delivery...");
         boolean delivered = notified.await(5, TimeUnit.SECONDS);
+        System.out.println("DEBUG testMalformed: delivered=" + delivered
+                + ", running=" + service.running
+                + ", watcher=" + (service.watcher != null));
         assertTrue(delivered, "Regular file events should still work with malformed .git file");
 
         AbstractWatchService.EventBatch batch = received.get();

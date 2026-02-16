@@ -60,7 +60,7 @@ public final class ClasspathHttpServer {
         // Handle requests by serving resources from the classpath
         server.createContext("/", this::handleRequest);
         // Use a small thread pool for handling requests
-        server.setExecutor(ExecutorsUtil.newFixedThreadExecutor(2, "ClasspathHttpServer-"));
+        server.setExecutor(ExecutorsUtil.newFixedThreadExecutor("ClasspathHttpServer-", 2));
         server.start();
         logger.info("Embedded HTTP server started on port {}", port);
     }

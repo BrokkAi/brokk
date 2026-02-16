@@ -14,7 +14,7 @@ import org.apache.logging.log4j.Logger;
 
 public class GlobalExceptionHandler implements UncaughtExceptionHandler {
     private static final Logger logger = LogManager.getLogger(GlobalExceptionHandler.class);
-    private static final ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(1, "GlobalExceptionHandler");
+    private static final ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor("GlobalExceptionHandler", 1);
 
     @Override
     public void uncaughtException(Thread thread, Throwable throwable) {

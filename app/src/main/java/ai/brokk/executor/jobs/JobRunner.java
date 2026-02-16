@@ -1,5 +1,7 @@
 package ai.brokk.executor.jobs;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
@@ -18,6 +20,7 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -222,6 +225,9 @@ public final class JobRunner {
 
     private final ContextManager cm;
     private final JobStore store;
+
+    private record ReviewDiffResult(TaskResult taskResult, String responseText) {}
+
     private final ExecutorService runner;
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
@@ -353,7 +359,7 @@ public final class JobRunner {
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(
-                                        Objects.requireNonNull(trimmedCodeModelName),
+                                        requireNonNull(trimmedCodeModelName),
                                         spec.reasoningLevelCode(),
                                         spec.temperatureCode())
                                 : defaultCodeModel(spec))
@@ -372,23 +378,22 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE ->
-                                service.nameOf(Objects.requireNonNull(architectPlannerModel));
-                            case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
-                            case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
+                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(requireNonNull(architectPlannerModel));
+                            case ASK -> service.nameOf(requireNonNull(askPlannerModel));
+                            case SEARCH -> service.nameOf(requireNonNull(searchPlannerModel));
                             case CODE -> {
                                 var plannerName = spec.plannerModel();
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
-                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
+                            case REVIEW -> service.nameOf(requireNonNull(reviewPlannerModel));
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
-                            case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
+                            case CODE -> service.nameOf(requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
                         };
@@ -426,10 +431,10 @@ public final class JobRunner {
                                     case ARCHITECT -> {
                                         cm.executeTask(
                                                 new TaskList.TaskItem("", spec.taskInput(), false),
-                                                Objects.requireNonNull(
+                                                requireNonNull(
                                                         architectPlannerModel,
                                                         "plannerModel required for ARCHITECT jobs"),
-                                                Objects.requireNonNull(
+                                                requireNonNull(
                                                         architectCodeModel,
                                                         "code model unavailable for ARCHITECT jobs"));
                                     }
@@ -440,7 +445,7 @@ public final class JobRunner {
                                             var searchAgent = new SearchAgent(
                                                     context,
                                                     spec.taskInput(),
-                                                    Objects.requireNonNull(
+                                                    requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for LUTZ jobs"),
                                                     SearchPrompts.Objective.TASKS_ONLY,
@@ -492,7 +497,7 @@ public final class JobRunner {
                                                     cm.executeTask(
                                                             generatedTask,
                                                             architectPlannerModel,
-                                                            Objects.requireNonNull(architectCodeModel));
+                                                            requireNonNull(architectCodeModel));
                                                 } catch (Exception e) {
                                                     logger.warn(
                                                             "Generated task execution failed for job {}: {}",
@@ -508,8 +513,7 @@ public final class JobRunner {
                                     case CODE -> {
                                         var agent = new CodeAgent(
                                                 cm,
-                                                Objects.requireNonNull(
-                                                        codeModeModel, "code model unavailable for CODE jobs"));
+                                                requireNonNull(codeModeModel, "code model unavailable for CODE jobs"));
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var result = agent.execute(spec.taskInput(), Set.of());
                                             scope.append(result);
@@ -530,7 +534,7 @@ public final class JobRunner {
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         spec.taskInput(),
-                                                        Objects.requireNonNull(
+                                                        requireNonNull(
                                                                 askPlannerModel, "plannerModel required for ASK jobs"),
                                                         SearchPrompts.Objective.ANSWER_ONLY,
                                                         scope);
@@ -637,9 +641,7 @@ public final class JobRunner {
                                                 // Use helper that builds a workspace-only prompt and calls the
                                                 // planner model.
                                                 TaskResult askResult = askUsingPlannerModel(
-                                                        context,
-                                                        Objects.requireNonNull(askPlannerModel),
-                                                        spec.taskInput());
+                                                        context, requireNonNull(askPlannerModel), spec.taskInput());
                                                 scope.append(askResult);
                                             } catch (Throwable t) {
                                                 // Do not allow a planner-model failure to abort the entire job.
@@ -671,17 +673,16 @@ public final class JobRunner {
                                                         t.getMessage() == null
                                                                 ? t.getClass().getSimpleName()
                                                                 : t.getMessage());
-                                                List<ChatMessage> ui = List.of(
+                                                List<ChatMessage> uiMessages = List.of(
                                                         new UserMessage(spec.taskInput()),
                                                         new SystemMessage("ASK direct-answer failed: "
                                                                 + stopDetails.explanation()));
-                                                var failureResult = new TaskResult(
-                                                        cm,
-                                                        "ASK: " + spec.taskInput() + " [LLM_ERROR]",
-                                                        ui,
-                                                        context,
-                                                        stopDetails,
-                                                        null);
+                                                context = context.addHistoryEntry(
+                                                        uiMessages,
+                                                        TaskResult.Type.ASK,
+                                                        requireNonNull(askPlannerModel),
+                                                        spec.taskInput());
+                                                var failureResult = new TaskResult(context, stopDetails);
                                                 try {
                                                     scope.append(failureResult);
                                                 } catch (Throwable e2) {
@@ -719,7 +720,7 @@ public final class JobRunner {
                                             var searchAgent = new SearchAgent(
                                                     context,
                                                     spec.taskInput(),
-                                                    Objects.requireNonNull(
+                                                    requireNonNull(
                                                             scanModelToUse, "scan model unavailable for SEARCH jobs"),
                                                     SearchPrompts.Objective.ANSWER_ONLY,
                                                     scope,
@@ -841,7 +842,7 @@ public final class JobRunner {
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         scanGoal,
-                                                        Objects.requireNonNull(
+                                                        requireNonNull(
                                                                 reviewScanModel,
                                                                 "scan model unavailable for REVIEW pre-scan"),
                                                         SearchPrompts.Objective.ANSWER_ONLY,
@@ -868,19 +869,19 @@ public final class JobRunner {
                                             }
 
                                             // 5. Call reviewDiff() to get LLM review with enriched context
-                                            var plannerModel = Objects.requireNonNull(
+                                            var plannerModel = requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-                                            TaskResult reviewResult = reviewDiff(
+                                            ReviewDiffResult review = reviewDiff(
                                                     context,
                                                     plannerModel,
                                                     annotatedDiff,
                                                     prDetails.title(),
                                                     prDetails.body());
+                                            TaskResult reviewResult = review.taskResult();
                                             scope.append(reviewResult);
 
                                             // 6. Parse review output (JSON only)
-                                            String reviewText =
-                                                    reviewResult.output().text().join();
+                                            String reviewText = review.responseText();
 
                                             var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
 
@@ -955,9 +956,9 @@ public final class JobRunner {
                                         }
                                     }
                                     case ISSUE -> {
-                                        StreamingChatModel issuePlannerModel = Objects.requireNonNull(
+                                        StreamingChatModel issuePlannerModel = requireNonNull(
                                                 architectPlannerModel, "plannerModel required for ISSUE jobs");
-                                        StreamingChatModel issueCodeModel = Objects.requireNonNull(
+                                        StreamingChatModel issueCodeModel = requireNonNull(
                                                 architectCodeModel, "code model required for ISSUE jobs");
 
                                         var issueExecutor =
@@ -1343,15 +1344,10 @@ public final class JobRunner {
             stop = TaskResult.StopDetails.fromResponse(response);
         }
 
-        // construct TaskResult
-        Objects.requireNonNull(stop);
-        return new TaskResult(
-                cm,
-                question,
-                List.copyOf(cm.getIo().getLlmRawMessages()),
-                ctx, // Ask never changes files; use current live context
-                stop,
-                meta);
+        requireNonNull(stop);
+
+        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), messages, TaskResult.Type.ASK, model, question);
+        return new TaskResult(ctx, stop);
     }
 
     /**
@@ -1479,7 +1475,7 @@ public final class JobRunner {
 
                 OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
                 """
-                        .formatted(prBlocks, severityLine, maxLine, fencedDiff);
+                        .formatted(prBlocks, fencedDiff, severityLine, maxLine);
 
         return prompt;
     }
@@ -1490,11 +1486,8 @@ public final class JobRunner {
      * <p>Package-private instance method: this is not stateless since it depends on the JobRunner's
      * {@link ContextManager} for service/model access and IO routing.
      */
-    TaskResult reviewDiff(
+    ReviewDiffResult reviewDiff(
             Context ctx, StreamingChatModel model, String annotatedDiff, String prTitle, String prDescription) {
-        var svc = cm.getService();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.REVIEW, Service.ModelConfig.from(model, svc));
-
         String prompt = buildReviewPrompt(
                 annotatedDiff,
                 DEFAULT_REVIEW_SEVERITY_THRESHOLD,
@@ -1508,21 +1501,27 @@ public final class JobRunner {
         var llm = cm.getLlm(new Llm.Options(model, "PR Review", TaskResult.Type.REVIEW).withEcho());
         llm.setOutput(cm.getIo());
 
-        TaskResult.StopDetails stop = null;
+        TaskResult.StopDetails stop;
         Llm.StreamingResult response = null;
         try {
             response = llm.sendRequest(messages);
+            stop = TaskResult.StopDetails.fromResponse(response);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
 
-        if (response != null) {
-            stop = TaskResult.StopDetails.fromResponse(response);
+        String responseText = "";
+        List<ChatMessage> responseMessages = List.of();
+        if (response != null && response.chatResponse() != null) {
+            var aiMessage = response.aiMessage();
+            responseMessages = List.of(aiMessage);
+            responseText = Messages.getText(aiMessage);
         }
 
-        Objects.requireNonNull(stop);
-        return new TaskResult(cm, "PR Review", List.copyOf(cm.getIo().getLlmRawMessages()), ctx, stop, meta);
+        Context reviewContext =
+                ctx.addHistoryEntry(responseMessages, messages, TaskResult.Type.REVIEW, model, "PR Review");
+        return new ReviewDiffResult(new TaskResult(reviewContext, stop), responseText);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
@@ -1887,7 +1886,7 @@ public final class JobRunner {
         }
 
         String baseMessage = "Tests/lint failed after " + maxIterations + " iteration(s)";
-        if (lastFailStage != null && lastFailCommand != null && lastFailOutput != null && !lastFailOutput.isBlank()) {
+        if (!requireNonNull(lastFailOutput).isBlank()) {
             throw new IssueExecutionException(baseMessage + ". Last failure: stage=" + lastFailStage + ", command="
                     + lastFailCommand + "\nOutput:\n" + lastFailOutput);
         }
@@ -2286,16 +2285,16 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult;
+                    ReviewDiffResult review;
                     try {
                         try (var reviewScope = cm.beginTaskUngrouped("PR Review")) {
-                            reviewResult = new JobRunner(cm, store).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
+                            review = new JobRunner(cm, store).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         throw new IssueExecutionException("Interrupted while running PR Review", e);
                     }
-                    String reviewText = reviewResult.output().text().join();
+                    String reviewText = review.responseText();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
                     if (reviewResponse == null) {

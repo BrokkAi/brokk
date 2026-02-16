@@ -25,7 +25,6 @@ import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ImageUtil;
-import ai.brokk.util.Messages;
 import com.formdev.flatlaf.util.SystemInfo;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
@@ -35,7 +34,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -552,11 +550,7 @@ public class PreviewManager {
     private void showOutputPreview(ContextFragments.OutputFragment of, String initialTitle) {
         var combinedMessages = new ArrayList<ChatMessage>();
         for (TaskEntry entry : of.entries()) {
-            if (entry.isCompressed()) {
-                combinedMessages.add(Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
-            } else {
-                combinedMessages.addAll(castNonNull(entry.log()).messages());
-            }
+            combinedMessages.addAll(entry.mopMessages());
         }
 
         var markdownPanel = new MarkdownOutputPanel();

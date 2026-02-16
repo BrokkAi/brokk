@@ -1250,7 +1250,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         }
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Attach files", () -> fragments.stream()
-                        .flatMap(frag -> frag.files().join().stream())
+                        .flatMap(frag -> frag.referencedFiles().join().stream())
                         .collect(Collectors.toCollection(ArrayList::new)))
                 .thenAccept(flist -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(flist)));
     }
@@ -1655,11 +1655,12 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 // Run the task
                 if (engineAction == Action.ASK) {
-                    var ctx = new Context(cm)
-                            .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages, instructions)))
-                            .addFragments(cm.toPathFragments(List.of(file)));
+                    var fragment = new ContextFragments.TaskFragment(readOnlyMessages, instructions);
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
+                    var ctx = new Context(cm)
+                            .withHistory(List.of(new TaskEntry(-1, fragment, fragment, null, meta)))
+                            .addFragments(cm.toPathFragments(List.of(file)));
                     var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions, meta);
                     var options = new Llm.Options(model, "Ask", TaskResult.Type.ASK).withPartialResponses();
                     var llm = cm.getLlm(options);

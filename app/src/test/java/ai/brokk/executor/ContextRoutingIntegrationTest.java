@@ -73,4 +73,20 @@ class ContextRoutingIntegrationTest {
                 response.statusCode(),
                 "Endpoint /v1/tasklist should be registered and not return 404");
     }
+
+    @Test
+    void testGetModels_isRegistered() throws Exception {
+        var uri = URI.create("http://127.0.0.1:" + executor.getPort() + "/v1/models");
+        var request = HttpRequest.newBuilder(uri)
+                .header("Authorization", "Bearer " + authToken)
+                .GET()
+                .build();
+
+        var response = client.send(request, HttpResponse.BodyHandlers.discarding());
+
+        assertNotEquals(
+                HttpURLConnection.HTTP_NOT_FOUND,
+                response.statusCode(),
+                "Endpoint /v1/models should be registered and not return 404");
+    }
 }

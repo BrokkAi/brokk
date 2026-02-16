@@ -48,7 +48,7 @@ public class CodePrompts {
     @Blocking
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
         return instructionsFlags(ctx.getEditableFragments()
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet()));
     }
 

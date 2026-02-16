@@ -38,7 +38,7 @@ public final class SimpleHttpServer {
         this.authToken = authToken;
         this.httpServer = HttpServer.create(new InetSocketAddress(host, port), 0);
 
-        var executor = ExecutorsUtil.newFixedThreadExecutor(threadCount, "SimpleHttpServer-Worker-");
+        var executor = ExecutorsUtil.newFixedThreadExecutor("SimpleHttpServer-Worker-", threadCount);
         this.httpServer.setExecutor(executor);
 
         logger.info("SimpleHttpServer created: {}:{} with {} worker threads", host, port, threadCount);
