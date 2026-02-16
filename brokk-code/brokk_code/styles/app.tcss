@@ -243,6 +243,56 @@ ChatPanel {
     border: solid $primary-darken-2;
 }
 
+/* Status line: a single-line bar above the footer with compact segments.
+   Mirrors visual language used by other panels (background, border colors).
+   Keeps a fixed height and uses horizontal layout so segments sit side-by-side.
+   Long content is clipped with ellipsis to ensure the bar remains single-line. */
+#status-line {
+    height: 1;
+    min-height: 1;
+    max-height: 1;
+    padding: 0 1;
+    layout: horizontal;
+    background: $panel;
+    border-top: solid $primary-darken-2;
+    color: $text;
+    content-align: left middle;
+    overflow: hidden;
+}
+
+/* Individual segments inside the status line. Use a muted label followed
+   by a value. Ensure segments don't force the bar to grow by clipping. */
+#status-line .status-segment {
+    height: 1;
+    min-width: 8;
+    max-width: 1fr;
+    padding-right: 2;
+    layout: horizontal;
+    content-align: left middle;
+    overflow: hidden;
+}
+
+/* Label (e.g., "Mode:", "Model:") shown muted to de-emphasize. */
+#status-line .status-label {
+    color: $text-muted;
+    padding-right: 1;
+}
+
+/* Value text uses main text color and is allowed to elide if too long. */
+#status-line .status-value {
+    color: $text;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* A small separator to visually split groups if needed. */
+#status-line .status-sep {
+    color: $text-muted;
+    padding: 0 1;
+}
+
+/* Ensure the Textual `.hidden` class continues to hide the status line cleanly. */
 .hidden {
     display: none;
 }
