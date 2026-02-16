@@ -2,6 +2,7 @@ package ai.brokk.executor.routers;
 
 import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import com.sun.net.httpserver.HttpExchange;
@@ -32,6 +33,9 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private static final Logger logger = LogManager.getLogger(SessionsRouter.class);
+
+    // Limit session uploads to 200MB to prevent DoS via OOM or disk exhaustion
+    private static final long MAX_SESSION_UPLOAD_SIZE = 200 * 1024 * 1024L;
 
     private final ContextManager contextManager;
     private final SessionManager sessionManager;
@@ -183,27 +187,50 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
             return;
         }
 
-        // Accept zip bytes, optional X-Session-Id header
-        try (InputStream in = exchange.getRequestBody()) {
-            byte[] data = in.readAllBytes();
-            String header = exchange.getRequestHeaders().getFirst("X-Session-Id");
-            UUID sessionId = null;
-            if (header != null && !header.isBlank()) {
-                try {
-                    sessionId = UUID.fromString(header);
-                } catch (IllegalArgumentException e) {
-                    RouterUtil.sendValidationError(exchange, "Invalid X-Session-Id header");
+        // Check Content-Length header early if available
+        String contentLengthHeader = exchange.getRequestHeaders().getFirst("Content-Length");
+        if (contentLengthHeader != null) {
+            try {
+                long contentLength = Long.parseLong(contentLengthHeader);
+                if (contentLength > MAX_SESSION_UPLOAD_SIZE) {
+                    SimpleHttpServer.sendJsonResponse(
+                            exchange, 413, ErrorPayload.of(ErrorPayload.Code.BAD_REQUEST, "Payload Too Large"));
                     return;
                 }
-            } else {
-                // SessionManager.newSessionId() is package-private; generate a new UUID here instead.
-                // The SessionManager.newSession(...) call (used elsewhere) will create canonical session metadata.
-                sessionId = UUID.randomUUID();
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed header, fall back to streaming limit
             }
+        }
 
-            Path zipPath = sessionManager.getSessionsDir().resolve(sessionId.toString() + ".zip");
-            Files.createDirectories(zipPath.getParent());
-            Files.write(zipPath, data);
+        String header = exchange.getRequestHeaders().getFirst("X-Session-Id");
+        UUID sessionId;
+        if (header != null && !header.isBlank()) {
+            try {
+                sessionId = UUID.fromString(header);
+            } catch (IllegalArgumentException e) {
+                RouterUtil.sendValidationError(exchange, "Invalid X-Session-Id header");
+                return;
+            }
+        } else {
+            sessionId = UUID.randomUUID();
+        }
+
+        Path zipPath = sessionManager.getSessionsDir().resolve(sessionId.toString() + ".zip");
+        Files.createDirectories(zipPath.getParent());
+
+        try (InputStream in = exchange.getRequestBody()) {
+            AtomicWrites.save(zipPath, out -> {
+                byte[] buffer = new byte[64 * 1024];
+                long totalRead = 0;
+                int n;
+                while ((n = in.read(buffer)) != -1) {
+                    totalRead += n;
+                    if (totalRead > MAX_SESSION_UPLOAD_SIZE) {
+                        throw new IOException("Upload limit exceeded");
+                    }
+                    out.write(buffer, 0, n);
+                }
+            });
 
             // Switch to session asynchronously and wait briefly
             try {
@@ -214,6 +241,15 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
 
             sessionLoadedCallback.accept(true);
             SimpleHttpServer.sendJsonResponse(exchange, 201, new PutSessionResponse(sessionId.toString()));
+        } catch (IOException e) {
+            if ("Upload limit exceeded".equals(e.getMessage())) {
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, 413, ErrorPayload.of(ErrorPayload.Code.BAD_REQUEST, "Payload Too Large"));
+            } else {
+                logger.error("IO Error importing session zip", e);
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, 500, ErrorPayload.internalError("Failed to import session", e));
+            }
         } catch (Exception e) {
             logger.error("Failed to import session zip", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to import session", e));
