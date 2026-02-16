@@ -202,7 +202,21 @@ public final class FuzzyUsageFinder {
         // sees a reduced (but still correct) candidate set.
         try {
             if (target.isFunction()) {
-                var declParamCounts = extractParameterCountsForDefinitions(target.fqName());
+                var declParamCounts = overloads.stream()
+                        .map(CodeUnit::signature)
+                        .mapToInt(FuzzyUsageFinder::parseParameterCountFromSignature)
+                        .filter(count -> count >= 0)
+                        .boxed()
+                        .collect(Collectors.toSet());
+
+                // If we are searching for a specific signature, we only care about that signature's count.
+                if (targetIsSignatureQualified) {
+                    int targetCount = parseParameterCountFromSignature(target.signature());
+                    if (targetCount >= 0) {
+                        declParamCounts = Set.of(targetCount);
+                    }
+                }
+
                 if (!declParamCounts.isEmpty() && !hits.isEmpty()) {
                     Set<UsageHit> filtered = new HashSet<>();
                     for (var hit : hits) {
@@ -429,14 +443,35 @@ public final class FuzzyUsageFinder {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
             return new FuzzyResult.Success(Map.of());
         }
-        var definitions = analyzer.getDefinitions(fqName);
+
+        String lookupName = fqName;
+        String requestedSignature = null;
+        int parenIdx = fqName.indexOf('(');
+        if (parenIdx > 0 && fqName.endsWith(")")) {
+            lookupName = fqName.substring(0, parenIdx);
+            requestedSignature = fqName.substring(parenIdx);
+        }
+
+        var definitions = analyzer.getDefinitions(lookupName);
         if (definitions.isEmpty()) {
-            logger.debug("No definitions found for fqName={}; returning Failure", fqName);
+            logger.debug("No definitions found for fqName={}; returning Failure", lookupName);
             return new FuzzyResult.Failure(fqName, "No definitions found");
         }
 
-        // Build overloads list from all definitions (preserving signatures for the LLM prompt)
-        var overloads = List.copyOf(definitions);
+        List<CodeUnit> overloads;
+        if (requestedSignature != null) {
+            final String finalSig = requestedSignature;
+            overloads = definitions.stream()
+                    .filter(def -> def.signature() != null && def.signature().equals(finalSig))
+                    .toList();
+
+            if (overloads.isEmpty()) {
+                logger.debug("No definitions found matching signature {} for {}", finalSig, lookupName);
+                return new FuzzyResult.Failure(fqName, "No definitions found matching signature");
+            }
+        } else {
+            overloads = List.copyOf(definitions);
+        }
 
         var result = findUsages(overloads, maxFiles, maxUsages);
         Map<CodeUnit, Set<UsageHit>> allHitsByOverload =
@@ -556,42 +591,6 @@ public final class FuzzyUsageFinder {
     }
 
     /**
-     * Experimental heuristic: derive the set of declaration-side parameter counts for the given fully-qualified
-     * name by inspecting CodeUnit.signature() values returned by analyzer.getDefinitions(fqName).
-     *
-     * Notes and constraints:
-     * - Limited to function-like code units (CodeUnit.isFunction()). Class/field/module definitions are ignored.
-     * - Parsing is intentionally simple and defensive: when a signature is null or cannot be parsed, that CodeUnit
-     *   is skipped and does not contribute to the returned set.
-     * - Works purely in-memory on signature strings; does not trigger analyzer work or read files.
-     * - Returns an empty set when no reliable parameter counts can be obtained.
-     */
-    private Set<Integer> extractParameterCountsForDefinitions(String fqName) {
-        var defs = analyzer.getDefinitions(fqName);
-        if (defs.isEmpty()) {
-            return Set.of();
-        }
-        var counts = new HashSet<Integer>();
-        for (CodeUnit def : defs) {
-            // Only consider function-like definitions (methods/constructors); skip classes/fields/modules.
-            if (!def.isFunction()) {
-                continue;
-            }
-            try {
-                String sig = def.signature();
-                int parsed = parseParameterCountFromSignature(sig);
-                if (parsed >= 0) {
-                    counts.add(parsed);
-                }
-            } catch (Exception e) {
-                // Be conservative: skip any definition that causes unexpected parsing errors.
-                logger.debug("Skipping definition {} due to signature parse error: {}", def, e.toString());
-            }
-        }
-        return counts;
-    }
-
-    /**
      * NEW HELPER:
      *
      * Estimate the number of arguments passed at the call corresponding to a UsageHit.
@@ -652,12 +651,14 @@ public final class FuzzyUsageFinder {
                 int scan = afterIdx;
                 // Skip spaces
                 while (scan < line.length() && Character.isWhitespace(line.charAt(scan))) scan++;
-                // If there's a dot immediately, this might be receiver.method() scenario; we still allow if '(' appears
-                // later
-                // But if '::' method reference, treat as non-call
-                if (scan + 1 < line.length() && line.charAt(scan) == ':' && line.charAt(scan + 1) == ':') {
-                    from = pos + 1;
-                    continue; // method reference, not a call
+
+                // If '::' method reference is found near the identifier, we cannot estimate argument count.
+                // Search slightly before and after for '::'
+                boolean isMethodRef =
+                        (scan + 1 < line.length() && line.charAt(scan) == ':' && line.charAt(scan + 1) == ':')
+                                || (pos >= 2 && line.charAt(pos - 1) == ':' && line.charAt(pos - 2) == ':');
+                if (isMethodRef) {
+                    return OptionalInt.empty();
                 }
 
                 // Find '(' after pos in the same line
