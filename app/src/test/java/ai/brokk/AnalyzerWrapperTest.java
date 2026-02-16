@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.FileUtil;
+import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import ai.brokk.watchservice.AbstractWatchService.Listener;
 import ai.brokk.watchservice.JavaProjectWatchService;
@@ -263,49 +265,47 @@ class AnalyzerWrapperTest {
     @Test
     void testOnFilesChangedSkipsUpdateWhenTrackedFilesStale() throws Exception {
         var projectRoot = tempDir.resolve("project-stale-deterministic");
-        java.nio.file.Files.createDirectories(projectRoot);
-        java.nio.file.Path aPath = projectRoot.resolve("pkg/A.java");
-        java.nio.file.Files.createDirectories(aPath.getParent());
-        java.nio.file.Files.writeString(aPath, "package pkg; public class A { void a() {} }");
+        Files.createDirectories(projectRoot);
+        Path aPath = projectRoot.resolve("pkg/A.java");
+        Files.createDirectories(aPath.getParent());
+        Files.writeString(aPath, "package pkg; public class A { void a() {} }");
 
-        ai.brokk.git.TestRepo backingRepo = new ai.brokk.git.TestRepo(projectRoot);
-        ai.brokk.analyzer.ProjectFile pf = new ai.brokk.analyzer.ProjectFile(projectRoot, "pkg/A.java");
+        TestRepo backingRepo = new TestRepo(projectRoot);
+        ProjectFile pf = new ProjectFile(projectRoot, "pkg/A.java");
         backingRepo.add(pf);
 
         CachingRepoWrapper cachingRepo = new CachingRepoWrapper(backingRepo);
 
         class ProjectWithCachingRepo extends ai.brokk.testutil.TestProject {
-            ProjectWithCachingRepo(java.nio.file.Path root) {
-                super(root, ai.brokk.analyzer.Languages.JAVA);
+            ProjectWithCachingRepo(Path root) {
+                super(root, Languages.JAVA);
             }
 
             @Override
-            public ai.brokk.git.IGitRepo getRepo() {
+            public IGitRepo getRepo() {
                 return cachingRepo;
             }
         }
 
         var project = new ProjectWithCachingRepo(projectRoot);
-        analyzerWrapper = new AnalyzerWrapper(
-                project, new ai.brokk.NullAnalyzerListener(), new ai.brokk.watchservice.NoopWatchService());
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
 
         // 1. Wait for initial analyzer
-        ai.brokk.analyzer.IAnalyzer initialAnalyzer = analyzerWrapper.get();
+        IAnalyzer initialAnalyzer = analyzerWrapper.get();
         assertNotNull(initialAnalyzer);
 
         // 2. Seed the stale cache in the repo wrapper
         cachingRepo.getTrackedFiles();
 
         // 3. Modify the file on disk
-        java.nio.file.Files.writeString(aPath, "package pkg; public class A { void a() {} void b() {} }");
+        Files.writeString(aPath, "package pkg; public class A { void a() {} void b() {} }");
 
         // 4. Backing repo is updated, but cachingRepo is still stale.
         // In the bug, onFilesChanged would skip because cachingRepo.getTrackedFiles() returns old set.
         backingRepo.add(pf);
 
         // 5. Trigger onFilesChanged
-        ai.brokk.watchservice.AbstractWatchService.EventBatch batch =
-                new ai.brokk.watchservice.AbstractWatchService.EventBatch();
+        AbstractWatchService.EventBatch batch = new AbstractWatchService.EventBatch();
         batch.getFiles().add(pf);
         analyzerWrapper.onFilesChanged(batch);
 
@@ -314,7 +314,7 @@ class AnalyzerWrapperTest {
         boolean updated = false;
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
-            ai.brokk.analyzer.IAnalyzer current = analyzerWrapper.get();
+            IAnalyzer current = analyzerWrapper.get();
             String skeleton =
                     ai.brokk.AnalyzerUtil.getSkeleton(current, "pkg.A").orElse("");
             if (skeleton.contains("void b()")) {
@@ -447,12 +447,12 @@ class AnalyzerWrapperTest {
         }
 
         @Override
-        public java.nio.file.Path getWorkTreeRoot() {
+        public Path getWorkTreeRoot() {
             return delegate.getWorkTreeRoot();
         }
 
         @Override
-        public java.util.List<java.nio.file.Path> getFixedGitignoreFiles() {
+        public java.util.List<Path> getFixedGitignoreFiles() {
             return delegate.getFixedGitignoreFiles();
         }
 
