@@ -126,6 +126,15 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
             }
 
             try {
+                // Ensure session files are removed on disk promptly to avoid leaking temp files
+                // Perform direct SessionManager deletion synchronously, then request ContextManager
+                // to perform any higher-level cleanup asynchronously.
+                try {
+                    sessionManager.deleteSession(sessionId);
+                } catch (Exception se) {
+                    logger.warn("SessionManager.deleteSession threw while deleting {}: {}", sessionId, se.toString());
+                }
+
                 contextManager.deleteSessionAsync(sessionId).get(10, TimeUnit.SECONDS);
             } catch (java.util.concurrent.TimeoutException te) {
                 logger.warn("Timed out waiting for deleteSessionAsync to complete for {}", sessionId);
