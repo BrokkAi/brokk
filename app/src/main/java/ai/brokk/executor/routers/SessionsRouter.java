@@ -144,7 +144,7 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
         var req = RouterUtil.parseJsonOr400(exchange, RenameSessionRequest.class, "/v1/sessions/{id}");
         if (req == null) return;
 
-        var newName = req.name() == null ? "" : req.name().strip();
+        var newName = req.name().strip();
         if (newName.isBlank()) {
             RouterUtil.sendValidationError(exchange, "Session name is required and must not be blank");
             return;
@@ -217,7 +217,7 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
         var req = RouterUtil.parseJsonOr400(exchange, RenameSessionRequest.class, "/v1/sessions/{id}/copy");
         if (req == null) return;
 
-        String copyName = req.name() == null || req.name().isBlank()
+        String copyName = req.name().isBlank()
                 ? "Copy of " + sessionId.toString()
                 : req.name().strip();
         if (copyName.length() > 200) {
