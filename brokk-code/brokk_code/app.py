@@ -1069,8 +1069,9 @@ class BrokkApp(App):
         """Handles Ctrl+C: Clear input, cancel job, or double-tap to quit."""
         chat_panel = self._maybe_chat()
         if chat_panel:
-            chat_input = self.query_one("#chat-input", ChatInput)
-            if chat_input.text.strip():
+            chat_inputs = self.query("#chat-input").results(ChatInput)
+            chat_input = next(chat_inputs, None)
+            if chat_input and chat_input.text.strip():
                 chat_panel.clear_input()
                 return
 

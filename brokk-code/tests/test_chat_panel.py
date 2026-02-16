@@ -286,3 +286,49 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
         # Should contain the Markdown-rendered Hello, and still not contain a Thinking panel.
         assert "Hello" in combined
         assert "Thinking" not in combined
+
+
+@pytest.mark.asyncio
+async def test_action_handle_ctrl_c_no_input_widget():
+    """
+    Regression test: Verify action_handle_ctrl_c does not crash if _maybe_chat()
+    returns a panel but the #chat-input widget is not currently in the DOM.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from textual.dom_list import DOMList
+
+    from brokk_code.app import BrokkApp
+
+    executor = MagicMock()
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Simulate a job in progress so we can verify the fall-through behavior
+            app.job_in_progress = True
+            app.current_job_id = "test-job-id"
+            app.executor.cancel_job = AsyncMock()
+
+            # Mock query to return empty when looking for #chat-input
+            # This simulates the widget being unmounted/missing
+            original_query = app.query
+
+            def mocked_query(selector: str):
+                if selector == "#chat-input":
+                    return DOMList([])
+                return original_query(selector)
+
+            with patch.object(app, "query", side_effect=mocked_query):
+                # This should NOT raise even though #chat-input is 'missing'
+                await app.action_handle_ctrl_c()
+                await pilot.pause()
+
+            # Verify it fell through to job cancellation
+            app.executor.cancel_job.assert_called_once_with("test-job-id")
