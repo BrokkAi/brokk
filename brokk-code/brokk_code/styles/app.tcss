@@ -21,6 +21,12 @@ ContextModalScreen {
     display: none;
 }
 
+#side-tasklist:focus {
+    /* When the task list panel has keyboard focus, highlight with the accent color
+       to match other focused elements like #chat-input and .context-chip. */
+    border-left: solid $accent;
+}
+
 #tasklist-header {
     padding: 1 2;
     background: $primary-darken-1;
