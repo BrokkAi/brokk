@@ -273,6 +273,22 @@ public final class JobRunner {
     }
 
     /**
+     * Shut down the runner executor and await termination.
+     */
+    public void shutdown() {
+        logger.info("Shutting down JobRunner");
+        runner.shutdownNow();
+        try {
+            if (!runner.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                logger.warn("JobRunner executor did not terminate in time");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while waiting for JobRunner shutdown");
+        }
+    }
+
+    /**
      * Execute a job asynchronously.
      *
      * @param jobId The unique job identifier
@@ -301,7 +317,7 @@ public final class JobRunner {
             if (status == null) {
                 status = JobStatus.queued(jobId);
             }
-            status = status.withState("RUNNING");
+            status = status.withState(JobStatus.State.RUNNING.name());
             store.updateStatus(jobId, status);
             logger.info("Job {} transitioned to RUNNING", jobId);
         } catch (Exception e) {
@@ -1146,12 +1162,27 @@ public final class JobRunner {
                         if (s == null) {
                             s = JobStatus.queued(jobId);
                         }
-                        s = s.cancelled();
+
+                        boolean alreadyCancelled =
+                                JobStatus.State.CANCELLED.name().equals(s.state());
+                        boolean hadLastSeq = s.metadata().containsKey("lastSeq");
+
+                        if (!alreadyCancelled) {
+                            s = s.cancelled();
+                        }
+
                         if (console != null) {
                             long lastSeq = console.getLastSeq();
                             s = s.withMetadata("lastSeq", Long.toString(lastSeq));
                         }
-                        store.updateStatus(jobId, s);
+
+                        // Update if state changed or if we enriched with missing metadata
+                        if (!alreadyCancelled || !hadLastSeq) {
+                            store.updateStatus(jobId, s);
+                        } else {
+                            logger.debug(
+                                    "Job {} already marked CANCELLED with metadata, skipping redundant update", jobId);
+                        }
                     } catch (Exception e2) {
                         logger.warn("Failed to persist CANCELLED status for job {}", jobId, e2);
                     }
@@ -1241,7 +1272,9 @@ public final class JobRunner {
             if (s != null) {
                 String state = s.state();
                 // Only transition if not already in a terminal state
-                if (!"COMPLETED".equals(state) && !"FAILED".equals(state) && !"CANCELLED".equals(state)) {
+                if (!JobStatus.State.COMPLETED.name().equals(state)
+                        && !JobStatus.State.FAILED.name().equals(state)
+                        && !JobStatus.State.CANCELLED.name().equals(state)) {
                     s = s.cancelled();
                     long lastSeq = console != null ? console.getLastSeq() : -1;
                     s = s.withMetadata("lastSeq", Long.toString(lastSeq));

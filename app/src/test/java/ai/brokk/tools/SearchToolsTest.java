@@ -582,7 +582,9 @@ public class SearchToolsTest {
 
         // DocumentBuilder should reject the DTD
         assertTrue(result.contains("errors in 1 of 1 files"), "Should report error due to DTD disallowance");
-        assertTrue(result.contains("DOCTYPE is disallowed"), "Should specifically mention DOCTYPE restriction");
+        assertTrue(
+                result.contains("DOCTYPE") && result.contains("disallow-doctype-decl"),
+                "Should specifically mention DOCTYPE restriction, got: " + result);
     }
 
     private static int countOccurrences(String text, String substring) {

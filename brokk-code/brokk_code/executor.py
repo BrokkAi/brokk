@@ -290,6 +290,8 @@ class ExecutorManager:
 
         cmd = [
             "java",
+            "-Djava.awt.headless=true",
+            "-Dapple.awt.UIElement=true",
             "-cp",
             str(jar_path),
             "ai.brokk.executor.HeadlessExecutorMain",

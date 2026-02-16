@@ -18,6 +18,7 @@ from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.session_panel import SessionPanel
+from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 logger = logging.getLogger(__name__)
@@ -208,7 +209,8 @@ class BrokkApp(App):
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
-        # Footer/help-bar ordering: Mode, Model, Reasoning, Context, Tasks, Notifications, Settings
+        # Footer/help-bar ordering: Mode, Model, Reasoning, Context,
+        # Tasks, Notifications, Settings
         Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+u", "select_model", "Model", show=True),
@@ -216,6 +218,7 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
+        Binding("ctrl+s", "toggle_statusline", "Status", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
@@ -254,10 +257,29 @@ class BrokkApp(App):
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.sub_title = f"Mode: {self.agent_mode}"
-        self.current_model = "gpt-5.2"
-        self.code_model: Optional[str] = "gemini-3-flash-preview"
-        self.reasoning_level: Optional[str] = "low"
-        self.reasoning_level_code: Optional[str] = "disable"
+
+        # Initialize model and reasoning settings from persisted Settings if present,
+        # otherwise fall back to safe defaults.
+        # We accept persisted values as-is at startup; validation against the
+        # executor model catalog can occur later if needed.
+        self.current_model = (
+            str(self.settings.last_model).strip() if self.settings.last_model else "gpt-5.2"
+        )
+        self.code_model = (
+            str(self.settings.last_code_model).strip()
+            if self.settings.last_code_model
+            else "gemini-3-flash-preview"
+        )
+        self.reasoning_level = (
+            str(self.settings.last_reasoning_level).strip()
+            if self.settings.last_reasoning_level
+            else "low"
+        )
+        self.reasoning_level_code = (
+            str(self.settings.last_code_reasoning_level).strip()
+            if self.settings.last_code_reasoning_level
+            else "disable"
+        )
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
@@ -286,11 +308,44 @@ class BrokkApp(App):
         except (ScreenStackError, Exception):
             return None
 
+    def _maybe_statusline(self) -> Optional[StatusLine]:
+        """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
+        try:
+            return self.query_one(StatusLine)
+        except (ScreenStackError, Exception):
+            return None
+
+    def _update_statusline(self) -> None:
+        """Collect current state and update the mounted StatusLine (best-effort)."""
+        status = self._maybe_statusline()
+        if not status:
+            return
+        try:
+            workspace = None
+            try:
+                if getattr(self, "executor", None) is not None:
+                    ws = getattr(self.executor, "workspace_dir", None)
+                    if ws is not None:
+                        workspace = str(ws)
+            except Exception:
+                workspace = None
+
+            status.update_status(
+                mode=getattr(self, "current_mode", getattr(self, "agent_mode", "unknown")),
+                model=getattr(self, "current_model", None),
+                reasoning=getattr(self, "reasoning_level", None),
+                workspace=workspace,
+            )
+        except Exception:
+            # Swallow all errors when updating UI that's possibly not mounted in tests.
+            return
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
+        yield StatusLine(id="status-line")
         yield OrderedFooter(show_command_palette=False)
 
     async def on_mount(self) -> None:
@@ -815,6 +870,8 @@ class BrokkApp(App):
         """Sets the agent mode, updates the subtitle, and optionally announces to chat."""
         self.agent_mode = new_mode
         self.sub_title = f"Mode: {self.agent_mode}"
+        # Update statusline if present
+        self._update_statusline()
         if announce:
             msg_markup = f"Mode changed to: [bold]{self.agent_mode}[/]"
             chat = self._maybe_chat()
@@ -856,17 +913,43 @@ class BrokkApp(App):
 
         if base == "/model" and len(parts) > 1:
             self.current_model = parts[1]
+            # Persist the last-used planner model for subsequent runs
+            try:
+                self.settings.last_model = self.current_model
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_model setting")
             chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
+            self._update_statusline()
         elif base == "/model-code" and len(parts) > 1:
             self.code_model = parts[1]
+            # Persist the last-used code model
+            try:
+                self.settings.last_code_model = self.code_model
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_code_model setting")
             chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
         elif base == "/reasoning" and len(parts) > 1:
             self.reasoning_level = parts[1]
+            # Persist planner reasoning preference
+            try:
+                self.settings.last_reasoning_level = self.reasoning_level
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_reasoning_level setting")
             chat.add_system_message_markup(
                 f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
             )
+            self._update_statusline()
         elif base == "/reasoning-code" and len(parts) > 1:
             self.reasoning_level_code = parts[1]
+            # Persist code reasoning preference
+            try:
+                self.settings.last_code_reasoning_level = self.reasoning_level_code
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_code_reasoning_level setting")
             chat.add_system_message_markup(
                 f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
             )
@@ -1035,8 +1118,19 @@ class BrokkApp(App):
             def update_model(model_id: str | None) -> None:
                 if model_id:
                     self.current_model = model_id
+                    # Persist choice so subsequent runs reuse it
+                    try:
+                        self.settings.last_model = model_id
+                        self.settings.save()
+                    except Exception:
+                        logger.exception("Failed to persist selected model")
                     if chat:
                         chat.add_system_message_markup(f"Model changed to: [bold]{model_id}[/]")
+                    # Update statusline (best-effort)
+                    try:
+                        self._update_statusline()
+                    except Exception:
+                        pass
 
             self.push_screen(ModelSelectModal(available_models), update_model)
         except Exception as e:
@@ -1053,8 +1147,19 @@ class BrokkApp(App):
         def update_level(level: str | None) -> None:
             if level:
                 self.reasoning_level = level
+                # Persist the user's reasoning preference
+                try:
+                    self.settings.last_reasoning_level = level
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist reasoning level")
                 if chat:
                     chat.add_system_message_markup(f"Reasoning level changed to: [bold]{level}[/]")
+                # Update statusline (best-effort)
+                try:
+                    self._update_statusline()
+                except Exception:
+                    pass
 
         self.push_screen(ReasoningSelectModal(levels, current), update_level)
 
@@ -1119,6 +1224,15 @@ class BrokkApp(App):
     def action_toggle_notifications(self) -> None:
         panel = self.query_one("#notification-panel")
         panel.toggle_class("hidden")
+
+    def action_toggle_statusline(self) -> None:
+        """Toggle visibility of the status line (best-effort)."""
+        try:
+            panel = self.query_one("#status-line")
+            panel.toggle_class("hidden")
+        except Exception:
+            # If not mounted, ignore
+            pass
 
     def _set_theme(self, theme_name: str) -> None:
         normalized_theme = normalize_theme_name(theme_name.lower())

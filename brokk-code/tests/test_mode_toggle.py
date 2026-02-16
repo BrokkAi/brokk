@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 
 from brokk_code.app import BrokkApp
 from brokk_code.widgets.chat_panel import ChatPanel
+from brokk_code.widgets.status_line import StatusLine
 
 
 def test_action_toggle_mode_cycles_correctly():
@@ -117,3 +118,26 @@ def test_action_toggle_mode_handles_unknown_mode():
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
     assert app.sub_title == "Mode: ASK"
+
+
+def test_status_line_is_composed_and_updates_on_mode_change():
+    """
+    Ensure that when the app mode changes the status line is asked
+    to update with the new mode. This test uses a mock for query_one
+    so we don't require a full Textual runtime or active app context.
+    """
+    app = BrokkApp(executor=MagicMock())
+
+    # Replace the status widget with a mock that records updates.
+    mock_status = MagicMock(spec=StatusLine)
+    app.query_one = MagicMock(return_value=mock_status)
+
+    # Change mode and ensure the status line receive an update containing the new mode.
+    app._set_mode("ASK", announce=False)
+
+    # Ensure _update_statusline triggered update_status with correct keyword arguments.
+    assert mock_status.update_status.called, (
+        "StatusLine.update_status should be called on mode change"
+    )
+    kwargs = mock_status.update_status.call_args.kwargs
+    assert kwargs["mode"] == "ASK", "Status line should reflect the new mode 'ASK'"

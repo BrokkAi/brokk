@@ -35,8 +35,12 @@ Build the shadow JAR containing the CLI:
 Run directly:
 
 ```bash
-java -cp app/build/libs/brokk-<version>.jar ai.brokk.tools.HeadlessExecCli [options] [prompt]
+java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
+  -cp app/build/libs/brokk-<version>.jar \
+  ai.brokk.tools.HeadlessExecCli [options] [prompt]
 ```
+
+Note: including `-Djava.awt.headless=true -Dapple.awt.UIElement=true` ensures the JVM and any in-process executor stay truly headless on macOS (the `apple.awt.UIElement` flag hides the process from the Dock/app switcher and is a no-op on other platforms).
 
 Or via Gradle:
 
