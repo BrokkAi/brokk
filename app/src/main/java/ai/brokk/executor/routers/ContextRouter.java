@@ -28,6 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -82,6 +83,8 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             case "/v1/context/methods" -> handlePostContextMethods(exchange);
             case "/v1/context/text" -> handlePostContextText(exchange);
             case "/v1/tasklist" -> handlePostTaskList(exchange);
+            case "/v1/context/undo" -> handlePostContextUndo(exchange);
+            case "/v1/context/redo" -> handlePostContextRedo(exchange);
             default ->
                 SimpleHttpServer.sendJsonResponse(
                         exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
@@ -552,6 +555,79 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         var updated = new TaskList.TaskListData(request.bigPicture(), List.copyOf(nonNullTasks));
         contextManager.pushContext(ctx -> ctx.withTaskList(updated));
         SimpleHttpServer.sendJsonResponse(exchange, contextManager.getTaskList());
+    }
+
+    private void handlePostContextUndo(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        try {
+            // Preferred synchronous API if available
+            boolean wasUndone = false;
+            try {
+                // ContextManager.undoContext() is @Blocking and returns boolean
+                wasUndone = contextManager.undoContext();
+            } catch (UnsupportedOperationException | NoSuchMethodError ignore) {
+                // Fallback to async variant if synchronous not available
+                try {
+                    var fut = contextManager.undoContextAsync();
+                    if (fut != null) {
+                        fut.get(5, TimeUnit.SECONDS);
+                        // Heuristic: check history has undo states removed
+                        wasUndone = !contextManager.getContextHistory().hasUndoStates();
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw ie;
+                }
+            }
+
+            // Attempt to surface steps if available via ContextHistory (best-effort)
+            int steps = 0;
+            try {
+                // We can't directly get number of steps undone from ContextManager API,
+                // but ContextHistory exposes state; this is best-effort and may be 0.
+                var hist = contextManager.getContextHistory();
+                // No direct API for last undo count, so leave as 0.
+                steps = 0;
+            } catch (Exception ignored) {
+            }
+
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "ok", "wasUndone", wasUndone, "steps", steps));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/undo", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to undo context", e));
+        }
+    }
+
+    private void handlePostContextRedo(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        try {
+            boolean wasRedone = false;
+
+            // Best-effort: detect existing redo capability before calling
+            boolean hadRedoBefore = false;
+            try {
+                hadRedoBefore = contextManager.getContextHistory().hasRedoStates();
+            } catch (Exception ignored) {
+            }
+
+            try {
+                var fut = contextManager.redoContextAsync();
+                if (fut != null) {
+                    fut.get(5, TimeUnit.SECONDS);
+                    // Heuristic: if there was a redo available before, we assume something was redone
+                    wasRedone =
+                            hadRedoBefore || !contextManager.getContextHistory().hasRedoStates();
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw ie;
+            }
+
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "ok", "wasRedone", wasRedone));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/redo", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to redo context", e));
+        }
     }
 
     private String classifyChipKind(ContextFragment fragment) {
