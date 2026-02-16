@@ -992,4 +992,45 @@ public class FuzzyUsageFinderJavaTest {
                     "Snippet should contain the accessor call 'entry.log()'");
         }
     }
+
+    @Test
+    public void testImportGraphCandidateProviderWithPolymorphism() throws Exception {
+        String baseSource = "package animals; public class Base { public void speak() {} }";
+        String dogSource = "package animals; public class Dog extends Base {}";
+        String callerSource =
+                """
+                package zoo;
+                import animals.Dog;
+                public class Caller {
+                    public void callDog(Dog dog) {
+                        dog.speak();
+                    }
+                }
+                """;
+
+        try (IProject inlineProject = InlineTestProjectCreator.code(baseSource, "animals/Base.java")
+                .addFileContents(dogSource, "animals/Dog.java")
+                .addFileContents(callerSource, "zoo/Caller.java")
+                .build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+
+            // Get the base method CodeUnit
+            var definitions = inlineAnalyzer.getDefinitions("animals.Base.speak");
+            assertFalse(definitions.isEmpty(), "Base.speak definition should be found");
+            CodeUnit target = definitions.getFirst();
+
+            // Use the provider to find candidates
+            ImportGraphCandidateProvider provider = new ImportGraphCandidateProvider();
+            Set<ProjectFile> candidates = provider.findCandidates(target, inlineAnalyzer);
+
+            Set<String> fileNames =
+                    candidates.stream().map(ProjectFile::getFileName).collect(Collectors.toSet());
+
+            // Assert that candidates include the defining file and the file calling via subclass
+            assertTrue(fileNames.contains("Base.java"), "Should include Base.java (source); found: " + fileNames);
+            assertTrue(
+                    fileNames.contains("Caller.java"),
+                    "Should include Caller.java (polymorphic call); found: " + fileNames);
+        }
+    }
 }
