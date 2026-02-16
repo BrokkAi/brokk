@@ -778,26 +778,34 @@ public class CodeAgent {
 
             var notInContext = Sets.difference(mentionedFiles, filesInContext);
             if (!notInContext.isEmpty()) {
-                var quickModel = contextManager.getService().quickestModel();
-                var llm = contextManager.getLlm(quickModel, "Check if asking for files", TaskResult.Type.CLASSIFY);
-
+                var classifier = contextManager.getLlm(
+                        contextManager.getService().getScanModel(),
+                        "Check if asking for files",
+                        TaskResult.Type.CLASSIFY);
                 var filterDescription =
                         "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";
+
                 boolean isAskingForFiles;
                 try {
-                    isAskingForFiles = RelevanceClassifier.isRelevant(llm, filterDescription, lastAiText);
+                    var lastMsg = cs.taskMessages().getLast();
+                    assert lastMsg instanceof AiMessage;
+                    var textOpt = CodePrompts.redactEditBlocks((AiMessage) lastMsg, false)
+                            .map(AiMessage::text);
+                    isAskingForFiles = textOpt.isPresent()
+                            && RelevanceClassifier.isRelevant(classifier, filterDescription, textOpt.get());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
                 }
 
                 if (isAskingForFiles) {
-                    var fileNames =
-                            notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
-                    reportComplete(TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files");
-                    return new Step.Fatal(new TaskResult.StopDetails(
-                            TaskResult.StopReason.LLM_ABORTED,
-                            "Agent requested additional files not in context: " + fileNames));
+                    if (metrics != null) {
+                        metrics.internalStopReason = TaskResult.StopReason.LLM_ABORTED;
+                    }
+                    reportComplete(
+                            TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + notInContext);
+                    return new Step.Fatal(
+                            new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Build is failing"));
                 }
             }
 
@@ -1833,6 +1841,9 @@ public class CodeAgent {
         int applyRetries = 0;
         int apiRetries = 0;
 
+        @Nullable
+        TaskResult.StopReason internalStopReason = null;
+
         void addTokens(@Nullable Llm.ResponseMetadata usage) {
             if (usage == null) {
                 return;
@@ -1867,7 +1878,7 @@ public class CodeAgent {
             jsonMap.put("applyRetries", applyRetries);
             jsonMap.put("apiRetries", apiRetries);
             jsonMap.put("changedFiles", changedFilesList);
-            jsonMap.put("stopReason", stopDetails.reason().name());
+            jsonMap.put("stopReason", (internalStopReason != null ? internalStopReason : stopDetails.reason()).name());
             jsonMap.put("stopExplanation", stopDetails.explanation());
 
             try {
