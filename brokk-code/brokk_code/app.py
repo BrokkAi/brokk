@@ -1013,11 +1013,14 @@ class BrokkApp(App):
                     )
         elif base == "/session":
             if len(parts) == 1:
-                self.action_toggle_sessions()
+                chat.add_system_message(
+                    "Session commands: /session list | new <name> | "
+                    "switch <id> | rename <id> <name> | delete <id>"
+                )
             elif len(parts) >= 2:
                 action = parts[1].lower()
                 if action == "list":
-                    self.action_toggle_sessions()
+                    self.run_worker(self._list_sessions())
                 elif action == "new":
                     if len(parts) < 3:
                         chat.add_system_message("Usage: /session new <name>")
