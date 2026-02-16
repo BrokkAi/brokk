@@ -562,6 +562,7 @@ class BrokkApp(App):
         parts = cmd.split()
         base = parts[0].lower()
 
+        # -- Model / Mode / Theme / History helpers (existing commands) --
         if base == "/model" and len(parts) > 1:
             self.current_model = parts[1]
             chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
@@ -613,12 +614,204 @@ class BrokkApp(App):
                 "  /history              - Show recent prompt history\n"
                 "  /history-clear        - Clear prompt history\n"
                 "  /info                 - Show current configuration and status\n"
+                "  /session-new <name>   - Create a new executor session with the given name\n"
+                "  /session-list         - List known sessions\n"
+                "  /session-switch <id>  - Switch to an existing session id (uses cached zip if available)\n"
+                "  /session-rename <id> <name> - Rename a session\n"
+                "  /session-copy <id> <name>   - Copy a session to a new named session\n"
+                "  /session-delete <id>        - Delete a session\n"
+                "  /undo                 - Undo last context change\n"
+                "  /redo                 - Redo last undone context change\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
             )
             chat.append_message("System", help_text)
         elif base in ("/quit", "/exit"):
             self.action_quit()
+
+        # -- Session management commands --
+        elif base == "/session-new":
+            name = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+            if not name:
+                chat.add_system_message("Usage: /session-new <name>", level="ERROR")
+                return
+
+            chat.add_system_message(f"Creating session '{name}'...")
+            # Create session asynchronously
+            async def do_create():
+                try:
+                    new_id = await self.executor.create_session(name)
+                    # Persist as last session id
+                    try:
+                        from brokk_code.session_persistence import save_last_session_id
+                        save_last_session_id(self.executor.workspace_dir, new_id)
+                    except Exception:
+                        logger.debug("Failed to persist last session id after create", exc_info=True)
+                    chat.add_system_message(f"Created session {new_id}")
+                    # Trigger refresh once created
+                    await self._refresh_context_panel()
+                except Exception as e:
+                    chat.add_system_message(f"Failed to create session: {e}", level="ERROR")
+
+            self.run_worker(do_create())
+
+        elif base == "/session-list":
+            chat.add_system_message("Listing sessions...")
+            async def do_list():
+                try:
+                    data = await self.executor.list_sessions()
+                    sessions = data.get("sessions", [])
+                    if not sessions:
+                        chat.add_system_message("No sessions found.")
+                        return
+                    lines = []
+                    for s in sessions:
+                        sid = s.get("id", "")
+                        name = s.get("name", "")
+                        created = s.get("created", "")
+                        modified = s.get("modified", "")
+                        ver = s.get("version", None)
+                        vtxt = f" v={ver}" if ver else ""
+                        lines.append(f"- {sid}  '{name}'  created={created} modified={modified}{vtxt}")
+                    chat.append_message("System", "Known sessions:\n" + "\n".join(lines))
+                except Exception as e:
+                    chat.add_system_message(f"Failed to list sessions: {e}", level="ERROR")
+
+            self.run_worker(do_list())
+
+        elif base == "/session-switch":
+            if len(parts) < 2:
+                chat.add_system_message("Usage: /session-switch <session-id>", level="ERROR")
+                return
+            sid = parts[1].strip()
+            chat.add_system_message(f"Switching to session {sid}...")
+
+            async def do_switch():
+                try:
+                    # Prefer importing from cached zip when available
+                    from brokk_code.session_persistence import get_session_zip_path, save_last_session_id
+                    zip_path = get_session_zip_path(self.executor.workspace_dir, sid)
+                    if zip_path.exists():
+                        try:
+                            zip_bytes = zip_path.read_bytes()
+                            await self.executor.import_session_zip(zip_bytes, session_id=sid)
+                            # Persist last session id
+                            save_last_session_id(self.executor.workspace_dir, sid)
+                            chat.add_system_message(f"Imported and switched to session {sid}")
+                            await self._refresh_context_panel()
+                            return
+                        except Exception as e:
+                            logger.warning("Failed to import cached zip for session %s: %s", sid, e)
+                            # Fall through to server-side existence check
+
+                    # If no cached zip or import failed, ask executor for list and verify session exists
+                    data = await self.executor.list_sessions()
+                    sessions = data.get("sessions", [])
+                    found = any(s.get("id", "") == sid for s in sessions)
+                    if not found:
+                        chat.add_system_message(f"Session {sid} not found on executor and no cached zip available.", level="ERROR")
+                        return
+
+                    # Otherwise, trust executor can switch on next request by setting local session_id.
+                    self.executor.session_id = sid
+                    try:
+                        save_last_session_id(self.executor.workspace_dir, sid)
+                    except Exception:
+                        logger.debug("Failed to persist last session id after switch", exc_info=True)
+                    chat.add_system_message(f"Switched to session {sid}")
+                    await self._refresh_context_panel()
+                except Exception as e:
+                    chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
+
+            self.run_worker(do_switch())
+
+        elif base == "/session-rename":
+            if len(parts) < 3:
+                chat.add_system_message("Usage: /session-rename <id> <new-name>", level="ERROR")
+                return
+            sid = parts[1].strip()
+            new_name = " ".join(parts[2:]).strip()
+            chat.add_system_message(f"Renaming session {sid} -> '{new_name}'...")
+            async def do_rename():
+                try:
+                    await self.executor.rename_session(sid, new_name)
+                    chat.add_system_message(f"Renamed session {sid} -> '{new_name}'")
+                except Exception as e:
+                    chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
+            self.run_worker(do_rename())
+
+        elif base == "/session-copy":
+            if len(parts) < 3:
+                chat.add_system_message("Usage: /session-copy <id> <new-name>", level="ERROR")
+                return
+            sid = parts[1].strip()
+            new_name = " ".join(parts[2:]).strip()
+            chat.add_system_message(f"Copying session {sid} -> '{new_name}'...")
+            async def do_copy():
+                try:
+                    resp = await self.executor.copy_session(sid, new_name)
+                    new_id = resp.get("sessionId") or resp.get("sessionId")
+                    chat.add_system_message(f"Copied session {sid} to new session {new_id}")
+                except Exception as e:
+                    chat.add_system_message(f"Failed to copy session: {e}", level="ERROR")
+            self.run_worker(do_copy())
+
+        elif base == "/session-delete":
+            if len(parts) < 2:
+                chat.add_system_message("Usage: /session-delete <id>", level="ERROR")
+                return
+            sid = parts[1].strip()
+            chat.add_system_message(f"Deleting session {sid}...")
+            async def do_delete():
+                try:
+                    await self.executor.delete_session(sid)
+                    # If we were pointing at that session, clear persisted last session id.
+                    if self.executor.session_id == sid:
+                        try:
+                            from brokk_code.session_persistence import save_last_session_id
+                            save_last_session_id(self.executor.workspace_dir, "")
+                        except Exception:
+                            logger.debug("Failed to clear last session id after delete", exc_info=True)
+                        self.executor.session_id = None
+                    chat.add_system_message(f"Deleted session {sid}")
+                except Exception as e:
+                    chat.add_system_message(f"Failed to delete session: {e}", level="ERROR")
+            self.run_worker(do_delete())
+
+        # -- History navigation (undo/redo) --
+        elif base == "/undo":
+            chat.add_system_message("Requesting undo...")
+            async def do_undo():
+                try:
+                    resp = await self.executor.undo_context()
+                    applied = bool(resp.get("applied"))
+                    if applied:
+                        chat.add_system_message("Undo applied.")
+                        await self._refresh_context_panel()
+                    else:
+                        reason = resp.get("reason", "NO_UNDO_AVAILABLE")
+                        chat.add_system_message(f"Nothing to undo: {reason}")
+                except Exception as e:
+                    chat.add_system_message(f"Undo failed: {e}", level="ERROR")
+            self.run_worker(do_undo())
+
+        elif base == "/redo":
+            chat.add_system_message("Requesting redo...")
+            async def do_redo():
+                try:
+                    resp = await self.executor.redo_context()
+                    applied = bool(resp.get("applied"))
+                    if applied:
+                        chat.add_system_message("Redo applied.")
+                        await self._refresh_context_panel()
+                    else:
+                        reason = resp.get("reason", "NO_REDO_AVAILABLE")
+                        chat.add_system_message(f"Nothing to redo: {reason}")
+                except Exception as e:
+                    chat.add_system_message(f"Redo failed: {e}", level="ERROR")
+            self.run_worker(do_redo())
+
+        # -- Fallback unknown command --
         else:
             chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
 
