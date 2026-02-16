@@ -461,7 +461,7 @@ class AnalyzerWrapperTest {
         }
 
         @Override
-        public java.util.List<Path> getFixedGitignoreFiles() {
+        public List<Path> getFixedGitignoreFiles() {
             return delegate.getFixedGitignoreFiles();
         }
 
