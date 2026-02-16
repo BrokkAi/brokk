@@ -694,17 +694,8 @@ public final class FuzzyUsageFinder {
             }
         }
 
-        // If not found a '(' following identifier on same lines, try a broader search for any parentheses pair in
-        // snippet
+        // If not found a '(' following identifier on same lines, return unknown.
         if (bestParenPos < 0) {
-            int lp = snippet.indexOf('(');
-            int rp = -1;
-            if (lp >= 0) rp = snippet.indexOf(')', lp + 1);
-            if (lp >= 0 && rp > lp) {
-                String inside = snippet.substring(lp + 1, rp);
-                int cnt = countTopLevelArgs(inside);
-                if (cnt >= 0) return OptionalInt.of(cnt);
-            }
             return OptionalInt.empty();
         }
 
