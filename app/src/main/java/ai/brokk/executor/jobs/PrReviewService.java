@@ -2,10 +2,13 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.git.GitRepo;
 import ai.brokk.util.Json;
+import ai.brokk.util.Messages;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -263,41 +266,64 @@ public final class PrReviewService {
 
         logger.trace("parsePrReviewResponse: rawText length={}", rawText.length());
 
-        JsonNode root;
-        try {
-            root = Json.getMapper().readTree(rawText);
-        } catch (Exception initialParseError) {
-            logger.trace("parsePrReviewResponse: direct parse failed, attempting extraction");
-            int firstBrace = rawText.indexOf('{');
-            int lastBrace = rawText.lastIndexOf('}');
+        var direct = parsePrReviewJsonCandidate(rawText);
+        if (direct != null) {
+            logger.trace("parsePrReviewResponse: direct parse succeeded");
+            return direct;
+        }
 
-            if (firstBrace == -1 || lastBrace == -1 || lastBrace < firstBrace) {
-                logger.warn("parsePrReviewResponse: no JSON braces found in response", initialParseError);
-                return null;
-            }
-
-            String extractedJson = rawText.substring(firstBrace, lastBrace + 1);
-            try {
-                root = Json.getMapper().readTree(extractedJson);
-                logger.trace("parsePrReviewResponse: extraction succeeded");
-            } catch (Exception extractionParseError) {
-                logger.warn("parsePrReviewResponse: extracted JSON is malformed", extractionParseError);
-                return null;
+        // Fall back to scanning all balanced JSON-object candidates and selecting the
+        // first parseable review object from the end (LLM output is usually at the end).
+        var candidates = extractBalancedJsonObjects(rawText);
+        for (int i = candidates.size() - 1; i >= 0; i--) {
+            var parsed = parsePrReviewJsonCandidate(candidates.get(i));
+            if (parsed != null) {
+                logger.trace(
+                        "parsePrReviewResponse: parsed from balanced JSON candidate index={}/{}",
+                        i,
+                        candidates.size());
+                return parsed;
             }
         }
 
+        logger.warn("parsePrReviewResponse: no valid review JSON object found");
+        return null;
+    }
+
+    /**
+     * Builds a parser-friendly transcript from raw task messages.
+     *
+     * <p>TaskFragment.text() is formatted with XML-like wrappers for UI rendering, which can obscure pure JSON payloads.
+     * For PR review parsing, prefer concatenated AI message text.
+     */
+    public static String extractAiTranscript(List<dev.langchain4j.data.message.ChatMessage> messages) {
+        return messages.stream()
+                .filter(m -> m.type() == ChatMessageType.AI)
+                .map(Messages::getText)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n"));
+    }
+
+    private static @Nullable PrReviewResponse parsePrReviewJsonCandidate(String candidateText) {
+        JsonNode root;
+        try {
+            root = Json.getMapper().readTree(candidateText);
+        } catch (Exception parseError) {
+            return null;
+        }
+
+        if (!root.isObject()) {
+            return null;
+        }
         if (!root.has("summaryMarkdown") || !root.get("summaryMarkdown").isTextual()) {
-            logger.warn("parsePrReviewResponse: missing or invalid 'summaryMarkdown' field");
             return null;
         }
 
         String summaryMarkdown = root.get("summaryMarkdown").asText();
-
         List<InlineComment> comments;
         if (!root.has("comments") || root.get("comments").isNull()) {
             comments = List.of();
         } else if (!root.get("comments").isArray()) {
-            logger.warn("parsePrReviewResponse: 'comments' field is not an array");
             return null;
         } else {
             JsonNode commentsNode = root.get("comments");
@@ -309,12 +335,52 @@ public final class PrReviewService {
                                         .getTypeFactory()
                                         .constructCollectionType(List.class, InlineComment.class));
             } catch (Exception e) {
-                logger.warn("parsePrReviewResponse: failed to deserialize 'comments' array", e);
                 return null;
             }
         }
 
         return new PrReviewResponse(summaryMarkdown, comments);
+    }
+
+    private static List<String> extractBalancedJsonObjects(String text) {
+        var objects = new ArrayList<String>();
+        int depth = 0;
+        int start = -1;
+        boolean inString = false;
+        boolean escape = false;
+
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (inString) {
+                if (escape) {
+                    escape = false;
+                } else if (c == '\\') {
+                    escape = true;
+                } else if (c == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (c == '"') {
+                inString = true;
+                continue;
+            }
+
+            if (c == '{') {
+                if (depth == 0) {
+                    start = i;
+                }
+                depth++;
+            } else if (c == '}' && depth > 0) {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    objects.add(text.substring(start, i + 1));
+                    start = -1;
+                }
+            }
+        }
+        return objects;
     }
 
     /**
