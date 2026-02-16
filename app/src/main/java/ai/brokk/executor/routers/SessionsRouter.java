@@ -8,9 +8,10 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
-import java.util.Map;
-import java.util.Objects;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -18,10 +19,8 @@ import java.util.function.Consumer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
-/**
- * Router for /v1/sessions endpoints.
- */
 @NullMarked
 public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private static final Logger logger = LogManager.getLogger(SessionsRouter.class);
@@ -38,164 +37,286 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
     }
 
     @Override
-    public void handle(HttpExchange exchange) throws Exception {
-        var method = exchange.getRequestMethod();
-        var path = exchange.getRequestURI().getPath();
-        var normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
+    public void handle(HttpExchange exchange) throws IOException {
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        String normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
 
-        if (method.equals("POST") && normalizedPath.equals("/v1/sessions")) {
-            handleCreateSession(exchange);
-            return;
-        }
-        if (method.equals("PUT") && normalizedPath.equals("/v1/sessions")) {
-            handlePutSession(exchange);
-            return;
-        }
-        if (method.equals("GET")) {
-            var parseResult = RouterUtil.parseSessionPath(normalizedPath);
-            if (parseResult.status() == RouterUtil.SessionPathStatus.VALID) {
-                handleGetSessionZip(exchange, Objects.requireNonNull(parseResult.sessionId()));
-                return;
+        if ("/v1/sessions".equals(normalizedPath)) {
+            switch (method) {
+                case "POST" -> handleCreateSession(exchange);
+                case "PUT" -> handlePutSession(exchange);
+                case "GET" -> handleListSessions(exchange);
+                default -> RouterUtil.sendMethodNotAllowed(exchange);
             }
-            if (parseResult.status() == RouterUtil.SessionPathStatus.INVALID_SESSION_ID) {
+            return;
+        }
+
+        // Session-specific paths
+        RouterUtil.SessionPathParseResult parsed = RouterUtil.parseSessionPath(normalizedPath);
+        switch (parsed.status()) {
+            case INVALID_SESSION_ID -> {
                 RouterUtil.sendValidationError(exchange, "Invalid session ID in path");
                 return;
             }
-            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
-            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
-            return;
+            case NOT_FOUND -> {
+                var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
+                SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+                return;
+            }
+            case VALID -> {
+                // fall-through below
+            }
         }
-        RouterUtil.sendMethodNotAllowed(exchange);
+
+        UUID sessionId = parsed.sessionId();
+        assert sessionId != null;
+        String base = "/v1/sessions/" + sessionId;
+        String suffix = normalizedPath.length() > base.length() ? normalizedPath.substring(base.length()) : "";
+
+        try {
+            if (suffix.isEmpty()) {
+                if ("GET".equals(method)) {
+                    handleGetSessionZip(exchange, sessionId);
+                } else if ("DELETE".equals(method)) {
+                    handleDeleteSession(exchange, sessionId);
+                } else {
+                    RouterUtil.sendMethodNotAllowed(exchange);
+                }
+            } else if ("/rename".equals(suffix) && "POST".equals(method)) {
+                handleRenameSession(exchange, sessionId);
+            } else if ("/copy".equals(suffix) && "POST".equals(method)) {
+                handleCopySession(exchange, sessionId);
+            } else {
+                var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
+                SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+            }
+        } catch (RuntimeException e) {
+            logger.warn("Error handling sessions request {} {}: {}", method, normalizedPath, e.toString());
+            throw e;
+        }
     }
 
     private void handleCreateSession(HttpExchange exchange) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "POST")) {
             return;
         }
-
-        CreateSessionRequest request = RouterUtil.parseJsonOr400(exchange, CreateSessionRequest.class, "/v1/sessions");
-        if (request == null) {
+        CreateSessionRequest req = RouterUtil.parseJsonOr400(exchange, CreateSessionRequest.class, "/v1/sessions");
+        if (req == null) {
             return;
         }
-
-        if (request.name().isBlank()) {
+        String name = req.name == null ? "" : req.name.trim();
+        if (name.isEmpty()) {
             RouterUtil.sendValidationError(exchange, "Session name is required and must not be blank");
             return;
         }
-
-        var sessionName = request.name().strip();
-
-        if (sessionName.length() > 200) {
-            RouterUtil.sendValidationError(exchange, "Session name must not exceed 200 characters");
+        if (name.length() > 200) {
+            RouterUtil.sendValidationError(exchange, "Session name must be at most 200 characters");
             return;
         }
-
         try {
-            try {
-                contextManager.createSessionAsync(sessionName).get(3, TimeUnit.SECONDS);
-            } catch (TimeoutException e) {
-                logger.warn("Timed out creating session {}; continuing asynchronously", sessionName);
-            }
-
-            var sessionId = contextManager.getCurrentSessionId();
-            logger.info("Created new session: {} ({})", sessionName, sessionId);
-
-            sessionLoadedSetter.accept(true);
-
-            var response = Map.of("sessionId", sessionId.toString(), "name", sessionName);
-            SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            contextManager.createSessionAsync(name).get(30, TimeUnit.SECONDS);
+        } catch (TimeoutException te) {
+            logger.warn("Timed out waiting for createSessionAsync completion: {}", te.toString());
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while creating session", ie);
         } catch (Exception e) {
-            logger.error("Error handling POST /v1/sessions", e);
-            var error = ErrorPayload.internalError("Failed to create session", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+            throw new IOException("Failed to create session", e);
         }
+
+        @Nullable UUID currentId = contextManager.getCurrentSessionId();
+        if (currentId == null) {
+            logger.warn("ContextManager returned null currentSessionId after createSessionAsync");
+        } else {
+            sessionLoadedSetter.accept(true);
+        }
+        String idStr = currentId != null ? currentId.toString() : "";
+        CreateSessionResponse resp = new CreateSessionResponse(idStr, name);
+        SimpleHttpServer.sendJsonResponse(exchange, 201, resp);
     }
 
     private void handlePutSession(HttpExchange exchange) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "PUT")) {
             return;
         }
+        String header = exchange.getRequestHeaders().getFirst("X-Session-Id");
+        UUID sessionId;
+        if (header != null && !header.isBlank()) {
+            try {
+                sessionId = UUID.fromString(header.trim());
+            } catch (IllegalArgumentException e) {
+                RouterUtil.sendValidationError(exchange, "Invalid X-Session-Id header; must be a UUID");
+                return;
+            }
+        } else {
+            sessionId = UUID.randomUUID();
+        }
+
+        Path sessionsDir = contextManager.getProject().getSessionManager().getSessionsDir();
+        Files.createDirectories(sessionsDir);
+        Path zipPath = sessionsDir.resolve(sessionId.toString() + ".zip");
+
+        AtomicWrites.save(zipPath, out -> {
+            try (InputStream in = exchange.getRequestBody();
+                    OutputStream o = out) {
+                byte[] buf = new byte[64 * 1024];
+                int read;
+                while ((read = in.read(buf)) != -1) {
+                    o.write(buf, 0, read);
+                }
+            }
+        });
 
         try {
-            var sessionIdHeader = exchange.getRequestHeaders().getFirst("X-Session-Id");
-            var sessionId = sessionIdHeader != null && !sessionIdHeader.isBlank()
-                    ? UUID.fromString(sessionIdHeader)
-                    : UUID.randomUUID();
-
-            try (InputStream requestBody = exchange.getRequestBody()) {
-                importSessionZip(requestBody, sessionId);
-            }
-
-            var response = Map.of("sessionId", sessionId.toString());
-            SimpleHttpServer.sendJsonResponse(exchange, 201, response);
-        } catch (IllegalArgumentException e) {
-            logger.warn("Invalid session ID in header", e);
-            RouterUtil.sendValidationError(exchange, "Invalid X-Session-Id header: " + e.getMessage());
+            contextManager.switchSessionAsync(sessionId).get(30, TimeUnit.SECONDS);
+        } catch (TimeoutException te) {
+            throw new IOException("Timed out waiting for session switch after import", te);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while switching session after import", ie);
         } catch (Exception e) {
-            logger.error("Error handling PUT /v1/sessions", e);
-            var error = ErrorPayload.internalError("Failed to process session upload", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+            throw new IOException("Failed to switch session after import", e);
         }
+
+        sessionLoadedSetter.accept(true);
+        ImportSessionResponse resp = new ImportSessionResponse(sessionId.toString());
+        SimpleHttpServer.sendJsonResponse(exchange, 201, resp);
     }
 
     private void handleGetSessionZip(HttpExchange exchange, UUID sessionId) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "GET")) {
             return;
         }
-
-        var sessionZipPath = sessionManager.getSessionsDir().resolve(sessionId + ".zip");
-        if (!Files.exists(sessionZipPath)) {
-            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Session zip not found for session " + sessionId);
+        Path zipPath = sessionManager.getSessionsDir().resolve(sessionId.toString() + ".zip");
+        if (!Files.exists(zipPath)) {
+            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Session not found");
             SimpleHttpServer.sendJsonResponse(exchange, 404, error);
             return;
         }
+        var headers = exchange.getResponseHeaders();
+        headers.set("Content-Type", "application/zip");
+        headers.set("Content-Disposition", "attachment; filename=\"" + sessionId + ".zip\"");
 
-        boolean headersSent = false;
-        try {
-            var headers = exchange.getResponseHeaders();
-            headers.set("Content-Type", "application/zip");
-            headers.set("Content-Disposition", "attachment; filename=\"" + sessionId + ".zip\"");
-            exchange.sendResponseHeaders(200, 0);
-            headersSent = true;
-            try (var responseBody = exchange.getResponseBody()) {
-                Files.copy(sessionZipPath, responseBody);
+        long size = Files.size(zipPath);
+        exchange.sendResponseHeaders(200, size);
+        try (OutputStream os = exchange.getResponseBody();
+                InputStream in = Files.newInputStream(zipPath)) {
+            byte[] buf = new byte[64 * 1024];
+            int read;
+            while ((read = in.read(buf)) != -1) {
+                os.write(buf, 0, read);
             }
-        } catch (IOException e) {
-            logger.error("Failed to stream session zip {}", sessionId, e);
-            if (headersSent) {
-                exchange.close();
-                return;
-            }
-            var error = ErrorPayload.internalError("Failed to stream session zip", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        } finally {
+            exchange.close();
         }
     }
 
-    private void importSessionZip(InputStream zipStream, UUID sessionId) throws Exception {
-        var cmSessionsDir = contextManager.getProject().getSessionManager().getSessionsDir();
-        Files.createDirectories(cmSessionsDir);
-        var sessionZipPath = cmSessionsDir.resolve(sessionId.toString() + ".zip");
-
-        AtomicWrites.save(sessionZipPath, out -> {
-            byte[] buffer = new byte[64 * 1024];
-            int bytesRead;
-            while ((bytesRead = zipStream.read(buffer)) != -1) {
-                out.write(buffer, 0, bytesRead);
-            }
-        });
-
-        logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
-
-        try {
-            contextManager.switchSessionAsync(sessionId).get(30, TimeUnit.SECONDS);
-            logger.info(
-                    "Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
-        } catch (TimeoutException e) {
-            throw new IOException("Timed out switching to session " + sessionId + " after 30 seconds", e);
+    private void handleListSessions(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
+            return;
         }
-
-        sessionLoadedSetter.accept(true);
+        List<SessionManager.SessionInfo> infos = sessionManager.listSessions();
+        List<SessionDto> dtos = infos.stream()
+                .map(info -> new SessionDto(
+                        info.id().toString(), info.name(), info.created(), info.modified(), info.version()))
+                .toList();
+        ListSessionsResponse resp = new ListSessionsResponse(dtos);
+        SimpleHttpServer.sendJsonResponse(exchange, resp);
     }
 
-    private record CreateSessionRequest(String name) {}
+    private void handleRenameSession(HttpExchange exchange, UUID sessionId) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
+            return;
+        }
+        RenameSessionRequest req =
+                RouterUtil.parseJsonOr400(exchange, RenameSessionRequest.class, "/v1/sessions/{id}/rename");
+        if (req == null) {
+            return;
+        }
+        String name = req.name == null ? "" : req.name.trim();
+        if (name.isEmpty()) {
+            RouterUtil.sendValidationError(exchange, "Session name is required and must not be blank");
+            return;
+        }
+        if (name.length() > 200) {
+            RouterUtil.sendValidationError(exchange, "Session name must be at most 200 characters");
+            return;
+        }
+        try {
+            sessionManager.renameSession(sessionId, name);
+        } catch (RuntimeException e) {
+            logger.warn("renameSession failed for {}: {}", sessionId, e.toString());
+            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Session not found");
+            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+            return;
+        }
+        SessionNameResponse resp = new SessionNameResponse(sessionId.toString(), name);
+        SimpleHttpServer.sendJsonResponse(exchange, resp);
+    }
+
+    private void handleCopySession(HttpExchange exchange, UUID sessionId) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
+            return;
+        }
+        CopySessionRequest req =
+                RouterUtil.parseJsonOr400(exchange, CopySessionRequest.class, "/v1/sessions/{id}/copy");
+        if (req == null) {
+            return;
+        }
+        String name = req.name == null ? "" : req.name.trim();
+        if (name.isEmpty()) {
+            RouterUtil.sendValidationError(exchange, "Session name is required and must not be blank");
+            return;
+        }
+        if (name.length() > 200) {
+            RouterUtil.sendValidationError(exchange, "Session name must be at most 200 characters");
+            return;
+        }
+        SessionManager.SessionInfo copied;
+        try {
+            copied = sessionManager.copySession(sessionId, name);
+        } catch (Exception e) {
+            // copySession may throw checked exceptions (I/O, archive errors, etc.)
+            // Treat as NOT_FOUND when the session cannot be copied, preserving prior behavior.
+            logger.warn("copySession failed for {}: {}", sessionId, e.toString());
+            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Session not found");
+            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+            return;
+        }
+        SessionNameResponse resp = new SessionNameResponse(copied.id().toString(), copied.name());
+        SimpleHttpServer.sendJsonResponse(exchange, 201, resp);
+    }
+
+    private void handleDeleteSession(HttpExchange exchange, UUID sessionId) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "DELETE")) {
+            return;
+        }
+        try {
+            sessionManager.deleteSession(sessionId);
+        } catch (RuntimeException e) {
+            logger.warn("deleteSession failed for {}: {}", sessionId, e.toString());
+            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Session not found");
+            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+            return;
+        }
+        exchange.sendResponseHeaders(204, -1);
+        exchange.close();
+    }
+
+    private record CreateSessionRequest(@Nullable String name) {}
+
+    private record CreateSessionResponse(String sessionId, String name) {}
+
+    private record ImportSessionResponse(String sessionId) {}
+
+    private record SessionDto(String id, String name, long created, long modified, @Nullable String version) {}
+
+    private record ListSessionsResponse(List<SessionDto> sessions) {}
+
+    private record RenameSessionRequest(@Nullable String name) {}
+
+    private record CopySessionRequest(@Nullable String name) {}
+
+    private record SessionNameResponse(String sessionId, String name) {}
 }
