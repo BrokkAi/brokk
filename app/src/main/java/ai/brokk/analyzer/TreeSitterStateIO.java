@@ -49,7 +49,7 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Current analyzer snapshot schema version. Bump MAJOR for incompatible changes.
-    static final SemVer CURRENT_SCHEMA = SemVer.parse("1.2.0");
+    static final SemVer CURRENT_SCHEMA = SemVer.parse("1.3.0");
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -416,22 +416,12 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         }
 
-        // Language-specific version check for Java and TypeScript.
-        // These languages had a snapshot compatibility break before schema 1.2.0 (fqName changes),
-        // but we still want to accept newer snapshots even when CURRENT_SCHEMA advances.
-        boolean forceRebuild = false;
-        if (language != null && (language == Languages.JAVA || language == Languages.TYPESCRIPT)) {
-            SemVer threshold = SemVer.parse("1.2.0");
-            if (fromVer == null || fromVer.compareTo(threshold) < 0) {
-                forceRebuild = true;
-            }
-        }
-
-        if (forceRebuild) {
+        // Check if language-specific rules require a rebuild (e.g. Java/TS fqName changes)
+        if (TreeSitterAnalyzerStateMigrator.shouldForceRebuild(language, fromVer, CURRENT_SCHEMA)) {
             log.info(
-                    "Analyzer snapshot at {} for {} has schema version {} (< 1.2.0). Forcing rebuild.",
+                    "Analyzer snapshot at {} for {} has schema version {} which requires a rebuild.",
                     file,
-                    language.name(),
+                    language != null ? language.name() : "unknown",
                     fromVer != null ? fromVer : "legacy");
             return Optional.empty();
         }
@@ -439,8 +429,8 @@ public final class TreeSitterStateIO {
         // Default: use current schema if missing for non-strict languages
         SemVer effectiveFromVer = fromVer != null ? fromVer : CURRENT_SCHEMA;
 
-        // Allow minor/patch differences for now; provide a migrate hook
-        var migratedDto = migrate(dto, effectiveFromVer, CURRENT_SCHEMA);
+        // Allow minor/patch differences for now; delegate to migrator
+        var migratedDto = TreeSitterAnalyzerStateMigrator.migrate(dto, effectiveFromVer, CURRENT_SCHEMA);
 
         var state = fromDto(migratedDto);
         long durMs = System.currentTimeMillis() - startMs;
@@ -694,14 +684,5 @@ public final class TreeSitterStateIO {
                 }
             }
         }
-    }
-
-    /**
-     * Hook to migrate DTOs between schema versions. Currently a no-op but structured for future migrations.
-     */
-    private static AnalyzerStateDto migrate(AnalyzerStateDto dto, SemVer from, SemVer to) {
-        // No migration required yet. Future migrations can inspect `from` and `to` and transform the DTO.
-        log.trace("Migrating DTO from {} to {}", from, to);
-        return dto;
     }
 }

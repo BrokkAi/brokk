@@ -780,21 +780,26 @@ public class TreeSitterStateIOTest {
     void javaRejectsSchema110ButAcceptsSchema120(@TempDir Path tempDir) throws Exception {
         Path v110 = tempDir.resolve("java_1.1.0.bin.lz4");
         Path v120 = tempDir.resolve("java_1.2.0.bin.lz4");
+        Path v130 = tempDir.resolve("java_1.3.0.bin.lz4");
 
         writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
         writeDtoWithSchemaVersion(v120, "1.2.0", 120L);
+        writeDtoWithSchemaVersion(v130, "1.3.0", 130L);
 
         assertTrue(TreeSitterStateIO.load(v110, Languages.JAVA).isEmpty(), "Java should reject schemaVersion 1.1.0");
         assertTrue(TreeSitterStateIO.load(v120, Languages.JAVA).isPresent(), "Java should accept schemaVersion 1.2.0");
+        assertTrue(TreeSitterStateIO.load(v130, Languages.JAVA).isPresent(), "Java should accept schemaVersion 1.3.0");
     }
 
     @Test
     void typescriptRejectsSchema110ButAcceptsSchema120(@TempDir Path tempDir) throws Exception {
         Path v110 = tempDir.resolve("ts_1.1.0.bin.lz4");
         Path v120 = tempDir.resolve("ts_1.2.0.bin.lz4");
+        Path v130 = tempDir.resolve("ts_1.3.0.bin.lz4");
 
         writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
         writeDtoWithSchemaVersion(v120, "1.2.0", 120L);
+        writeDtoWithSchemaVersion(v130, "1.3.0", 130L);
 
         assertTrue(
                 TreeSitterStateIO.load(v110, Languages.TYPESCRIPT).isEmpty(),
@@ -802,6 +807,9 @@ public class TreeSitterStateIOTest {
         assertTrue(
                 TreeSitterStateIO.load(v120, Languages.TYPESCRIPT).isPresent(),
                 "TypeScript should accept schemaVersion 1.2.0");
+        assertTrue(
+                TreeSitterStateIO.load(v130, Languages.TYPESCRIPT).isPresent(),
+                "TypeScript should accept schemaVersion 1.3.0");
     }
 
     @Test
