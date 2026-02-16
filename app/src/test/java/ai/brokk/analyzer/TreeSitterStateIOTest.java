@@ -32,8 +32,13 @@ public class TreeSitterStateIOTest {
 
     private static void writeDtoWithSchemaVersion(Path out, String schemaVersion, long snapshotEpochNanos)
             throws Exception {
+        writeDtoWithSchemaVersion(out, schemaVersion, snapshotEpochNanos, null);
+    }
+
+    private static void writeDtoWithSchemaVersion(
+            Path out, String schemaVersion, long snapshotEpochNanos, String languageInternalName) throws Exception {
         AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), snapshotEpochNanos, schemaVersion, null);
+                Map.of(), List.of(), List.of(), List.of(), snapshotEpochNanos, schemaVersion, languageInternalName);
 
         var mapper = new ObjectMapper(new SmileFactory());
         try (var os = Files.newOutputStream(out);
@@ -239,9 +244,9 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt file");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.0.0", "JAVA");
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "2.0.0", "JAVA");
         var state = TreeSitterStateIO.fromDto(dto);
-        TreeSitterStateIO.save(state, out);
+        TreeSitterStateIO.save(state, out, Languages.JAVA);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
         assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
 
@@ -262,10 +267,10 @@ public class TreeSitterStateIOTest {
 
         Files.writeString(out, "this is corrupt content");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 42L, "1.0.0", "JAVA");
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 42L, "2.0.0", "JAVA");
         var original = TreeSitterStateIO.fromDto(dto);
 
-        TreeSitterStateIO.save(original, out);
+        TreeSitterStateIO.save(original, out, Languages.JAVA);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
         assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
 
@@ -754,12 +759,14 @@ public class TreeSitterStateIOTest {
     @Test
     void testUnknownLanguageReturnsEmpty(@TempDir Path tempDir) throws Exception {
         Path out = tempDir.resolve("unknown_lang.bin.lz4");
-        writeDtoWithSchemaVersion(out, CURRENT_SCHEMA_STR, 1L);
+        // No language in DTO + unknown prefix = rebuild
+        writeDtoWithSchemaVersion(out, CURRENT_SCHEMA_STR, 1L, null);
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected empty result for unknown language prefix 'unknown_lang'");
 
         Path arbitrary = tempDir.resolve("state.bin.lz4");
-        writeDtoWithSchemaVersion(arbitrary, CURRENT_SCHEMA_STR, 1L);
+        // No language in DTO + arbitrary filename = rebuild
+        writeDtoWithSchemaVersion(arbitrary, CURRENT_SCHEMA_STR, 1L, null);
         assertTrue(TreeSitterStateIO.load(arbitrary).isEmpty(), "Expected empty result for arbitrary 'state.bin.lz4'");
     }
 

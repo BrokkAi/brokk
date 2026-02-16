@@ -261,7 +261,8 @@ public class JavaAnalyzerMultiStepUpdateTest {
                 }
                 """;
 
-        Path storagePath = tempDir.resolve("java.bin.lz4");
+        // Use a generic filename to prove language is recovered from the DTO, not just the extension.
+        Path storagePath = tempDir.resolve("analyzer-state.bin.lz4");
 
         try (IProject project = InlineTestProjectCreator.code(baseClassContent, "pkg1/BaseClass.java")
                 .build()) {
