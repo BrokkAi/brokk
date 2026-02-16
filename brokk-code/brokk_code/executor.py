@@ -422,7 +422,8 @@ class ExecutorManager:
             self.session_id = new_id
             return new_id
         except httpx.HTTPError as e:
-            raise ExecutorError(f"Failed to import session: {e}")
+            await self._handle_http_error(e, "/v1/sessions")
+            raise  # pragma: no cover - _handle_http_error always raises
 
     async def submit_job(
         self,
@@ -435,6 +436,114 @@ class ExecutorManager:
         tags: Optional[Dict[str, str]] = None,
         session_id: Optional[str] = None,
     ) -> str:
+@@
+         resp = await self._http_client.post("/v1/jobs", json=payload, headers=headers)
+         resp.raise_for_status()
+         return resp.json()["jobId"]
++
++    # ----------------------------
++    # Session management endpoints
++    # ----------------------------
++    async def list_sessions(self) -> Dict[str, Any]:
++        """List available sessions from the executor."""
++        if not self._http_client:
++            raise ExecutorError("Executor not started")
++        try:
++            resp = await self._http_client.get("/v1/sessions")
++            resp.raise_for_status()
++            return resp.json()
++        except httpx.HTTPError as e:
++            await self._handle_http_error(e, "/v1/sessions")
++            raise  # pragma: no cover
++
++    async def rename_session(self, session_id: str, new_name: str) -> Dict[str, Any]:
++        """Rename an existing session."""
++        if not self._http_client:
++            raise ExecutorError("Executor not started")
++        if not session_id or not session_id.strip():
++            raise ExecutorError("session_id must not be blank")
++        if not new_name or not new_name.strip():
++            raise ExecutorError("new_name must not be blank")
++        if len(new_name) > 200:
++            raise ExecutorError("new_name must be at most 200 characters")
++
++        endpoint = f"/v1/sessions/{session_id}/rename"
++        try:
++            resp = await self._http_client.post(endpoint, json={"name": new_name})
++            resp.raise_for_status()
++            return resp.json()
++        except httpx.HTTPError as e:
++            await self._handle_http_error(e, endpoint)
++            raise  # pragma: no cover
++
++    async def copy_session(self, session_id: str, new_name: str) -> Dict[str, Any]:
++        """Create a copy of an existing session with a new name."""
++        if not self._http_client:
++            raise ExecutorError("Executor not started")
++        if not session_id or not session_id.strip():
++            raise ExecutorError("session_id must not be blank")
++        if not new_name or not new_name.strip():
++            raise ExecutorError("new_name must not be blank")
++        if len(new_name) > 200:
++            raise ExecutorError("new_name must be at most 200 characters")
++
++        endpoint = f"/v1/sessions/{session_id}/copy"
++        try:
++            resp = await self._http_client.post(endpoint, json={"name": new_name})
++            resp.raise_for_status()
++            return resp.json()
++        except httpx.HTTPError as e:
++            await self._handle_http_error(e, endpoint)
++            raise  # pragma: no cover
++
++    async def delete_session(self, session_id: str) -> None:
++        """Delete a session. Idempotent: server may return 204 even for unknown ids."""
++        if not self._http_client:
++            raise ExecutorError("Executor not started")
++        if not session_id or not session_id.strip():
++            raise ExecutorError("session_id must not be blank")
++
++        endpoint = f"/v1/sessions/{session_id}"
++        try:
++            resp = await self._http_client.delete(endpoint)
++            # server returns 204 on success; raise_for_status will raise for 4xx/5xx.
++            resp.raise_for_status()
++            return None
++        except httpx.HTTPError as e:
++            await self._handle_http_error(e, endpoint)
++            raise  # pragma: no cover
++
++    # ----------------------------
++    # History navigation endpoints
++    # ----------------------------
++    async def undo_context(self, steps: Optional[int] = None) -> Dict[str, Any]:
++        """Request an undo operation on the current context. If steps provided, include it."""
++        if not self._http_client:
++            raise ExecutorError("Executor not started")
++        payload: Dict[str, Any] = {}
++        if steps is not None:
++            if steps <= 0:
++                raise ExecutorError("steps must be positive")
++            payload["steps"] = steps
++        try:
++            resp = await self._http_client.post("/v1/context/undo", json=payload or None)
++            resp.raise_for_status()
++            return resp.json()
++        except httpx.HTTPError as e:
++            await self._handle_http_error(e, "/v1/context/undo")
++            raise  # pragma: no cover
++
++    async def redo_context(self) -> Dict[str, Any]:
++        """Request a redo operation on the current context."""
++        if not self._http_client:
++            raise ExecutorError("Executor not started")
++        try:
++            resp = await self._http_client.post("/v1/context/redo")
++            resp.raise_for_status()
++            return resp.json()
++        except httpx.HTTPError as e:
++            await self._handle_http_error(e, "/v1/context/redo")
++            raise  # pragma: no cover
         """Submits a new job to the executor.
 
         Backwards-compatible: session_id is optional. If provided (or if
