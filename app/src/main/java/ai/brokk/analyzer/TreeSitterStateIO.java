@@ -49,7 +49,7 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Current analyzer snapshot schema version. Bump MAJOR for incompatible changes.
-    static final SemVer CURRENT_SCHEMA = SemVer.parse("1.1.0");
+    static final SemVer CURRENT_SCHEMA = SemVer.parse("1.2.0");
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -419,7 +419,7 @@ public final class TreeSitterStateIO {
         // Language-specific minor version check for Java and TypeScript
         boolean forceRebuild = false;
         if (language != null && (language == Languages.JAVA || language == Languages.TYPESCRIPT)) {
-            if (fromVer == null || isOlderThan(fromVer, CURRENT_SCHEMA)) {
+            if (fromVer == null || fromVer.compareTo(CURRENT_SCHEMA) < 0) {
                 forceRebuild = true;
             }
         }
@@ -444,12 +444,6 @@ public final class TreeSitterStateIO {
         long durMs = System.currentTimeMillis() - startMs;
         log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, effectiveFromVer);
         return Optional.of(state);
-    }
-
-    private static boolean isOlderThan(SemVer a, SemVer b) {
-        if (a.major() != b.major()) return a.major() < b.major();
-        if (a.minor() != b.minor()) return a.minor() < b.minor();
-        return a.patch() < b.patch();
     }
 
     /* ================= Converters ================= */
