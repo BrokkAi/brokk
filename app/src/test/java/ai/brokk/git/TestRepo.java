@@ -76,8 +76,11 @@ public class TestRepo implements IGitRepo {
     }
 
     @Override
-    public void invalidateCaches() {
-        // No-op for this simple implementation
+    public synchronized void invalidateCaches() {
+        // For testing "stale" scenarios, we simulate a refresh by clearing
+        // the added/removed overrides and synchronizing with the base tracked set.
+        addedFiles.clear();
+        removedFiles.clear();
     }
 
     @Override

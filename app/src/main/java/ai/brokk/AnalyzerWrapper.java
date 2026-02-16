@@ -158,6 +158,9 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
         // 1) Handle overflow - trigger full analyzer rebuild
         if (batch.isOverflowed()) {
+            // Refresh caches before full rebuild
+            project.getRepo().invalidateCaches();
+            project.invalidateAllFiles();
             logger.debug("Event batch overflowed, triggering full analyzer rebuild");
             refresh(prev -> {
                 long startTime = System.currentTimeMillis();
@@ -170,6 +173,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         }
 
         // 2) Filter for analyzer-relevant files.
+        // Refresh caches before computing intersections to avoid stale tracked-files filtering
+        project.getRepo().invalidateCaches();
+        project.invalidateAllFiles();
+
         var trackedFiles = project.getRepo().getTrackedFiles();
         var projectLanguages = requireNonNull(currentAnalyzer).languages();
 

@@ -21,7 +21,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -265,7 +264,6 @@ class AnalyzerWrapperTest {
      * Regression test for stale tracked-files filtering bug.
      * Demonstrates that AnalyzerWrapper.onFilesChanged skips updates for files not in getTrackedFiles().
      */
-    @Disabled("Reproduces AnalyzerWrapper tracked-files filtering bug; enable after fix")
     @Test
     void testOnFilesChangedSkipsUpdateWhenTrackedFilesStale() throws Exception {
         var projectRoot = tempDir.resolve("project-stale");
@@ -311,19 +309,31 @@ class AnalyzerWrapperTest {
         // 4. Simulate stale repo state: the file is changed but repo says it's no longer tracked
         repo.remove(pf);
 
-        // 5. Manually trigger onFilesChanged with the changed file
+        // 5. Manually trigger onFilesChanged with the changed file.
+        // Because onFilesChanged now calls project.getRepo().invalidateCaches(),
+        // the TestRepo will clear its 'removed' state for 'pf', and pf will
+        // be found in the refreshed trackedFiles set.
         EventBatch batch = new EventBatch();
         batch.getFiles().add(pf);
         analyzerWrapper.onFilesChanged(batch);
 
         // 6. Assert the analyzer snapshot reflects the edit.
-        // On current main, this is expected to FAIL because onFilesChanged filters out 'pf'.
-        var updatedAnalyzer = analyzerWrapper.get();
-        String skeleton = AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
+        // Wait up to 5 seconds for the async analyzer update to finish
+        IAnalyzer updatedAnalyzer = null;
+        deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            updatedAnalyzer = analyzerWrapper.get();
+            String skeleton = AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
+            if (skeleton.contains("void b()")) break;
+            Thread.sleep(100);
+        }
 
+        assertNotNull(updatedAnalyzer);
+        String finalSkeleton =
+                AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
         assertTrue(
-                skeleton.contains("void b()"),
-                "Analyzer should have updated pkg.A to include method 'b' despite stale tracked-files view");
+                finalSkeleton.contains("void b()"),
+                "Analyzer should have updated pkg.A to include method 'b' because caches were invalidated before filtering");
     }
 
     /**
