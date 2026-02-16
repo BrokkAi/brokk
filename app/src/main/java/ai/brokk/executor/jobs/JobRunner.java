@@ -20,6 +20,7 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -224,6 +225,9 @@ public final class JobRunner {
 
     private final ContextManager cm;
     private final JobStore store;
+
+    private record ReviewDiffResult(TaskResult taskResult, String responseText) {}
+
     private final ExecutorService runner;
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
@@ -867,17 +871,17 @@ public final class JobRunner {
                                             // 5. Call reviewDiff() to get LLM review with enriched context
                                             var plannerModel = requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-                                            TaskResult reviewResult = reviewDiff(
+                                            ReviewDiffResult review = reviewDiff(
                                                     context,
                                                     plannerModel,
                                                     annotatedDiff,
                                                     prDetails.title(),
                                                     prDetails.body());
+                                            TaskResult reviewResult = review.taskResult();
                                             scope.append(reviewResult);
 
                                             // 6. Parse review output (JSON only)
-                                            String reviewText =
-                                                    reviewResult.output().text().join();
+                                            String reviewText = review.responseText();
 
                                             var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
 
@@ -1482,7 +1486,7 @@ public final class JobRunner {
      * <p>Package-private instance method: this is not stateless since it depends on the JobRunner's
      * {@link ContextManager} for service/model access and IO routing.
      */
-    TaskResult reviewDiff(
+    ReviewDiffResult reviewDiff(
             Context ctx, StreamingChatModel model, String annotatedDiff, String prTitle, String prDescription) {
         String prompt = buildReviewPrompt(
                 annotatedDiff,
@@ -1498,7 +1502,7 @@ public final class JobRunner {
         llm.setOutput(cm.getIo());
 
         TaskResult.StopDetails stop;
-        Llm.StreamingResult response;
+        Llm.StreamingResult response = null;
         try {
             response = llm.sendRequest(messages);
             stop = TaskResult.StopDetails.fromResponse(response);
@@ -1507,7 +1511,17 @@ public final class JobRunner {
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
 
-        return new TaskResult(ctx, stop);
+        String responseText = "";
+        List<ChatMessage> responseMessages = List.of();
+        if (response != null && response.chatResponse() != null) {
+            var aiMessage = response.aiMessage();
+            responseMessages = List.of(aiMessage);
+            responseText = Messages.getText(aiMessage);
+        }
+
+        Context reviewContext =
+                ctx.addHistoryEntry(responseMessages, messages, TaskResult.Type.REVIEW, model, "PR Review");
+        return new ReviewDiffResult(new TaskResult(reviewContext, stop), responseText);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
@@ -2271,16 +2285,16 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult;
+                    ReviewDiffResult review;
                     try {
                         try (var reviewScope = cm.beginTaskUngrouped("PR Review")) {
-                            reviewResult = new JobRunner(cm, store).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
+                            review = new JobRunner(cm, store).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         throw new IssueExecutionException("Interrupted while running PR Review", e);
                     }
-                    String reviewText = reviewResult.output().text().join();
+                    String reviewText = review.responseText();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
                     if (reviewResponse == null) {
