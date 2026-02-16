@@ -104,23 +104,23 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     private void submitInitialAnalyzerBuild() {
         analyzerExecutor.submit(() -> {
             long start = System.currentTimeMillis();
-            currentAnalyzer = loadOrCreateAnalyzer();
+            IAnalyzer analyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
 
-            analyzerExecutor.submit(() -> {
-                readyForWatcherEvents = true;
-                processQueuedWatcherEvents();
-            });
+            // Update currentAnalyzer and mark readiness in the same task to avoid races
+            currentAnalyzer = analyzer;
+            readyForWatcherEvents = true;
+            processQueuedWatcherEvents();
 
             // debug logging
-            final var metrics = currentAnalyzer.getMetrics();
+            final var metrics = analyzer.getMetrics();
             logger.debug(
                     "Initial analyzer has {} declarations across {} files and took {} ms",
                     metrics.numberOfDeclarations(),
                     metrics.numberOfCodeUnits(),
                     durationMs);
 
-            return currentAnalyzer;
+            return analyzer;
         });
     }
 
