@@ -7,6 +7,8 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextHistory.RedoResult;
+import ai.brokk.context.ContextHistory.UndoResult;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
@@ -74,6 +76,8 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             case "/v1/context/readonly" -> handlePostContextReadonly(exchange);
             case "/v1/context/compress-history" -> handlePostCompressHistory(exchange);
             case "/v1/context/clear-history" -> handlePostClearHistory(exchange);
+            case "/v1/context/undo" -> handlePostContextUndo(exchange);
+            case "/v1/context/redo" -> handlePostContextRedo(exchange);
             case "/v1/context/drop-all" -> handlePostDropAll(exchange);
             case "/v1/context/files" -> handlePostContextFiles(exchange);
             case "/v1/context/classes" -> handlePostContextClasses(exchange);
@@ -344,6 +348,60 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         if (!RouterUtil.ensureMethod(exchange, "POST")) return;
         contextManager.clearHistory();
         SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "cleared"));
+    }
+
+    private void handlePostContextUndo(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        try {
+            var history = contextManager.getContextHistory();
+            if (history == null || !history.hasUndoStates()) {
+                SimpleHttpServer.sendJsonResponse(exchange, Map.of("applied", false, "reason", "NO_UNDO_AVAILABLE"));
+                return;
+            }
+            try {
+                // Perform synchronous undo via ContextHistory to ensure immediate effect for callers/tests.
+                UndoResult result = history.undo(1, contextManager.getIo(), contextManager.getProject());
+                if (result == null || !result.wasUndone()) {
+                    SimpleHttpServer.sendJsonResponse(
+                            exchange, Map.of("applied", false, "reason", "NO_UNDO_AVAILABLE"));
+                    return;
+                }
+                SimpleHttpServer.sendJsonResponse(exchange, Map.of("applied", true));
+            } catch (Exception e) {
+                logger.warn("Context undo failed when invoking history.undo: {}", e.toString());
+                SimpleHttpServer.sendJsonResponse(exchange, Map.of("applied", false, "reason", "UNDO_FAILED"));
+            }
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/undo", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to perform undo", e));
+        }
+    }
+
+    private void handlePostContextRedo(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        try {
+            var history = contextManager.getContextHistory();
+            if (history == null || !history.hasRedoStates()) {
+                SimpleHttpServer.sendJsonResponse(exchange, Map.of("applied", false, "reason", "NO_REDO_AVAILABLE"));
+                return;
+            }
+            try {
+                // Perform synchronous redo via ContextHistory to ensure immediate effect for callers/tests.
+                RedoResult result = history.redo(contextManager.getIo(), contextManager.getProject());
+                if (result == null || !result.wasRedone()) {
+                    SimpleHttpServer.sendJsonResponse(
+                            exchange, Map.of("applied", false, "reason", "NO_REDO_AVAILABLE"));
+                    return;
+                }
+                SimpleHttpServer.sendJsonResponse(exchange, Map.of("applied", true));
+            } catch (Exception e) {
+                logger.warn("Context redo failed when invoking history.redo: {}", e.toString());
+                SimpleHttpServer.sendJsonResponse(exchange, Map.of("applied", false, "reason", "REDO_FAILED"));
+            }
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/redo", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to perform redo", e));
+        }
     }
 
     private void handlePostDropAll(HttpExchange exchange) throws IOException {

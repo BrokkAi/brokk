@@ -161,6 +161,74 @@ class ContextRouterTest {
         assertEquals(ErrorPayload.Code.NOT_FOUND, payload.code());
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostContextUndoRedo_updatesContext() throws Exception {
+        // Arrange: add two pasted text fragments to create history
+        contextManager.addPastedTextFragment("first");
+        contextManager.addPastedTextFragment("second");
+
+        // Get initial context fragments size
+        var before = TestHttpExchange.request("GET", "/v1/context");
+        contextRouter.handle(before);
+        assertEquals(200, before.responseCode());
+        Map<String, Object> beforeBody = MAPPER.readValue(before.responseBodyBytes(), new TypeReference<>() {});
+        var fragments = (List<Map<String, Object>>) beforeBody.get("fragments");
+        int initialSize = fragments.size();
+
+        // Act: undo
+        var undoEx = TestHttpExchange.request("POST", "/v1/context/undo");
+        contextRouter.handle(undoEx);
+        assertEquals(200, undoEx.responseCode());
+        Map<String, Object> undoBody = MAPPER.readValue(undoEx.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals(Boolean.TRUE, undoBody.get("applied"));
+
+        // Assert: context has fewer fragments after undo
+        var afterUndo = TestHttpExchange.request("GET", "/v1/context");
+        contextRouter.handle(afterUndo);
+        assertEquals(200, afterUndo.responseCode());
+        Map<String, Object> afterUndoBody = MAPPER.readValue(afterUndo.responseBodyBytes(), new TypeReference<>() {});
+        var fragmentsAfterUndo = (List<Map<String, Object>>) afterUndoBody.get("fragments");
+        assertTrue(fragmentsAfterUndo.size() < initialSize, "Expected fewer fragments after undo");
+
+        // Act: redo
+        var redoEx = TestHttpExchange.request("POST", "/v1/context/redo");
+        contextRouter.handle(redoEx);
+        assertEquals(200, redoEx.responseCode());
+        Map<String, Object> redoBody = MAPPER.readValue(redoEx.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals(Boolean.TRUE, redoBody.get("applied"));
+
+        // Assert: context restored to initial size
+        var afterRedo = TestHttpExchange.request("GET", "/v1/context");
+        contextRouter.handle(afterRedo);
+        assertEquals(200, afterRedo.responseCode());
+        Map<String, Object> afterRedoBody = MAPPER.readValue(afterRedo.responseBodyBytes(), new TypeReference<>() {});
+        var fragmentsAfterRedo = (List<Map<String, Object>>) afterRedoBody.get("fragments");
+        assertEquals(initialSize, fragmentsAfterRedo.size(), "Expected fragments restored after redo");
+    }
+
+    @Test
+    void handlePostContextUndo_noHistory_returnsAppliedFalse() throws Exception {
+        var ex = TestHttpExchange.request("POST", "/v1/context/undo");
+        contextRouter.handle(ex);
+
+        assertEquals(200, ex.responseCode());
+        Map<String, Object> body = MAPPER.readValue(ex.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals(Boolean.FALSE, body.get("applied"));
+        assertEquals("NO_UNDO_AVAILABLE", body.get("reason"));
+    }
+
+    @Test
+    void handlePostContextRedo_noHistory_returnsAppliedFalse() throws Exception {
+        var ex = TestHttpExchange.request("POST", "/v1/context/redo");
+        contextRouter.handle(ex);
+
+        assertEquals(200, ex.responseCode());
+        Map<String, Object> body = MAPPER.readValue(ex.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals(Boolean.FALSE, body.get("applied"));
+        assertEquals("NO_REDO_AVAILABLE", body.get("reason"));
+    }
+
     private static final class TestHttpExchange extends HttpExchange {
         private final Headers requestHeaders = new Headers();
         private final Headers responseHeaders = new Headers();

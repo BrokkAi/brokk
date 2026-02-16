@@ -481,6 +481,8 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/context/readonly         - toggle fragment readonly status");
             System.out.println("    POST /v1/context/compress-history - compress conversation history");
             System.out.println("    POST /v1/context/clear-history    - clear conversation history");
+            System.out.println("    POST /v1/context/undo             - undo last context change");
+            System.out.println("    POST /v1/context/redo             - redo last undone context change");
             System.out.println("    POST /v1/context/drop-all         - drop all context");
             System.out.println("    POST /v1/context/files            - add files to session context");
             System.out.println("    POST /v1/context/classes          - add class summaries to context");
