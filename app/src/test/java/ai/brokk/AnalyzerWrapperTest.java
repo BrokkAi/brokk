@@ -312,14 +312,21 @@ class AnalyzerWrapperTest {
         batch.getFiles().add(pf);
         analyzerWrapper.onFilesChanged(batch);
 
-        // 5. Assert the analyzer snapshot reflects the new file.
-        // Poll because updates are async.
+        // 5. Assert the analyzer snapshot reflects the new file and project caches are invalidated.
+        // Poll because updates are async and invalidations happen during processing.
         boolean updated = false;
+        boolean invalidated = false;
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
             IAnalyzer current = analyzerWrapper.get();
             if (AnalyzerUtil.getSkeleton(current, "pkg.A").isPresent()) {
                 updated = true;
+            }
+            if (project.invalidationCount.get() > 0) {
+                invalidated = true;
+            }
+
+            if (updated && invalidated) {
                 break;
             }
             Thread.sleep(100);
@@ -330,7 +337,7 @@ class AnalyzerWrapperTest {
                 "Analyzer should have found pkg.A because it should invalidate git caches before filtering relevant files");
 
         // Verify that invalidateAllFiles was called because the file was untracked in the stale cache
-        assertTrue(project.invalidationCount.get() > 0, "Project caches should have been invalidated");
+        assertTrue(invalidated, "Project caches should have been invalidated");
     }
 
     @Test
