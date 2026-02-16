@@ -59,7 +59,7 @@ class BrokkApp(App):
         Binding("ctrl+space", "task_toggle", "Task Toggle", show=False),
         Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("f3", "toggle_mode", "Mode", show=True),
-        Binding("f2", "change_theme", "Theme Palette", show=True),
+        Binding("f2", "change_theme", "Settings", show=True),
     ]
 
     def __init__(

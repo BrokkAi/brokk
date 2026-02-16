@@ -79,6 +79,18 @@ def test_mode_toggle_bindings_exist():
     assert bindings["f3"] == "toggle_mode"
 
 
+def test_settings_binding_description():
+    app = BrokkApp(executor=MagicMock())
+    # Find the binding for change_theme (Settings)
+    settings_binding = next((b for b in app.BINDINGS if b.action == "change_theme"), None)
+    assert settings_binding is not None
+    assert settings_binding.description == "Settings"
+    assert settings_binding.show is True
+    # Ensure "Theme Palette" is no longer used as a description
+    descriptions = [b.description for b in app.BINDINGS]
+    assert "Theme Palette" not in descriptions
+
+
 def test_action_toggle_mode_handles_unknown_mode():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)

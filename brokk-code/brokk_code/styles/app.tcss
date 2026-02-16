@@ -55,15 +55,6 @@ ChatPanel {
     min-height: 1;
 }
 
-#streaming-response {
-    margin: 0 2;
-    max-height: 8;
-    overflow-y: auto;
-    border: round $primary-darken-2;
-    background: $surface-lighten-1;
-    padding: 0 1;
-}
-
 #chat-spinner {
     height: 1;
     width: auto;
