@@ -14,7 +14,7 @@ ContextModalScreen {
 }
 
 #side-tasklist {
-    width: 30;
+    width: 38;
     dock: right;
     background: $panel;
     border-left: solid $primary;
@@ -31,6 +31,19 @@ ContextModalScreen {
 
 #tasklist-container {
     padding: 1 2;
+}
+
+#tasklist-selection {
+    width: 100%;
+    color: $text-disabled;
+    padding: 0 2;
+}
+
+#tasklist-help {
+    width: 100%;
+    color: $text-muted;
+    padding: 0 2;
+    margin-bottom: 1;
 }
 
 #tasklist-content {

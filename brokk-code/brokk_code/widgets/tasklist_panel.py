@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from rich.text import Text
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Label, Static
 
@@ -14,6 +15,13 @@ class TaskListPanel(Vertical):
     Note: Currently /v1/context does not expose fragment text content.
     Future enhancement: Add an endpoint to fetch fragment content by ID.
     """
+
+    can_focus = True
+    BINDINGS = [
+        Binding("left,up", "cursor_prev", "Prev", show=False),
+        Binding("right,down", "cursor_next", "Next", show=False),
+        Binding("enter,space", "toggle_selected", "Toggle", show=False),
+    ]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -63,8 +71,27 @@ class TaskListPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Task List", id="tasklist-header")
+        yield Label("Selected: none", id="tasklist-selection")
+        yield Label(
+            "Arrows: Move  Enter/Space: Toggle  /task add|edit|delete",
+            id="tasklist-help",
+        )
         with VerticalScroll(id="tasklist-container"):
             yield Static("No task list active", id="tasklist-content")
+
+    def on_mount(self) -> None:
+        self._update_selection_status()
+
+    def action_cursor_prev(self) -> None:
+        self.move_selection(-1)
+
+    def action_cursor_next(self) -> None:
+        self.move_selection(1)
+
+    def action_toggle_selected(self) -> None:
+        app = self.app
+        if app is not None and hasattr(app, "action_task_toggle"):
+            app.action_task_toggle()
 
     def refresh_tasklist(self, context_data: Dict[str, Any]) -> None:
         """Finds the TASK_LIST fragment and updates the display using context overview."""
@@ -76,6 +103,7 @@ class TaskListPanel(Vertical):
         if not task_fragment:
             self._last_details = None
             self._selected_index = 0
+            self._update_selection_status()
             self.query_one("#tasklist-content", Static).update(
                 Text("No task list active", style="dim")
             )
@@ -89,6 +117,7 @@ class TaskListPanel(Vertical):
         text.append("[ ] ", style="bold blue")
         text.append("Task list active", style="bold")
         self.query_one("#tasklist-content", Static).update(text)
+        self._update_selection_status()
 
     def update_tasklist_details(self, tasklist_data: Dict[str, Any]) -> None:
         """Updates the display with detailed task list information from /v1/tasklist."""
@@ -105,6 +134,7 @@ class TaskListPanel(Vertical):
             self._last_details = None
             self._selected_index = 0
             content.update(Text("No task list active", style="dim"))
+            self._update_selection_status()
             return
 
         # Keep the same selected task by id when possible.
@@ -120,11 +150,22 @@ class TaskListPanel(Vertical):
 
         self._render_details()
 
+    def _update_selection_status(self) -> None:
+        selected = self.selected_task()
+        label = self.query_one("#tasklist-selection", Label)
+        if not selected:
+            label.update("Selected: none")
+            return
+        done = "[x]" if bool(selected.get("done", False)) else "[ ]"
+        title = str(selected.get("title", "Task")).strip() or "Task"
+        label.update(f"Selected: {done} {title}")
+
     def _render_details(self) -> None:
         if not self._last_details:
             self.query_one("#tasklist-content", Static).update(
                 Text("No task list active", style="dim")
             )
+            self._update_selection_status()
             return
         tasks: List[Dict[str, Any]] = self._last_details.get("tasks", [])
         text = Text()
@@ -141,3 +182,4 @@ class TaskListPanel(Vertical):
             text.append("\n")
 
         self.query_one("#tasklist-content", Static).update(text)
+        self._update_selection_status()

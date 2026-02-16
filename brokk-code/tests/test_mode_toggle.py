@@ -79,16 +79,32 @@ def test_mode_toggle_bindings_exist():
     assert bindings["f3"] == "toggle_mode"
 
 
-def test_settings_binding_description():
+def test_no_f2_settings_binding():
     app = BrokkApp(executor=MagicMock())
-    # Find the binding for change_theme (Settings)
-    settings_binding = next((b for b in app.BINDINGS if b.action == "change_theme"), None)
-    assert settings_binding is not None
-    assert settings_binding.description == "Settings"
-    assert settings_binding.show is True
-    # Ensure "Theme Palette" is no longer used as a description
-    descriptions = [b.description for b in app.BINDINGS]
-    assert "Theme Palette" not in descriptions
+    bindings = {b.key: b.action for b in app.BINDINGS}
+    assert "f2" not in bindings
+
+
+def test_command_palette_display_is_settings():
+    app = BrokkApp(executor=MagicMock())
+    assert app.COMMAND_PALETTE_DISPLAY == "Settings"
+
+
+def test_ctrl_p_binding_is_settings():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
+    assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
+
+
+def test_ctrl_e_binding_is_reasoning():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
+    assert bindings["ctrl+e"] == ("select_reasoning", "Reasoning", True)
+
+
+def test_textual_command_palette_is_enabled():
+    app = BrokkApp(executor=MagicMock())
+    assert app.ENABLE_COMMAND_PALETTE is True
 
 
 def test_action_toggle_mode_handles_unknown_mode():
