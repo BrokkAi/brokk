@@ -381,13 +381,10 @@ public final class TreeSitterStateIO {
             String prefix = fileName.substring(0, fileName.length() - suffix.length());
             try {
                 language = Languages.valueOf(prefix.toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException ignored) {
+            } catch (IllegalArgumentException e) {
+                log.info("Could not infer language from filename {}; forcing rebuild.", fileName, e);
+                return Optional.empty();
             }
-        }
-
-        if (language == null) {
-            log.info("Could not infer language from filename {}; forcing rebuild.", fileName);
-            return Optional.empty();
         }
 
         long startMs = System.currentTimeMillis();
@@ -401,20 +398,6 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         } catch (IOException e) {
             log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * Internal overload for tests or cases where language is already known.
-     */
-    @Blocking
-    private static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file, @Nullable Language language) {
-        if (!Files.exists(file)) return Optional.empty();
-        long startMs = System.currentTimeMillis();
-        try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
-            return loadFromStream(in, file, startMs, language);
-        } catch (IOException e) {
             return Optional.empty();
         }
     }
