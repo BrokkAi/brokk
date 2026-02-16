@@ -17,6 +17,7 @@ from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
+from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 logger = logging.getLogger(__name__)
@@ -262,6 +263,7 @@ class BrokkApp(App):
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
+        yield StatusLine(id="status-line")
         yield OrderedFooter(show_command_palette=False)
 
     async def on_mount(self) -> None:
