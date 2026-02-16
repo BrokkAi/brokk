@@ -247,13 +247,15 @@ public class EditBlock {
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert originalContentsThisBatch.containsKey(file);
                 var originalContent = originalContentsThisBatch.get(file);
-                String commentary = "";
+                String commentary = e instanceof NoMatchException
+                        ? "The SEARCH text was not found in the file."
+                        : "The SEARCH text occurs multiple times in the file.";
                 if (!block.beforeText().contains(block.afterText())) {
                     try {
                         replaceMostSimilarChunk(originalContent, block.afterText(), "");
                         commentary =
                                 """
-                        The replacement text is already present in the file. If we no longer need to apply
+                        The REPLACE text is already present in the file. If we no longer need to apply
                         this block, omit it from your reply.
                         """;
                     } catch (NoMatchException | AmbiguousMatchException e2) {
