@@ -7,9 +7,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -22,13 +20,15 @@ public final class ImportGraphCandidateProvider implements CandidateFileProvider
     public Set<ProjectFile> findCandidates(CodeUnit target, IAnalyzer analyzer) throws InterruptedException {
         Set<ProjectFile> candidates = new HashSet<>();
 
-        // 1. Identify Polymorphic Targets
-        Collection<CodeUnit> targets = analyzer.as(TypeHierarchyProvider.class)
+        // 1. Identify Polymorphic Targets (target + descendants)
+        Set<CodeUnit> allTargets = new HashSet<>();
+        allTargets.add(target);
+        analyzer.as(TypeHierarchyProvider.class)
                 .map(provider -> provider.getPolymorphicMatches(target, analyzer))
-                .orElseGet(() -> List.of(target));
+                .ifPresent(allTargets::addAll);
 
         // 2. Identify Defining Files & Siblings
-        Set<ProjectFile> sourceFiles = targets.stream().map(CodeUnit::source).collect(Collectors.toSet());
+        Set<ProjectFile> sourceFiles = allTargets.stream().map(CodeUnit::source).collect(Collectors.toSet());
 
         for (ProjectFile sourceFile : sourceFiles) {
             candidates.add(sourceFile);
