@@ -30,6 +30,18 @@ public class TreeSitterStateIOTest {
 
     private static final String CURRENT_SCHEMA_STR = TreeSitterStateIO.CURRENT_SCHEMA.toString();
 
+    private static void writeDtoWithSchemaVersion(Path out, String schemaVersion, long snapshotEpochNanos)
+            throws Exception {
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), snapshotEpochNanos, schemaVersion);
+
+        var mapper = new ObjectMapper(new SmileFactory());
+        try (var os = Files.newOutputStream(out);
+                var lz4 = new net.jpountz.lz4.LZ4FrameOutputStream(os)) {
+            mapper.writeValue(lz4, dto);
+        }
+    }
+
     @Test
     void roundTripJavaAnalyzerState() throws Exception {
         // Build an ephemeral project with a single Java file; project cleans itself up when closed
@@ -754,20 +766,53 @@ public class TreeSitterStateIOTest {
 
     @Test
     void schemaMinorVersionMismatchIsAccepted(@TempDir Path tempDir) throws Exception {
-        // Use a version with same major but different minor (1.1.0) to test forward compatibility
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.1.0");
+        // Use a version with same major but different minor (1.1.0) to test forward compatibility.
+        // Use load(path, null) to ensure this test remains about generic (non-strict) acceptance.
         Path out = tempDir.resolve("minor_mismatch.bin.lz4");
+        writeDtoWithSchemaVersion(out, "1.1.0", 1L);
 
-        // We must manually serialize because TreeSitterStateIO.save() always overwrites with CURRENT_SCHEMA
-        var mapper = new ObjectMapper(new SmileFactory());
-        try (var os = Files.newOutputStream(out);
-                var lz4 = new net.jpountz.lz4.LZ4FrameOutputStream(os)) {
-            mapper.writeValue(lz4, dto);
-        }
-
-        var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isPresent(), "Expected minor version mismatch (1.1.0) to be accepted");
+        var loaded = TreeSitterStateIO.load(out, null);
+        assertTrue(loaded.isPresent(), "Expected minor version mismatch (1.1.0) to be accepted for non-strict loads");
         assertEquals(1L, loaded.get().snapshotEpochNanos());
+    }
+
+    @Test
+    void javaRejectsSchema110ButAcceptsSchema120(@TempDir Path tempDir) throws Exception {
+        Path v110 = tempDir.resolve("java_1.1.0.bin.lz4");
+        Path v120 = tempDir.resolve("java_1.2.0.bin.lz4");
+
+        writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
+        writeDtoWithSchemaVersion(v120, "1.2.0", 120L);
+
+        assertTrue(TreeSitterStateIO.load(v110, Languages.JAVA).isEmpty(), "Java should reject schemaVersion 1.1.0");
+        assertTrue(TreeSitterStateIO.load(v120, Languages.JAVA).isPresent(), "Java should accept schemaVersion 1.2.0");
+    }
+
+    @Test
+    void typescriptRejectsSchema110ButAcceptsSchema120(@TempDir Path tempDir) throws Exception {
+        Path v110 = tempDir.resolve("ts_1.1.0.bin.lz4");
+        Path v120 = tempDir.resolve("ts_1.2.0.bin.lz4");
+
+        writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
+        writeDtoWithSchemaVersion(v120, "1.2.0", 120L);
+
+        assertTrue(
+                TreeSitterStateIO.load(v110, Languages.TYPESCRIPT).isEmpty(),
+                "TypeScript should reject schemaVersion 1.1.0");
+        assertTrue(
+                TreeSitterStateIO.load(v120, Languages.TYPESCRIPT).isPresent(),
+                "TypeScript should accept schemaVersion 1.2.0");
+    }
+
+    @Test
+    void nonStrictLanguageStillAcceptsSchema110(@TempDir Path tempDir) throws Exception {
+        Path v110 = tempDir.resolve("csharp_1.1.0.bin.lz4");
+        writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
+
+        // C# uses TreeSitterStateIO.load(storage) (no language strictness), so it should still accept.
+        assertTrue(
+                TreeSitterStateIO.load(v110, Languages.C_SHARP).isPresent(),
+                "Non-strict languages (e.g., C#) should accept schemaVersion 1.1.0");
     }
 
     @Test

@@ -416,21 +416,23 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         }
 
-        // Language-specific minor version check for Java and TypeScript
+        // Language-specific version check for Java and TypeScript.
+        // These languages had a snapshot compatibility break before schema 1.2.0 (fqName changes),
+        // but we still want to accept newer snapshots even when CURRENT_SCHEMA advances.
         boolean forceRebuild = false;
         if (language != null && (language == Languages.JAVA || language == Languages.TYPESCRIPT)) {
-            if (fromVer == null || fromVer.compareTo(CURRENT_SCHEMA) < 0) {
+            SemVer threshold = SemVer.parse("1.2.0");
+            if (fromVer == null || fromVer.compareTo(threshold) < 0) {
                 forceRebuild = true;
             }
         }
 
         if (forceRebuild) {
             log.info(
-                    "Analyzer snapshot at {} for {} has older schema version {} (current {}). Forcing rebuild.",
+                    "Analyzer snapshot at {} for {} has schema version {} (< 1.2.0). Forcing rebuild.",
                     file,
                     language.name(),
-                    fromVer != null ? fromVer : "legacy",
-                    CURRENT_SCHEMA);
+                    fromVer != null ? fromVer : "legacy");
             return Optional.empty();
         }
 
