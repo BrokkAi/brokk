@@ -461,4 +461,28 @@ class AnalyzerWrapperTest {
             return delegate.getCurrentCommitId();
         }
     }
+
+    @Test
+    void testCachingRepoWrapperBehavesStalelyUntilInvalidated() throws Exception {
+        var projectRoot = tempDir.resolve("caching-repo-unit");
+        Files.createDirectories(projectRoot);
+        TestRepo backingRepo = new TestRepo(projectRoot);
+        CachingRepoWrapper cachingRepo = new CachingRepoWrapper(backingRepo);
+
+        ProjectFile pf = new ProjectFile(projectRoot, "File.java");
+
+        // 1. Initially empty
+        assertTrue(cachingRepo.getTrackedFiles().isEmpty());
+
+        // 2. Add to backing repo - cachingRepo should remain empty due to staleness
+        backingRepo.add(pf);
+        assertTrue(
+                cachingRepo.getTrackedFiles().isEmpty(),
+                "CachingRepoWrapper should return stale empty set until invalidated");
+
+        // 3. Invalidate - now it should reflect the backing repo
+        cachingRepo.invalidateCaches();
+        assertEquals(1, cachingRepo.getTrackedFiles().size());
+        assertTrue(cachingRepo.getTrackedFiles().contains(pf));
+    }
 }
