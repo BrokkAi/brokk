@@ -156,13 +156,11 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 batch.isOverflowed(),
                 batch.isUntrackedGitignoreChanged());
 
-        // Refresh caches before computing intersections or full rebuilds to avoid stale data
-        project.getRepo().invalidateCaches();
-        project.invalidateAllFiles();
-
         // 1) Handle overflow - trigger full analyzer rebuild
         if (batch.isOverflowed()) {
             logger.debug("Event batch overflowed, triggering full analyzer rebuild");
+            project.getRepo().invalidateCaches();
+            project.invalidateAllFiles();
             refresh(prev -> {
                 long startTime = System.currentTimeMillis();
                 IAnalyzer result = prev.update();
@@ -173,13 +171,37 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             return; // No need to process individual files after full rebuild
         }
 
-        // 2) Filter for analyzer-relevant files.
-        var trackedFiles = project.getRepo().getTrackedFiles();
+        // 2) Determine if cache invalidation is necessary before filtering
+        final var trackedFilesBefore = project.getRepo().getTrackedFiles();
+        boolean untrackedGitignoreChanged = batch.isUntrackedGitignoreChanged();
+        boolean hasUntrackedFiles = batch.getFiles().stream().anyMatch(f -> !trackedFilesBefore.contains(f));
+
+        final Set<ProjectFile> finalTrackedFiles;
+        if (untrackedGitignoreChanged || hasUntrackedFiles) {
+            logger.debug(
+                    "Refreshing project caches (untrackedGitignoreChanged={}, hasUntrackedFiles={})",
+                    untrackedGitignoreChanged,
+                    hasUntrackedFiles);
+
+            project.getRepo().invalidateCaches();
+            var trackedFilesAfter = project.getRepo().getTrackedFiles();
+
+            // If gitignore changed or the set of tracked files actually changed after repo refresh,
+            // we must invalidate the project's file-system-view cache.
+            if (untrackedGitignoreChanged || !trackedFilesAfter.equals(trackedFilesBefore)) {
+                project.invalidateAllFiles();
+            }
+            finalTrackedFiles = trackedFilesAfter;
+        } else {
+            finalTrackedFiles = trackedFilesBefore;
+        }
+
+        // 3) Filter for analyzer-relevant files.
         var projectLanguages = requireNonNull(currentAnalyzer).languages();
 
         // Only consider tracked files that match our analyzer's language extensions
         var relevantFiles = batch.getFiles().stream()
-                .filter(trackedFiles::contains) // Must be tracked by git
+                .filter(finalTrackedFiles::contains) // Must be tracked by git
                 .filter(pf -> projectLanguages.stream()
                         .anyMatch(L -> L.getExtensions().contains(pf.extension())))
                 .collect(Collectors.toSet());
