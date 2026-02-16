@@ -9,7 +9,6 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.FileUtil;
-import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import ai.brokk.watchservice.AbstractWatchService.Listener;
 import ai.brokk.watchservice.JavaProjectWatchService;
@@ -305,7 +304,7 @@ class AnalyzerWrapperTest {
         backingRepo.add(pf);
 
         // 5. Trigger onFilesChanged
-        AbstractWatchService.EventBatch batch = new AbstractWatchService.EventBatch();
+        EventBatch batch = new EventBatch();
         batch.getFiles().add(pf);
         analyzerWrapper.onFilesChanged(batch);
 
