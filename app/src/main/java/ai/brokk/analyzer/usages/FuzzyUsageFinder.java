@@ -13,7 +13,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.tools.SearchTools;
 import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -46,6 +45,7 @@ public final class FuzzyUsageFinder {
     private final IProject project;
     private final IAnalyzer analyzer;
     private final AbstractService service;
+    private final CandidateFileProvider candidateProvider;
     private final @Nullable Llm llm;
     private final @Nullable Predicate<ProjectFile> fileFilter;
 
@@ -67,7 +67,33 @@ public final class FuzzyUsageFinder {
                         false,
                         false,
                         false);
-        return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm, fileFilter);
+
+        return new FuzzyUsageFinder(
+                cm.getProject(), cm.getAnalyzerUninterrupted(), service, createDefaultProvider(), llm, fileFilter);
+    }
+
+    public static CandidateFileProvider createDefaultProvider() {
+        var graphProvider = new ImportGraphCandidateProvider();
+        var textProvider = new TextSearchCandidateProvider();
+        return (target, analyzer) -> {
+            var candidates = graphProvider.findCandidates(target, analyzer);
+            if (candidates.isEmpty() && !analyzer.isEmpty()) {
+                return textProvider.findCandidates(target, analyzer);
+            }
+            return candidates;
+        };
+    }
+
+    /**
+     * Construct a FuzzyUsageFinder with default candidate discovery.
+     *
+     * @param project the project providing files and configuration
+     * @param analyzer the analyzer providing declarations/definitions
+     * @param service the LLM service.
+     * @param llm optional LLM for future disambiguation
+     */
+    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, AbstractService service, @Nullable Llm llm) {
+        this(project, analyzer, service, createDefaultProvider(), llm, null);
     }
 
     /**
@@ -76,21 +102,29 @@ public final class FuzzyUsageFinder {
      * @param project the project providing files and configuration
      * @param analyzer the analyzer providing declarations/definitions
      * @param service the LLM service.
+     * @param candidateProvider the strategy for finding candidate files
      * @param llm optional LLM for future disambiguation
      */
-    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, AbstractService service, @Nullable Llm llm) {
-        this(project, analyzer, service, llm, null);
+    public FuzzyUsageFinder(
+            IProject project,
+            IAnalyzer analyzer,
+            AbstractService service,
+            CandidateFileProvider candidateProvider,
+            @Nullable Llm llm) {
+        this(project, analyzer, service, candidateProvider, llm, null);
     }
 
     public FuzzyUsageFinder(
             IProject project,
             IAnalyzer analyzer,
             AbstractService service,
+            CandidateFileProvider candidateProvider,
             @Nullable Llm llm,
             @Nullable Predicate<ProjectFile> fileFilter) {
         this.project = project;
         this.analyzer = analyzer;
         this.service = service;
+        this.candidateProvider = candidateProvider;
         this.llm = llm;
         this.fileFilter = fileFilter;
     }
@@ -124,11 +158,8 @@ public final class FuzzyUsageFinder {
                         .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
 
-        // Use a fast substring scan to prefilter candidate files by the raw identifier, not the regex
-        Set<ProjectFile> filesToSearch = analyzer.getProject().getAnalyzableFiles(lang);
-        var patterns = SearchTools.compilePatterns(List.of(identifier));
-        Set<ProjectFile> candidateFiles =
-                SearchTools.findFilesContainingPatterns(patterns, filesToSearch).matches();
+        // Identify candidate files using the injected provider
+        Set<ProjectFile> candidateFiles = candidateProvider.findCandidates(target, analyzer);
 
         // Apply file filter if provided (e.g., to exclude test files)
         if (fileFilter != null) {
