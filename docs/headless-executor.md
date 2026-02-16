@@ -464,12 +464,18 @@ Build the shadow JAR:
 Run the JAR:
 
 ```bash
-java -cp app/build/libs/brokk-<version>.jar \
+java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
+  -cp app/build/libs/brokk-<version>.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \
   --auth-token my-secret-token \
   --workspace-dir /path/to/workspace
 ```
+
+Headless JVM flags:
+
+- `-Djava.awt.headless=true` — Recommended and safe on all platforms; forces the JVM into headless mode so no AWT native UI is initialized.
+- `-Dapple.awt.UIElement=true` — Hides the Java process from the Dock and app switcher on macOS. This flag is effectively ignored on non-macOS platforms, so it is safe to include cross-platform.
 
 **Note:** The JAR requires the fully-qualified main class (`ai.brokk.executor.HeadlessExecutorMain`) as the first argument.
