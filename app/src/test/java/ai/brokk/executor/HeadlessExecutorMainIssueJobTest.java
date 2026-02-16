@@ -266,7 +266,7 @@ class HeadlessExecutorMainIssueJobTest {
     }
 
     private JobSpec loadPersistedJobSpec(String jobId) throws Exception {
-        Path storeDir = workspaceDir.resolve(".brokk").resolve("jobs");
+        Path storeDir = workspaceDir.resolve(".brokk");
         var store = new JobStore(storeDir);
 
         Instant deadline = Instant.now().plus(Duration.ofSeconds(10));

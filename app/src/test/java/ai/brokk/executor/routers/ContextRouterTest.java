@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -43,6 +44,13 @@ class ContextRouterTest {
         var project = new MainProject(tempDir);
         contextManager = new ContextManager(project);
         contextRouter = new ContextRouter(contextManager);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (contextManager != null) {
+            contextManager.close();
+        }
     }
 
     @Test

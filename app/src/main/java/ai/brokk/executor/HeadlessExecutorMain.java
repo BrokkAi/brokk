@@ -190,7 +190,7 @@ public final class HeadlessExecutorMain {
         Files.createDirectories(sessionsDir);
 
         // Initialize JobStore and SessionManager
-        this.jobStore = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
+        this.jobStore = new JobStore(workspaceDir.resolve(".brokk"));
         this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
