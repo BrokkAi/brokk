@@ -287,7 +287,7 @@ class AnalyzerWrapperTest {
             }
         }
 
-        var project = new ProjectWithCachingRepo(projectRoot);
+        var project = new TrackingProject(projectRoot, cachingRepo);
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
 
         // 1. Wait for initial analyzer (currently empty project)
@@ -328,6 +328,73 @@ class AnalyzerWrapperTest {
         assertTrue(
                 updated,
                 "Analyzer should have found pkg.A because it should invalidate git caches before filtering relevant files");
+
+        // Verify that invalidateAllFiles was called because the file was untracked in the stale cache
+        assertTrue(project.invalidationCount.get() > 0, "Project caches should have been invalidated");
+    }
+
+    @Test
+    void testOnFilesChangedSkipsInvalidationForKnownTrackedFiles() throws Exception {
+        var projectRoot = tempDir.resolve("project-no-invalidation");
+        Files.createDirectories(projectRoot);
+        Path aPath = projectRoot.resolve("A.java");
+        Files.writeString(aPath, "public class A {}");
+
+        TestRepo repo = new TestRepo(projectRoot);
+        ProjectFile pf = new ProjectFile(projectRoot, "A.java");
+        repo.add(pf);
+
+        var project = new TrackingProject(projectRoot, repo);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
+        analyzerWrapper.get(); // wait for initial build
+
+        int initialInvalidations = project.invalidationCount.get();
+
+        // Trigger onFilesChanged with a file that is ALREADY in the tracked set
+        EventBatch batch = new EventBatch();
+        batch.getFiles().add(pf);
+        analyzerWrapper.onFilesChanged(batch);
+
+        // Verify no new invalidations occurred
+        assertEquals(
+                initialInvalidations,
+                project.invalidationCount.get(),
+                "Project caches should NOT be invalidated for changes to known tracked files");
+    }
+
+    @Test
+    void testOnFilesChangedInvalidatesWhenNewFileDetected() throws Exception {
+        var projectRoot = tempDir.resolve("project-with-invalidation");
+        Files.createDirectories(projectRoot);
+
+        TestRepo backingRepo = new TestRepo(projectRoot);
+        CachingRepoWrapper cachingRepo = new CachingRepoWrapper(backingRepo);
+        var project = new TrackingProject(projectRoot, cachingRepo);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
+
+        // 1. Wait for initial build to complete to establish a clean baseline
+        analyzerWrapper.get();
+
+        // 2. Seed the cache with current (empty) state
+        cachingRepo.getTrackedFiles();
+        int baselineInvalidations = project.invalidationCount.get();
+
+        // 3. Add new file to backing repo - cachingRepo remains stale
+        ProjectFile pf = new ProjectFile(projectRoot, "New.java");
+        backingRepo.add(pf);
+
+        // 4. Trigger batch containing the new file.
+        // AnalyzerWrapper should detect pf is missing from cachingRepo.getTrackedFiles()
+        // and trigger invalidation.
+        EventBatch batch = new EventBatch();
+        batch.getFiles().add(pf);
+        analyzerWrapper.onFilesChanged(batch);
+
+        // Verify invalidation occurred because pf was not in the previous tracked set
+        assertTrue(
+                project.invalidationCount.get() > baselineInvalidations,
+                "Project caches should be invalidated when a previously untracked file is detected. " + "Baseline: "
+                        + baselineInvalidations + ", Current: " + project.invalidationCount.get());
     }
 
     /**
@@ -393,6 +460,30 @@ class AnalyzerWrapperTest {
 
         @Override
         public void afterEachBuild(boolean externalRequest) {}
+    }
+
+    /**
+     * Test helper project that tracks how many times invalidateAllFiles is called.
+     */
+    private static class TrackingProject extends TestProject {
+        final AtomicInteger invalidationCount = new AtomicInteger(0);
+        private final IGitRepo repo;
+
+        TrackingProject(Path root, IGitRepo repo) {
+            super(root, Languages.JAVA);
+            this.repo = repo;
+        }
+
+        @Override
+        public IGitRepo getRepo() {
+            return repo;
+        }
+
+        @Override
+        public void invalidateAllFiles() {
+            invalidationCount.incrementAndGet();
+            super.invalidateAllFiles();
+        }
     }
 
     /**
