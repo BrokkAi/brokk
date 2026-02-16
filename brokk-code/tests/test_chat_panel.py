@@ -212,3 +212,34 @@ async def test_streaming_duplication_regression():
         assert count == 1, (
             f"Expected 'Hello world!' once, found {count}. Content: {content_strings}"
         )
+
+
+@pytest.mark.asyncio
+async def test_chat_input_focus_does_not_block_f4_model_select():
+    """
+    Verify that F4 triggers the model selection action even when ChatInput has focus.
+    ChatInput intercepts Enter, so we want to ensure other app-level bindings work.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from brokk_code.app import BrokkApp
+
+    # Setup app with ready executor to avoid early return in action_select_model
+    executor = MagicMock()
+    executor.get_models = AsyncMock(return_value={"models": ["model1"]})
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        assert chat_input.has_focus
+
+        # We mock push_screen to see if the action was triggered
+        app.push_screen = MagicMock()
+
+        # Press F4
+        await pilot.press("f4")
+        await pilot.pause()
+
+        # Verify push_screen was called, indicating the action triggered
+        assert app.push_screen.called
