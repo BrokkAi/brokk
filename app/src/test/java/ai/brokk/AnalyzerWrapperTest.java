@@ -16,11 +16,14 @@ import ai.brokk.watchservice.JavaProjectWatchService;
 import ai.brokk.watchservice.NoopWatchService;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -276,7 +279,7 @@ class AnalyzerWrapperTest {
 
         CachingRepoWrapper cachingRepo = new CachingRepoWrapper(backingRepo);
 
-        class ProjectWithCachingRepo extends ai.brokk.testutil.TestProject {
+        class ProjectWithCachingRepo extends TestProject {
             ProjectWithCachingRepo(Path root) {
                 super(root, Languages.JAVA);
             }
@@ -315,8 +318,7 @@ class AnalyzerWrapperTest {
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
             IAnalyzer current = analyzerWrapper.get();
-            String skeleton =
-                    ai.brokk.AnalyzerUtil.getSkeleton(current, "pkg.A").orElse("");
+            String skeleton = AnalyzerUtil.getSkeleton(current, "pkg.A").orElse("");
             if (skeleton.contains("void b()")) {
                 updated = true;
                 break;
@@ -370,7 +372,7 @@ class AnalyzerWrapperTest {
         try (TestAnalyzerWrapper taw = new TestAnalyzerWrapper(initialAnalyzer)) {
 
             // 4. Perform explicit update
-            IAnalyzer updatedAnalyzer = taw.updateFiles(java.util.Set.of(pf)).get(5, TimeUnit.SECONDS);
+            IAnalyzer updatedAnalyzer = taw.updateFiles(Set.of(pf)).get(5, TimeUnit.SECONDS);
 
             // 5. Assert the result contains 'b'
             String skeleton = AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
@@ -408,16 +410,23 @@ class AnalyzerWrapperTest {
         }
     }
 
-    private static class CachingRepoWrapper implements ai.brokk.git.IGitRepo {
-        private final ai.brokk.git.IGitRepo delegate;
-        private java.util.Set<ai.brokk.analyzer.ProjectFile> cachedTrackedFiles = null;
+    /**
+     * A decorator for {@link IGitRepo} that simulates a stale cache for {@code getTrackedFiles()}.
+     * <p>
+     * This wrapper intentionally uses composition rather than extending {@link TestRepo} because {@code TestRepo}
+     * manages its own internal state (in-memory sets), whereas this wrapper must reflect and delegate to a backing
+     * repository while specifically controlling the caching behavior of tracked files.
+     */
+    private static class CachingRepoWrapper implements IGitRepo {
+        private final IGitRepo delegate;
+        private Set<ProjectFile> cachedTrackedFiles = null;
 
-        CachingRepoWrapper(ai.brokk.git.IGitRepo delegate) {
+        CachingRepoWrapper(IGitRepo delegate) {
             this.delegate = delegate;
         }
 
         @Override
-        public synchronized java.util.Set<ai.brokk.analyzer.ProjectFile> getTrackedFiles() {
+        public synchronized Set<ProjectFile> getTrackedFiles() {
             if (cachedTrackedFiles != null) {
                 return cachedTrackedFiles;
             }
@@ -432,18 +441,17 @@ class AnalyzerWrapperTest {
         }
 
         @Override
-        public void add(java.util.Collection<ai.brokk.analyzer.ProjectFile> files)
-                throws org.eclipse.jgit.api.errors.GitAPIException {
+        public void add(Collection<ProjectFile> files) throws GitAPIException {
             delegate.add(files);
         }
 
         @Override
-        public void add(ai.brokk.analyzer.ProjectFile file) throws org.eclipse.jgit.api.errors.GitAPIException {
+        public void add(ProjectFile file) throws GitAPIException {
             delegate.add(file);
         }
 
         @Override
-        public void remove(ai.brokk.analyzer.ProjectFile file) throws org.eclipse.jgit.api.errors.GitAPIException {
+        public void remove(ProjectFile file) throws GitAPIException {
             delegate.remove(file);
         }
 
@@ -458,7 +466,7 @@ class AnalyzerWrapperTest {
         }
 
         @Override
-        public String getCurrentCommitId() throws org.eclipse.jgit.api.errors.GitAPIException {
+        public String getCurrentCommitId() throws GitAPIException {
             return delegate.getCurrentCommitId();
         }
     }
