@@ -5,7 +5,10 @@ import org.jetbrains.annotations.Nullable;
 
 public final class TreeSitterAnalyzerStateMigrator {
 
-    public static final SemVer REBUILD_THRESHOLD = SemVer.parse("1.1.0");
+    /**
+     * Threshold within the current major version line that triggers a rebuild for strict languages.
+     */
+    public static final SemVer REBUILD_THRESHOLD = SemVer.parse("2.0.0");
 
     private TreeSitterAnalyzerStateMigrator() {}
 
@@ -14,6 +17,8 @@ public final class TreeSitterAnalyzerStateMigrator {
             return false;
         }
 
+        // Java and TypeScript require exact version matches within the current major line
+        // to ensure FQN and property consistency.
         if (language != Languages.JAVA && language != Languages.TYPESCRIPT) {
             return false;
         }

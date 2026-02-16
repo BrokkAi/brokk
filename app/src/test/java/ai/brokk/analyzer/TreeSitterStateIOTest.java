@@ -647,7 +647,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("subtypes", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 12345L);
-        stateDtoMap.put("schemaVersion", "1.1.0");
+        stateDtoMap.put("schemaVersion", "2.0.0");
 
         // Serialize to file using Smile + LZ4
         ObjectMapper mapper = new ObjectMapper(new SmileFactory());
@@ -695,7 +695,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
-        stateDtoMap.put("schemaVersion", "1.1.0");
+        stateDtoMap.put("schemaVersion", "2.0.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -731,7 +731,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
-        stateDtoMap.put("schemaVersion", "1.1.0");
+        stateDtoMap.put("schemaVersion", "2.0.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -765,8 +765,8 @@ public class TreeSitterStateIOTest {
 
     @Test
     void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
-        // Manually serialize a DTO with a higher major version (2.0.0 vs current 1.x.x)
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "2.0.0", "JAVA");
+        // Manually serialize a DTO with a different major version (1.0.0 vs current 2.x.x)
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.0.0", "JAVA");
         Path out = tempDir.resolve("java.bin.lz4");
 
         var mapper = new ObjectMapper(new SmileFactory());
@@ -776,52 +776,53 @@ public class TreeSitterStateIOTest {
         }
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isEmpty(), "Expected empty result for major version mismatch (2.0.0)");
+        assertTrue(loaded.isEmpty(), "Expected empty result for major version mismatch (1.0.0)");
     }
 
     @Test
-    void schemaMinorVersionMismatchIsAcceptedForNonStrict(@TempDir Path tempDir) throws Exception {
-        // Use a version with same major but different minor (1.2.0) to test forward compatibility.
+    void nonStrictLanguageAcceptsMinorVersionMismatch(@TempDir Path tempDir) throws Exception {
+        // Use a version with same major but different minor (2.1.0) to test forward compatibility.
         // We use a filename that maps to a non-strict language (PYTHON) to verify generic acceptance.
         Path out = tempDir.resolve("python.bin.lz4");
-        writeDtoWithSchemaVersion(out, "1.2.0", 1L);
+        writeDtoWithSchemaVersion(out, "2.1.0", 1L);
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isPresent(), "Expected minor version mismatch (1.2.0) to be accepted for non-strict loads");
+        assertTrue(
+                loaded.isPresent(),
+                "Expected minor version mismatch (2.1.0) to be accepted for non-strict loads within same major");
         assertEquals(1L, loaded.get().snapshotEpochNanos());
     }
 
     @Test
     void javaStrictSchemaGating(@TempDir Path tempDir) throws Exception {
-        Path v100 = tempDir.resolve("java.bin.lz4");
-        writeDtoWithSchemaVersion(v100, "1.0.0", 100L);
-        assertTrue(TreeSitterStateIO.load(v100).isEmpty(), "Java should REJECT legacy schemaVersion 1.0.0");
-
         Path v110 = tempDir.resolve("java.bin.lz4");
         writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
-        assertTrue(TreeSitterStateIO.load(v110).isPresent(), "Java should accept current schemaVersion 1.1.0");
+        assertTrue(TreeSitterStateIO.load(v110).isEmpty(), "Java should REJECT legacy major schemaVersion 1.1.0");
+
+        Path v200 = tempDir.resolve("java.bin.lz4");
+        writeDtoWithSchemaVersion(v200, "2.0.0", 200L);
+        assertTrue(TreeSitterStateIO.load(v200).isPresent(), "Java should accept current schemaVersion 2.0.0");
     }
 
     @Test
     void typescriptStrictSchemaGating(@TempDir Path tempDir) throws Exception {
-        Path v100 = tempDir.resolve("typescript.bin.lz4");
-        writeDtoWithSchemaVersion(v100, "1.0.0", 100L);
-        assertTrue(TreeSitterStateIO.load(v100).isEmpty(), "TypeScript should REJECT legacy schemaVersion 1.0.0");
-
         Path v110 = tempDir.resolve("typescript.bin.lz4");
         writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
-        assertTrue(TreeSitterStateIO.load(v110).isPresent(), "TypeScript should accept current schemaVersion 1.1.0");
+        assertTrue(TreeSitterStateIO.load(v110).isEmpty(), "TypeScript should REJECT legacy schemaVersion 1.1.0");
+
+        Path v200 = tempDir.resolve("typescript.bin.lz4");
+        writeDtoWithSchemaVersion(v200, "2.0.0", 200L);
+        assertTrue(TreeSitterStateIO.load(v200).isPresent(), "TypeScript should accept current schemaVersion 2.0.0");
     }
 
     @Test
-    void nonStrictLanguageAcceptsLegacySchema(@TempDir Path tempDir) throws Exception {
-        // C# is non-strict (not in Migrator's force rebuild list)
+    void nonStrictLanguageRejectsLegacyMajorSchema(@TempDir Path tempDir) throws Exception {
+        // C# is non-strict but we still reject major version mismatches globally in TreeSitterStateIO
         Path v100 = tempDir.resolve("c_sharp.bin.lz4");
         writeDtoWithSchemaVersion(v100, "1.0.0", 100L);
 
         assertTrue(
-                TreeSitterStateIO.load(v100).isPresent(),
-                "Non-strict languages (e.g., C#) should accept legacy schemaVersion 1.0.0");
+                TreeSitterStateIO.load(v100).isEmpty(), "All languages should reject legacy major schemaVersion 1.0.0");
     }
 
     @Test
@@ -851,7 +852,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
-        stateDtoMap.put("schemaVersion", "1.1.0");
+        stateDtoMap.put("schemaVersion", "2.0.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
