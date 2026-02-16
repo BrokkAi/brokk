@@ -122,8 +122,9 @@ def test_action_toggle_mode_handles_unknown_mode():
 
 def test_status_line_is_composed_and_updates_on_mode_change():
     """
-    Ensure that when the app mode changes the status line is asked to update with the new mode.
-    This test uses a mock for query_one so we don't require a full Textual runtime or active app context.
+    Ensure that when the app mode changes the status line is asked
+    to update with the new mode. This test uses a mock for query_one
+    so we don't require a full Textual runtime or active app context.
     """
     app = BrokkApp(executor=MagicMock())
 
