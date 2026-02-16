@@ -148,23 +148,10 @@ def test_status_line_is_composed_and_updates_on_mode_change():
 
     # Change mode and ensure the status line receive an update containing the new mode.
     app._set_mode("ASK", announce=False)
-    # Ensure _update_statusline triggered update_status (StatusLine API provides update_status)
-    # The app._update_statusline uses status.update_status(...).
-    # Accept either update or update_status.
-    assert mock_status.update_status.called or mock_status.update.called, (
-        "StatusLine should be updated on mode change"
-    )
 
-    # Inspect the arguments passed to the update/update_status call and ensure the mode is present.
-    called_args = None
-    if mock_status.update_status.called:
-        called_args = mock_status.update_status.call_args[0]
-    elif mock_status.update.called:
-        called_args = mock_status.update.call_args[0]
-
-    # called_args[0] may be a formatted string or None; convert to string for verification.
-    assert called_args is not None, "Expected status update call to carry content"
-    called_payload = str(called_args[0])
-    assert "Mode: ASK" in called_payload or "ASK" in called_payload, (
-        "Status line should reflect the new mode 'ASK'"
+    # Ensure _update_statusline triggered update_status with correct keyword arguments.
+    assert mock_status.update_status.called, (
+        "StatusLine.update_status should be called on mode change"
     )
+    kwargs = mock_status.update_status.call_args.kwargs
+    assert kwargs["mode"] == "ASK", "Status line should reflect the new mode 'ASK'"
