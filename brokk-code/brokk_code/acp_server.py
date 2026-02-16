@@ -3,6 +3,7 @@ import json
 import logging
 import sys
 import uuid
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
@@ -18,6 +19,63 @@ DEFAULT_MODEL_SELECTION = "gpt-5.2"
 DEFAULT_REASONING_LEVEL = "low"
 THOUGHT_LEVEL_CONFIG_ID = "thought_level"
 DEFAULT_VARIANT_VALUE = "default"
+
+
+# ACP persistence dataclass and helpers. Persisted in ~/.brokk/acp_settings.json
+@dataclass
+class AcpDefaults:
+    default_model: str = DEFAULT_MODEL_SELECTION
+    default_reasoning: str = DEFAULT_REASONING_LEVEL
+
+    def to_dict(self) -> dict[str, str]:
+        return {"default_model": self.default_model, "default_reasoning": self.default_reasoning}
+
+
+def _acp_settings_dir() -> Path:
+    return Path.home() / ".brokk"
+
+
+def _acp_settings_file() -> Path:
+    return _acp_settings_dir() / "acp_settings.json"
+
+
+def load_acp_defaults() -> AcpDefaults:
+    path = _acp_settings_file()
+    if not path.exists():
+        return AcpDefaults()
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+            model = str(data.get("default_model") or DEFAULT_MODEL_SELECTION).strip()
+            reasoning = str(data.get("default_reasoning") or DEFAULT_REASONING_LEVEL).strip()
+            if not model:
+                model = DEFAULT_MODEL_SELECTION
+            if not reasoning:
+                reasoning = DEFAULT_REASONING_LEVEL
+            # Ensure reasoning is a recognized id; else fallback to default
+            if reasoning not in REASONING_LEVEL_IDS:
+                logger.info(
+                    "Persisted ACP reasoning %s invalid; falling back to %s",
+                    reasoning,
+                    DEFAULT_REASONING_LEVEL,
+                )
+                reasoning = DEFAULT_REASONING_LEVEL
+            return AcpDefaults(default_model=model, default_reasoning=reasoning)
+    except Exception as e:
+        logger.warning("Failed to load ACP defaults from %s: %s", path, e)
+        return AcpDefaults()
+
+
+def save_acp_defaults(defaults: AcpDefaults) -> None:
+    try:
+        path = _acp_settings_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_suffix(".tmp")
+        with temp.open("w", encoding="utf-8") as f:
+            json.dump(defaults.to_dict(), f, indent=2)
+        temp.replace(path)
+    except Exception as e:
+        logger.error("Failed to save ACP defaults to %s: %s", _acp_settings_file(), e)
 
 
 def normalize_mode(mode: Optional[str]) -> str:
@@ -622,13 +680,20 @@ async def run_acp_server(
 
     class BrokkAcpAgent(Agent):
         def __init__(self) -> None:
-            self.client: Optional[Any] = None
-            self._mode_by_session: dict[str, str] = {}
-            self._model_by_session: dict[str, str] = {}
-            self._reasoning_by_session: dict[str, str] = {}
-            self._cwd_by_session: dict[str, str] = {}
-            self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
-            self._is_zed = ide_profile == "zed"
+                self.client: Optional[Any] = None
+                self._mode_by_session: dict[str, str] = {}
+                self._model_by_session: dict[str, str] = {}
+                self._reasoning_by_session: dict[str, str] = {}
+                self._cwd_by_session: dict[str, str] = {}
+                self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
+                self._is_zed = ide_profile == "zed"
+
+                # Load ACP defaults once on agent init
+                acp_defaults = load_acp_defaults()
+                self._default_model_id: str = acp_defaults.default_model or DEFAULT_MODEL_SELECTION
+                self._default_reasoning_level: str = (
+                    acp_defaults.default_reasoning or DEFAULT_REASONING_LEVEL
+                )
 
         async def _refresh_model_catalog(self, session_id: str) -> None:
             try:
@@ -800,10 +865,47 @@ async def run_acp_server(
             del mcp_servers, kwargs
             session_id = str(uuid.uuid4())
             self._mode_by_session[session_id] = "LUTZ"
-            self._model_by_session[session_id] = DEFAULT_MODEL_SELECTION
-            self._reasoning_by_session[session_id] = DEFAULT_REASONING_LEVEL
+            # Seed session model/reasoning from persisted defaults; validation happens after
+            self._model_by_session[session_id] = self._default_model_id or DEFAULT_MODEL_SELECTION
+            self._reasoning_by_session[session_id] = (
+                self._default_reasoning_level or DEFAULT_REASONING_LEVEL
+            )
             self._cwd_by_session[session_id] = cwd
             await self._refresh_model_catalog(session_id)
+
+            # After refreshing catalog, ensure persisted defaults are valid for this catalog.
+            catalog = self._catalog_for_session(session_id)
+            available_models = {str(m.get("name")) for m in catalog if isinstance(m, dict)}
+            # Validate model default
+            if self._model_by_session[session_id] not in available_models and available_models:
+                # fallback to first available model and persist that choice
+                fallback = next(iter(available_models))
+                logger.info(
+                    "Persisted ACP default model %s not available; falling back to %s",
+                    self._model_by_session[session_id],
+                    fallback,
+                )
+                self._model_by_session[session_id] = fallback
+                self._default_model_id = fallback
+                save_acp_defaults(AcpDefaults(default_model=self._default_model_id, default_reasoning=self._default_reasoning_level))
+
+            # Validate reasoning default against model capabilities
+            sanitized = _sanitize_reasoning_level_for_model(
+                self._model_by_session[session_id],
+                self._reasoning_by_session[session_id],
+                catalog,
+            )
+            if sanitized != self._reasoning_by_session[session_id]:
+                logger.info(
+                    "Persisted ACP reasoning %s invalid for model %s; falling back to %s",
+                    self._reasoning_by_session[session_id],
+                    self._model_by_session[session_id],
+                    sanitized,
+                )
+                self._reasoning_by_session[session_id] = sanitized
+                self._default_reasoning_level = sanitized
+                save_acp_defaults(AcpDefaults(default_model=self._default_model_id, default_reasoning=self._default_reasoning_level))
+
             model_state = self._model_state_for_session(session_id)
             return NewSessionResponse(
                 session_id=session_id,
@@ -886,9 +988,21 @@ async def run_acp_server(
                 selected_model, selected_reasoning = resolve_model_selection(model_id)
             available = {str(m.get("name")) for m in catalog}
             fallback_model = next(iter(available), DEFAULT_MODEL_SELECTION)
-            self._model_by_session[session_id] = (
-                selected_model if selected_model in available else fallback_model
-            )
+            chosen_model = selected_model if selected_model in available else fallback_model
+            self._model_by_session[session_id] = chosen_model
+
+            # Update persisted default model to the newly selected valid model
+            try:
+                self._default_model_id = chosen_model
+                save_acp_defaults(
+                    AcpDefaults(
+                        default_model=self._default_model_id,
+                        default_reasoning=self._default_reasoning_level,
+                    )
+                )
+            except Exception:
+                logger.exception("Failed to persist ACP default model change")
+
             if selected_reasoning:
                 self._reasoning_by_session[session_id] = selected_reasoning
             elif not self._is_zed:
@@ -907,14 +1021,44 @@ async def run_acp_server(
                 self._mode_by_session[session_id] = normalize_mode(value)
             elif config_id == "model" and value:
                 selected_model, selected_reasoning = resolve_model_selection(value)
-                self._model_by_session[session_id] = selected_model
+                # Validate against catalog
+                catalog = self._catalog_for_session(session_id)
+                available = {str(m.get("name")) for m in catalog}
+                chosen_model = selected_model if selected_model in available else next(iter(available), DEFAULT_MODEL_SELECTION)
+                self._model_by_session[session_id] = chosen_model
+                # Persist model change
+                try:
+                    self._default_model_id = chosen_model
+                    save_acp_defaults(
+                        AcpDefaults(
+                            default_model=self._default_model_id,
+                            default_reasoning=self._default_reasoning_level,
+                        )
+                    )
+                except Exception:
+                    logger.exception("Failed to persist ACP default model change")
                 if selected_reasoning:
                     self._reasoning_by_session[session_id] = selected_reasoning
             elif (
                 config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort", "reasoning"}
                 and value in REASONING_LEVEL_IDS
             ):
-                self._reasoning_by_session[session_id] = value
+                # Sanitize for model capabilities
+                catalog = self._catalog_for_session(session_id)
+                model = self._model_by_session.get(session_id, self._default_model_id)
+                sanitized = _sanitize_reasoning_level_for_model(model, value, catalog)
+                self._reasoning_by_session[session_id] = sanitized
+                # Persist reasoning change
+                try:
+                    self._default_reasoning_level = sanitized
+                    save_acp_defaults(
+                        AcpDefaults(
+                            default_model=self._default_model_id,
+                            default_reasoning=self._default_reasoning_level,
+                        )
+                    )
+                except Exception:
+                    logger.exception("Failed to persist ACP default reasoning change")
             options = self._config_options_for_session(session_id)
             return SetSessionConfigOptionResponse(config_options=options)
 
