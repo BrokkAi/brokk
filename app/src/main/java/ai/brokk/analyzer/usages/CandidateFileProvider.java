@@ -16,6 +16,7 @@ public interface CandidateFileProvider {
      * @param target the code unit to find usages for
      * @param analyzer the analyzer to use for discovery
      * @return a set of candidate files
+     * @throws InterruptedException if the search is interrupted
      */
-    Set<ProjectFile> findCandidates(CodeUnit target, IAnalyzer analyzer);
+    Set<ProjectFile> findCandidates(CodeUnit target, IAnalyzer analyzer) throws InterruptedException;
 }

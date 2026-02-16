@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
 public final class ImportGraphCandidateProvider implements CandidateFileProvider {
 
     @Override
-    public Set<ProjectFile> findCandidates(CodeUnit target, IAnalyzer analyzer) {
+    public Set<ProjectFile> findCandidates(CodeUnit target, IAnalyzer analyzer) throws InterruptedException {
         Set<ProjectFile> candidates = new HashSet<>();
 
         // 1. Identify Polymorphic Targets
