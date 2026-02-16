@@ -2009,7 +2009,15 @@ public class Chrome
             var ip = rightPanel.getInstructionsPanel();
             var hop = rightPanel.getHistoryOutputPanel();
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
-                ip.getInstructionsArea().copy();
+                JTextArea area = ip.getInstructionsArea();
+                if (area.getSelectionStart() == area.getSelectionEnd()) {
+                    String instructions = ip.getInstructions();
+                    if (!instructions.isBlank()) {
+                        ip.clearCommandInput();
+                        return;
+                    }
+                }
+                area.copy();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getLlmStreamArea())) {
                 hop.getLlmStreamArea().copy(); // Assumes MarkdownOutputPanel has copy()
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getHistoryTable())) {
