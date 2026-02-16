@@ -274,9 +274,6 @@ class AnalyzerWrapperTest {
         Files.writeString(aPath, "package pkg; public class A { void a() {} }");
 
         TestRepo backingRepo = new TestRepo(projectRoot);
-        ProjectFile pf = new ProjectFile(projectRoot, "pkg/A.java");
-        backingRepo.add(pf);
-
         CachingRepoWrapper cachingRepo = new CachingRepoWrapper(backingRepo);
 
         class ProjectWithCachingRepo extends TestProject {
@@ -293,33 +290,35 @@ class AnalyzerWrapperTest {
         var project = new ProjectWithCachingRepo(projectRoot);
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
 
-        // 1. Wait for initial analyzer
+        // 1. Wait for initial analyzer (currently empty project)
         IAnalyzer initialAnalyzer = analyzerWrapper.get();
         assertNotNull(initialAnalyzer);
 
-        // 2. Seed the stale cache in the repo wrapper
-        cachingRepo.getTrackedFiles();
+        // 2. Explicitly seed the cache while it's empty
+        Set<ProjectFile> initialTracked = cachingRepo.getTrackedFiles();
+        assertTrue(initialTracked.isEmpty(), "Cache should be seeded with empty set");
 
-        // 3. Modify the file on disk
-        Files.writeString(aPath, "package pkg; public class A { void a() {} void b() {} }");
-
-        // 4. Backing repo is updated, but cachingRepo is still stale.
-        // In the bug, onFilesChanged would skip because cachingRepo.getTrackedFiles() returns old set.
+        // 3. Add the file to backing repo - now cachingRepo is STALE
+        ProjectFile pf = new ProjectFile(projectRoot, "pkg/A.java");
         backingRepo.add(pf);
 
-        // 5. Trigger onFilesChanged
+        // Verify the stale state: backing repo has it, caching repo (cache) does not
+        assertTrue(backingRepo.getTrackedFiles().contains(pf));
+        assertFalse(cachingRepo.getTrackedFiles().contains(pf), "CachingRepo should still return empty stale set");
+
+        // 4. Trigger onFilesChanged.
+        // AnalyzerWrapper MUST call cachingRepo.invalidateCaches() for this to work.
         EventBatch batch = new EventBatch();
         batch.getFiles().add(pf);
         analyzerWrapper.onFilesChanged(batch);
 
-        // 6. Assert the analyzer snapshot reflects the edit.
+        // 5. Assert the analyzer snapshot reflects the new file.
         // Poll because updates are async.
         boolean updated = false;
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
             IAnalyzer current = analyzerWrapper.get();
-            String skeleton = AnalyzerUtil.getSkeleton(current, "pkg.A").orElse("");
-            if (skeleton.contains("void b()")) {
+            if (AnalyzerUtil.getSkeleton(current, "pkg.A").isPresent()) {
                 updated = true;
                 break;
             }
@@ -328,7 +327,7 @@ class AnalyzerWrapperTest {
 
         assertTrue(
                 updated,
-                "Analyzer should have updated pkg.A to include method 'b' because caches were invalidated before filtering");
+                "Analyzer should have found pkg.A because it should invalidate git caches before filtering relevant files");
     }
 
     /**
