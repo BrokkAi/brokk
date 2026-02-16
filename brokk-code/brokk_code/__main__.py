@@ -3,14 +3,28 @@ import asyncio
 import sys
 from pathlib import Path
 
+from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
+
 
 def main():
     parser = argparse.ArgumentParser(description="Brokk Code - Interactive Terminal Interface")
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["acp"],
-        help="Run in ACP server mode over stdio",
+        choices=["acp", "install"],
+        help="Run in ACP server mode or install integration settings",
+    )
+    parser.add_argument(
+        "install_target",
+        nargs="?",
+        choices=["zed"],
+        help="Install target for integration settings",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Overwrite existing install configuration when supported",
     )
     parser.add_argument(
         "--workspace",
@@ -72,6 +86,26 @@ def main():
         help="ACP client profile to target (default: intellij)",
     )
     args = parser.parse_args()
+
+    if args.command == "install":
+        if args.install_target != "zed":
+            print(
+                "Error: install currently supports only 'brokk-code install zed'.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        try:
+            settings_path = configure_zed_acp_settings(force=args.force)
+        except ExistingBrokkCodeEntryError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"Configured Zed ACP integration in {settings_path}")
+        return
 
     workspace_path = Path(args.workspace).resolve()
     if not workspace_path.exists():

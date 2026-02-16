@@ -2,6 +2,8 @@ import sys
 from types import ModuleType
 from typing import Any
 
+import pytest
+
 import brokk_code.__main__ as main_module
 
 
@@ -72,3 +74,33 @@ def test_main_acp_routes_to_server_with_ide(monkeypatch, tmp_path) -> None:
 
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["ide"] == "zed"
+
+
+def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_configure_zed_acp_settings(*, force: bool = False, settings_path=None):
+        captured["force"] = force
+        return tmp_path / ".config" / "zed" / "settings.json"
+
+    monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
+    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "zed", "--force"])
+
+    main_module.main()
+
+    output = capsys.readouterr().out
+    assert captured["force"] is True
+    assert "Configured Zed ACP integration" in output
+
+
+def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
+    def fake_configure_zed_acp_settings(*, force: bool = False, settings_path=None):
+        raise main_module.ExistingBrokkCodeEntryError("exists")
+
+    monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
+    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "zed"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
