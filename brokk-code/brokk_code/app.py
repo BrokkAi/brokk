@@ -195,6 +195,9 @@ class BrokkApp(App):
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
         Binding("ctrl+space", "task_toggle", "Task Toggle", show=False),
         Binding("f3", "toggle_mode", "Mode", show=False),
+        # Undo / Redo bindings
+        Binding("ctrl+z", "undo_context", "Undo", show=True),
+        Binding("ctrl+y", "redo_context", "Redo", show=True),
     ]
 
     def __init__(
