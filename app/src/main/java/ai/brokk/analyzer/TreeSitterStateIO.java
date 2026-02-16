@@ -355,30 +355,42 @@ public final class TreeSitterStateIO {
 
     /**
      * Load an AnalyzerState from the provided file in Smile format.
-     * Returns Optional.empty() if file is missing or deserialization fails.
+     *
+     * <p>The language is inferred from the filename (e.g., "java.bin.lz4" -> JAVA). If the language
+     * cannot be determined, a rebuild is forced by returning Optional.empty().
+     *
+     * <p>Version semantics:
+     * <ul>
+     *   <li>If major versions differ -> incompatible: return Optional.empty().
+     *   <li>For strict languages (JAVA, TYPESCRIPT): if snapshot < CURRENT_SCHEMA, return empty.
+     *   <li>For other languages: allow minor/patch differences and migrate.
+     * </ul>
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
-        return load(file, null);
-    }
-
-    /**
-     * Load an AnalyzerState from the provided file in Smile format, with language-specific version checks.
-     *
-     * Version semantics:
-     * - If the DTO contains no schemaVersion field (legacy snapshots), it is treated as older than current.
-     * - If schemaVersion.major != CURRENT_SCHEMA.major -> incompatible: return Optional.empty().
-     * - For JAVA and TYPESCRIPT: if snapshot version < CURRENT_SCHEMA, return Optional.empty() to force rebuild.
-     * - For other languages: allow minor/patch differences (accept and potentially migrate).
-     */
-    @Blocking
-    public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file, @Nullable Language language) {
         if (!Files.exists(file)) {
             log.debug("Analyzer state file does not exist: {}", file);
             return Optional.empty();
         }
-        long startMs = System.currentTimeMillis();
 
+        String fileName = file.getFileName().toString();
+        String suffix = ".bin.lz4";
+        Language language = null;
+
+        if (fileName.endsWith(suffix)) {
+            String prefix = fileName.substring(0, fileName.length() - suffix.length());
+            try {
+                language = Languages.valueOf(prefix.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
+        if (language == null) {
+            log.info("Could not infer language from filename {}; forcing rebuild.", fileName);
+            return Optional.empty();
+        }
+
+        long startMs = System.currentTimeMillis();
         try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
             return loadFromStream(in, file, startMs, language);
         } catch (EOFException e) {
@@ -389,6 +401,20 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         } catch (IOException e) {
             log.debug("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Internal overload for tests or cases where language is already known.
+     */
+    @Blocking
+    private static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file, @Nullable Language language) {
+        if (!Files.exists(file)) return Optional.empty();
+        long startMs = System.currentTimeMillis();
+        try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
+            return loadFromStream(in, file, startMs, language);
+        } catch (IOException e) {
             return Optional.empty();
         }
     }

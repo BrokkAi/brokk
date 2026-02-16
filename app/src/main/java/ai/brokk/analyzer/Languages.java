@@ -396,7 +396,7 @@ public class Languages {
         @Override
         public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage, this)
+            return TreeSitterStateIO.load(storage)
                     .map(state -> {
                         var analyzer = TypescriptAnalyzer.fromState(project, state, listener);
                         return (IAnalyzer) analyzer;
