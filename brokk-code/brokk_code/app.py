@@ -17,6 +17,7 @@ from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
+from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 logger = logging.getLogger(__name__)
@@ -182,7 +183,8 @@ class BrokkApp(App):
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
-        # Footer/help-bar ordering: Mode, Model, Reasoning, Context, Tasks, Notifications, Settings
+        # Footer/help-bar ordering: Mode, Model, Reasoning, Context,
+        # Tasks, Notifications, Settings
         Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+u", "select_model", "Model", show=True),
@@ -190,6 +192,7 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
+        Binding("ctrl+s", "toggle_statusline", "Status", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
@@ -257,11 +260,44 @@ class BrokkApp(App):
         except (ScreenStackError, Exception):
             return None
 
+    def _maybe_statusline(self) -> Optional[StatusLine]:
+        """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
+        try:
+            return self.query_one(StatusLine)
+        except (ScreenStackError, Exception):
+            return None
+
+    def _update_statusline(self) -> None:
+        """Collect current state and update the mounted StatusLine (best-effort)."""
+        status = self._maybe_statusline()
+        if not status:
+            return
+        try:
+            workspace = None
+            try:
+                if getattr(self, "executor", None) is not None:
+                    ws = getattr(self.executor, "workspace_dir", None)
+                    if ws is not None:
+                        workspace = str(ws)
+            except Exception:
+                workspace = None
+
+            status.update_status(
+                mode=getattr(self, "current_mode", getattr(self, "agent_mode", "unknown")),
+                model=getattr(self, "current_model", None),
+                reasoning=getattr(self, "reasoning_level", None),
+                workspace=workspace,
+            )
+        except Exception:
+            # Swallow all errors when updating UI that's possibly not mounted in tests.
+            return
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
+        yield StatusLine(id="status-line")
         yield OrderedFooter(show_command_palette=False)
 
     async def on_mount(self) -> None:
@@ -786,6 +822,8 @@ class BrokkApp(App):
         """Sets the agent mode, updates the subtitle, and optionally announces to chat."""
         self.agent_mode = new_mode
         self.sub_title = f"Mode: {self.agent_mode}"
+        # Update statusline if present
+        self._update_statusline()
         if announce:
             msg_markup = f"Mode changed to: [bold]{self.agent_mode}[/]"
             chat = self._maybe_chat()
@@ -828,6 +866,7 @@ class BrokkApp(App):
         if base == "/model" and len(parts) > 1:
             self.current_model = parts[1]
             chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
+            self._update_statusline()
         elif base == "/model-code" and len(parts) > 1:
             self.code_model = parts[1]
             chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
@@ -836,6 +875,7 @@ class BrokkApp(App):
             chat.add_system_message_markup(
                 f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
             )
+            self._update_statusline()
         elif base == "/reasoning-code" and len(parts) > 1:
             self.reasoning_level_code = parts[1]
             chat.add_system_message_markup(
@@ -962,6 +1002,11 @@ class BrokkApp(App):
                     self.current_model = model_id
                     if chat:
                         chat.add_system_message_markup(f"Model changed to: [bold]{model_id}[/]")
+                    # Update statusline (best-effort)
+                    try:
+                        self._update_statusline()
+                    except Exception:
+                        pass
 
             self.push_screen(ModelSelectModal(available_models), update_model)
         except Exception as e:
@@ -980,6 +1025,11 @@ class BrokkApp(App):
                 self.reasoning_level = level
                 if chat:
                     chat.add_system_message_markup(f"Reasoning level changed to: [bold]{level}[/]")
+                # Update statusline (best-effort)
+                try:
+                    self._update_statusline()
+                except Exception:
+                    pass
 
         self.push_screen(ReasoningSelectModal(levels, current), update_level)
 
@@ -1044,6 +1094,15 @@ class BrokkApp(App):
     def action_toggle_notifications(self) -> None:
         panel = self.query_one("#notification-panel")
         panel.toggle_class("hidden")
+
+    def action_toggle_statusline(self) -> None:
+        """Toggle visibility of the status line (best-effort)."""
+        try:
+            panel = self.query_one("#status-line")
+            panel.toggle_class("hidden")
+        except Exception:
+            # If not mounted, ignore
+            pass
 
     def _set_theme(self, theme_name: str) -> None:
         normalized_theme = normalize_theme_name(theme_name.lower())
