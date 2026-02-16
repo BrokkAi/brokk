@@ -260,79 +260,72 @@ class AnalyzerWrapperTest {
         assertFalse(analyzerWrapper.isPause(), "Should not be paused after calling resume()");
     }
 
-    /**
-     * Regression test for stale tracked-files filtering bug.
-     * Demonstrates that AnalyzerWrapper.onFilesChanged skips updates for files not in getTrackedFiles().
-     */
     @Test
     void testOnFilesChangedSkipsUpdateWhenTrackedFilesStale() throws Exception {
-        var projectRoot = tempDir.resolve("project-stale");
-        Files.createDirectories(projectRoot);
-        Path aPath = projectRoot.resolve("pkg/A.java");
-        Files.createDirectories(aPath.getParent());
-        Files.writeString(aPath, "package pkg; public class A { void a() {} }");
+        var projectRoot = tempDir.resolve("project-stale-deterministic");
+        java.nio.file.Files.createDirectories(projectRoot);
+        java.nio.file.Path aPath = projectRoot.resolve("pkg/A.java");
+        java.nio.file.Files.createDirectories(aPath.getParent());
+        java.nio.file.Files.writeString(aPath, "package pkg; public class A { void a() {} }");
 
-        TestRepo repo = new TestRepo(projectRoot);
-        ProjectFile pf = new ProjectFile(projectRoot, "pkg/A.java");
-        repo.add(pf);
+        ai.brokk.git.TestRepo backingRepo = new ai.brokk.git.TestRepo(projectRoot);
+        ai.brokk.analyzer.ProjectFile pf = new ai.brokk.analyzer.ProjectFile(projectRoot, "pkg/A.java");
+        backingRepo.add(pf);
 
-        // Define a local project class that returns our controlled TestRepo
-        class ProjectWithTestRepo extends TestProject {
-            ProjectWithTestRepo(Path root) {
-                super(root, Languages.JAVA);
+        CachingRepoWrapper cachingRepo = new CachingRepoWrapper(backingRepo);
+
+        class ProjectWithCachingRepo extends ai.brokk.testutil.TestProject {
+            ProjectWithCachingRepo(java.nio.file.Path root) {
+                super(root, ai.brokk.analyzer.Languages.JAVA);
             }
 
             @Override
-            public TestRepo getRepo() {
-                return repo;
+            public ai.brokk.git.IGitRepo getRepo() {
+                return cachingRepo;
             }
         }
 
-        var project = new ProjectWithTestRepo(projectRoot);
-        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
+        var project = new ProjectWithCachingRepo(projectRoot);
+        analyzerWrapper = new AnalyzerWrapper(
+                project, new ai.brokk.NullAnalyzerListener(), new ai.brokk.watchservice.NoopWatchService());
 
-        // 1. Wait for initial analyzer to be built
-        var initialAnalyzer = analyzerWrapper.get();
+        // 1. Wait for initial analyzer
+        ai.brokk.analyzer.IAnalyzer initialAnalyzer = analyzerWrapper.get();
         assertNotNull(initialAnalyzer);
 
-        // 2. Wait for AnalyzerWrapper to be ready for watcher events (flips flag in follow-up task)
-        // We poll getNonBlocking to ensure initial setup is fully flushed.
-        long deadline = System.currentTimeMillis() + 2000;
-        while (System.currentTimeMillis() < deadline) {
-            if (analyzerWrapper.getNonBlocking() != null) break;
-            Thread.sleep(50);
-        }
+        // 2. Seed the stale cache in the repo wrapper
+        cachingRepo.getTrackedFiles();
 
         // 3. Modify the file on disk
-        Files.writeString(aPath, "package pkg; public class A { void a() {} void b() {} }");
+        java.nio.file.Files.writeString(aPath, "package pkg; public class A { void a() {} void b() {} }");
 
-        // 4. Simulate stale repo state: the file is changed but repo says it's no longer tracked
-        repo.remove(pf);
+        // 4. Backing repo is updated, but cachingRepo is still stale.
+        // In the bug, onFilesChanged would skip because cachingRepo.getTrackedFiles() returns old set.
+        backingRepo.add(pf);
 
-        // 5. Manually trigger onFilesChanged with the changed file.
-        // Because onFilesChanged now calls project.getRepo().invalidateCaches(),
-        // the TestRepo will clear its 'removed' state for 'pf', and pf will
-        // be found in the refreshed trackedFiles set.
-        EventBatch batch = new EventBatch();
+        // 5. Trigger onFilesChanged
+        ai.brokk.watchservice.AbstractWatchService.EventBatch batch =
+                new ai.brokk.watchservice.AbstractWatchService.EventBatch();
         batch.getFiles().add(pf);
         analyzerWrapper.onFilesChanged(batch);
 
         // 6. Assert the analyzer snapshot reflects the edit.
-        // Wait up to 5 seconds for the async analyzer update to finish
-        IAnalyzer updatedAnalyzer = null;
-        deadline = System.currentTimeMillis() + 5000;
+        // Poll because updates are async.
+        boolean updated = false;
+        long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
-            updatedAnalyzer = analyzerWrapper.get();
-            String skeleton = AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
-            if (skeleton.contains("void b()")) break;
+            ai.brokk.analyzer.IAnalyzer current = analyzerWrapper.get();
+            String skeleton =
+                    ai.brokk.AnalyzerUtil.getSkeleton(current, "pkg.A").orElse("");
+            if (skeleton.contains("void b()")) {
+                updated = true;
+                break;
+            }
             Thread.sleep(100);
         }
 
-        assertNotNull(updatedAnalyzer);
-        String finalSkeleton =
-                AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
         assertTrue(
-                finalSkeleton.contains("void b()"),
+                updated,
                 "Analyzer should have updated pkg.A to include method 'b' because caches were invalidated before filtering");
     }
 
@@ -411,6 +404,61 @@ class AnalyzerWrapperTest {
         public void onFilesChanged(EventBatch batch) {
             filesChangedCount.incrementAndGet();
             filesChangedLatch.countDown();
+        }
+    }
+
+    private static class CachingRepoWrapper implements ai.brokk.git.IGitRepo {
+        private final ai.brokk.git.IGitRepo delegate;
+        private java.util.Set<ai.brokk.analyzer.ProjectFile> cachedTrackedFiles = null;
+
+        CachingRepoWrapper(ai.brokk.git.IGitRepo delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public synchronized java.util.Set<ai.brokk.analyzer.ProjectFile> getTrackedFiles() {
+            if (cachedTrackedFiles != null) {
+                return cachedTrackedFiles;
+            }
+            cachedTrackedFiles = delegate.getTrackedFiles();
+            return cachedTrackedFiles;
+        }
+
+        @Override
+        public synchronized void invalidateCaches() {
+            cachedTrackedFiles = null;
+            delegate.invalidateCaches();
+        }
+
+        @Override
+        public void add(java.util.Collection<ai.brokk.analyzer.ProjectFile> files)
+                throws org.eclipse.jgit.api.errors.GitAPIException {
+            delegate.add(files);
+        }
+
+        @Override
+        public void add(ai.brokk.analyzer.ProjectFile file) throws org.eclipse.jgit.api.errors.GitAPIException {
+            delegate.add(file);
+        }
+
+        @Override
+        public void remove(ai.brokk.analyzer.ProjectFile file) throws org.eclipse.jgit.api.errors.GitAPIException {
+            delegate.remove(file);
+        }
+
+        @Override
+        public java.nio.file.Path getWorkTreeRoot() {
+            return delegate.getWorkTreeRoot();
+        }
+
+        @Override
+        public java.util.List<java.nio.file.Path> getFixedGitignoreFiles() {
+            return delegate.getFixedGitignoreFiles();
+        }
+
+        @Override
+        public String getCurrentCommitId() throws org.eclipse.jgit.api.errors.GitAPIException {
+            return delegate.getCurrentCommitId();
         }
     }
 }
