@@ -138,7 +138,9 @@ def test_status_line_is_composed_and_updates_on_mode_change():
             status_widget = w
             break
 
-    assert status_widget is not None, "BrokkApp.compose() should include a widget with id 'status-line'"
+    assert status_widget is not None, (
+        "BrokkApp.compose() should include a widget with id 'status-line'"
+    )
 
     # Replace the status widget with a mock that records updates.
     mock_status = MagicMock(spec=StatusLine)
@@ -147,8 +149,11 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     # Change mode and ensure the status line receive an update containing the new mode.
     app._set_mode("ASK", announce=False)
     # Ensure _update_statusline triggered update_status (StatusLine API provides update_status)
-    # The app._update_statusline uses status.update_status(...). Accept either update or update_status.
-    assert mock_status.update_status.called or mock_status.update.called, "StatusLine should be updated on mode change"
+    # The app._update_statusline uses status.update_status(...).
+    # Accept either update or update_status.
+    assert mock_status.update_status.called or mock_status.update.called, (
+        "StatusLine should be updated on mode change"
+    )
 
     # Inspect the arguments passed to the update/update_status call and ensure the mode is present.
     called_args = None
@@ -160,4 +165,6 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     # called_args[0] may be a formatted string or None; convert to string for verification.
     assert called_args is not None, "Expected status update call to carry content"
     called_payload = str(called_args[0])
-    assert "Mode: ASK" in called_payload or "ASK" in called_payload, "Status line should reflect the new mode 'ASK'"
+    assert "Mode: ASK" in called_payload or "ASK" in called_payload, (
+        "Status line should reflect the new mode 'ASK'"
+    )
