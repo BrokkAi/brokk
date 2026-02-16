@@ -1519,7 +1519,8 @@ public final class JobRunner {
             responseText = Messages.getText(aiMessage);
         }
 
-        Context reviewContext = ctx.addHistoryEntry(responseMessages, messages, TaskResult.Type.REVIEW, model, "PR Review");
+        Context reviewContext =
+                ctx.addHistoryEntry(responseMessages, messages, TaskResult.Type.REVIEW, model, "PR Review");
         return new ReviewDiffResult(new TaskResult(reviewContext, stop), responseText);
     }
 
