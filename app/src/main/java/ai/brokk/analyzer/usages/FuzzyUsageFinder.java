@@ -73,8 +73,11 @@ public final class FuzzyUsageFinder {
     }
 
     public static CandidateFileProvider createDefaultProvider() {
-        var graphProvider = new ImportGraphCandidateProvider();
-        var textProvider = new TextSearchCandidateProvider();
+        return createFallbackProvider(new ImportGraphCandidateProvider(), new TextSearchCandidateProvider());
+    }
+
+    static CandidateFileProvider createFallbackProvider(
+            CandidateFileProvider graphProvider, CandidateFileProvider textProvider) {
         return (target, analyzer) -> {
             var candidates = graphProvider.findCandidates(target, analyzer);
             if (candidates.isEmpty() && !analyzer.isEmpty()) {

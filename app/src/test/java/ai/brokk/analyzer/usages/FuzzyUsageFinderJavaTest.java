@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.analyzer.*;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestAnalyzer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -990,6 +991,80 @@ public class FuzzyUsageFinderJavaTest {
             assertTrue(
                     consumerHit.snippet().contains("entry.log()"),
                     "Snippet should contain the accessor call 'entry.log()'");
+        }
+    }
+
+    @Test
+    public void testFallbackProviderGraphNotEmpty() throws InterruptedException {
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        ProjectFile file = new ProjectFile(root, "Target.java");
+        CodeUnit target = CodeUnit.cls(file, "p", "Target");
+
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(target);
+
+        RecordingProvider graph = new RecordingProvider(Set.of(file));
+        RecordingProvider text = new RecordingProvider(Set.of());
+
+        CandidateFileProvider fallback = FuzzyUsageFinder.createFallbackProvider(graph, text);
+        Set<ProjectFile> result = fallback.findCandidates(target, analyzer);
+
+        assertEquals(Set.of(file), result);
+        assertEquals(1, graph.callCount);
+        assertEquals(0, text.callCount);
+    }
+
+    @Test
+    public void testFallbackProviderGraphEmptyAnalyzerNotEmpty() throws InterruptedException {
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        ProjectFile file = new ProjectFile(root, "Target.java");
+        CodeUnit target = CodeUnit.cls(file, "p", "Target");
+
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(target);
+
+        RecordingProvider graph = new RecordingProvider(Set.of());
+        RecordingProvider text = new RecordingProvider(Set.of(file));
+
+        CandidateFileProvider fallback = FuzzyUsageFinder.createFallbackProvider(graph, text);
+        Set<ProjectFile> result = fallback.findCandidates(target, analyzer);
+
+        assertEquals(Set.of(file), result);
+        assertEquals(1, graph.callCount);
+        assertEquals(1, text.callCount);
+    }
+
+    @Test
+    public void testFallbackProviderGraphEmptyAnalyzerEmpty() throws InterruptedException {
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        ProjectFile file = new ProjectFile(root, "Target.java");
+        CodeUnit target = CodeUnit.cls(file, "p", "Target");
+
+        TestAnalyzer analyzer = new TestAnalyzer(); // Empty
+
+        RecordingProvider graph = new RecordingProvider(Set.of());
+        RecordingProvider text = new RecordingProvider(Set.of(file));
+
+        CandidateFileProvider fallback = FuzzyUsageFinder.createFallbackProvider(graph, text);
+        Set<ProjectFile> result = fallback.findCandidates(target, analyzer);
+
+        assertTrue(result.isEmpty());
+        assertEquals(1, graph.callCount);
+        assertEquals(0, text.callCount);
+    }
+
+    private static class RecordingProvider implements CandidateFileProvider {
+        private final Set<ProjectFile> result;
+        int callCount = 0;
+
+        RecordingProvider(Set<ProjectFile> result) {
+            this.result = result;
+        }
+
+        @Override
+        public Set<ProjectFile> findCandidates(CodeUnit target, IAnalyzer analyzer) {
+            callCount++;
+            return result;
         }
     }
 
