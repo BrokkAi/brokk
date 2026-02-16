@@ -31,4 +31,3 @@ async def test_reasoning_modal_keyboard_navigation_selects_level():
             await pilot.pause()
 
             assert app.reasoning_level == "medium"
-

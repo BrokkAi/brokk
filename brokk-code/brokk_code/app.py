@@ -21,6 +21,7 @@ from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 logger = logging.getLogger(__name__)
 
+
 class OrderedFooter(Footer):
     def compose(self) -> ComposeResult:
         if not self._bindings_ready:
@@ -978,9 +979,7 @@ class BrokkApp(App):
             if level:
                 self.reasoning_level = level
                 if chat:
-                    chat.add_system_message_markup(
-                        f"Reasoning level changed to: [bold]{level}[/]"
-                    )
+                    chat.add_system_message_markup(f"Reasoning level changed to: [bold]{level}[/]")
 
         self.push_screen(ReasoningSelectModal(levels, current), update_level)
 
