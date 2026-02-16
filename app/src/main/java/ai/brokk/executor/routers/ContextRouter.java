@@ -10,6 +10,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -79,6 +80,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             case "/v1/context/classes" -> handlePostContextClasses(exchange);
             case "/v1/context/methods" -> handlePostContextMethods(exchange);
             case "/v1/context/text" -> handlePostContextText(exchange);
+            case "/v1/tasklist" -> handlePostTaskList(exchange);
             default ->
                 SimpleHttpServer.sendJsonResponse(
                         exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
@@ -528,6 +530,20 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         SimpleHttpServer.sendJsonResponse(exchange, Map.of("id", id, "chars", text.length()));
     }
 
+    private void handlePostTaskList(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        var request = RouterUtil.parseJsonOr400(exchange, ReplaceTaskListRequest.class, "/v1/tasklist");
+        if (request == null) return;
+        if (request.tasks() == null) {
+            RouterUtil.sendValidationError(exchange, "tasks must not be null");
+            return;
+        }
+
+        var updated = new TaskList.TaskListData(request.bigPicture(), List.copyOf(request.tasks()));
+        contextManager.pushContext(ctx -> ctx.withTaskList(updated));
+        SimpleHttpServer.sendJsonResponse(exchange, contextManager.getTaskList());
+    }
+
     private String classifyChipKind(ContextFragment fragment) {
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) return "SUMMARY";
         if (!fragment.isValid()) return "INVALID";
@@ -577,4 +593,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     private record AddContextMethodsResponse(List<AddedContextMethod> added) {}
 
     private record AddContextTextRequest(String text) {}
+
+    private record ReplaceTaskListRequest(
+            @org.jetbrains.annotations.Nullable String bigPicture, List<TaskList.TaskItem> tasks) {}
 }

@@ -54,6 +54,9 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
+        Binding("ctrl+j", "task_next", "Task Next", show=False),
+        Binding("ctrl+k", "task_prev", "Task Prev", show=False),
+        Binding("ctrl+space", "task_toggle", "Task Toggle", show=False),
         Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("f3", "toggle_mode", "Mode", show=True),
         Binding("f2", "change_theme", "Theme Palette", show=True),
@@ -386,6 +389,131 @@ class BrokkApp(App):
             updates.append((fragment_id, not current))
         return updates
 
+    async def _ensure_tasklist_data(self) -> Optional[Dict[str, Any]]:
+        panel = self.query_one(TaskListPanel)
+        data = panel.tasklist_data_for_update()
+        if data is not None:
+            return data
+        data = await self.executor.get_tasklist()
+        panel.update_tasklist_details(data)
+        return panel.tasklist_data_for_update()
+
+    async def _persist_tasklist(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        saved = await self.executor.set_tasklist(data)
+        self.query_one(TaskListPanel).update_tasklist_details(saved)
+        return saved
+
+    async def _toggle_selected_task(self) -> None:
+        chat = self.query_one(ChatPanel)
+        panel = self.query_one(TaskListPanel)
+        selected = panel.selected_task()
+        if not selected:
+            chat.add_system_message("No task selected.")
+            return
+
+        task_id = str(selected.get("id", "")).strip()
+        if not task_id:
+            chat.add_system_message("Selected task has no ID and cannot be updated.", level="ERROR")
+            return
+
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                chat.add_system_message("No task list active.")
+                return
+            tasks = data.get("tasks", [])
+            for task in tasks:
+                if str(task.get("id", "")).strip() == task_id:
+                    task["done"] = not bool(task.get("done", False))
+                    break
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to toggle task: {e}", level="ERROR")
+
+    async def _delete_selected_task(self) -> None:
+        chat = self.query_one(ChatPanel)
+        panel = self.query_one(TaskListPanel)
+        selected = panel.selected_task()
+        if not selected:
+            chat.add_system_message("No task selected.")
+            return
+
+        task_id = str(selected.get("id", "")).strip()
+        if not task_id:
+            chat.add_system_message("Selected task has no ID and cannot be deleted.", level="ERROR")
+            return
+
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                chat.add_system_message("No task list active.")
+                return
+            before = len(data.get("tasks", []))
+            data["tasks"] = [
+                task for task in data.get("tasks", []) if str(task.get("id", "")).strip() != task_id
+            ]
+            if len(data["tasks"]) == before:
+                chat.add_system_message("Selected task no longer exists.")
+                return
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to delete task: {e}", level="ERROR")
+
+    async def _add_task(self, title: str) -> None:
+        chat = self.query_one(ChatPanel)
+        normalized_title = title.strip()
+        if not normalized_title:
+            chat.add_system_message("Task title cannot be blank.", level="ERROR")
+            return
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                data = {"bigPicture": None, "tasks": []}
+            tasks = data.get("tasks", [])
+            tasks.append({"title": normalized_title, "text": normalized_title, "done": False})
+            data["tasks"] = tasks
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to add task: {e}", level="ERROR")
+
+    async def _edit_selected_task(self, title: str) -> None:
+        chat = self.query_one(ChatPanel)
+        panel = self.query_one(TaskListPanel)
+        selected = panel.selected_task()
+        if not selected:
+            chat.add_system_message("No task selected.")
+            return
+
+        task_id = str(selected.get("id", "")).strip()
+        if not task_id:
+            chat.add_system_message("Selected task has no ID and cannot be updated.", level="ERROR")
+            return
+
+        normalized_title = title.strip()
+        if not normalized_title:
+            chat.add_system_message("Task title cannot be blank.", level="ERROR")
+            return
+
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                chat.add_system_message("No task list active.")
+                return
+            updated = False
+            for task in data.get("tasks", []):
+                if str(task.get("id", "")).strip() == task_id:
+                    task["title"] = normalized_title
+                    if not str(task.get("text", "")).strip():
+                        task["text"] = normalized_title
+                    updated = True
+                    break
+            if not updated:
+                chat.add_system_message("Selected task no longer exists.")
+                return
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to edit task: {e}", level="ERROR")
+
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
         Handles user input from the chat panel.
@@ -599,6 +727,45 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+        elif base == "/task":
+            panel = self.query_one(TaskListPanel)
+            if len(parts) == 1:
+                selected = panel.selected_task()
+                if not selected:
+                    chat.add_system_message(
+                        "Task commands: /task next | prev | toggle | delete | "
+                        "add <title> | edit <title>"
+                    )
+                else:
+                    done = "[x]" if bool(selected.get("done", False)) else "[ ]"
+                    title = str(selected.get("title", "Task")).strip() or "Task"
+                    chat.add_system_message(f"Selected task: {done} {title}")
+            elif len(parts) >= 2:
+                action = parts[1].lower()
+                if action == "next":
+                    if not panel.move_selection(1):
+                        chat.add_system_message("No next task.")
+                elif action == "prev":
+                    if not panel.move_selection(-1):
+                        chat.add_system_message("No previous task.")
+                elif action == "toggle":
+                    self.run_worker(self._toggle_selected_task())
+                elif action == "delete":
+                    self.run_worker(self._delete_selected_task())
+                elif action == "add":
+                    if len(parts) < 3:
+                        chat.add_system_message("Usage: /task add <title>")
+                    else:
+                        self.run_worker(self._add_task(" ".join(parts[2:])))
+                elif action == "edit":
+                    if len(parts) < 3:
+                        chat.add_system_message("Usage: /task edit <title>")
+                    else:
+                        self.run_worker(self._edit_selected_task(" ".join(parts[2:])))
+                else:
+                    chat.add_system_message(
+                        "Unknown /task command. Use: next, prev, toggle, delete, add, edit."
+                    )
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -612,6 +779,12 @@ class BrokkApp(App):
                 "  /theme, /palette      - Open the theme palette\n"
                 "  /history              - Show recent prompt history\n"
                 "  /history-clear        - Clear prompt history\n"
+                "  /task                 - Show selected task info / task command help\n"
+                "  /task next|prev       - Navigate selected task\n"
+                "  /task toggle          - Toggle selected task done state\n"
+                "  /task add <title>     - Add a task\n"
+                "  /task edit <title>    - Edit selected task title\n"
+                "  /task delete          - Delete selected task\n"
                 "  /info                 - Show current configuration and status\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
@@ -645,6 +818,17 @@ class BrokkApp(App):
     def action_toggle_tasklist(self) -> None:
         panel = self.query_one("#side-tasklist")
         panel.display = not panel.display
+
+    def action_task_next(self) -> None:
+        panel = self.query_one(TaskListPanel)
+        panel.move_selection(1)
+
+    def action_task_prev(self) -> None:
+        panel = self.query_one(TaskListPanel)
+        panel.move_selection(-1)
+
+    def action_task_toggle(self) -> None:
+        self.run_worker(self._toggle_selected_task())
 
     def action_toggle_mode(self) -> None:
         """Cycles through agent modes: LUTZ -> ASK -> SEARCH -> LUTZ."""

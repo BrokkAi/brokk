@@ -75,6 +75,24 @@ class ContextRoutingIntegrationTest {
     }
 
     @Test
+    void testPostTaskList_isRegistered() throws Exception {
+        var uri = URI.create("http://127.0.0.1:" + executor.getPort() + "/v1/tasklist");
+        var body = "{\"bigPicture\":\"Goal\",\"tasks\":[]}";
+        var request = HttpRequest.newBuilder(uri)
+                .header("Authorization", "Bearer " + authToken)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+        var response = client.send(request, HttpResponse.BodyHandlers.discarding());
+
+        assertNotEquals(
+                HttpURLConnection.HTTP_NOT_FOUND,
+                response.statusCode(),
+                "Endpoint POST /v1/tasklist should be registered and not return 404");
+    }
+
+    @Test
     void testGetModels_isRegistered() throws Exception {
         var uri = URI.create("http://127.0.0.1:" + executor.getPort() + "/v1/models");
         var request = HttpRequest.newBuilder(uri)

@@ -487,6 +487,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/context/methods          - add method sources to context");
             System.out.println("    POST /v1/context/text             - add pasted text to context");
             System.out.println("    GET  /v1/tasklist                 - get current task list content");
+            System.out.println("    POST /v1/tasklist                 - replace current task list content");
             System.out.println();
 
             // Create and start executor
