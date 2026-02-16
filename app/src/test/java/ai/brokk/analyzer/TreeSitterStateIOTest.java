@@ -525,9 +525,7 @@ public class TreeSitterStateIOTest {
             assertTrue(parents1.contains(baseCu));
             assertTrue(parents2.contains(baseCu));
 
-            // 2. Round-trip serialization. Type hierarchy graphs are treated as cache data,
-            // so we do not assert they are pre-populated in the snapshot. Instead, the
-            // loaded analyzer should be able to recompute them on demand.
+            // 2. Round-trip serialization.
             TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
             Path storage = tempDir.resolve("java.bin.lz4");
             TreeSitterStateIO.save(snapshot, storage);
@@ -753,16 +751,19 @@ public class TreeSitterStateIOTest {
 
     @Test
     void testUnknownLanguageReturnsEmpty(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("unknown.bin.lz4");
+        Path out = tempDir.resolve("unknown_lang.bin.lz4");
         writeDtoWithSchemaVersion(out, CURRENT_SCHEMA_STR, 1L);
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isEmpty(), "Expected empty result for unknown language prefix");
+        assertTrue(loaded.isEmpty(), "Expected empty result for unknown language prefix 'unknown_lang'");
+
+        Path arbitrary = tempDir.resolve("state.bin.lz4");
+        writeDtoWithSchemaVersion(arbitrary, CURRENT_SCHEMA_STR, 1L);
+        assertTrue(TreeSitterStateIO.load(arbitrary).isEmpty(), "Expected empty result for arbitrary 'state.bin.lz4'");
     }
 
     @Test
     void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
-        // Manually serialize a DTO with a higher major version (2.0.0 vs current 1.0.0)
-        // to bypass the automatic CURRENT_SCHEMA setting in save()
+        // Manually serialize a DTO with a higher major version (2.0.0 vs current 1.x.x)
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "2.0.0");
         Path out = tempDir.resolve("java.bin.lz4");
 
@@ -777,10 +778,10 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void schemaMinorVersionMismatchIsAccepted(@TempDir Path tempDir) throws Exception {
+    void schemaMinorVersionMismatchIsAcceptedForNonStrict(@TempDir Path tempDir) throws Exception {
         // Use a version with same major but different minor (1.2.0) to test forward compatibility.
-        // We use a filename that maps to a non-strict language (C_SHARP) to verify generic acceptance.
-        Path out = tempDir.resolve("c_sharp.bin.lz4");
+        // We use a filename that maps to a non-strict language (PYTHON) to verify generic acceptance.
+        Path out = tempDir.resolve("python.bin.lz4");
         writeDtoWithSchemaVersion(out, "1.2.0", 1L);
 
         var loaded = TreeSitterStateIO.load(out);
@@ -789,30 +790,36 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void javaAcceptsSchema110(@TempDir Path tempDir) throws Exception {
+    void javaStrictSchemaGating(@TempDir Path tempDir) throws Exception {
+        Path v100 = tempDir.resolve("java.bin.lz4");
+        writeDtoWithSchemaVersion(v100, "1.0.0", 100L);
+        assertTrue(TreeSitterStateIO.load(v100).isEmpty(), "Java should REJECT legacy schemaVersion 1.0.0");
+
         Path v110 = tempDir.resolve("java.bin.lz4");
         writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
-
         assertTrue(TreeSitterStateIO.load(v110).isPresent(), "Java should accept current schemaVersion 1.1.0");
     }
 
     @Test
-    void typescriptAcceptsSchema110(@TempDir Path tempDir) throws Exception {
+    void typescriptStrictSchemaGating(@TempDir Path tempDir) throws Exception {
+        Path v100 = tempDir.resolve("typescript.bin.lz4");
+        writeDtoWithSchemaVersion(v100, "1.0.0", 100L);
+        assertTrue(TreeSitterStateIO.load(v100).isEmpty(), "TypeScript should REJECT legacy schemaVersion 1.0.0");
+
         Path v110 = tempDir.resolve("typescript.bin.lz4");
         writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
-
         assertTrue(TreeSitterStateIO.load(v110).isPresent(), "TypeScript should accept current schemaVersion 1.1.0");
     }
 
     @Test
-    void nonStrictLanguageStillAcceptsSchema110(@TempDir Path tempDir) throws Exception {
-        Path v110 = tempDir.resolve("c_sharp.bin.lz4");
-        writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
+    void nonStrictLanguageAcceptsLegacySchema(@TempDir Path tempDir) throws Exception {
+        // C# is non-strict (not in Migrator's force rebuild list)
+        Path v100 = tempDir.resolve("c_sharp.bin.lz4");
+        writeDtoWithSchemaVersion(v100, "1.0.0", 100L);
 
-        // C# uses TreeSitterStateIO.load(storage) (no language strictness), so it should still accept.
         assertTrue(
-                TreeSitterStateIO.load(v110).isPresent(),
-                "Non-strict languages (e.g., C#) should accept schemaVersion 1.1.0");
+                TreeSitterStateIO.load(v100).isPresent(),
+                "Non-strict languages (e.g., C#) should accept legacy schemaVersion 1.0.0");
     }
 
     @Test
