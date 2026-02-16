@@ -78,3 +78,121 @@ async def test_import_session_zip_with_id():
     args, kwargs = mock_client.put.call_args
     assert kwargs["headers"]["X-Session-Id"] == requested_id
     assert kwargs["headers"]["Content-Type"] == "application/zip"
+
+
+@pytest.mark.asyncio
+async def test_list_sessions():
+    executor = ExecutorManager()
+    executor.base_url = "http://localhost:8080"
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    executor._http_client = mock_client
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "sessions": [{"id": "abc", "name": "Test", "current": True}],
+        "currentSessionId": "abc",
+    }
+    mock_client.get.return_value = mock_response
+
+    result = await executor.list_sessions()
+
+    assert result["currentSessionId"] == "abc"
+    assert len(result["sessions"]) == 1
+    mock_client.get.assert_called_once_with("/v1/sessions")
+
+
+@pytest.mark.asyncio
+async def test_switch_session():
+    executor = ExecutorManager()
+    executor.base_url = "http://localhost:8080"
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    executor._http_client = mock_client
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"status": "switched", "sessionId": "new-id"}
+    mock_client.post.return_value = mock_response
+
+    result = await executor.switch_session("new-id")
+
+    assert result["status"] == "switched"
+    assert executor.session_id == "new-id"
+    args, kwargs = mock_client.post.call_args
+    assert args[0] == "/v1/sessions/switch"
+    assert kwargs["json"]["sessionId"] == "new-id"
+
+
+@pytest.mark.asyncio
+async def test_rename_session():
+    executor = ExecutorManager()
+    executor.base_url = "http://localhost:8080"
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    executor._http_client = mock_client
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"status": "renamed", "sessionId": "sid", "name": "New Name"}
+    mock_client.post.return_value = mock_response
+
+    result = await executor.rename_session("sid", "New Name")
+
+    assert result["status"] == "renamed"
+    args, kwargs = mock_client.post.call_args
+    assert args[0] == "/v1/sessions/rename"
+    assert kwargs["json"]["sessionId"] == "sid"
+    assert kwargs["json"]["name"] == "New Name"
+
+
+@pytest.mark.asyncio
+async def test_delete_session():
+    executor = ExecutorManager()
+    executor.base_url = "http://localhost:8080"
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    executor._http_client = mock_client
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"status": "deleted", "sessionId": "del-id"}
+    mock_client.delete.return_value = mock_response
+
+    result = await executor.delete_session("del-id")
+
+    assert result["status"] == "deleted"
+    mock_client.delete.assert_called_once_with("/v1/sessions/del-id")
+
+
+@pytest.mark.asyncio
+async def test_undo_context():
+    executor = ExecutorManager()
+    executor.base_url = "http://localhost:8080"
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    executor._http_client = mock_client
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"status": "undone"}
+    mock_client.post.return_value = mock_response
+
+    result = await executor.undo_context()
+
+    assert result["status"] == "undone"
+    mock_client.post.assert_called_once_with("/v1/context/undo")
+
+
+@pytest.mark.asyncio
+async def test_redo_context():
+    executor = ExecutorManager()
+    executor.base_url = "http://localhost:8080"
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    executor._http_client = mock_client
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"status": "redone"}
+    mock_client.post.return_value = mock_response
+
+    result = await executor.redo_context()
+
+    assert result["status"] == "redone"
+    mock_client.post.assert_called_once_with("/v1/context/redo")

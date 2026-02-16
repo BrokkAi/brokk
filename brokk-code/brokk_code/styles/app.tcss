@@ -13,6 +13,88 @@ ContextModalScreen {
     background: $surface;
 }
 
+SessionModalScreen {
+    align: center middle;
+}
+
+#session-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
+}
+
+#session-panel {
+    margin: 0;
+    height: 1fr;
+    max-height: 100%;
+    width: 100%;
+    background: $panel;
+    border: solid $primary-darken-2;
+    padding: 0 1;
+}
+
+#session-title {
+    text-style: bold;
+    color: $text;
+    width: auto;
+    margin-bottom: 0;
+}
+
+#session-help {
+    width: 100%;
+    color: $text-muted;
+    margin: 0 0 1 0;
+}
+
+#session-list-scroll {
+    height: 1fr;
+    min-height: 3;
+    width: 100%;
+}
+
+#session-list-wrap {
+    width: 100%;
+    height: auto;
+}
+
+.session-item {
+    height: 3;
+    width: 100%;
+    padding: 0 1;
+    border: round $primary-darken-2;
+    background: $surface-lighten-1;
+    color: $text;
+    margin-bottom: 1;
+}
+
+.session-item:focus {
+    border: round $accent;
+}
+
+.session-item:hover {
+    border: round $accent;
+    background: $accent 22%;
+}
+
+.session-item.is-active {
+    border: round $accent;
+    background: $accent 28%;
+    text-style: bold;
+}
+
+.session-item.is-current {
+    border: round $success;
+    background: $success 15%;
+}
+
+.session-item-empty {
+    border: none;
+    padding: 0;
+    color: $text-disabled;
+    background: transparent;
+}
+
 #side-tasklist {
     width: 38;
     dock: right;

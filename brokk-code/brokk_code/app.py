@@ -17,6 +17,7 @@ from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
+from brokk_code.widgets.session_panel import SessionPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class OrderedFooter(Footer):
             ("select_reasoning", "Reasoning"),
             ("toggle_context", "Context"),
             ("toggle_tasklist", "Tasks"),
+            ("toggle_sessions", "Sessions"),
             ("toggle_notifications", "Notifications"),
         ]
 
@@ -94,6 +96,30 @@ class ContextModalScreen(ModalScreen[None]):
         self.query_one(ContextPanel).focus()
 
     def action_close_context(self) -> None:
+        self._on_close()
+        self.dismiss(None)
+
+
+class SessionModalScreen(ModalScreen[None]):
+    """Full-screen modal wrapper for the session panel."""
+
+    BINDINGS = [
+        Binding("escape", "close_sessions", "Close", show=False),
+        Binding("ctrl+s", "close_sessions", "Close", show=False),
+    ]
+
+    def __init__(self, on_close: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_close = on_close
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="session-modal-container"):
+            yield SessionPanel(id="session-panel")
+
+    def on_mount(self) -> None:
+        self.query_one(SessionPanel).focus()
+
+    def action_close_sessions(self) -> None:
         self._on_close()
         self.dismiss(None)
 
@@ -195,6 +221,9 @@ class BrokkApp(App):
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
         Binding("ctrl+space", "task_toggle", "Task Toggle", show=False),
         Binding("f3", "toggle_mode", "Mode", show=False),
+        Binding("ctrl+z", "undo_context", "Undo", show=False),
+        Binding("ctrl+y", "redo_context", "Redo", show=False),
+        Binding("ctrl+s", "toggle_sessions", "Sessions", show=True),
     ]
 
     def __init__(
@@ -899,6 +928,44 @@ class BrokkApp(App):
                     chat.add_system_message(
                         "Unknown /task command. Use: next, prev, toggle, delete, add, edit."
                     )
+        elif base == "/session":
+            if len(parts) == 1:
+                chat.add_system_message(
+                    "Session commands: /session list | new <name> | "
+                    "switch <id> | rename <id> <name> | delete <id>"
+                )
+            elif len(parts) >= 2:
+                action = parts[1].lower()
+                if action == "list":
+                    self.run_worker(self._list_sessions())
+                elif action == "new":
+                    if len(parts) < 3:
+                        chat.add_system_message("Usage: /session new <name>")
+                    else:
+                        self.run_worker(self._create_and_switch_session(" ".join(parts[2:])))
+                elif action == "switch":
+                    if len(parts) < 3:
+                        chat.add_system_message("Usage: /session switch <id>")
+                    else:
+                        self.run_worker(self._switch_session(parts[2]))
+                elif action == "rename":
+                    if len(parts) < 4:
+                        chat.add_system_message("Usage: /session rename <id> <name>")
+                    else:
+                        self.run_worker(self._rename_session(parts[2], " ".join(parts[3:])))
+                elif action == "delete":
+                    if len(parts) < 3:
+                        chat.add_system_message("Usage: /session delete <id>")
+                    else:
+                        self.run_worker(self._delete_session(parts[2]))
+                else:
+                    chat.add_system_message(
+                        "Unknown /session command. Use: list, new, switch, rename, delete."
+                    )
+        elif base == "/undo":
+            self.run_worker(self._undo_context())
+        elif base == "/redo":
+            self.run_worker(self._redo_context())
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -918,6 +985,14 @@ class BrokkApp(App):
                 "  /task add <title>     - Add a task\n"
                 "  /task edit <title>    - Edit selected task title\n"
                 "  /task delete          - Delete selected task\n"
+                "  /session              - Show session command help\n"
+                "  /session list         - List all sessions\n"
+                "  /session new <name>   - Create and switch to a new session\n"
+                "  /session switch <id>  - Switch to a session by ID\n"
+                "  /session rename <id> <name> - Rename a session\n"
+                "  /session delete <id>  - Delete a session\n"
+                "  /undo                 - Undo last context change (Shortcut: Ctrl+Z)\n"
+                "  /redo                 - Redo last undone context change (Shortcut: Ctrl+Y)\n"
                 "  /info                 - Show current configuration and status\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
@@ -1093,6 +1168,164 @@ class BrokkApp(App):
         else:
             self.query_one(ChatPanel).add_system_message("Press Ctrl+C again to quit.")
             self._last_ctrl_c_time = now
+
+    # ── Session worker methods ──────────────────────────────────────────
+
+    async def _list_sessions(self) -> None:
+        chat = self._maybe_chat()
+        try:
+            data = await self.executor.list_sessions()
+            sessions = data.get("sessions", [])
+            if not sessions:
+                if chat:
+                    chat.add_system_message("No sessions found.")
+                return
+            lines = []
+            for s in sessions:
+                marker = " [CURRENT]" if s.get("current") else ""
+                short_id = str(s.get("id", ""))[:8]
+                lines.append(f"  {s.get('name', 'Unnamed')} ({short_id}){marker}")
+            if chat:
+                chat.append_message("System", "Sessions:\n" + "\n".join(lines))
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to list sessions: {e}", level="ERROR")
+
+    async def _create_and_switch_session(self, name: str) -> None:
+        chat = self._maybe_chat()
+        try:
+            result = await self.executor.create_session(name)
+            if chat:
+                chat.add_system_message(f"Created and switched to session: {name} ({result[:8]})")
+            self._save_session_id()
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to create session: {e}", level="ERROR")
+
+    async def _switch_session(self, session_id: str) -> None:
+        chat = self._maybe_chat()
+        try:
+            await self.executor.switch_session(session_id)
+            if chat:
+                chat.add_system_message(f"Switched to session {session_id[:8]}")
+            self._save_session_id()
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
+
+    async def _rename_session(self, session_id: str, name: str) -> None:
+        chat = self._maybe_chat()
+        try:
+            await self.executor.rename_session(session_id, name)
+            if chat:
+                chat.add_system_message(f"Renamed session {session_id[:8]} to: {name}")
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
+
+    async def _delete_session(self, session_id: str) -> None:
+        chat = self._maybe_chat()
+        try:
+            await self.executor.delete_session(session_id)
+            if chat:
+                chat.add_system_message(f"Deleted session {session_id[:8]}")
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to delete session: {e}", level="ERROR")
+
+    # ── Undo/Redo worker methods ─────────────────────────────────────
+
+    async def _undo_context(self) -> None:
+        chat = self._maybe_chat()
+        try:
+            result = await self.executor.undo_context()
+            status = result.get("status", "undone")
+            if chat:
+                chat.add_system_message(f"Context {status}.")
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Undo failed: {e}", level="ERROR")
+
+    async def _redo_context(self) -> None:
+        chat = self._maybe_chat()
+        try:
+            result = await self.executor.redo_context()
+            status = result.get("status", "redone")
+            if chat:
+                chat.add_system_message(f"Context {status}.")
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Redo failed: {e}", level="ERROR")
+
+    # ── Action methods for keybindings ────────────────────────────────
+
+    def action_undo_context(self) -> None:
+        if self._executor_ready:
+            self.run_worker(self._undo_context())
+
+    def action_redo_context(self) -> None:
+        if self._executor_ready:
+            self.run_worker(self._redo_context())
+
+    def action_toggle_sessions(self) -> None:
+        if isinstance(self.screen, SessionModalScreen):
+            self._show_chat_token_bar()
+            self.screen.dismiss(None)
+            return
+
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_token_bar_visible(False)
+
+        self.push_screen(SessionModalScreen(on_close=self._show_chat_token_bar))
+
+        if self._executor_ready:
+            self.run_worker(self._refresh_session_panel())
+
+    async def _refresh_session_panel(self) -> None:
+        if not self._executor_ready:
+            return
+        try:
+            data = await self.executor.list_sessions()
+            if isinstance(self.screen, SessionModalScreen):
+                self.screen.query_one(SessionPanel).refresh_sessions(data)
+        except Exception:
+            logger.debug("Failed to refresh session panel", exc_info=True)
+
+    def on_session_panel_action_requested(self, message: SessionPanel.ActionRequested) -> None:
+        self.run_worker(self._execute_session_action(message))
+
+    async def _execute_session_action(self, message: SessionPanel.ActionRequested) -> None:
+        chat = self._maybe_chat()
+        try:
+            match message.action:
+                case "switch":
+                    await self._switch_session(message.session_id)
+                case "new":
+                    await self._create_and_switch_session("New Session")
+                case "rename":
+                    # For now, rename to a default name; full input dialog is a future enhancement
+                    await self._rename_session(message.session_id, "Renamed Session")
+                case "delete":
+                    await self._delete_session(message.session_id)
+                case _:
+                    logger.warning("Unknown session action: %s", message.action)
+                    return
+            await self._refresh_session_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Session action failed: {e}", level="ERROR")
+
+    def _save_session_id(self) -> None:
+        if self.executor.session_id:
+            from brokk_code.session_persistence import save_last_session_id
+
+            save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
 
     async def _export_session(self) -> None:
         """Best-effort export of the current session zip to workspace cache."""

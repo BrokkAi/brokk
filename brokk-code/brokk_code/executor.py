@@ -424,6 +424,91 @@ class ExecutorManager:
         except httpx.HTTPError as e:
             raise ExecutorError(f"Failed to import session: {e}")
 
+    async def list_sessions(self) -> Dict[str, Any]:
+        """Returns the list of all sessions with current session info."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/sessions")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed GET /v1/sessions (status={status}): {e}") from e
+
+    async def switch_session(self, session_id: str) -> Dict[str, Any]:
+        """Switches to the specified session."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/sessions/switch", json={"sessionId": session_id}
+            )
+            resp.raise_for_status()
+            self.session_id = session_id
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/sessions/switch (status={status}): {e}") from e
+
+    async def rename_session(self, session_id: str, name: str) -> Dict[str, Any]:
+        """Renames the specified session."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/sessions/rename", json={"sessionId": session_id, "name": name}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/sessions/rename (status={status}): {e}") from e
+
+    async def delete_session(self, session_id: str) -> Dict[str, Any]:
+        """Deletes the specified session."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.delete(f"/v1/sessions/{session_id}")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(
+                f"Failed DELETE /v1/sessions/{session_id} (status={status}): {e}"
+            ) from e
+
+    async def undo_context(self) -> Dict[str, Any]:
+        """Undoes the last context change."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/context/undo")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/undo (status={status}): {e}") from e
+
+    async def redo_context(self) -> Dict[str, Any]:
+        """Redoes the last undone context change."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/context/redo")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/redo (status={status}): {e}") from e
+
     async def submit_job(
         self,
         task_input: str,

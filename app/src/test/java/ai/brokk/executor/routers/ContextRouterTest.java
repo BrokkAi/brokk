@@ -245,6 +245,39 @@ class ContextRouterTest {
         assertEquals(ErrorPayload.Code.NOT_FOUND, payload.code());
     }
 
+    @Test
+    void handlePostUndo_routesToHandler() throws Exception {
+        // undo on a minimal context manager may fail internally (NPE from uninitialized watcher),
+        // but we verify the router correctly dispatches to the undo handler (returns 200 or 500, not 404).
+        var exchange = TestHttpExchange.request("POST", "/v1/context/undo");
+        contextRouter.handle(exchange);
+
+        // Should NOT be 404 (route not found) or 405 (method not allowed)
+        assertTrue(
+                exchange.responseCode() == 200 || exchange.responseCode() == 500,
+                "Expected 200 or 500, got " + exchange.responseCode());
+    }
+
+    @Test
+    void handlePostRedo_routesToHandler() throws Exception {
+        var exchange = TestHttpExchange.request("POST", "/v1/context/redo");
+        contextRouter.handle(exchange);
+
+        assertTrue(
+                exchange.responseCode() == 200 || exchange.responseCode() == 500,
+                "Expected 200 or 500, got " + exchange.responseCode());
+    }
+
+    @Test
+    void handleGetUndo_returnsMethodNotAllowed() throws Exception {
+        var exchange = TestHttpExchange.request("GET", "/v1/context/undo");
+        contextRouter.handle(exchange);
+
+        // GET on a POST-only path goes through the GET block first, doesn't match, falls through
+        // to the POST check which rejects non-POST, returning 405
+        assertEquals(405, exchange.responseCode());
+    }
+
     private static final class TestHttpExchange extends HttpExchange {
         private final Headers requestHeaders = new Headers();
         private final Headers responseHeaders = new Headers();

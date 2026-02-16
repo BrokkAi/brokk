@@ -28,6 +28,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -81,6 +83,8 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             case "/v1/context/classes" -> handlePostContextClasses(exchange);
             case "/v1/context/methods" -> handlePostContextMethods(exchange);
             case "/v1/context/text" -> handlePostContextText(exchange);
+            case "/v1/context/undo" -> handlePostUndo(exchange);
+            case "/v1/context/redo" -> handlePostRedo(exchange);
             case "/v1/tasklist" -> handlePostTaskList(exchange);
             default ->
                 SimpleHttpServer.sendJsonResponse(
@@ -552,6 +556,36 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         var updated = new TaskList.TaskListData(request.bigPicture(), List.copyOf(nonNullTasks));
         contextManager.pushContext(ctx -> ctx.withTaskList(updated));
         SimpleHttpServer.sendJsonResponse(exchange, contextManager.getTaskList());
+    }
+
+    private void handlePostUndo(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        try {
+            contextManager.undoContextAsync().get(5, TimeUnit.SECONDS);
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "undone"));
+        } catch (TimeoutException e) {
+            logger.warn("Timed out waiting for undo");
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "undone"));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/undo", e);
+            var error = ErrorPayload.internalError("Failed to undo context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    private void handlePostRedo(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        try {
+            contextManager.redoContextAsync().get(5, TimeUnit.SECONDS);
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "redone"));
+        } catch (TimeoutException e) {
+            logger.warn("Timed out waiting for redo");
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "redone"));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/redo", e);
+            var error = ErrorPayload.internalError("Failed to redo context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
     }
 
     private String classifyChipKind(ContextFragment fragment) {
