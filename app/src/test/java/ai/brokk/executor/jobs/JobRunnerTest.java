@@ -1,9 +1,18 @@
 package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.IssueRewriterAgent;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -209,5 +218,60 @@ class JobRunnerTest {
         assertTrue(
                 maxPolicyIndex > commentPolicyIndex,
                 "Max comments policy line should appear inside the comment policy section");
+    }
+
+    @Test
+    void testExtractAiTranscriptFallbackRecoversAiText() {
+        // Simulate the scenario: responseText is empty, but messages contain AI text
+        // This tests that PrReviewService.extractAiTranscript can recover text
+        // from a message list that combines input messages + AI response messages
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(new SystemMessage("You are a code reviewer."));
+        messages.add(new UserMessage("Review this diff"));
+        messages.add(new AiMessage("{\"summaryMarkdown\": \"## Brokk PR Review\\nLooks good.\", \"comments\": []}"));
+
+        String transcript = PrReviewService.extractAiTranscript(messages);
+
+        // extractAiTranscript should recover the AI message text
+        assertFalse(transcript.isBlank(), "extractAiTranscript should recover AI text from messages");
+        assertTrue(transcript.contains("summaryMarkdown"), "Recovered text should contain the JSON response");
+
+        // And the recovered text should be parseable
+        var parsed = PrReviewService.parsePrReviewResponse(transcript);
+        assertNotNull(parsed, "Recovered transcript should be parseable as a review response");
+        assertEquals("## Brokk PR Review\nLooks good.", parsed.summaryMarkdown());
+    }
+
+    @Test
+    void testReviewErrorMessageDistinguishesEmptyVsMalformed() {
+        // Empty response case
+        String emptyText = "";
+        var emptyParsed = PrReviewService.parsePrReviewResponse(emptyText);
+        assertNull(emptyParsed, "Empty text should not parse");
+
+        // For empty responses after retries, the error message should mention "empty response"
+        int maxAttempts = 3;
+        String emptyErrorMessage = "LLM returned empty response after " + maxAttempts + " attempts";
+        assertTrue(emptyErrorMessage.contains("empty response"), "Empty error should mention 'empty response'");
+        assertTrue(emptyErrorMessage.contains("3 attempts"), "Empty error should mention attempt count");
+
+        // Malformed (non-empty but unparseable) response case
+        String malformedText = "This is not JSON at all";
+        var malformedParsed = PrReviewService.parsePrReviewResponse(malformedText);
+        assertNull(malformedParsed, "Malformed text should not parse");
+
+        // For malformed responses, the error message should mention "not valid JSON"
+        String preview = malformedText.length() > 500 ? malformedText.substring(0, 500) + "..." : malformedText;
+        String malformedErrorMessage =
+                "PR review response was not valid JSON. Expected JSON object with 'summaryMarkdown' field. Response preview: "
+                        + preview;
+        assertTrue(malformedErrorMessage.contains("not valid JSON"), "Malformed error should mention 'not valid JSON'");
+        assertTrue(malformedErrorMessage.contains(malformedText), "Malformed error should contain response preview");
+
+        // The two error messages should be distinguishable
+        assertFalse(emptyErrorMessage.contains("not valid JSON"), "Empty error should NOT mention 'not valid JSON'");
+        assertFalse(
+                malformedErrorMessage.contains("empty response"),
+                "Malformed error should NOT mention 'empty response'");
     }
 }

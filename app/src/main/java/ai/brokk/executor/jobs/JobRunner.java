@@ -871,12 +871,27 @@ public final class JobRunner {
                                             // 5. Call reviewDiff() to get LLM review with enriched context
                                             var plannerModel = requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-                                            ReviewDiffResult review = reviewDiff(
-                                                    context,
-                                                    plannerModel,
-                                                    annotatedDiff,
-                                                    prDetails.title(),
-                                                    prDetails.body());
+
+                                            // Retry reviewDiff up to 3 times if responseText is blank
+                                            int maxReviewAttempts = 3;
+                                            ReviewDiffResult review = null;
+                                            for (int attempt = 1; attempt <= maxReviewAttempts; attempt++) {
+                                                review = reviewDiff(
+                                                        context,
+                                                        plannerModel,
+                                                        annotatedDiff,
+                                                        prDetails.title(),
+                                                        prDetails.body());
+                                                if (!review.responseText().isBlank()) {
+                                                    break;
+                                                }
+                                                if (attempt < maxReviewAttempts) {
+                                                    logger.warn(
+                                                            "reviewDiff returned empty response on attempt {}/{}, retrying",
+                                                            attempt,
+                                                            maxReviewAttempts);
+                                                }
+                                            }
                                             TaskResult reviewResult = review.taskResult();
                                             scope.append(reviewResult);
 
@@ -886,6 +901,14 @@ public final class JobRunner {
                                             var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
 
                                             if (reviewResponse == null) {
+                                                if (reviewText.isBlank()) {
+                                                    logger.error(
+                                                            "LLM returned empty response after {} attempts for job {}",
+                                                            maxReviewAttempts,
+                                                            jobId);
+                                                    throw new IllegalStateException("LLM returned empty response after "
+                                                            + maxReviewAttempts + " attempts");
+                                                }
                                                 // JSON parsing failed - treat as hard error
                                                 String preview = reviewText.length() > 500
                                                         ? reviewText.substring(0, 500) + "..."
@@ -1517,6 +1540,20 @@ public final class JobRunner {
             var aiMessage = response.aiMessage();
             responseMessages = List.of(aiMessage);
             responseText = Messages.getText(aiMessage);
+        }
+
+        // Fallback: when responseText is empty but response exists, try extracting AI transcript
+        // from the full message list (input + response messages)
+        if (responseText.isBlank() && response != null) {
+            var allMessages = new java.util.ArrayList<>(messages);
+            allMessages.addAll(responseMessages);
+            String transcript = PrReviewService.extractAiTranscript(allMessages);
+            if (!transcript.isBlank()) {
+                logger.info(
+                        "reviewDiff: responseText was empty, recovered text via extractAiTranscript (length={})",
+                        transcript.length());
+                responseText = transcript;
+            }
         }
 
         Context reviewContext =
@@ -2298,6 +2335,9 @@ public final class JobRunner {
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
                     if (reviewResponse == null) {
+                        if (reviewText.isBlank()) {
+                            throw new IssueExecutionException("LLM returned empty response for issue diff review");
+                        }
                         String preview = reviewText.length() > 500 ? reviewText.substring(0, 500) + "..." : reviewText;
                         throw new IssueExecutionException(
                                 "Issue diff review response was not valid JSON. Response preview: " + preview);
