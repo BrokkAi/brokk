@@ -49,7 +49,7 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Current analyzer snapshot schema version. Bump MAJOR for incompatible changes.
-    static final SemVer CURRENT_SCHEMA = SemVer.parse("1.0.0");
+    static final SemVer CURRENT_SCHEMA = SemVer.parse("1.1.0");
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -356,14 +356,23 @@ public final class TreeSitterStateIO {
     /**
      * Load an AnalyzerState from the provided file in Smile format.
      * Returns Optional.empty() if file is missing or deserialization fails.
-     *
-     * Version semantics:
-     * - If the DTO contains no schemaVersion field (legacy snapshots), accept for now and proceed as-is.
-     * - If schemaVersion.major != CURRENT_SCHEMA.major -> incompatible: return Optional.empty().
-     * - If minor/patch differ, accept for now; migrate(dto, from, to) is invoked and currently no-ops.
      */
     @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
+        return load(file, null);
+    }
+
+    /**
+     * Load an AnalyzerState from the provided file in Smile format, with language-specific version checks.
+     *
+     * Version semantics:
+     * - If the DTO contains no schemaVersion field (legacy snapshots), it is treated as older than current.
+     * - If schemaVersion.major != CURRENT_SCHEMA.major -> incompatible: return Optional.empty().
+     * - For JAVA and TYPESCRIPT: if snapshot version < CURRENT_SCHEMA, return Optional.empty() to force rebuild.
+     * - For other languages: allow minor/patch differences (accept and potentially migrate).
+     */
+    @Blocking
+    public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file, @Nullable Language language) {
         if (!Files.exists(file)) {
             log.debug("Analyzer state file does not exist: {}", file);
             return Optional.empty();
@@ -371,7 +380,7 @@ public final class TreeSitterStateIO {
         long startMs = System.currentTimeMillis();
 
         try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
-            return loadFromStream(in, file, startMs);
+            return loadFromStream(in, file, startMs, language);
         } catch (EOFException e) {
             log.debug("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
             return Optional.empty();
@@ -384,24 +393,21 @@ public final class TreeSitterStateIO {
         }
     }
 
-    private static Optional<TreeSitterAnalyzer.AnalyzerState> loadFromStream(InputStream in, Path file, long startMs)
-            throws IOException {
+    private static Optional<TreeSitterAnalyzer.AnalyzerState> loadFromStream(
+            InputStream in, Path file, long startMs, @Nullable Language language) throws IOException {
         JsonNode root = SMILE_MAPPER.readTree(in);
 
         // Deserialize the canonical DTO (ignoring unknown fields)
         var dto = SMILE_MAPPER.treeToValue(root, AnalyzerStateDto.class);
 
         // Interpret schema version field (backwards-compatible)
-        SemVer fromVer;
-        if (dto.schemaVersion() == null) {
-            log.debug("Loaded AnalyzerState snapshot without schemaVersion; treating as legacy and accepting.");
-            fromVer = CURRENT_SCHEMA;
-        } else {
+        SemVer fromVer = null;
+        if (dto.schemaVersion() != null) {
             fromVer = SemVer.parse(dto.schemaVersion());
         }
 
         // If major versions differ, snapshot is incompatible
-        if (fromVer.major() != CURRENT_SCHEMA.major()) {
+        if (fromVer != null && fromVer.major() != CURRENT_SCHEMA.major()) {
             log.info(
                     "Analyzer snapshot at {} has incompatible schema version {} (current {}). Ignoring snapshot and will rebuild.",
                     file,
@@ -410,13 +416,40 @@ public final class TreeSitterStateIO {
             return Optional.empty();
         }
 
+        // Language-specific minor version check for Java and TypeScript
+        boolean forceRebuild = false;
+        if (language != null && (language == Languages.JAVA || language == Languages.TYPESCRIPT)) {
+            if (fromVer == null || isOlderThan(fromVer, CURRENT_SCHEMA)) {
+                forceRebuild = true;
+            }
+        }
+
+        if (forceRebuild) {
+            log.info(
+                    "Analyzer snapshot at {} for {} has older schema version {} (current {}). Forcing rebuild.",
+                    file,
+                    language.name(),
+                    fromVer != null ? fromVer : "legacy",
+                    CURRENT_SCHEMA);
+            return Optional.empty();
+        }
+
+        // Default: use current schema if missing for non-strict languages
+        SemVer effectiveFromVer = fromVer != null ? fromVer : CURRENT_SCHEMA;
+
         // Allow minor/patch differences for now; provide a migrate hook
-        var migratedDto = migrate(dto, fromVer, CURRENT_SCHEMA);
+        var migratedDto = migrate(dto, effectiveFromVer, CURRENT_SCHEMA);
 
         var state = fromDto(migratedDto);
         long durMs = System.currentTimeMillis() - startMs;
-        log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, fromVer);
+        log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms (schema {})", file, durMs, effectiveFromVer);
         return Optional.of(state);
+    }
+
+    private static boolean isOlderThan(SemVer a, SemVer b) {
+        if (a.major() != b.major()) return a.major() < b.major();
+        if (a.minor() != b.minor()) return a.minor() < b.minor();
+        return a.patch() < b.patch();
     }
 
     /* ================= Converters ================= */
