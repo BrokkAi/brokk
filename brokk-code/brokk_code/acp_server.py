@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import sys
 import uuid
 from dataclasses import dataclass
@@ -407,6 +408,24 @@ def _discarded_context_markdown(block: dict[str, Any]) -> str:
     return "```json\n" + json.dumps(payload, indent=2) + "\n```\n"
 
 
+def _display_uri(uri: str, fragment: dict[str, Any]) -> str:
+    if not uri.startswith("brokk://context/fragment/"):
+        return uri
+
+    short_description = str(fragment.get("shortDescription", "")).strip()
+    if not short_description:
+        return uri
+
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", short_description).strip("-").lower()
+    if not slug:
+        return uri
+    return f"brokk://context/{slug}"
+
+
+def _is_brokk_context_uri(uri: str) -> bool:
+    return uri.startswith("brokk://context/")
+
+
 def build_context_chip_blocks(
     context_data: dict[str, Any], fragment_resources: dict[str, dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -430,7 +449,7 @@ def build_context_chip_blocks(
                             _chip_kind_rank(kind),
                             i,
                             {
-                                "uri": uri,
+                                "uri": _display_uri(uri, fragment),
                                 "mime_type": mime_type,
                                 "text": text,
                                 "chip_kind": kind,
@@ -550,6 +569,8 @@ class BrokkAcpBridge:
                 current_kind: Optional[str] = None
                 for block in blocks:
                     kind = str(block["chip_kind"])
+                    block_uri = str(block["uri"])
+                    is_brokk_context = _is_brokk_context_uri(block_uri)
                     if kind != current_kind:
                         current_kind = kind
                         await send_update(
@@ -559,19 +580,22 @@ class BrokkAcpBridge:
                     is_resource_list_kind = kind in {"EDIT", "SUMMARY"}
                     snapshot_text = (
                         str(block["short_description"])
-                        if use_short_description_context
+                        if use_short_description_context or is_brokk_context
                         else str(block["text"])
                     )
                     if is_resource_list_kind and not _is_discarded_context(block):
                         await send_update(session_id, update_agent_message_text("- "))
-                        await send_update(
-                            session_id,
-                            build_context_snapshot_update(
-                                str(block["uri"]),
-                                str(block["mime_type"]),
-                                snapshot_text,
-                            ),
-                        )
+                        if is_brokk_context:
+                            await send_update(session_id, update_agent_message_text(snapshot_text))
+                        else:
+                            await send_update(
+                                session_id,
+                                build_context_snapshot_update(
+                                    block_uri,
+                                    str(block["mime_type"]),
+                                    snapshot_text,
+                                ),
+                            )
                         await send_update(
                             session_id,
                             update_agent_message_text(f" | {int(block['tokens'])}\n"),
@@ -581,10 +605,14 @@ class BrokkAcpBridge:
                         session_id,
                         update_agent_message_text(_discarded_context_markdown(block))
                         if _is_discarded_context(block)
-                        else build_context_snapshot_update(
-                            str(block["uri"]),
-                            str(block["mime_type"]),
-                            snapshot_text,
+                        else (
+                            update_agent_message_text(snapshot_text)
+                            if is_brokk_context
+                            else build_context_snapshot_update(
+                                block_uri,
+                                str(block["mime_type"]),
+                                snapshot_text,
+                            )
                         ),
                     )
                     await send_update(session_id, update_agent_message_text("\n"))

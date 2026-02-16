@@ -288,6 +288,30 @@ def test_build_context_chip_blocks_uses_fragment_resource_payload() -> None:
     assert "def hello():" in blocks[0]["text"]
 
 
+def test_build_context_chip_blocks_uses_short_description_for_brokk_fragment_uri() -> None:
+    context_data = {
+        "fragments": [
+            {
+                "id": "frag-1",
+                "chipKind": "TASK_LIST",
+                "shortDescription": "Add auth migration tests",
+            },
+        ]
+    }
+    blocks = build_context_chip_blocks(
+        context_data,
+        {
+            "frag-1": {
+                "uri": "brokk://context/fragment/e961b14e-927e-41c6-ae03-fd8fd0b37d8c",
+                "mimeType": "text/plain",
+                "text": "task list content",
+            }
+        },
+    )
+    assert blocks[0]["uri"] == "brokk://context/add-auth-migration-tests"
+    assert blocks[0]["text"] == "task list content"
+
+
 def test_build_context_chip_blocks_orders_by_chip_kind() -> None:
     context_data = {
         "fragments": [
@@ -508,7 +532,7 @@ async def test_prompt_emits_discarded_context_as_json_markdown_text() -> None:
     assert '"content": "dropped items here"' in json_blocks[0]
 
 
-async def test_prompt_emits_summary_as_list_item_with_resource_and_tokens() -> None:
+async def test_prompt_emits_summary_as_list_item_with_text_and_tokens_for_brokk_uri() -> None:
     updates: list[tuple[str, dict[str, str]]] = []
 
     class StubExecutor:
@@ -600,6 +624,5 @@ async def test_prompt_emits_summary_as_list_item_with_resource_and_tokens() -> N
     assert "Context Snapshot" in updates[1][1]["text"]
     assert "Summaries" in updates[2][1]["text"]
     assert updates[3][1]["text"] == "- "
-    assert updates[4][1]["kind"] == "embedded_resource"
-    assert updates[4][1]["text"] == "summary text"
+    assert updates[4][1]["text"] == "Summary of worker.go"
     assert updates[5][1]["text"] == " | 12\n"
