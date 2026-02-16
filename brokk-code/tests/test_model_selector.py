@@ -7,8 +7,11 @@ from brokk_code.widgets.chat_panel import ChatPanel
 def test_model_selector_binding_exists():
     app = BrokkApp(executor=MagicMock())
     bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
+    # Verify both the original alias and the reliable alternative exist
     assert "ctrl+m" in bindings
     assert bindings["ctrl+m"] == ("select_model", "Model", True)
+    assert "f4" in bindings
+    assert bindings["f4"] == ("select_model", "Model", True)
 
 
 @pytest.mark.asyncio

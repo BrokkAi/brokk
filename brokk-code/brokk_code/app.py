@@ -77,6 +77,7 @@ class BrokkApp(App):
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+m", "select_model", "Model", show=True),
+        Binding("f4", "select_model", "Model", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
@@ -797,7 +798,8 @@ class BrokkApp(App):
                 "  /ask                  - Set mode to ASK (questions only)\n"
                 "  /search               - Set mode to SEARCH (read-only code search)\n"
                 "  /lutz                 - Set mode to LUTZ (default; full agent access)\n"
-                "  /model <name>         - Change the planner LLM model\n"
+                "  /model <name>         - Change the planner LLM model (Shortcut: F4 / Ctrl+M*)\n"
+                "                          *Note: Ctrl+M may act as Enter in some terminals.\n"
                 "  /model-code <name>    - Change the code LLM model\n"
                 "  /reasoning <level>    - Set reasoning level for planner\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
