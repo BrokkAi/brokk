@@ -152,9 +152,7 @@ class SessionPanel(Vertical):
         if not cursor_id:
             label.update("")
             return
-        session = next(
-            (s for s in self._sessions if str(s.get("id", "")) == cursor_id), None
-        )
+        session = next((s for s in self._sessions if str(s.get("id", "")) == cursor_id), None)
         if session:
             name = session.get("name", "Unnamed")
             current = " (current)" if session.get("current") else ""
@@ -231,9 +229,7 @@ class SessionPanel(Vertical):
     def action_rename_session(self) -> None:
         cursor_id = self._cursor_id()
         if cursor_id:
-            session = next(
-                (s for s in self._sessions if str(s.get("id", "")) == cursor_id), None
-            )
+            session = next((s for s in self._sessions if str(s.get("id", "")) == cursor_id), None)
             current_name = session.get("name", "") if session else ""
             self._show_name_input("rename", f"Rename session (was: {current_name})...", cursor_id)
 
