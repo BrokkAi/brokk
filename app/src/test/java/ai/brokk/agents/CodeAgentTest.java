@@ -261,6 +261,40 @@ class CodeAgentTest {
                 "Retry prompt should contain target_file tag for " + file);
     }
 
+    // A-5: applyPhase – threshold check for full-file replacement reminder
+    @Test
+    void testApplyPhase_showsFullFileReplacementReminderAtThreshold() throws IOException {
+        var file = cm.toFile("test.txt");
+        file.write("initial content");
+        cm.addEditableFile(file);
+
+        var nonMatchingBlock = new EditBlock.SearchReplaceBlock(file.toString(), "nonexistent", "replacement");
+        var cs = createConversationState(List.of(new AiMessage("Previous attempt")), new UserMessage("req"));
+
+        // Simulate being one failure away from the reminder threshold.
+        // applyPhase will increment this to MAX_APPLY_FAILURES - 1, which triggers the reminder.
+        var es = new CodeAgent.EditState(
+                0, // consecutiveParseFailures
+                CodeAgent.MAX_APPLY_FAILURES - 2, // consecutiveApplyFailures (e.g., 1)
+                0, // consecutiveBuildFailures
+                0, // blocksAppliedWithoutBuild
+                "", // lastBuildError
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap(),
+                false);
+
+        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(nonMatchingBlock)), null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retryStep = (CodeAgent.Step.Retry) result;
+        String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
+
+        assertTrue(
+                nextRequestText.contains("Strongly prefer BRK_ENTIRE_FILE full-file replacements"),
+                "Retry prompt should encourage full-file replacement when near failure limit");
+    }
+
     // A-4: applyPhase – mix success & failure
     @Test
     void testApplyPhase_mixSuccessAndFailure() throws IOException {

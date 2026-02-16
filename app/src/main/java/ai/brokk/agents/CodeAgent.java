@@ -931,8 +931,13 @@ public class CodeAgent {
 
                     // Retrieve the base index for the blocks parsed in this response
                     int turnParsedBase = es.totalBlocksParsed() - attemptedBlockCount;
+                    boolean isLastApplyRetryBeforeAbort = updatedConsecutiveApplyFailures == MAX_APPLY_FAILURES - 1;
                     var retryMessages = CodePrompts.buildApplyRetryMessages(
-                            lastAiText, editResult.blockResults(), buildError, turnParsedBase);
+                            lastAiText,
+                            editResult.blockResults(),
+                            buildError,
+                            turnParsedBase,
+                            isLastApplyRetryBeforeAbort);
 
                     // Replace the last AI message in taskMessages with the tagged version
                     // Note: rawMessages is not modified - it preserves the original conversation
