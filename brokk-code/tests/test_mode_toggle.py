@@ -107,6 +107,49 @@ def test_textual_command_palette_is_enabled():
     assert app.ENABLE_COMMAND_PALETTE is True
 
 
+def test_statusline_binding_present_and_toggle_invokes_widget():
+    from brokk_code.widgets.status_line import StatusLine
+
+    app = BrokkApp(executor=MagicMock())
+
+    # a) Binding presence
+    bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
+    assert bindings["ctrl+s"] == ("toggle_statusline", "Status", True)
+
+    # b) Toggle behavior: mock query_one to return a mock status widget
+    mock_status = MagicMock(spec=StatusLine)
+    app.query_one = MagicMock(return_value=mock_status)
+
+    app.action_toggle_statusline()
+    mock_status.toggle_class.assert_called_with("hidden")
+
+
+def test_statusline_live_update_called_on_mode_and_changes():
+    # Use MagicMock statusline and patch _maybe_status_line to return it
+    app = BrokkApp(executor=MagicMock())
+    mock_status = MagicMock()
+    # Provide _maybe_status_line that returns our mock
+    app._maybe_status_line = MagicMock(return_value=mock_status)
+
+    # Trigger a mode change (without announce)
+    app._set_mode("ASK", announce=False)
+    # _set_mode calls _update_status_line -> _maybe_status_line -> update_status
+    mock_status.update_status.assert_called()
+    called_args = mock_status.update_status.call_args[1]  # kwargs
+    assert "mode" in called_args and "ASK" in called_args["mode"]
+
+    # Change model and reasoning and call explicit update
+    app.current_model = "example-model"
+    app.reasoning_level = "high"
+    app._update_status_line()
+    mock_status.update_status.assert_called_with(
+        mode=app.current_mode,
+        model=app.current_model,
+        reasoning=app.reasoning_level or "",
+        directory=str(app.executor.workspace_dir),
+    )
+
+
 def test_action_toggle_mode_handles_unknown_mode():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)

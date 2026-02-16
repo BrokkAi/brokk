@@ -18,6 +18,7 @@ from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
+from brokk_code.widgets.status_line import StatusLine
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,7 @@ class BrokkApp(App):
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
-        # Footer/help-bar ordering: Mode, Model, Reasoning, Context, Tasks, Notifications, Settings
+        # Footer/help-bar ordering: Mode, Model, Reasoning, Context, Tasks, Notifications, Status, Settings
         Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+u", "select_model", "Model", show=True),
@@ -190,6 +191,7 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
+        Binding("ctrl+s", "toggle_statusline", "Status", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
@@ -257,8 +259,33 @@ class BrokkApp(App):
         except (ScreenStackError, Exception):
             return None
 
+    def _maybe_status_line(self) -> Optional[StatusLine]:
+        """Safely attempt to get the StatusLine widget, returning None if not available."""
+        try:
+            return self.query_one(StatusLine)
+        except (ScreenStackError, Exception):
+            return None
+
+    def _update_status_line(self) -> None:
+        """Push current app state into the status line widget when available."""
+        status = self._maybe_status_line()
+        if not status:
+            return
+        try:
+            status.update_status(
+                mode=self.current_mode,
+                model=self.current_model,
+                reasoning=self.reasoning_level or "",
+                directory=str(self.executor.workspace_dir),
+            )
+        except Exception:
+            # Best-effort update; don't let UI updates raise
+            return
+
     def compose(self) -> ComposeResult:
         yield Header()
+        # Compact status line under header
+        yield StatusLine(id="status-line")
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
@@ -274,6 +301,9 @@ class BrokkApp(App):
             # Load initial prompt history for arrow-key navigation
             history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
+
+        # Ensure the status line reflects initial values (when mounted)
+        self._update_status_line()
 
         self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
@@ -786,6 +816,8 @@ class BrokkApp(App):
         """Sets the agent mode, updates the subtitle, and optionally announces to chat."""
         self.agent_mode = new_mode
         self.sub_title = f"Mode: {self.agent_mode}"
+        # Update the status line whenever mode changes
+        self._update_status_line()
         if announce:
             msg_markup = f"Mode changed to: [bold]{self.agent_mode}[/]"
             chat = self._maybe_chat()
@@ -828,6 +860,7 @@ class BrokkApp(App):
         if base == "/model" and len(parts) > 1:
             self.current_model = parts[1]
             chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
+            self._update_status_line()
         elif base == "/model-code" and len(parts) > 1:
             self.code_model = parts[1]
             chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
@@ -836,6 +869,7 @@ class BrokkApp(App):
             chat.add_system_message_markup(
                 f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
             )
+            self._update_status_line()
         elif base == "/reasoning-code" and len(parts) > 1:
             self.reasoning_level_code = parts[1]
             chat.add_system_message_markup(
@@ -962,6 +996,8 @@ class BrokkApp(App):
                     self.current_model = model_id
                     if chat:
                         chat.add_system_message_markup(f"Model changed to: [bold]{model_id}[/]")
+                    # Push update to status line
+                    self._update_status_line()
 
             self.push_screen(ModelSelectModal(available_models), update_model)
         except Exception as e:
@@ -980,6 +1016,8 @@ class BrokkApp(App):
                 self.reasoning_level = level
                 if chat:
                     chat.add_system_message_markup(f"Reasoning level changed to: [bold]{level}[/]")
+                # Push update to status line
+                self._update_status_line()
 
         self.push_screen(ReasoningSelectModal(levels, current), update_level)
 
@@ -1044,6 +1082,15 @@ class BrokkApp(App):
     def action_toggle_notifications(self) -> None:
         panel = self.query_one("#notification-panel")
         panel.toggle_class("hidden")
+
+    def action_toggle_statusline(self) -> None:
+        """Toggle visibility of the compact status line under the header."""
+        try:
+            status = self.query_one("#status-line")
+            status.toggle_class("hidden")
+        except Exception:
+            # If not available, ignore
+            return
 
     def _set_theme(self, theme_name: str) -> None:
         normalized_theme = normalize_theme_name(theme_name.lower())

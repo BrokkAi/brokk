@@ -243,6 +243,17 @@ ChatPanel {
     border: solid $primary-darken-2;
 }
 
+#status-line {
+    height: 1;
+    width: 100%;
+    background: $panel;
+    color: $text;
+    border-top: solid $primary-darken-2;
+    border-bottom: solid $primary-darken-2;
+    padding: 0 2;
+    content-align: left middle;
+}
+
 .hidden {
     display: none;
 }
