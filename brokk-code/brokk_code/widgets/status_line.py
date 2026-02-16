@@ -12,8 +12,8 @@ class StatusLine(Static):
       - reasoning level (reasoning_level)
       - workspace dir (executor.workspace_dir)
 
-    The widget reads initial values from the App instance on_mount. Live updates
-    are intentionally omitted in this change and will be added later.
+    The widget reads initial values from the App instance on_mount and provides a
+    small API to update its displayed values at runtime.
     """
 
     DEFAULT_CSS = """
@@ -47,6 +47,22 @@ class StatusLine(Static):
             workspace = "unknown"
 
         self.update(self._format_status(mode, model, reasoning, workspace))
+
+    def update_status(
+        self,
+        mode: Optional[str] = None,
+        model: Optional[str] = None,
+        reasoning: Optional[str] = None,
+        workspace: Optional[str] = None,
+    ) -> None:
+        """Public API to update the status line. Any argument left as None will be
+        treated as 'unknown' or left as-is by formatting logic."""
+        try:
+            self.update(self._format_status(mode, model, reasoning, workspace))
+        except Exception:
+            # Best-effort: avoid raising when the widget is not mounted or when the
+            # provided values are unexpected.
+            return
 
     @staticmethod
     def _format_status(
