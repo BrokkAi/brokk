@@ -1471,7 +1471,7 @@ public final class JobRunner {
 
                 OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
                 """
-                        .formatted(prBlocks, severityLine, maxLine, fencedDiff);
+                        .formatted(prBlocks, fencedDiff, severityLine, maxLine);
 
         return prompt;
     }
