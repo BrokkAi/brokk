@@ -220,22 +220,24 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 if (definitionNode != null && !definitionNode.isNull()) {
                     String nodeType = definitionNode.getType();
                     if ("index_signature".equals(nodeType)) {
-                        // Fields require "Container.field" format; use _module_. when no class container
+                        // Fields require "Container.field" format; use filename when no class container
                         finalShortName = adjustedClassChain.isEmpty()
-                                ? "_module_." + simpleName
+                                ? file.getFileName() + "." + simpleName
                                 : adjustedClassChain + "." + simpleName;
                         return CodeUnit.field(file, packageName, finalShortName);
                     }
                 }
-                // Fields require "Container.field" format; use _module_. when no class container
-                finalShortName =
-                        adjustedClassChain.isEmpty() ? "_module_." + simpleName : adjustedClassChain + "." + simpleName;
+                // Fields require "Container.field" format; use filename when no class container
+                finalShortName = adjustedClassChain.isEmpty()
+                        ? file.getFileName() + "." + simpleName
+                        : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             case ALIAS_LIKE -> {
-                // Type aliases are fields and require "Container.alias" format; use _module_. when no class container
-                finalShortName =
-                        adjustedClassChain.isEmpty() ? "_module_." + simpleName : adjustedClassChain + "." + simpleName;
+                // Type aliases are fields and require "Container.alias" format; use filename when no class container
+                finalShortName = adjustedClassChain.isEmpty()
+                        ? file.getFileName() + "." + simpleName
+                        : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {

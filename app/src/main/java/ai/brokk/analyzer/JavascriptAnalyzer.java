@@ -104,8 +104,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             case CaptureNames.FIELD_DEFINITION -> { // For class fields or top-level variables
                 String finalShortName;
                 if (classChain.isEmpty()) {
-                    // For top-level variables, use filename as a prefix to ensure uniqueness
-                    // and satisfy CodeUnit.field's expectation of a ".".
+                    // For top-level variables, use the filename as a container to ensure a "." is present
+                    // and to prevent collisions across files in the same package.
                     finalShortName = file.getFileName() + "." + simpleName;
                 } else {
                     finalShortName = classChain + "." + simpleName;
