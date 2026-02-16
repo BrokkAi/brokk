@@ -428,6 +428,13 @@ class ChatPanel(Vertical):
 
         self._update_spinner_area_visibility()
 
+    def clear_input(self) -> None:
+        """Clears the chat input and resets history navigation state."""
+        chat_input = self.query_one("#chat-input", ChatInput)
+        chat_input.text = ""
+        self._history_index = -1
+        self._draft_buffer = ""
+
     def set_token_usage(self, used: int, max_tokens: Optional[int] = None) -> None:
         """Updates the token usage display in the spinner area."""
         try:
