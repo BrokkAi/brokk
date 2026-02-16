@@ -15,7 +15,7 @@ from textual.widgets._footer import FooterKey
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
-from brokk_code.widgets.chat_panel import ChatPanel
+from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
@@ -1066,7 +1066,14 @@ class BrokkApp(App):
         self.settings.save()
 
     async def action_handle_ctrl_c(self) -> None:
-        """Handles Ctrl+C: Cancel job first, then double-tap to quit."""
+        """Handles Ctrl+C: Clear input, cancel job, or double-tap to quit."""
+        chat_panel = self._maybe_chat()
+        if chat_panel:
+            chat_input = self.query_one("#chat-input", ChatInput)
+            if chat_input.text.strip():
+                chat_panel.clear_input()
+                return
+
         now = time.time()
 
         if self.job_in_progress and self.current_job_id:
