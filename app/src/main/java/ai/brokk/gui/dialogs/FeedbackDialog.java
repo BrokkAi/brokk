@@ -1,5 +1,6 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
@@ -10,6 +11,8 @@ import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
@@ -22,6 +25,8 @@ public class FeedbackDialog extends BaseThemedDialog {
     private final JCheckBox includeDebugLogCheckBox;
     private final JCheckBox includeScreenshotCheckBox;
     private final MaterialButton sendButton;
+    private final MaterialButton closeButton;
+    private final JLabel statusLabel;
 
     @Nullable
     private final BufferedImage screenshotImage;
@@ -58,9 +63,11 @@ public class FeedbackDialog extends BaseThemedDialog {
         // Apply the theme-aware primary button styling so the Send button appears as the primary action
         SwingUtil.applyPrimaryButtonStyle(sendButton);
 
-        var cancelButton = new MaterialButton("Cancel");
-        cancelButton.setMnemonic(KeyEvent.VK_C);
-        cancelButton.addActionListener(e -> dispose());
+        statusLabel = new JLabel();
+
+        closeButton = new MaterialButton("Close");
+        closeButton.setMnemonic(KeyEvent.VK_C);
+        closeButton.addActionListener(e -> dispose());
 
         // Capture screenshot before the dialog is displayed
         BufferedImage captured = null;
@@ -93,13 +100,13 @@ public class FeedbackDialog extends BaseThemedDialog {
             });
         }
 
-        buildLayout(cancelButton);
+        buildLayout(closeButton);
 
         pack();
         setLocationRelativeTo(owner);
     }
 
-    private void buildLayout(JButton cancelButton) {
+    private void buildLayout(JButton closeButton) {
         var form = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(4, 4, 4, 4);
@@ -139,20 +146,31 @@ public class FeedbackDialog extends BaseThemedDialog {
         gbc.gridy = 4;
         form.add(screenshotPreviewLabel, gbc);
 
-        // Buttons
+        // Bottom row: status label on left, buttons on right
+        var bottomPanel = new JPanel(new BorderLayout());
+        bottomPanel.add(statusLabel, BorderLayout.CENTER);
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttons.add(cancelButton);
+        buttons.add(closeButton);
         buttons.add(sendButton);
+        bottomPanel.add(buttons, BorderLayout.EAST);
 
         JPanel root = getContentRoot();
         root.setLayout(new BorderLayout());
+        root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         root.add(form, BorderLayout.CENTER);
-        root.add(buttons, BorderLayout.SOUTH);
+        root.add(bottomPanel, BorderLayout.SOUTH);
+    }
+
+    private void setInputsEnabled(boolean enabled) {
+        categoryCombo.setEnabled(enabled);
+        feedbackArea.setEnabled(enabled);
+        includeDebugLogCheckBox.setEnabled(enabled);
+        includeScreenshotCheckBox.setEnabled(enabled);
+        sendButton.setEnabled(enabled);
+        closeButton.setEnabled(enabled);
     }
 
     private void send() {
-        sendButton.setEnabled(false);
-
         var categoryItem = (CategoryItem) categoryCombo.getSelectedItem();
         var category = categoryItem.value();
         var feedbackText = feedbackArea.getText().trim();
@@ -160,59 +178,72 @@ public class FeedbackDialog extends BaseThemedDialog {
         var includeScreenshot = includeScreenshotCheckBox.isSelected();
 
         if (feedbackText.isEmpty()) {
-            JOptionPane.showMessageDialog(
-                    this, "Feedback text cannot be empty.", "Validation Error", JOptionPane.WARNING_MESSAGE);
-            sendButton.setEnabled(true);
+            statusLabel.setForeground(UIManager.getColor("Label.foreground"));
+            statusLabel.setText("Feedback text cannot be empty.");
             return;
+        }
+
+        // Disable inputs and show initial status
+        setInputsEnabled(false);
+        statusLabel.setForeground(UIManager.getColor("Label.foreground"));
+        if (includeScreenshot && screenshotImage != null) {
+            statusLabel.setText("Processing screenshot...");
+        } else {
+            statusLabel.setText("Sending...");
         }
 
         var service = chrome.getContextManager().getService();
 
-        // Close dialog first, then capture screenshot and send feedback
-        dispose();
+        // AtomicReference for safe cross-thread handoff of the temp file for cleanup
+        var screenshotFileRef = new AtomicReference<File>();
 
-        SwingUtilities.invokeLater(() -> {
-            final File screenshotFile;
-            if (includeScreenshot && screenshotImage != null) {
-                File tmp = null;
-                try {
-                    tmp = File.createTempFile("brokk_screenshot_", ".png");
-                    ImageIO.write(screenshotImage, "png", tmp);
-                } catch (IOException ex) {
-                    chrome.toolError("Could not save screenshot: " + ex.getMessage());
-                }
-                screenshotFile = tmp;
-            } else {
-                screenshotFile = null;
-            }
-
-            new SwingWorker<Void, Void>() {
-                @Override
-                protected Void doInBackground() throws Exception {
-                    service.sendFeedback(category, feedbackText, includeDebugLog, screenshotFile);
-                    return null;
-                }
-
-                @Override
-                protected void done() {
-                    try {
-                        get(); // propagate exception if any
-                        JOptionPane.showMessageDialog(
-                                chrome.getFrame(),
-                                "Thank you for your feedback!",
-                                "Feedback Sent",
-                                JOptionPane.INFORMATION_MESSAGE);
-                    } catch (Exception ex) {
-                        chrome.toolError("Failed to send feedback: " + ex.getMessage());
-                    } finally {
-                        if (screenshotFile != null && screenshotFile.exists()) {
-                            //noinspection ResultOfMethodCallIgnored
-                            screenshotFile.delete();
+        LoggingFuture.supplyCallableVirtual(() -> {
+                    File screenshotFile = null;
+                    if (includeScreenshot && screenshotImage != null) {
+                        try {
+                            screenshotFile = File.createTempFile("brokk_screenshot_", ".png");
+                            screenshotFileRef.set(screenshotFile);
+                            ImageIO.write(screenshotImage, "png", screenshotFile);
+                        } catch (IOException ex) {
+                            // Clean up failed temp file and ensure we don't pass corrupt file to sendFeedback
+                            if (screenshotFile != null && screenshotFile.exists()) {
+                                //noinspection ResultOfMethodCallIgnored
+                                screenshotFile.delete();
+                            }
+                            screenshotFile = null;
+                            SwingUtil.runOnEdt(() -> chrome.toolError("Could not save screenshot: " + ex.getMessage()));
                         }
                     }
-                }
-            }.execute();
-        });
+                    // Update status to Sending before network call
+                    SwingUtil.runOnEdt(() -> {
+                        statusLabel.setForeground(UIManager.getColor("Label.foreground"));
+                        statusLabel.setText("Sending...");
+                    });
+                    service.sendFeedback(category, feedbackText, includeDebugLog, screenshotFile);
+                    return null;
+                })
+                .whenComplete((result, ex) -> SwingUtil.runOnEdt(() -> {
+                    try {
+                        if (ex != null) {
+                            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                            String msg = Objects.requireNonNullElse(
+                                    cause.getMessage(), cause.getClass().getSimpleName());
+                            statusLabel.setForeground(new Color(0xCC0000));
+                            statusLabel.setText("Failed to send feedback: " + msg);
+                            setInputsEnabled(true);
+                        } else {
+                            statusLabel.setForeground(UIManager.getColor("Label.foreground"));
+                            statusLabel.setText("Thank you for your feedback!");
+                            closeButton.setEnabled(true);
+                        }
+                    } finally {
+                        var tempFile = screenshotFileRef.get();
+                        if (tempFile != null && tempFile.exists()) {
+                            //noinspection ResultOfMethodCallIgnored
+                            tempFile.delete();
+                        }
+                    }
+                }));
     }
 
     /** Capture the current frame as a BufferedImage. */

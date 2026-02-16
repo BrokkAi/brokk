@@ -344,9 +344,6 @@ public class Chrome
             logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
         }
 
-        updateWorkspace();
-        updateContextHistoryTable();
-
         // Now show the window with complete layout
         frame.setVisible(true);
 
@@ -2728,7 +2725,11 @@ public class Chrome
                 || component == dependenciesPanel.getRemoveButton()
                 || component == tlp.getTaskInput()
                 || component == tlp.getGoStopButton()
+                || component == tlp.getRemoveButton()
+                || component == tlp.getToggleDoneButton()
+                || component == tlp.getClearCompletedButton()
                 || component == tlp.getTaskList()
+                || component == tlp.getTaskListScrollPane()
                 || component == hop.getHistoryTable()
                 || component == hop.getLlmStreamArea();
     }

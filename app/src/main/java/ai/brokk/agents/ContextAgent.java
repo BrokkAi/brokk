@@ -187,7 +187,8 @@ public class ContextAgent {
         int totalTokens = 0;
         for (var fragment : fragments) {
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                Optional<ProjectFile> fileOpt = fragment.files().join().stream().findFirst();
+                Optional<ProjectFile> fileOpt =
+                        fragment.sourceFiles().join().stream().findFirst();
                 if (fileOpt.isPresent()) {
                     var file = fileOpt.get();
                     String content = file.read().orElse("");
@@ -250,7 +251,7 @@ public class ContextAgent {
         var existingFiles = context.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
                         || f.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
         List<ProjectFile> candidates;
         if (existingFiles.isEmpty()) {
@@ -702,7 +703,7 @@ public class ContextAgent {
         }
         userPrompt.append(filenamePrompt);
 
-        var sys = new SystemMessage(SearchPrompts.instance.searchAgentIdentity());
+        var sys = new SystemMessage(SearchPrompts.Objective.WORKSPACE_ONLY.identity());
         List<ChatMessage> messages = Stream.concat(
                         Stream.of(sys),
                         Stream.concat(

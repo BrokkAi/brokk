@@ -1,6 +1,7 @@
 package ai.brokk.concurrent;
 
 import ai.brokk.exception.GlobalExceptionHandler;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
@@ -10,7 +11,7 @@ public final class ExecutorsUtil {
 
     private ExecutorsUtil() {}
 
-    public static LoggingExecutorService newFixedThreadExecutor(int parallelism, String threadPrefix) {
+    public static LoggingExecutorService newFixedThreadExecutor(String threadPrefix, int parallelism) {
         assert parallelism >= 1 : "parallelism must be >= 1";
         var factory = new ThreadFactory() {
             private final ThreadFactory delegate = Executors.defaultThreadFactory();
@@ -48,7 +49,7 @@ public final class ExecutorsUtil {
                     permits.acquire();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    throw new RuntimeException("Interrupted while acquiring virtual-thread permit", e);
+                    throw new CancellationException("Interrupted while acquiring virtual-thread permit");
                 }
 
                 // Ensure the permit is released when the task completes

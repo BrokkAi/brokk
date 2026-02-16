@@ -1,0 +1,41 @@
+[project]
+name = "brokk-code"
+version = "0.1.0"
+description = "A Textual-based TUI for Brokk"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=0.47.0",
+    "httpx>=0.25.0",
+    "agent-client-protocol>=0.3.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0",
+]
+
+[project.scripts]
+brokk-code = "brokk_code.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+asyncio_mode = "auto"
+addopts = ["-p", "pytest_asyncio"]
+markers = [
+    "asyncio: marks tests as asyncio-compatible",
+]

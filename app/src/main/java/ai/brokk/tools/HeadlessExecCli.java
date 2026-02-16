@@ -154,6 +154,7 @@ public class HeadlessExecCli {
     static WorkspaceSelection chooseWorkspaceRootForMode(String mode, String repoOwner, String repoName) {
         String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
         if ("ISSUE".equals(normalizedMode)
+                || "ISSUE_DIAGNOSE".equals(normalizedMode)
                 || "REVIEW".equals(normalizedMode)
                 || "ISSUE_WRITER".equals(normalizedMode)) {
             String safeOwner = repoOwner.isBlank() ? "unknown-owner" : repoOwner.replaceAll("[^A-Za-z0-9._-]", "-");
@@ -340,30 +341,34 @@ public class HeadlessExecCli {
         tags.put("mode", mode);
 
         // Add Mode-specific tags and job spec fields
-        if ("ISSUE".equals(mode)) {
+        if ("ISSUE".equals(mode) || "ISSUE_DIAGNOSE".equals(mode)) {
             tags.put("github_token", githubToken);
             tags.put("repo_owner", repoOwner);
             tags.put("repo_name", repoName);
             tags.put("issue_number", String.valueOf(issueNumber));
-            if (!issueDelivery.isBlank()) {
-                tags.put("issue_delivery", issueDelivery);
-            }
-            if (maxIssueFixAttempts != null) {
-                jobSpec.put("maxIssueFixAttempts", maxIssueFixAttempts.intValue());
-            }
-            if (!buildSettings.isBlank()) {
-                // Parse buildSettings as JSON and add as object
-                try {
-                    var buildSettingsJson = mapper.readTree(buildSettings);
-                    jobSpec.set("buildSettings", buildSettingsJson);
-                } catch (Exception e) {
-                    logger.warn("Failed to parse buildSettings as JSON, adding as string", e);
-                    jobSpec.put("buildSettings", buildSettings);
+
+            // ISSUE-specific fields (not needed for ISSUE_DIAGNOSE which only analyzes)
+            if ("ISSUE".equals(mode)) {
+                if (!issueDelivery.isBlank()) {
+                    tags.put("issue_delivery", issueDelivery);
                 }
-            }
-            // Persist the skipVerification choice explicitly so the server can map it to JobSpec.skipVerification
-            if (skipVerification) {
-                jobSpec.put("skipVerification", true);
+                if (maxIssueFixAttempts != null) {
+                    jobSpec.put("maxIssueFixAttempts", maxIssueFixAttempts.intValue());
+                }
+                if (!buildSettings.isBlank()) {
+                    // Parse buildSettings as JSON and add as object
+                    try {
+                        var buildSettingsJson = mapper.readTree(buildSettings);
+                        jobSpec.set("buildSettings", buildSettingsJson);
+                    } catch (Exception e) {
+                        logger.warn("Failed to parse buildSettings as JSON, adding as string", e);
+                        jobSpec.put("buildSettings", buildSettings);
+                    }
+                }
+                // Persist the skipVerification choice explicitly so the server can map it to JobSpec.skipVerification
+                if (skipVerification) {
+                    jobSpec.put("skipVerification", true);
+                }
             }
         } else if ("REVIEW".equals(mode)) {
             tags.put("github_token", githubToken);
@@ -606,11 +611,12 @@ public class HeadlessExecCli {
 
     private static void printUsage() {
         System.out.println("Usage: java HeadlessExecCli [options] [prompt]");
-        System.out.println("  Note: [prompt] is optional in ISSUE/REVIEW mode, and required in all other modes.");
+        System.out.println(
+                "  Note: [prompt] is optional in ISSUE/ISSUE_DIAGNOSE/REVIEW mode, and required in all other modes.");
         System.out.println();
         System.out.println("Options:");
         System.out.println(
-                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER (default: ARCHITECT)");
+                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, ISSUE_DIAGNOSE, or ISSUE_WRITER (default: ARCHITECT)");
         System.out.println("  --planner-model MODEL    Planner model name (required)");
         System.out.println(
                 "  --scan-model MODEL       Scan model name (optional; used by SEARCH mode; used by ASK only when --pre-scan is enabled)");
@@ -700,20 +706,22 @@ public class HeadlessExecCli {
         }
 
         String normalizedMode = mode.isBlank() ? "ARCHITECT" : mode.toUpperCase(Locale.ROOT);
-        boolean promptRequired = !("ISSUE".equals(normalizedMode) || "REVIEW".equals(normalizedMode));
+        boolean promptRequired = !("ISSUE".equals(normalizedMode)
+                || "ISSUE_DIAGNOSE".equals(normalizedMode)
+                || "REVIEW".equals(normalizedMode));
         if (promptRequired && prompt.isBlank()) {
             System.err.println("ERROR: <prompt> positional argument is required");
             return false;
         }
 
-        // Validate ISSUE mode required fields
-        if ("ISSUE".equals(mode)) {
+        // Validate ISSUE and ISSUE_DIAGNOSE mode required fields
+        if ("ISSUE".equals(mode) || "ISSUE_DIAGNOSE".equals(mode)) {
             if (githubToken.isBlank()) {
-                System.err.println("ERROR: --github-token is required for ISSUE mode");
+                System.err.println("ERROR: --github-token is required for " + mode + " mode");
                 return false;
             }
             if (repoOwner.isBlank()) {
-                System.err.println("ERROR: --repo-owner is required for ISSUE mode");
+                System.err.println("ERROR: --repo-owner is required for " + mode + " mode");
                 return false;
             }
             if (!repoOwner.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
@@ -722,7 +730,7 @@ public class HeadlessExecCli {
                 return false;
             }
             if (repoName.isBlank()) {
-                System.err.println("ERROR: --repo-name is required for ISSUE mode");
+                System.err.println("ERROR: --repo-name is required for " + mode + " mode");
                 return false;
             }
             if (!repoName.matches(REPO_COMPONENT_ALLOWLIST_REGEX)) {
@@ -731,7 +739,7 @@ public class HeadlessExecCli {
                 return false;
             }
             if (issueNumber <= 0) {
-                System.err.println("ERROR: --issue-number is required for ISSUE mode");
+                System.err.println("ERROR: --issue-number is required for " + mode + " mode");
                 return false;
             }
         }
@@ -803,9 +811,10 @@ public class HeadlessExecCli {
                     return false;
                 }
                 mode = Ascii.toUpperCase(value);
-                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE|ISSUE_WRITER)$")) {
-                    System.err.println("ERROR: Invalid mode: " + value
-                            + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, or ISSUE_WRITER");
+                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH|REVIEW|ISSUE|ISSUE_DIAGNOSE|ISSUE_WRITER)$")) {
+                    System.err.println(
+                            "ERROR: Invalid mode: " + value
+                                    + ". Must be ASK, CODE, ARCHITECT, LUTZ, SEARCH, REVIEW, ISSUE, ISSUE_DIAGNOSE, or ISSUE_WRITER");
                     return false;
                 }
             }

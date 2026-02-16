@@ -120,6 +120,14 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
     private MaterialButton removeButton;
     private boolean controlsLocked = false;
     private @Nullable CompletableFuture<Void> inFlightToggleSave = null;
+    /**
+     * Guard to prevent reentrant handling of Live-column toggle logic.
+     *
+     * TableModel changes -> TableModelListener -> stopCellEditing() -> JTable.editingStopped -> setValueAt ->
+     * TableModelListener can form a recursion loop during complex UI updates (e.g., project open).
+     * This flag ensures the toggle-handling path short-circuits if already active.
+     */
+    private boolean handlingLiveToggle = false;
 
     private static class NumberRenderer extends DefaultTableCellRenderer {
         public NumberRenderer() {
@@ -164,7 +172,9 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
                 cb.setSelected(state == LiveState.LIVE);
                 cb.setHorizontalAlignment(CENTER);
                 cb.setOpaque(true);
-                cb.setEnabled(!controlsLocked);
+                // Individual checkboxes are disabled if the whole panel is locked,
+                // or if we are already saving a change (inFlightToggleSave != null).
+                cb.setEnabled(!controlsLocked && inFlightToggleSave == null);
                 if (isSelected) {
                     cb.setBackground(table.getSelectionBackground());
                     cb.setForeground(table.getSelectionForeground());
@@ -226,7 +236,11 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
             @Override
             public boolean isCellEditable(int row, int column) {
                 if (column != 0) return false;
+                // Panel level lock
                 if (controlsLocked) return false;
+                // Prevent multiple simultaneous toggles to avoid race conditions on the live set
+                if (inFlightToggleSave != null && !inFlightToggleSave.isDone()) return false;
+
                 Object v = getValueAt(row, 0);
                 // Only editable when in stable state (not transitioning)
                 return v instanceof LiveState state && !state.isTransitioning();
@@ -426,14 +440,28 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
             }
         });
 
-        // Re-compute totals whenever data changes or check-boxes toggle.
-        // Also persist changes when the enabled checkbox (column 0) is toggled.
-        tableModel.addTableModelListener(e -> {
-            // Ignore header/structure change events
-            if (e.getFirstRow() == TableModelEvent.HEADER_ROW) return;
-            if (isProgrammaticChange) return;
+        tableModel.addTableModelListener(this::handleLiveToggleTableEvent);
+    }
 
-            if (e.getColumn() == 0) {
+    /**
+     * Package-visible helper extracted from the table model listener so unit tests can exercise
+     * the Live-column toggle handling without wiring a full GUI. This method contains the
+     * exact logic previously used in the inline TableModelListener.
+     *
+     * Note: package-visible for testability only; do not make public.
+     */
+    void handleLiveToggleTableEvent(TableModelEvent e) {
+        // Ignore header/structure change events
+        if (e.getFirstRow() == TableModelEvent.HEADER_ROW) return;
+        if (isProgrammaticChange) return;
+
+        // Protect against reentrant invocations of this toggle-handling path.
+        // If we're already processing a Live toggle, short-circuit to avoid recursion.
+        if (handlingLiveToggle) return;
+
+        if (e.getColumn() == 0) {
+            handlingLiveToggle = true;
+            try {
                 int first = e.getFirstRow();
                 int last = e.getLastRow();
                 for (int row = first; row <= last; row++) {
@@ -453,8 +481,13 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
                             return;
                         }
 
-                        // Lock UI early and stop editing to ensure renderer updates.
-                        setControlsLocked(true);
+                        // Stop editing to ensure renderer updates for the transitioning state.
+                        // We can safely call stopCellEditing here because handlingLiveToggle prevents
+                        // nested re-entry into this listener.
+                        if (table.isEditing()) {
+                            var editor = table.getCellEditor();
+                            if (editor != null) editor.stopCellEditing();
+                        }
 
                         // Show transitioning state while saving
                         var transitionState = state == LiveState.LIVE ? LiveState.ENABLING : LiveState.DISABLING;
@@ -480,13 +513,15 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
                                     }
                                     isProgrammaticChange = false;
                                     inFlightToggleSave = null;
-                                    // Unlock UI after save completes (success or failure).
-                                    setControlsLocked(false);
+                                    // Refresh table to re-enable checkboxes
+                                    table.repaint();
                                 }));
                     }
                 }
+            } finally {
+                handlingLiveToggle = false;
             }
-        });
+        }
     }
 
     /**
@@ -520,9 +555,13 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
         controlsLocked = locked;
         addButton.setEnabled(!locked);
         removeButton.setEnabled(!locked && table.getSelectedRow() != -1);
-        if (table.isEditing()) {
+
+        // Avoid causing reentrant toggle handling via stopCellEditing if we're already in the middle of a toggle.
+        if (table.isEditing() && !handlingLiveToggle) {
             var editor = table.getCellEditor();
-            if (editor != null) editor.stopCellEditing();
+            if (editor != null) {
+                editor.stopCellEditing();
+            }
         }
         table.repaint();
     }

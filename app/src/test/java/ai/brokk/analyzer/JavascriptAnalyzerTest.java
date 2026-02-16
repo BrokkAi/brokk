@@ -6,6 +6,7 @@ import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -684,6 +685,31 @@ public final class JavascriptAnalyzerTest {
 - util
 """.strip();
         assertCodeEquals(expected, related, "Related identifiers tree for Hello.js mismatch.");
+    }
+
+    @Test
+    void testModuleCUCreatedFromImports() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "import { foo } from './lib.js';\nexport const bar = 1;", "main.js")
+                .addFileContents("export const foo = 42;", "lib.js")
+                .build()) {
+
+            var analyzer = new JavascriptAnalyzer(testProject);
+            var mainFile = new ProjectFile(testProject.getRoot(), "main.js");
+
+            var declarations = analyzer.getDeclarations(mainFile);
+            var moduleCuOpt = declarations.stream()
+                    .filter(cu -> cu.kind() == CodeUnitType.MODULE)
+                    .findFirst();
+
+            assertTrue(moduleCuOpt.isPresent(), "getDeclarations should contain a MODULE CodeUnit");
+            var moduleCu = moduleCuOpt.get();
+
+            var definitionsByShortName = analyzer.getDefinitions(moduleCu.shortName());
+            assertTrue(
+                    definitionsByShortName.contains(moduleCu),
+                    "getDefinitions(shortName) should include the module CU");
+        }
     }
 
     @Test

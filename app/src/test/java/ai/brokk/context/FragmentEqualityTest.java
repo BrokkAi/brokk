@@ -437,7 +437,7 @@ class FragmentEqualityTest {
                     SyntaxConstants.SYNTAX_STYLE_NONE,
                     associatedFiles);
 
-            var filesFromFragment = sf.files().join();
+            var filesFromFragment = sf.referencedFiles().join();
             assertEquals(associatedFiles, filesFromFragment);
         }
 
@@ -462,7 +462,7 @@ class FragmentEqualityTest {
                     contextManager, diffText, "Git diff for GitDiffSingle.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(file.absPath().toString());
-            var actualPaths = sf.files().join().stream()
+            var actualPaths = sf.referencedFiles().join().stream()
                     .map(pf -> pf.absPath().toString())
                     .collect(Collectors.toSet());
             assertEquals(expectedPaths, actualPaths);
@@ -499,7 +499,7 @@ class FragmentEqualityTest {
 
             var expectedPaths =
                     Set.of(fileA.absPath().toString(), fileB.absPath().toString());
-            var actualPaths = sf.files().join().stream()
+            var actualPaths = sf.referencedFiles().join().stream()
                     .map(pf -> pf.absPath().toString())
                     .collect(Collectors.toSet());
             assertEquals(expectedPaths, actualPaths);
@@ -526,7 +526,7 @@ class FragmentEqualityTest {
                     contextManager, diffText, "Deletion diff for Deleted.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(file.absPath().toString());
-            var actualPaths = sf.files().join().stream()
+            var actualPaths = sf.referencedFiles().join().stream()
                     .map(pf -> pf.absPath().toString())
                     .collect(Collectors.toSet());
             assertEquals(expectedPaths, actualPaths);
@@ -560,7 +560,7 @@ class FragmentEqualityTest {
                     SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(newFile.absPath().toString());
-            var actualPaths = sf.files().join().stream()
+            var actualPaths = sf.referencedFiles().join().stream()
                     .map(pf -> pf.absPath().toString())
                     .collect(Collectors.toSet());
             assertEquals(expectedPaths, actualPaths);
@@ -574,7 +574,7 @@ class FragmentEqualityTest {
                     "Plain text",
                     SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            assertTrue(sf.files().join().isEmpty());
+            assertTrue(sf.referencedFiles().join().isEmpty());
         }
     }
 
@@ -783,8 +783,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdenticalMessages() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"), AiMessage.from("ai"));
-            var tf1 = new ContextFragments.TaskFragment(contextManager, messages, "session");
-            var tf2 = new ContextFragments.TaskFragment(contextManager, messages, "session");
+            var tf1 = new ContextFragments.TaskFragment(messages, "session");
+            var tf2 = new ContextFragments.TaskFragment(messages, "session");
 
             assertTrue(tf1.hasSameSource(tf2));
             assertEquals(tf1, tf2);
@@ -794,8 +794,8 @@ class FragmentEqualityTest {
         void testEqualsDifferentMessages() {
             var messages1 = List.<ChatMessage>of(UserMessage.from("user1"));
             var messages2 = List.<ChatMessage>of(UserMessage.from("user2"));
-            var tf1 = new ContextFragments.TaskFragment(contextManager, messages1, "session");
-            var tf2 = new ContextFragments.TaskFragment(contextManager, messages2, "session");
+            var tf1 = new ContextFragments.TaskFragment(messages1, "session");
+            var tf2 = new ContextFragments.TaskFragment(messages2, "session");
 
             assertNotEquals(tf1, tf2);
         }
@@ -803,8 +803,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsDifferentSession() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"));
-            var tf1 = new ContextFragments.TaskFragment(contextManager, messages, "session1");
-            var tf2 = new ContextFragments.TaskFragment(contextManager, messages, "session2");
+            var tf1 = new ContextFragments.TaskFragment(messages, "session1");
+            var tf2 = new ContextFragments.TaskFragment(messages, "session2");
 
             assertNotEquals(tf1, tf2);
         }
@@ -891,7 +891,7 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdenticalHistory() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"));
-            var tf = new ContextFragments.TaskFragment(contextManager, messages, "session");
+            var tf = new ContextFragments.TaskFragment(messages, "session");
             var te = new TaskEntry(1, tf, null);
             var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
             var hf2 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
@@ -904,8 +904,8 @@ class FragmentEqualityTest {
         void testEqualsDifferentHistory() {
             var messages1 = List.<ChatMessage>of(UserMessage.from("user1"));
             var messages2 = List.<ChatMessage>of(UserMessage.from("user2"));
-            var tf1 = new ContextFragments.TaskFragment(contextManager, messages1, "session");
-            var tf2 = new ContextFragments.TaskFragment(contextManager, messages2, "session");
+            var tf1 = new ContextFragments.TaskFragment(messages1, "session");
+            var tf2 = new ContextFragments.TaskFragment(messages2, "session");
             var te1 = new TaskEntry(1, tf1, null);
             var te2 = new TaskEntry(1, tf2, null);
             var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te1));

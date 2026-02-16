@@ -1,6 +1,7 @@
 package ai.brokk.tools;
 
 import ai.brokk.*;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -91,7 +92,7 @@ public class UsageBenchEval implements Callable<Integer> {
         boolean hadFailures;
         List<ProjectEvalResult> evalResultsList;
 
-        try (LoggingExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "usage-bench")) {
+        try (LoggingExecutorService executor = ExecutorsUtil.newFixedThreadExecutor("usage-bench", parallelism)) {
             List<CompletableFuture<ProjectEvalResult>> futures = projectEntries.stream()
                     .map(entry -> executor.submit(new ProjectEvalCallable(entry)))
                     .toList();
@@ -306,17 +307,26 @@ public class UsageBenchEval implements Callable<Integer> {
             // Get the declaration file path for the searched symbol
             var definitions = analyzer.getDefinitions(unit.fullyQualifiedName());
             String searchedFilePath = "";
+            CodeUnit matchedDef = null;
             if (!definitions.isEmpty()) {
-                var def = definitions.iterator().next();
-                searchedFilePath = def.source().absPath().toString();
+                if (definitions.size() > 1 && analyzer instanceof ai.brokk.analyzer.TreeSitterAnalyzer tsAnalyzer) {
+                    matchedDef = definitions.stream()
+                            .filter(d -> tsAnalyzer.getStartLineForCodeUnit(d) == unit.declarationLineNumber() - 1)
+                            .findFirst()
+                            .orElse(definitions.iterator().next());
+                } else {
+                    matchedDef = definitions.iterator().next();
+                }
+                searchedFilePath = matchedDef.source().absPath().toString();
             }
 
-            var result = finder.findUsages(unit.fullyQualifiedName());
+            var result = finder.findUsages(matchedDef != null ? matchedDef.fqName() : unit.fullyQualifiedName());
             var either = result.toEither();
 
-            Set<String> expectedFqns = unit.usages().stream()
-                    .map(UsageLocation::fullyQualifiedName)
-                    .collect(Collectors.toSet());
+            Map<String, UsageLocation> expectedLocations = unit.usages().stream()
+                    .collect(Collectors.toMap(UsageLocation::fullyQualifiedName, loc -> loc, (a, b) -> a));
+
+            Set<String> expectedFqns = expectedLocations.keySet();
 
             Set<UsageHit> detectedHits = new HashSet<>();
             Set<String> detectedFqns = new HashSet<>();
@@ -357,6 +367,7 @@ public class UsageBenchEval implements Callable<Integer> {
                         .toList();
                 projectTPs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
+                        unit.declarationLineNumber(),
                         searchedFilePath,
                         projectName,
                         projectPath,
@@ -376,6 +387,7 @@ public class UsageBenchEval implements Callable<Integer> {
                         .toList();
                 projectFPs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
+                        unit.declarationLineNumber(),
                         searchedFilePath,
                         projectName,
                         projectPath,
@@ -383,10 +395,18 @@ public class UsageBenchEval implements Callable<Integer> {
                         fpDetails));
             }
             if (!fn.isEmpty()) {
-                List<UsageDetail> fnDetails =
-                        fn.stream().map(fqn -> new UsageDetail(fqn, "", "", "")).toList();
+                List<UsageDetail> fnDetails = fn.stream()
+                        .map(fqn -> {
+                            UsageLocation loc = expectedLocations.get(fqn);
+                            String snippet = loc != null ? loc.snippet() : "";
+                            String filePath = loc != null ? loc.filePath() : "";
+                            String syntaxStyle = loc != null ? loc.syntaxStyle() : "";
+                            return new UsageDetail(fqn, snippet, filePath, syntaxStyle);
+                        })
+                        .toList();
                 projectFNs.add(new CodeUnitDetail(
                         unit.fullyQualifiedName(),
+                        unit.declarationLineNumber(),
                         searchedFilePath,
                         projectName,
                         projectPath,

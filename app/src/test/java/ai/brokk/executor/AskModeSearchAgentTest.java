@@ -476,9 +476,9 @@ public class AskModeSearchAgentTest {
             "getClassSkeletons",
             "getClassSources",
             "getMethodSources",
-            "getUsages",
-            "searchSubstrings",
-            "searchFilenames",
+            "scanUsages",
+            "findFilesContaining",
+            "findFilenames",
             "getFileContents",
             "getFileSummaries"
         };

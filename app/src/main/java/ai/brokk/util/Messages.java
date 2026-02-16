@@ -12,6 +12,7 @@ import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -201,5 +202,22 @@ public class Messages {
 
     public static boolean isTerminalMessage(ChatMessage message) {
         return message instanceof CustomMessage cm && cm.attributes().get("isTerminal") != null;
+    }
+
+    public static String format(List<ChatMessage> messages) {
+        return messages.stream()
+                .map(message -> {
+                    var text = getRepr(message);
+                    return (CharSequence)
+                            """
+                                    <message type=%s>
+                                    %s
+                                    </message>
+                                    """
+                                    .formatted(
+                                            message.type().name().toLowerCase(Locale.ROOT),
+                                            text.indent(2).stripTrailing());
+                })
+                .collect(Collectors.joining("\n"));
     }
 }

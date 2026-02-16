@@ -40,6 +40,11 @@ public abstract class AbstractWatchService implements AutoCloseable {
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
         this.gitMetaDir = resolveGitMetaDir(gitRepoRoot);
+        logger.debug(
+                "AbstractWatchService constructed: root={}, gitRepoRoot={}, gitMetaDir={}",
+                root,
+                gitRepoRoot,
+                gitMetaDir);
     }
 
     /**
@@ -54,6 +59,13 @@ public abstract class AbstractWatchService implements AutoCloseable {
             return null;
         }
         var gitPath = gitRepoRoot.resolve(".git");
+        LogManager.getLogger(AbstractWatchService.class)
+                .debug(
+                        "resolveGitMetaDir: gitPath={}, isRegularFile={}, isDirectory={}, exists={}",
+                        gitPath,
+                        Files.isRegularFile(gitPath),
+                        Files.isDirectory(gitPath),
+                        Files.exists(gitPath));
         if (Files.isRegularFile(gitPath)) {
             // Worktree case: .git is a file pointing to the actual git directory
             try {
@@ -74,6 +86,8 @@ public abstract class AbstractWatchService implements AutoCloseable {
                         .warn("Failed to read .git file for worktree resolution: {}", e.getMessage());
             }
         }
+        LogManager.getLogger(AbstractWatchService.class)
+                .debug("resolveGitMetaDir: returning gitPath={} (isDirectory={})", gitPath, Files.isDirectory(gitPath));
         return gitPath;
     }
 

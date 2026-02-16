@@ -12,8 +12,10 @@ This tool is ideal for:
 Run the CLI with a prompt and a planner model:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--planner-model gpt-5 'Find all classes in the service package'"
+./gradlew :app:runHeadlessCli --args="--planner-model gpt-5 'Find all classes in the service package'"
 ```
+
+Important: use the `--args="..."` form (with `=`). Without `=`, Gradle may parse flags like `--mode` as Gradle options instead of passing them to `HeadlessExecCli`.
 
 The CLI will:
 1. Start a local executor on an ephemeral port
@@ -39,7 +41,7 @@ java -cp app/build/libs/brokk-<version>.jar ai.brokk.tools.HeadlessExecCli [opti
 Or via Gradle:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "[options] [prompt]"
+./gradlew :app:runHeadlessCli --args="[options] [prompt]"
 ```
 
 ## Command-Line Options
@@ -50,7 +52,7 @@ Or via Gradle:
 | `--planner-model MODEL` | String | **Yes** | N/A | LLM model for planning and reasoning (e.g., `gpt-5`, `claude-3-opus`) |
 | `--scan-model MODEL` | String | No | Project default | LLM model to use for repository scanning (used by `SEARCH` mode; if omitted, the project's default scan model is used) |
 | `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes). Note: `--code-model` is ignored when using `--mode SEARCH` or `--mode ASK`. |
-| `--pre-scan` | Flag | No | `false` | When used together with `--mode ASK`, enable a repository pre-scan that seeds the Workspace before ASK reasoning. If provided, `--scan-model` will be used for the pre-scan; otherwise the project's default scan model is used. Ignored for modes other than `ASK`. |
+| `--pre-scan` | Flag | No | `false` | When used together with `--mode ASK`, enable a repository pre-scan that seeds the Workspace before ASK reasoning. The current executor implementation uses the project's default scan model for this pre-scan. Ignored for modes other than `ASK`. |
 | `--reasoning-level LEVEL` | String | No | N/A | Job-level reasoning level override for the planner model (passed as `reasoningLevel` in the `POST /v1/jobs` payload) |
 | `--reasoning-level-code LEVEL` | String | No | N/A | Job-level reasoning level override for the code model (passed as `reasoningLevelCode` in the `POST /v1/jobs` payload). Applies to CODE and ARCHITECT modes. |
 | `--temperature VALUE` | Number | No | N/A | Job-level temperature override for the planner model (passed as `temperature` in the `POST /v1/jobs` payload) |
@@ -74,41 +76,35 @@ Or via Gradle:
 
 | Option | Description |
 |--------|-------------|
-| ASK Mode: Read-Only Codebase Search | Search and explore code without making modifications: `--mode ASK` |
+| ASK Mode: Read-Only Answer | Produce a single answer from current context: `--mode ASK` |
 | SEARCH Mode: Read-Only Repository Scan | Explicit scan-only mode where you can choose the scanning LLM via `--scan-model` |
 | CODE Mode: Single-Shot Code Generation | Use `--mode CODE` and provide `--code-model` for code generation |
 | ARCHITECT / LUTZ | Multi-step planning and execution flows |
 | ISSUE Mode: GitHub Issue Processing | Solve a GitHub issue, verify the fix, and optionally create a PR |
 | REVIEW Mode: Pull Request Review | Analyze a Pull Request and provide review comments |
 
-### ASK Mode: Read-Only Codebase Search
+### ASK Mode: Read-Only Answer From Current Workspace Context
 
-Search and explore code without making modifications:
+Generate a single written answer without making modifications:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 'Find the UserService class and explain its responsibilities'"
+./gradlew :app:runHeadlessCli --args="--mode ASK --planner-model gpt-5 'Based on the current Workspace context, explain what the UserService class does.'"
 ```
 
 Characteristics:
 - Read-only: no code changes or commits
-- Uses `SearchAgent` for intelligent codebase exploration
-- `--code-model` is ignored (SearchAgent doesn't generate code)
-- Streams search results and code summaries
+- Uses `--planner-model` to produce one answer from the current Workspace context
+- `--code-model` is ignored (ASK does not generate code)
+- Streams the answer as events/tokens
 
 Optional pre-scan:
 - Use `--pre-scan` (only meaningful with `--mode ASK`) to seed the Workspace via a repository scan before running ASK reasoning. This can improve recall for large repositories or vague queries.
-- If you pass `--scan-model` together with `--pre-scan`, the CLI will include the scan model in the job payload and the executor will use that model for the prescan. If you omit `--scan-model`, the project's default scan model will be used by the executor.
+- The CLI may include `scanModel` in the job payload, but the current executor implementation does not apply `scanModel` to the ASK pre-scan. Use `--scan-model` with `--mode SEARCH` to control the scanning model.
 
-ASK with pre-scan (explicit scan model):
-
-```bash
-./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 --pre-scan --scan-model gpt-5-mini 'Find the UserService class and explain its responsibilities'"
-```
-
-ASK with pre-scan (use project default scan model):
+ASK with pre-scan:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 --pre-scan 'Summarize where AuthenticationManager is used across the repo.'"
+./gradlew :app:runHeadlessCli --args="--mode ASK --planner-model gpt-5 --pre-scan 'Explain what the UserService class does.'"
 ```
 
 **Note:** The `--pre-scan` flag is ignored unless `--mode ASK` is selected.
@@ -118,7 +114,7 @@ ASK with pre-scan (use project default scan model):
 Run an explicit repository scan and discovery using a chosen scan model. SEARCH is read-only like ASK but gives callers control over which model does the scanning.
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode SEARCH --planner-model gpt-5 --scan-model gpt-5-mini --reasoning-level medium --temperature 0.2 'Describe the project layout and list files related to authentication'"
+./gradlew :app:runHeadlessCli --args="--mode SEARCH --planner-model gpt-5 --scan-model gpt-5-mini --reasoning-level medium --temperature 0.2 'Describe the project layout and list files related to authentication'"
 ```
 
 Characteristics:
@@ -133,7 +129,7 @@ Characteristics:
 Generate code quickly for a specific task:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode CODE --planner-model gpt-5 --code-model gpt-5-mini 'Create a utility class to sanitize filenames'"
+./gradlew :app:runHeadlessCli --args="--mode CODE --planner-model gpt-5 --code-model gpt-5-mini 'Create a utility class to sanitize filenames'"
 ```
 
 Characteristics:
@@ -147,7 +143,7 @@ Characteristics:
 Full multi-step planning and implementation workflow (default):
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ARCHITECT --planner-model gpt-5 --code-model gpt-5-mini --auto-commit 'Refactor the authentication module to improve error handling and add comprehensive logging'"
+./gradlew :app:runHeadlessCli --args="--mode ARCHITECT --planner-model gpt-5 --code-model gpt-5-mini --auto-commit 'Refactor the authentication module to improve error handling and add comprehensive logging'"
 ```
 
 Characteristics:
@@ -162,7 +158,7 @@ Characteristics:
 Auto-decompose complex objectives into tasks, then execute each:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode LUTZ --planner-model gpt-5 --code-model gpt-5-mini --auto-commit --auto-compress 'Add comprehensive error handling to the UserService class and ensure all exceptions are properly logged with context'"
+./gradlew :app:runHeadlessCli --args="--mode LUTZ --planner-model gpt-5 --code-model gpt-5-mini --auto-commit --auto-compress 'Add comprehensive error handling to the UserService class and ensure all exceptions are properly logged with context'"
 ```
 
 Characteristics:
@@ -177,7 +173,7 @@ Characteristics:
 Processes a specific GitHub issue by fetching its content, attempting to fix it, verifying the fix via builds/tests, and optionally creating a Pull Request.
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api --issue-number 42 --build-settings '{\"build_command\": \"./gradlew build\"}' 'Fix the reported NPE in AuthenticationProvider'"
+./gradlew :app:runHeadlessCli --args="--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api --issue-number 42 --build-settings '{\"build_command\": \"./gradlew build\"}' 'Fix the reported NPE in AuthenticationProvider'"
 ```
 
 Characteristics:
@@ -204,13 +200,13 @@ Quick mode: skip verification and final review gates
 Full verification (default — preserves the full verification and review pipeline):
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_xxxx --repo-owner acme-corp --repo-name service-api --issue-number 42 --build-settings '{\"buildLintCommand\":\"./gradlew build\"}'"
+./gradlew :app:runHeadlessCli --args="--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_xxxx --repo-owner acme-corp --repo-name service-api --issue-number 42 --build-settings '{\"buildLintCommand\":\"./gradlew build\"}'"
 ```
 
 Quick/skip-verification example (faster, skips tests/lint and review-bot loops; still creates branch and may open PR):
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_xxxx --repo-owner acme-corp --repo-name service-api --issue-number 42 --skip-verification"
+./gradlew :app:runHeadlessCli --args="--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_xxxx --repo-owner acme-corp --repo-name service-api --issue-number 42 --skip-verification"
 ```
 
 ### ISSUE_WRITER Mode: Create a GitHub Issue
@@ -231,7 +227,7 @@ Characteristics:
 Example:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ISSUE_WRITER --planner-model gpt-5 --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api 'Create a GitHub issue describing the NPE we hit when AuthenticationProvider receives a null user.'"
+./gradlew :app:runHeadlessCli --args="--mode ISSUE_WRITER --planner-model gpt-5 --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api 'Create a GitHub issue describing the NPE we hit when AuthenticationProvider receives a null user.'"
 ```
 
 ### REVIEW Mode: Pull Request Review
@@ -239,7 +235,7 @@ Example:
 Analyzes a GitHub Pull Request by fetching the diff and providing automated review feedback in the form of inline comments.
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode REVIEW --planner-model gpt-5 --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api --pr-number 101 'Review this PR for security vulnerabilities and performance bottlenecks'"
+./gradlew :app:runHeadlessCli --args="--mode REVIEW --planner-model gpt-5 --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api --pr-number 101 'Review this PR for security vulnerabilities and performance bottlenecks'"
 ```
 
 Characteristics:
@@ -261,14 +257,14 @@ Characteristics:
 By default, the CLI generates a random UUID as the authentication token:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--planner-model gpt-5 'Your task here'"
+./gradlew :app:runHeadlessCli --args="--planner-model gpt-5 'Your task here'"
 # Token automatically generated and used for authentication
 ```
 
 To specify a custom token:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--token my-custom-token --planner-model gpt-5 'Your task here'"
+./gradlew :app:runHeadlessCli --args="--token my-custom-token --planner-model gpt-5 'Your task here'"
 ```
 
 The token is used in the `Authorization: Bearer <token>` header for all HTTP requests to the local executor.
@@ -351,7 +347,7 @@ INFO  Deleted temp workspace: /tmp/brokk-headless-xxxxxx
 Compress context history after task completion to reduce token usage in subsequent tasks:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ARCHITECT --planner-model gpt-5 --auto-compress 'Implement a caching layer for frequently accessed data'"
+./gradlew :app:runHeadlessCli --args="--mode ARCHITECT --planner-model gpt-5 --auto-compress 'Implement a caching layer for frequently accessed data'"
 ```
 
 Context compression reduces the size of the context window, making it more efficient for subsequent analysis.
@@ -361,7 +357,7 @@ Context compression reduces the size of the context window, making it more effic
 For fully automated workflows:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode LUTZ --planner-model gpt-5 --code-model gpt-5-mini --auto-commit --auto-compress 'Refactor core modules for performance and maintainability'"
+./gradlew :app:runHeadlessCli --args="--mode LUTZ --planner-model gpt-5 --code-model gpt-5-mini --auto-commit --auto-compress 'Refactor core modules for performance and maintainability'"
 ```
 
 This enables:
@@ -374,7 +370,7 @@ This enables:
 Optimize cost and performance by using different models:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--planner-model gpt-5 --mode ARCHITECT --code-model gpt-5-mini 'Add comprehensive error handling'"
+./gradlew :app:runHeadlessCli --args="--planner-model gpt-5 --mode ARCHITECT --code-model gpt-5-mini 'Add comprehensive error handling'"
 ```
 
 - `--planner-model`: More capable model for reasoning (typically more expensive)
@@ -389,7 +385,7 @@ Optimize cost and performance by using different models:
 **Solution:** Add the flag:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--planner-model gpt-5 'Your task'"
+./gradlew :app:runHeadlessCli --args="--planner-model gpt-5 'Your task'"
 ```
 
 ### Issue: "Failed to create session"
@@ -472,7 +468,7 @@ The CLI returns the following exit codes:
 Example:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--planner-model gpt-5 'Task'"
+./gradlew :app:runHeadlessCli --args="--planner-model gpt-5 'Task'"
 echo $?  # Prints 0, 1, or 2
 ```
 

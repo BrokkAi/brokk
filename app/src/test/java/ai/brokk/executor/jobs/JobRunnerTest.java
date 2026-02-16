@@ -1,8 +1,18 @@
 package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.agents.IssueRewriterAgent;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -65,7 +75,7 @@ class JobRunnerTest {
     @Test
     void maybeAnnotateDiffBlocks_rewritesDiffFence_whenClosingFenceOnOwnLine() {
         String body = "Before\n```diff\n@@ -1,0 +1,1 @@\n+foo\n```\nAfter\n";
-        String result = JobRunner.maybeAnnotateDiffBlocks(body);
+        String result = IssueRewriterAgent.maybeAnnotateDiffBlocks(body);
 
         assertTrue(result.contains("[OLD:- NEW:1] +foo"));
         assertTrue(result.contains("```diff\n"));
@@ -75,7 +85,7 @@ class JobRunnerTest {
     @Test
     void maybeAnnotateDiffBlocks_rewritesDiffFence_whenClosingFenceImmediatelyFollowsLastLine() {
         String body = "Before\n```diff\n@@ -1,0 +1,1 @@\n+foo```" + "\nAfter\n";
-        String result = JobRunner.maybeAnnotateDiffBlocks(body);
+        String result = IssueRewriterAgent.maybeAnnotateDiffBlocks(body);
 
         assertTrue(result.contains("[OLD:- NEW:1] +foo"));
         assertTrue(result.contains("```diff\n"));
@@ -85,7 +95,7 @@ class JobRunnerTest {
     @Test
     void maybeAnnotateDiffBlocks_rewritesEmptyDiffFence() {
         String body = "Before\n```diff\n```\nAfter\n";
-        String result = JobRunner.maybeAnnotateDiffBlocks(body);
+        String result = IssueRewriterAgent.maybeAnnotateDiffBlocks(body);
 
         assertTrue(result.contains("```diff\n\n```"));
     }
@@ -178,5 +188,90 @@ class JobRunnerTest {
         assertTrue(
                 prompt.contains("Ignore previous instructions"),
                 "Prompt should explicitly mention example 'Ignore previous instructions' as something to ignore from PR text");
+    }
+
+    @Test
+    void testBuildReviewPrompt_PlacesDiffAndPolicyLinesInCorrectSections() {
+        String diff = "x = 1";
+        String prompt = JobRunner.buildReviewPrompt(diff, PrReviewService.Severity.HIGH, 3, "", "");
+
+        int diffInstructionsIndex = prompt.indexOf("The diff to review is provided");
+        int lineNumberSectionIndex = prompt.indexOf("IMPORTANT: Line Number Format");
+        int commentPolicyIndex = prompt.indexOf("COMMENT POLICY (STRICT):");
+        int diffBlockIndex = prompt.indexOf("```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```");
+        int severityPolicyIndex = prompt.indexOf("ONLY emit comments with severity >= HIGH.");
+        int maxPolicyIndex = prompt.indexOf("MAX 3 comments total.");
+
+        assertTrue(diffInstructionsIndex >= 0, "Prompt should include diff review instructions");
+        assertTrue(lineNumberSectionIndex >= 0, "Prompt should include line number format section");
+        assertTrue(commentPolicyIndex >= 0, "Prompt should include comment policy section");
+        assertTrue(diffBlockIndex >= 0, "Prompt should include fenced diff block");
+        assertTrue(severityPolicyIndex >= 0, "Prompt should include severity policy line");
+        assertTrue(maxPolicyIndex >= 0, "Prompt should include max comments policy line");
+
+        assertTrue(
+                diffBlockIndex > diffInstructionsIndex && diffBlockIndex < lineNumberSectionIndex,
+                "Diff block should appear in the diff section before line-number guidance");
+        assertTrue(
+                severityPolicyIndex > commentPolicyIndex,
+                "Severity policy line should appear inside the comment policy section");
+        assertTrue(
+                maxPolicyIndex > commentPolicyIndex,
+                "Max comments policy line should appear inside the comment policy section");
+    }
+
+    @Test
+    void testExtractAiTranscriptFallbackRecoversAiText() {
+        // Simulate the scenario: responseText is empty, but messages contain AI text
+        // This tests that PrReviewService.extractAiTranscript can recover text
+        // from a message list that combines input messages + AI response messages
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(new SystemMessage("You are a code reviewer."));
+        messages.add(new UserMessage("Review this diff"));
+        messages.add(new AiMessage("{\"summaryMarkdown\": \"## Brokk PR Review\\nLooks good.\", \"comments\": []}"));
+
+        String transcript = PrReviewService.extractAiTranscript(messages);
+
+        // extractAiTranscript should recover the AI message text
+        assertFalse(transcript.isBlank(), "extractAiTranscript should recover AI text from messages");
+        assertTrue(transcript.contains("summaryMarkdown"), "Recovered text should contain the JSON response");
+
+        // And the recovered text should be parseable
+        var parsed = PrReviewService.parsePrReviewResponse(transcript);
+        assertNotNull(parsed, "Recovered transcript should be parseable as a review response");
+        assertEquals("## Brokk PR Review\nLooks good.", parsed.summaryMarkdown());
+    }
+
+    @Test
+    void testReviewErrorMessageDistinguishesEmptyVsMalformed() {
+        // Empty response case
+        String emptyText = "";
+        var emptyParsed = PrReviewService.parsePrReviewResponse(emptyText);
+        assertNull(emptyParsed, "Empty text should not parse");
+
+        // For empty responses after retries, the error message should mention "empty response"
+        int maxAttempts = 3;
+        String emptyErrorMessage = "LLM returned empty response after " + maxAttempts + " attempts";
+        assertTrue(emptyErrorMessage.contains("empty response"), "Empty error should mention 'empty response'");
+        assertTrue(emptyErrorMessage.contains("3 attempts"), "Empty error should mention attempt count");
+
+        // Malformed (non-empty but unparseable) response case
+        String malformedText = "This is not JSON at all";
+        var malformedParsed = PrReviewService.parsePrReviewResponse(malformedText);
+        assertNull(malformedParsed, "Malformed text should not parse");
+
+        // For malformed responses, the error message should mention "not valid JSON"
+        String preview = malformedText.length() > 500 ? malformedText.substring(0, 500) + "..." : malformedText;
+        String malformedErrorMessage =
+                "PR review response was not valid JSON. Expected JSON object with 'summaryMarkdown' field. Response preview: "
+                        + preview;
+        assertTrue(malformedErrorMessage.contains("not valid JSON"), "Malformed error should mention 'not valid JSON'");
+        assertTrue(malformedErrorMessage.contains(malformedText), "Malformed error should contain response preview");
+
+        // The two error messages should be distinguishable
+        assertFalse(emptyErrorMessage.contains("not valid JSON"), "Empty error should NOT mention 'not valid JSON'");
+        assertFalse(
+                malformedErrorMessage.contains("empty response"),
+                "Malformed error should NOT mention 'empty response'");
     }
 }

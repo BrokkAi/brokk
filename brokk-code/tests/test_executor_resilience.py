@@ -1,0 +1,307 @@
+from unittest.mock import AsyncMock, MagicMock
+
+import httpx
+import pytest
+
+from brokk_code.executor import ExecutorError, ExecutorManager
+
+
+@pytest.mark.asyncio
+async def test_get_tasklist_404_with_diagnostic():
+    """Test that get_tasklist handles 404 with executor version diagnostics."""
+    manager = ExecutorManager()
+    # Mock the internal http client
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+    manager.base_url = "http://127.0.0.1:1234"
+
+    # 1. Setup 404 for tasklist
+    tasklist_response = MagicMock(spec=httpx.Response)
+    tasklist_response.status_code = 404
+
+    # 2. Setup 200 for executor info diagnostic
+    executor_response = MagicMock(spec=httpx.Response)
+    executor_response.status_code = 200
+    executor_response.json.return_value = {"version": "0.9.0", "protocolVersion": "1"}
+
+    def side_effect(url, **kwargs):
+        if "/v1/tasklist" in url:
+            raise httpx.HTTPStatusError(
+                "404 Not Found", request=MagicMock(), response=tasklist_response
+            )
+        if "/v1/executor" in url:
+            return executor_response
+        return MagicMock()
+
+    mock_client.get.side_effect = side_effect
+
+    with pytest.raises(ExecutorError) as exc_info:
+        await manager.get_tasklist()
+
+    msg = str(exc_info.value)
+    assert "/v1/tasklist" in msg
+    assert "404" in msg
+    assert "version may be too old" in msg
+    assert "0.9.0" in msg
+    assert "Protocol: 1" in msg
+
+
+@pytest.mark.asyncio
+async def test_get_context_404_with_diagnostic():
+    """Test that get_context handles 404 with executor version diagnostics."""
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+    manager.base_url = "http://127.0.0.1:1234"
+
+    # Setup 404 for context
+    context_response = MagicMock(spec=httpx.Response)
+    context_response.status_code = 404
+
+    # Setup 200 for executor info diagnostic
+    executor_response = MagicMock(spec=httpx.Response)
+    executor_response.status_code = 200
+    executor_response.json.return_value = {"version": "0.9.5", "protocolVersion": "2"}
+
+    def side_effect(url, **kwargs):
+        if "/v1/context" in url:
+            raise httpx.HTTPStatusError(
+                "404 Not Found", request=MagicMock(), response=context_response
+            )
+        if "/v1/executor" in url:
+            return executor_response
+        return MagicMock()
+
+    mock_client.get.side_effect = side_effect
+
+    with pytest.raises(ExecutorError) as exc_info:
+        await manager.get_context()
+
+    msg = str(exc_info.value)
+    assert "/v1/context" in msg
+    assert "404" in msg
+    assert "version may be too old" in msg
+    assert "0.9.5" in msg
+    assert "Protocol: 2" in msg
+
+
+@pytest.mark.asyncio
+async def test_get_models_404_with_diagnostic():
+    """Test that get_models handles 404 with executor version diagnostics."""
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+    manager.base_url = "http://127.0.0.1:1234"
+
+    models_response = MagicMock(spec=httpx.Response)
+    models_response.status_code = 404
+
+    executor_response = MagicMock(spec=httpx.Response)
+    executor_response.status_code = 200
+    executor_response.json.return_value = {"version": "1.0.0", "protocolVersion": "2"}
+
+    def side_effect(url, **kwargs):
+        if "/v1/models" in url:
+            raise httpx.HTTPStatusError(
+                "404 Not Found", request=MagicMock(), response=models_response
+            )
+        if "/v1/executor" in url:
+            return executor_response
+        return MagicMock()
+
+    mock_client.get.side_effect = side_effect
+
+    with pytest.raises(ExecutorError) as exc_info:
+        await manager.get_models()
+
+    msg = str(exc_info.value)
+    assert "/v1/models" in msg
+    assert "404" in msg
+    assert "version may be too old" in msg
+    assert "1.0.0" in msg
+    assert "Protocol: 2" in msg
+
+
+@pytest.mark.asyncio
+async def test_get_models_success():
+    """Verify get_models success path."""
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    mock_data = {"models": [{"name": "gpt-5.2"}]}
+    success_response = MagicMock(spec=httpx.Response)
+    success_response.status_code = 200
+    success_response.json.return_value = mock_data
+    success_response.raise_for_status.return_value = None
+
+    mock_client.get.return_value = success_response
+
+    result = await manager.get_models()
+    assert result == mock_data
+    mock_client.get.assert_called_once_with("/v1/models")
+
+
+@pytest.mark.asyncio
+async def test_submit_job_includes_x_session_id_when_passed_explicitly():
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    # Prepare a successful response for post
+    post_resp = MagicMock(spec=httpx.Response)
+    post_resp.status_code = 201
+    post_resp.json.return_value = {"jobId": "job-explicit"}
+    post_resp.raise_for_status.return_value = None
+
+    captured = {}
+
+    async def post_side_effect(url, **kwargs):
+        captured["url"] = url
+        captured["headers"] = kwargs.get("headers", {})
+        return post_resp
+
+    mock_client.post.side_effect = post_side_effect
+
+    job_id = await manager.submit_job("abc", "gpt-5.2", session_id="explicit-session-123")
+    assert job_id == "job-explicit"
+    assert captured["url"] == "/v1/jobs"
+    assert "X-Session-Id" in captured["headers"]
+    assert captured["headers"]["X-Session-Id"] == "explicit-session-123"
+
+
+@pytest.mark.asyncio
+async def test_submit_job_includes_x_session_id_when_manager_has_session():
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    # set manager-level session id
+    manager.session_id = "manager-session-456"
+
+    post_resp = MagicMock(spec=httpx.Response)
+    post_resp.status_code = 201
+    post_resp.json.return_value = {"jobId": "job-manager"}
+    post_resp.raise_for_status.return_value = None
+
+    captured = {}
+
+    async def post_side_effect(url, **kwargs):
+        captured["headers"] = kwargs.get("headers", {})
+        return post_resp
+
+    mock_client.post.side_effect = post_side_effect
+
+    job_id = await manager.submit_job("abc", "gpt-5.2")
+    assert job_id == "job-manager"
+    assert "X-Session-Id" in captured["headers"]
+    assert captured["headers"]["X-Session-Id"] == "manager-session-456"
+
+
+@pytest.mark.asyncio
+async def test_submit_job_omits_x_session_id_when_none_available():
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    post_resp = MagicMock(spec=httpx.Response)
+    post_resp.status_code = 201
+    post_resp.json.return_value = {"jobId": "job-none"}
+    post_resp.raise_for_status.return_value = None
+
+    captured = {}
+
+    async def post_side_effect(url, **kwargs):
+        captured["headers"] = kwargs.get("headers", {})
+        return post_resp
+
+    mock_client.post.side_effect = post_side_effect
+
+    job_id = await manager.submit_job("abc", "gpt-5.2")
+    assert job_id == "job-none"
+    # X-Session-Id should not be present
+    assert "X-Session-Id" not in captured["headers"]
+
+
+@pytest.mark.asyncio
+async def test_get_tasklist_generic_http_error():
+    """Test that get_tasklist handles non-404 HTTP errors consistently."""
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    error_response = MagicMock(spec=httpx.Response)
+    error_response.status_code = 500
+
+    mock_client.get.side_effect = httpx.HTTPStatusError(
+        "Internal Server Error", request=MagicMock(), response=error_response
+    )
+
+    with pytest.raises(ExecutorError) as exc_info:
+        await manager.get_tasklist()
+
+    msg = str(exc_info.value)
+    assert "/v1/tasklist" in msg
+    assert "status=500" in msg
+    assert "HTTPStatusError" in msg
+
+
+@pytest.mark.asyncio
+async def test_get_tasklist_success():
+    """Verify success path remains intact."""
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    mock_data = {"bigPicture": "Goal", "tasks": []}
+    success_response = MagicMock(spec=httpx.Response)
+    success_response.status_code = 200
+    success_response.json.return_value = mock_data
+    success_response.raise_for_status.return_value = None
+
+    mock_client.get.return_value = success_response
+
+    result = await manager.get_tasklist()
+    assert result == mock_data
+    mock_client.get.assert_called_once_with("/v1/tasklist")
+
+
+@pytest.mark.asyncio
+async def test_set_tasklist_success():
+    """Verify set_tasklist success path."""
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    payload = {"bigPicture": "Goal", "tasks": [{"title": "T1", "text": "T1", "done": False}]}
+    success_response = MagicMock(spec=httpx.Response)
+    success_response.status_code = 200
+    success_response.json.return_value = payload
+    success_response.raise_for_status.return_value = None
+
+    mock_client.post.return_value = success_response
+
+    result = await manager.set_tasklist(payload)
+    assert result == payload
+    mock_client.post.assert_called_once_with("/v1/tasklist", json=payload)
+
+
+@pytest.mark.asyncio
+async def test_set_tasklist_http_error():
+    """Test that set_tasklist reports HTTP errors consistently."""
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    error_response = MagicMock(spec=httpx.Response)
+    error_response.status_code = 500
+    mock_client.post.side_effect = httpx.HTTPStatusError(
+        "Internal Server Error", request=MagicMock(), response=error_response
+    )
+
+    with pytest.raises(ExecutorError) as exc_info:
+        await manager.set_tasklist({"bigPicture": None, "tasks": []})
+
+    msg = str(exc_info.value)
+    assert "/v1/tasklist" in msg
+    assert "status=500" in msg

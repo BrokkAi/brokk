@@ -28,7 +28,6 @@ import ai.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.ScaledIcon;
 import ai.brokk.project.MainProject;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Environment;
@@ -1112,8 +1111,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 workspaceTokens = Messages.getApproximateMessageTokens(
                         WorkspacePrompts.getMessagesGroupedByMutability(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
                 var meta = BlitzForge.createTaskMeta(model, service);
-                historyTokens =
-                        Messages.getApproximateMessageTokens(CodePrompts.instance.getHistoryMessages(ctx, meta));
+                historyTokens = Messages.getApproximateMessageTokens(WorkspacePrompts.getHistoryMessages(ctx, meta));
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
                 hadError = true;
@@ -1252,7 +1250,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         }
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Attach files", () -> fragments.stream()
-                        .flatMap(frag -> frag.files().join().stream())
+                        .flatMap(frag -> frag.referencedFiles().join().stream())
                         .collect(Collectors.toCollection(ArrayList::new)))
                 .thenAccept(flist -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(flist)));
     }
@@ -1428,7 +1426,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
                     var meta = BlitzForge.createTaskMeta(perFileModel, service);
-                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx, meta));
+                    list.addAll(WorkspacePrompts.getHistoryMessages(ctx, meta));
                     var text = "";
                     for (var m : list) {
                         text += m + "\n";
@@ -1599,7 +1597,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             context, EnumSet.of(SpecialTextType.TASK_LIST)));
                     var meta = BlitzForge.createTaskMeta(model, service);
-                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context, meta));
+                    readOnlyMessages.addAll(WorkspacePrompts.getHistoryMessages(context, meta));
                 }
                 if (fRelatedK != null) {
                     var acList = cm.liveContext().buildAutoContext(fRelatedK);
@@ -1657,11 +1655,12 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 // Run the task
                 if (engineAction == Action.ASK) {
-                    var ctx = new Context(cm)
-                            .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages, instructions)))
-                            .addFragments(cm.toPathFragments(List.of(file)));
+                    var fragment = new ContextFragments.TaskFragment(readOnlyMessages, instructions);
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
+                    var ctx = new Context(cm)
+                            .withHistory(List.of(new TaskEntry(-1, fragment, fragment, null, meta)))
+                            .addFragments(cm.toPathFragments(List.of(file)));
                     var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions, meta);
                     var options = new Llm.Options(model, "Ask", TaskResult.Type.ASK).withPartialResponses();
                     var llm = cm.getLlm(options);

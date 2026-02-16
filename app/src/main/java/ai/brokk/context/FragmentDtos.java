@@ -45,7 +45,6 @@ public class FragmentDtos {
                     PasteImageFragmentDto,
                     StacktraceFragmentDto,
                     CodeFragmentDto,
-                    HistoryFragmentDto,
                     BuildFragmentDto,
                     FrozenFragmentDto {
         String id();
@@ -91,19 +90,6 @@ public class FragmentDtos {
         public ImageFileDto {
             if (absPath.isEmpty()) {
                 throw new IllegalArgumentException("absPath cannot be null or empty");
-            }
-        }
-    }
-
-    /** DTO for TaskEntry - represents a task history entry with optional log and summary. */
-    public record TaskEntryDto(int sequence, @Nullable TaskFragmentDto log, @Nullable String summaryContentId) {
-        public TaskEntryDto {
-            // At least one of log or summary must be non-null
-            if ((log == null) && (summaryContentId == null)) {
-                throw new IllegalArgumentException("At least one of log or summary must be non-null");
-            }
-            if (summaryContentId != null && summaryContentId.isEmpty()) {
-                throw new IllegalArgumentException("summaryContentId cannot be empty when present");
             }
         }
     }
@@ -233,14 +219,6 @@ public class FragmentDtos {
             implements VirtualFragmentDto { // id changed to String
     }
 
-    /** DTO for HistoryFragment - contains task history entries. */
-    public record HistoryFragmentDto(String id, List<TaskEntryDto> history)
-            implements VirtualFragmentDto { // id changed to String
-        public HistoryFragmentDto {
-            history = List.copyOf(history);
-        }
-    }
-
     /** DTO for BuildFragment - contains build output text. */
     public record BuildFragmentDto(String id, String contentId) implements VirtualFragmentDto { // id changed to String
     }
@@ -341,10 +319,11 @@ public class FragmentDtos {
         }
     }
 
-    /** Compact DTO for TaskEntry, referring to its log fragment by ID. Used within CompactContextDto. */
+    /** Compact DTO for TaskEntry, referring to its log fragments by ID. Used within CompactContextDto. */
     public record TaskEntryRefDto(
             int sequence,
             @Nullable String logId,
+            @Nullable String llmLogId,
             @Nullable String summaryContentId,
             @Nullable String taskType,
             @Nullable String primaryModelName,

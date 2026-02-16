@@ -12,6 +12,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.git.LocalFileRepo;
 import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.PathNormalizer;
+import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Rectangle;
@@ -19,7 +20,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -68,24 +68,52 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             FileFilteringService.createPatternMatcher(Set.of());
 
     public AbstractProject(Path root) {
-        assert root.isAbsolute() : root;
-        this.root = root.toAbsolutePath().normalize();
-        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+        this(root.toAbsolutePath().normalize(), null, null);
+    }
+
+    protected AbstractProject(Path root, Path masterRootPathForConfig) {
+        this(
+                root.toAbsolutePath().normalize(),
+                masterRootPathForConfig.toAbsolutePath().normalize(),
+                null);
+    }
+
+    /**
+     * Master constructor.
+     * Assumes root and masterRootPathForConfig (if provided) are already absolute and normalized.
+     */
+    protected AbstractProject(Path root, @Nullable Path masterRootPathForConfig, @Nullable IGitRepo repo) {
+        assert root.isAbsolute() && root.equals(root.normalize()) : "Root must be absolute and normalized: " + root;
+        if (masterRootPathForConfig != null) {
+            assert masterRootPathForConfig.isAbsolute()
+                            && masterRootPathForConfig.equals(masterRootPathForConfig.normalize())
+                    : "Master root must be absolute and normalized: " + masterRootPathForConfig;
+        }
+
+        this.root = root;
+        this.repo = repo != null
+                ? repo
+                : (GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root));
+        this.masterRootPathForConfig = masterRootPathForConfig != null
+                ? masterRootPathForConfig
+                : computeMasterRootForConfig(this.root, this.repo);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
-
-        // Determine masterRootPathForConfig based on this.root and this.repo
-        if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
-            this.masterRootPathForConfig =
-                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
-        } else {
-            this.masterRootPathForConfig = this.root; // Already absolute and normalized by caller
-        }
-        logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
-
-        // Initialize FileFilteringService (encapsulates gitignore and baseline filtering)
         this.fileFilteringService = new FileFilteringService(this.root, this.repo);
+
+        initializeProject();
+    }
+
+    private static Path computeMasterRootForConfig(Path normalizedRoot, IGitRepo repo) {
+        if (repo instanceof GitRepo gitRepo && gitRepo.isWorktree()) {
+            return gitRepo.getGitTopLevel().toAbsolutePath().normalize();
+        }
+        return normalizedRoot;
+    }
+
+    private void initializeProject() {
+        logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
 
         if (Files.exists(workspacePropertiesFile)) {
             try (var reader = Files.newBufferedReader(workspacePropertiesFile)) {
@@ -171,6 +199,10 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     prevFiles.addAll(d.files());
                 }
             }
+
+            // Invalidate auto-detected languages cache to force re-detection including new dependencies
+            // This preserves any explicit user configuration while ensuring new dependencies are considered
+            invalidateAutoDetectedLanguages();
 
             // Always persist
             saveLiveDependencies(newLiveDependencyDirs);
@@ -486,7 +518,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public Language computedBuildLanguage() {
+    public final synchronized Language computedBuildLanguage() {
         var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
         if (configured != null && !configured.isBlank()) {
             try {
@@ -496,8 +528,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             }
         }
         // If cache is populated, compute from it; otherwise return NONE
-        if (allFilesCache != null) {
-            return computeMostCommonLanguage();
+        if (filesByRelPathCache != null) {
+            return computeMostCommonLanguage(filesByRelPathCache.values());
         }
         return Languages.NONE;
     }
@@ -513,32 +545,20 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public @Nullable String getCommandExecutor() {
-        return workspaceProps.getProperty(PROP_COMMAND_EXECUTOR);
+    public ShellConfig getShellConfig() {
+        String executor = workspaceProps.getProperty(PROP_COMMAND_EXECUTOR);
+        String argsStr = workspaceProps.getProperty(PROP_EXECUTOR_ARGS);
+        return ShellConfig.fromConfigsOrDefault(executor, argsStr);
     }
 
     @Override
-    public void setCommandExecutor(@Nullable String executor) {
-        if (executor == null || executor.isBlank()) {
+    public void setShellConfig(@Nullable ShellConfig config) {
+        if (config == null) {
             workspaceProps.remove(PROP_COMMAND_EXECUTOR);
-        } else {
-            workspaceProps.setProperty(PROP_COMMAND_EXECUTOR, executor);
-        }
-        saveWorkspaceProperties();
-    }
-
-    @Override
-    public @Nullable String getExecutorArgs() {
-        String args = workspaceProps.getProperty(PROP_EXECUTOR_ARGS);
-        return (args == null || args.isBlank()) ? null : args;
-    }
-
-    @Override
-    public void setExecutorArgs(@Nullable String args) {
-        if (args == null || args.isBlank()) {
             workspaceProps.remove(PROP_EXECUTOR_ARGS);
         } else {
-            workspaceProps.setProperty(PROP_EXECUTOR_ARGS, args);
+            workspaceProps.setProperty(PROP_COMMAND_EXECUTOR, config.executable());
+            workspaceProps.setProperty(PROP_EXECUTOR_ARGS, String.join(" ", config.args()));
         }
         saveWorkspaceProperties();
     }
@@ -680,8 +700,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     private Language computeMostCommonLanguage() {
+        return computeMostCommonLanguage(getAllFiles());
+    }
+
+    private Language computeMostCommonLanguage(java.util.Collection<ProjectFile> files) {
         try {
-            var counts = getAllFiles().stream()
+            var counts = files.stream()
                     .map(pf -> com.google.common.io.Files.getFileExtension(
                             pf.absPath().toString()))
                     .filter(ext -> !ext.isEmpty())
@@ -741,54 +765,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
-    protected Set<Dependency> namesToDependencies(String liveDepsNames) {
-        Set<ProjectFile> selected;
-        var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
-
-        var allDeps = getAllOnDiskDependencies();
-        selected = allDeps.stream()
-                .filter(dep -> {
-                    // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
-                    if (dep.getRelPath().getNameCount() < 3) {
-                        return false;
-                    }
-                    // relPath is relative to masterRootPathForConfig, so .brokk is first component
-                    var depName = dep.getRelPath().getName(2).toString();
-                    return liveNamesSet.contains(depName);
-                })
-                .collect(Collectors.toSet());
-
-        // Wrap with detected language for each dependency root directory
-        return selected.stream()
-                .map(dep -> new Dependency(dep, detectLanguageForDependency(dep)))
-                .collect(Collectors.toSet());
-    }
-
-    /**
-     * Determine the predominant language for a dependency directory by scanning files inside it.
-     * This is shared between MainProject and WorktreeProject to avoid duplication.
-     */
-    protected static Language detectLanguageForDependency(ProjectFile depDir) {
-        var counts = new IProject.Dependency(depDir, Languages.NONE)
-                .files().stream()
-                        .map(pf -> com.google.common.io.Files.getFileExtension(
-                                pf.absPath().toString()))
-                        .filter(ext -> !ext.isEmpty())
-                        .map(Languages::fromExtension)
-                        .filter(lang -> lang != Languages.NONE)
-                        .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
-
-        return counts.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(Languages.NONE);
-    }
-
     @Nullable
-    private volatile Set<ProjectFile> allFilesCache;
+    private volatile Map<Path, ProjectFile> filesByRelPathCache;
 
     private Set<ProjectFile> getAllFilesRaw() {
         // Use getFilesForAnalysis() which handles fallback to filesystem scan for empty Git repos
@@ -810,10 +788,23 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     @Blocking
     public final synchronized Set<ProjectFile> getAllFiles() {
-        if (allFilesCache == null) {
-            allFilesCache = filterExcludedFiles(getAllFilesRaw());
+        if (filesByRelPathCache == null) {
+            var files = filterExcludedFiles(getAllFilesRaw());
+            filesByRelPathCache = files.stream()
+                    .collect(Collectors.toMap(ProjectFile::getRelPath, f -> f, (existing, replacement) -> existing));
         }
-        return allFilesCache;
+        return Set.copyOf(filesByRelPathCache.values());
+    }
+
+    @Override
+    @Blocking
+    public final synchronized Optional<ProjectFile> getFileByRelPath(Path relPath) {
+        if (filesByRelPathCache == null) {
+            getAllFiles(); // Populate the cache (this uses a side effect, so linter won't see this)
+        }
+        // The below is to keep the linter happy
+        var match = filesByRelPathCache != null ? filesByRelPathCache.get(relPath) : null;
+        return Optional.ofNullable(match);
     }
 
     @Override
@@ -824,7 +815,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public synchronized void invalidateAllFiles() {
-        allFilesCache = null;
+        filesByRelPathCache = null;
         try {
             fileFilteringService.invalidateCaches();
         } catch (Exception e) {

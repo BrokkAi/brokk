@@ -52,9 +52,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     protected final ObjectMapper objectMapper = new ObjectMapper();
     protected final IProject project;
 
-    // display name -> location
+    // display name -> location (still used for STT and internal tracking)
+    // display name -> location (still used for STT and internal tracking)
     protected Map<String, String> modelLocations = Map.of(UNAVAILABLE, "not_a_model");
-    // location -> model info (inner map is also immutable)
+    // model name -> model info (inner map is also immutable)
     protected Map<String, Map<String, Object>> modelInfoMap = Map.of();
 
     // Special models
@@ -76,8 +77,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             // lets tests exercise cache pinning
             return true;
         }
-        var location = model.defaultRequestParameters().modelName();
-        return (location.startsWith("openai") || location.startsWith("gemini") || location.startsWith("deepseek"));
+        var name = nameOf(model);
+        return (name.startsWith("gpt") || name.startsWith("gemini") || name.startsWith("deepseek"));
     }
 
     public interface Provider {
@@ -246,7 +247,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     /** Represents the parsed Brokk API key components. */
-    public record KeyParts(UUID userId, String token) {}
+    public record KeyParts(UUID userId, String token) {
+        private static final KeyParts DUMMY = new KeyParts(new UUID(0, 0), "dummy-key");
+    }
 
     /** Represents a cost estimate with both the raw value and formatted string. */
     public record CostEstimate(double cost, String formatted) {}
@@ -276,14 +279,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public ModelPricing getModelPricing(String modelName) {
-        var location = modelLocations.get(modelName);
-        if (location == null) {
-            logger.warn("Location not found for model name {}, cannot get prices.", modelName);
-            return new ModelPricing(List.of());
-        }
-        var info = getModelInfo(location);
+        var info = getModelInfo(modelName);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, cannot get prices.", location);
+            logger.warn("Model info not found for name {}, cannot get prices.", modelName);
             return new ModelPricing(List.of());
         }
 
@@ -324,11 +322,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public ModelPricing getModelPricing(String modelName, ProcessingTier tier) {
-        var location = modelLocations.get(modelName);
-        if (location == null) {
-            return new ModelPricing(List.of());
-        }
-        var info = getModelInfo(location);
+        var info = getModelInfo(modelName);
         var pricingTiers = info.get("pricing_tiers");
 
         if (pricingTiers instanceof PricingTiers pt) {
@@ -377,13 +371,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     /** Returns the display name for a given model instance */
     public String nameOf(StreamingChatModel model) {
-        var location = model.defaultRequestParameters().modelName();
-        return modelLocations.entrySet().stream()
-                .filter(entry -> entry.getValue().equals(location))
-                .map(Map.Entry::getKey)
-                .findFirst()
-                .orElseThrow(
-                        () -> new IllegalArgumentException("Model location not found in known models: " + location));
+        return model.defaultRequestParameters().modelName();
     }
 
     /**
@@ -391,26 +379,39 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      * Filters out internal/utility models like flash-lite.
      */
     public Map<String, String> getAvailableModels() {
-        return modelLocations.entrySet().stream()
-                .filter(e -> !ModelProperties.SYSTEM_ONLY_MODELS.contains(e.getKey()))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        boolean codexConnected = MainProject.isOpenAiCodexOauthConnected();
+        return modelInfoMap.keySet().stream()
+                .filter(name -> !UNAVAILABLE.equals(name))
+                .filter(name -> !ModelProperties.SYSTEM_ONLY_MODELS.contains(name))
+                .filter(name -> codexConnected || !isCodexModel(name))
+                .collect(Collectors.toMap(name -> name, name -> modelLocations.getOrDefault(name, name)));
     }
 
     /**
-     * Retrieves the maximum output tokens for the given model location.
+     * Checks if the given model name corresponds to a Codex model.
+     * Returns false if the model is unknown or does not have is_codex=true.
      */
-    private int getMaxOutputTokens(String location) {
-        var info = getModelInfo(location);
+    public boolean isCodexModel(String modelName) {
+        var info = getModelInfo(modelName);
+        var isCodex = info.get("is_codex");
+        return isCodex instanceof Boolean b && b;
+    }
+
+    /**
+     * Retrieves the maximum output tokens for the given model name.
+     */
+    private int getMaxOutputTokens(String modelName) {
+        var info = getModelInfo(modelName);
 
         Integer value;
         if (!info.containsKey("max_output_tokens")) {
-            logger.warn("max_output_tokens not found for model location: {}", location);
+            logger.warn("max_output_tokens not found for model: {}", modelName);
             value = 8192;
         } else {
             value = (Integer) info.get("max_output_tokens");
         }
 
-        int ceiling = min(value, getMaxInputTokens(location) / 8);
+        int ceiling = min(value, getMaxInputTokens(modelName) / 8);
         int floor = min(8192, value);
         return max(floor, ceiling);
     }
@@ -419,14 +420,13 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      * Retrieves the maximum input tokens for the given model.
      */
     public int getMaxInputTokens(StreamingChatModel model) {
-        var location = model.defaultRequestParameters().modelName();
-        return getMaxInputTokens(location);
+        return getMaxInputTokens(nameOf(model));
     }
 
-    private int getMaxInputTokens(String location) {
-        var info = getModelInfo(location);
+    private int getMaxInputTokens(String modelName) {
+        var info = getModelInfo(modelName);
         if (!info.containsKey("max_input_tokens")) {
-            logger.warn("max_input_tokens not found for model location: {}", location);
+            logger.warn("max_input_tokens not found for model: {}", modelName);
             return 65536;
         }
         var value = info.get("max_input_tokens");
@@ -435,11 +435,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     /**
-     * Retrieves the maximum concurrent requests for the given model name. Returns null if unavailable.
+     * Retrieves the maximum concurrent requests for the given model instance. Returns null if unavailable.
      */
     public @Nullable Integer getMaxConcurrentRequests(StreamingChatModel model) {
-        var location = model.defaultRequestParameters().modelName();
-        var info = getModelInfo(location);
+        var info = getModelInfo(nameOf(model));
         if (!info.containsKey("max_concurrent_requests")) {
             return null;
         }
@@ -448,8 +447,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     /** Retrieves the tokens per minute for the given model. Returns null if unavailable. */
     public @Nullable Integer getTokensPerMinute(StreamingChatModel model) {
-        var location = model.defaultRequestParameters().modelName();
-        var info = getModelInfo(location);
+        var info = getModelInfo(nameOf(model));
         if (!info.containsKey("tokens_per_minute")) {
             return null;
         }
@@ -458,12 +456,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean supportsToolChoiceRequired(StreamingChatModel model) {
         var modelName = nameOf(model);
-        var location = modelLocations.get(modelName);
-        if (location == null) {
-            logger.warn("Location not found for model name {}, assuming no tool_choice=required support", modelName);
-            return false;
-        }
-        var info = getModelInfo(location);
+        var info = getModelInfo(modelName);
         if (!info.containsKey("supports_tool_choice")) {
             return false;
         }
@@ -472,12 +465,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public boolean supportsProcessingTier(String modelName) {
-        var location = modelLocations.get(modelName);
-        if (location == null) {
-            logger.warn("Location not found for model name {}, assuming no processing tier support.", modelName);
-            return false;
-        }
-        var info = getModelInfo(location);
+        var info = getModelInfo(modelName);
         var pricingTiers = info.get("pricing_tiers");
         if (!(pricingTiers instanceof PricingTiers pt)) {
             return false;
@@ -486,14 +474,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public boolean supportsReasoningDisable(String modelName) {
-        var location = modelLocations.get(modelName);
-        if (location == null) {
-            logger.warn("Location not found for model name {}, assuming no reasoning-disable support.", modelName);
-            return false;
-        }
-        var info = getModelInfo(location);
+        var info = getModelInfo(modelName);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, assuming no reasoning-disable support.", location);
+            logger.warn("Model info not found for name {}, assuming no reasoning-disable support.", modelName);
             return false;
         }
         var v = info.get("supports_reasoning_disable");
@@ -501,31 +484,23 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public boolean supportsReasoningEffort(String modelName) {
-        var location = modelLocations.get(modelName);
-        if (location == null) {
-            logger.warn("Location not found for model name {}, assuming no reasoning effort support.", modelName);
-            return false;
-        }
-        return supportsReasoningEffortInternal(location);
-    }
-
-    private boolean supportsReasoningEffortInternal(String location) {
-        var info = getModelInfo(location);
+        var info = getModelInfo(modelName);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, assuming no reasoning effort support.", location);
+            logger.trace("Model info not found for name {}, assuming no reasoning effort support.", modelName);
             return false;
         }
 
-        return switch (info.get("supported_openai_params")) {
-            case List<?> list -> list.stream().map(Object::toString).anyMatch("reasoning_effort"::equals);
-            case null, default -> false;
-        };
+        Object params = info.get("supported_openai_params");
+        if (params instanceof List<?> list) {
+            return list.stream().map(Object::toString).anyMatch("reasoning_effort"::equals);
+        }
+        return false;
     }
 
-    private boolean supportsReasoning(String location) {
-        var info = getModelInfo(location);
+    private boolean supportsReasoning(String modelName) {
+        var info = getModelInfo(modelName);
         if (info.isEmpty()) {
-            logger.trace("Model info not found for location {}, assuming no reasoning support.", location);
+            logger.trace("Model info not found for name {}, assuming no reasoning support.", modelName);
             return false;
         }
         var supports = info.get("supports_reasoning");
@@ -535,37 +510,34 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     /** Retrieves or creates a StreamingChatModel for the given configuration. */
     public @Nullable StreamingChatModel getModel(
             ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
-        @Nullable String location = modelLocations.get(config.name);
         logger.trace(
-                "Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
-                config.name,
-                location,
-                config.reasoning);
-        if (location == null) {
-            logger.error("Location not found for model name: {}", config.name);
-            return null;
-        }
+                "Creating new model instance for '{}' with reasoning '{}' via LiteLLM", config.name, config.reasoning);
 
         var params = OpenAiChatRequestParameters.builder();
-
         String baseUrl = MainProject.getProxyUrl();
+        var split = config.name.split("/", -1);
+        var shortName = split[split.length - 1];
+
+        String brokkKey = MainProject.getBrokkKey();
+        var kp = !brokkKey.isBlank() && brokkKey.contains("+") ? parseKey(brokkKey) : KeyParts.DUMMY;
+
         var builder = OpenAiStreamingChatModel.builder()
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .serviceTier(config.tier)
+                .apiKey(kp.token())
+                .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
+                .promptCacheKey(shortName + kp.userId())
                 .timeout(Duration.ofSeconds(
                         config.tier == ProcessingTier.FLEX
                                 ? FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
                                 : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
-        params = params.maxCompletionTokens(getMaxOutputTokens(location));
-
-        var kp = parseKey(MainProject.getBrokkKey());
-        builder = builder.apiKey(kp.token()).customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
+        params = params.maxCompletionTokens(getMaxOutputTokens(config.name));
         params = params.user(kp.userId().toString());
 
-        params = params.modelName(location);
+        params = params.modelName(config.name);
 
         logger.trace("Applying reasoning effort {} to model {}", config.reasoning, config.name);
         if (supportsReasoningEffort(config.name) && config.reasoning != ReasoningLevel.DEFAULT) {
@@ -584,19 +556,19 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public boolean supportsJsonSchema(StreamingChatModel model) {
-        var location = model.defaultRequestParameters().modelName();
-        var info = getModelInfo(location);
+        var name = nameOf(model);
+        var info = getModelInfo(name);
 
-        if (location.contains("gemini")) {
+        if (name.contains("gemini")) {
             return false;
         }
 
-        if (location.contains("gpt-5")) {
+        if (name.contains("gpt-5")) {
             return false;
         }
 
         if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, assuming no JSON schema support.", location);
+            logger.warn("Model info not found for name {}, assuming no JSON schema support.", name);
             return false;
         }
         var b = info.get("supports_response_schema");
@@ -608,70 +580,53 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return modelName.contains("haiku") || modelName.contains("flash");
     }
 
-    public boolean requiresEmulatedTools(StreamingChatModel model) {
-        if (Boolean.getBoolean("brokk.devmode")) {
-            boolean force = MainProject.getForceToolEmulation();
-            logger.debug("Dev mode enabled; requiresEmulatedTools overridden by setting: {}", force);
-            return force;
+    protected Map<String, Object> getModelInfo(String modelName) {
+        var info = modelInfoMap.get(modelName);
+        if (info != null) {
+            return info;
         }
-
-        var location = model.defaultRequestParameters().modelName();
-
-        var info = getModelInfo(location);
-        if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
-            return true;
-        }
-
-        var b = info.get("supports_function_calling");
-        return !(b instanceof Boolean bVal) || !bVal;
-    }
-
-    protected Map<String, Object> getModelInfo(String location) {
-        try {
-            var info = modelInfoMap.get(location);
-            return info != null ? info : Map.of();
-        } catch (NullPointerException e) {
-            return Map.of();
-        }
+        // Fallback: some callers might pass the location instead of the name in legacy tests
+        // or if modelInfoMap is keyed by location and we haven't reached Service.java yet.
+        return modelInfoMap.values().stream()
+                .filter(m -> modelName.equals(m.get("model_location")))
+                .findFirst()
+                .orElse(Map.of());
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
-        var location = model.defaultRequestParameters().modelName();
-        var info = getModelInfo(location);
+        var name = nameOf(model);
+        var info = getModelInfo(name);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, assuming no parallel tool call support.", location);
+            logger.trace("Model info not found for name {}, assuming no parallel tool call support.", name);
             return false;
         }
 
-        return switch (info.get("supported_openai_params")) {
-            case List<?> list -> list.stream().map(Object::toString).anyMatch("parallel_tool_calls"::equals);
-            case null, default -> false;
-        };
+        Object params = info.get("supported_openai_params");
+        if (params instanceof List<?> list) {
+            return list.stream().map(Object::toString).anyMatch("parallel_tool_calls"::equals);
+        }
+        return false;
     }
 
     public boolean supportsTemperature(String modelName) {
-        var location = modelLocations.get(modelName);
-        if (location == null) {
-            logger.warn("Location not found for model name {}, assuming no temperature support.", modelName);
-            return false;
-        }
-        var info = getModelInfo(location);
+        var info = getModelInfo(modelName);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, assuming no temperature support.", location);
+            logger.warn("Model info not found for name {}, assuming no temperature support.", modelName);
             return false;
         }
 
-        return switch (info.get("supported_openai_params")) {
-            case List<?> list -> list.stream().map(Object::toString).anyMatch("temperature"::equals);
-            case null, default -> false;
-        };
+        Object params = info.get("supported_openai_params");
+        if (params instanceof List<?> list) {
+            return list.stream().map(Object::toString).anyMatch("temperature"::equals);
+        }
+
+        return false;
     }
 
     public boolean isReasoning(StreamingChatModel model) {
-        var location = model.defaultRequestParameters().modelName();
-        var supportsReasoning = supportsReasoning(location);
-        if (!supportsReasoningEffortInternal(location)) {
+        var name = nameOf(model);
+        var supportsReasoning = supportsReasoning(name);
+        if (!supportsReasoningEffort(name)) {
             return supportsReasoning;
         }
         if (!(model instanceof OpenAiStreamingChatModel om)) {
@@ -679,8 +634,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
 
         var effort = om.defaultRequestParameters().reasoningEffort();
-        var locationLower = location.toLowerCase(Locale.ROOT);
-        var isDisable = (locationLower.contains("sonnet") || locationLower.contains("opus"))
+        var lowerName = name.toLowerCase(Locale.ROOT);
+        var isDisable = (lowerName.contains("sonnet") || lowerName.contains("opus"))
                 ? effort == null || "disable".equalsIgnoreCase(effort)
                 : "disable".equalsIgnoreCase(effort);
         return !isDisable;
@@ -688,12 +643,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isReasoning(ModelConfig config) {
         var modelName = config.name();
-        var location = modelLocations.get(modelName);
-        if (location == null) {
-            return false;
-        }
-
-        var supportsReasoning = supportsReasoning(location);
+        var supportsReasoning = supportsReasoning(modelName);
         if (!supportsReasoningEffort(modelName)) {
             return supportsReasoning;
         }
@@ -710,10 +660,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public boolean usesThinkTags(StreamingChatModel model) {
-        var location = model.defaultRequestParameters().modelName();
-        var info = getModelInfo(location);
+        var name = nameOf(model);
+        var info = getModelInfo(name);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, assuming no think-tag usage.", location);
+            logger.warn("Model info not found for name {}, assuming no think-tag usage.", name);
             return false;
         }
         var v = info.get("uses_think_tags");
@@ -721,10 +671,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public boolean supportsVision(StreamingChatModel model) {
-        var location = model.defaultRequestParameters().modelName();
-        var info = getModelInfo(location);
+        var name = nameOf(model);
+        var info = getModelInfo(name);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, assuming no vision support.", location);
+            logger.warn("Model info not found for name {}, assuming no vision support.", name);
             return false;
         }
 
@@ -745,14 +695,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      * Returns true if the named model is marked as eligible for the free tier.
      */
     public boolean isFreeTier(String modelName) {
-        var location = modelLocations.get(modelName);
-        if (location == null) {
-            logger.warn("Location not found for model name {}, assuming not free-tier.", modelName);
-            return false;
-        }
-        var info = getModelInfo(location);
+        var info = getModelInfo(modelName);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for location {}, assuming not free-tier.", location);
+            logger.warn("Model info not found for name {}, assuming not free-tier.", modelName);
             return false;
         }
         var v = info.get("free_tier_eligible");

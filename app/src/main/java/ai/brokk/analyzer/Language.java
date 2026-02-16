@@ -50,15 +50,22 @@ public interface Language {
     /**
      * Get the path where the storage for this analyzer in the given project should be stored.
      *
+     * The analyzer state files are LZ4-compressed Smile blobs produced by {@link TreeSitterStateIO}.
+     * The file name is stable per project root and language to avoid churn:
+     *   &lt;projectRoot&gt;/.brokk/&lt;internalNameLowercased&gt;.bin.lz4
+     *
+     * Note: older versions of Brokk used GZIP-compressed snapshots with extensions like ".bin.gz"
+     * or ".bin.gzip". Those legacy files are handled during explicit refresh operations (see AnalyzerWrapper)
+     * and are not the primary target for new saves/loads.
+     *
      * @param project The project.
-     * @return The path to the database file.
+     * @return The path to the database file (LZ4-compressed).
      */
     default Path getStoragePath(IProject project) {
-        // Use oldName for storage path to ensure stable and filesystem-safe names
-        // Persist snapshots compressed with GZIP to reduce size
+        // Use internalName for stable, filesystem-safe names and LZ4 extension for current format.
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
-                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin.gzip");
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin.lz4");
     }
 
     /**
@@ -70,7 +77,7 @@ public interface Language {
         try {
             if (analyzer instanceof TreeSitterAnalyzer tsa) {
                 Path file = getStoragePath(project);
-                TreeSitterStateIO.save(tsa.snapshotState(), file);
+                TreeSitterStateIO.save(tsa.snapshotState(), file, this);
                 logger.debug("Saved analyzer state for {} to {}", name(), file);
             } else {
                 logger.trace("saveAnalyzer: analyzer for {} is not TreeSitter-backed; skipping", name());

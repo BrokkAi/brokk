@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
@@ -25,6 +26,7 @@ import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ContentDiffUtils;
+import ai.brokk.util.Messages;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
@@ -166,6 +168,7 @@ public class ReviewAgent {
             long turn1Start = System.currentTimeMillis();
             Llm.StreamingResult turn1Result;
             var turn1Messages = new ArrayList<ChatMessage>();
+            @Nullable MemoryConsole turn1Io = null;
             while (true) {
                 turn1Messages.clear();
                 turn1Messages.add(buildSystemMessage());
@@ -187,6 +190,7 @@ public class ReviewAgent {
                         }
                     }
                 };
+                turn1Io = progressConsole;
                 turn1Llm.setOutput(progressConsole);
 
                 turn1Result = turn1Llm.sendRequest(turn1Messages);
@@ -249,16 +253,23 @@ public class ReviewAgent {
 
             Context contextWithMeta =
                     reviewContext.addFragments(SpecialTextType.REVIEW_METADATA.create(cm, metadata.toJson()));
-            var result = new TaskResult(
-                    cm,
-                    "Code Review",
-                    publishedMessages,
-                    contextWithMeta,
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                    new TaskResult.TaskMeta(TaskResult.Type.REVIEW, turn1ModelConfig));
-            var finalContext = scope.append(result);
 
-            return new ReviewResult(review, finalContext);
+            IConsoleIO io = requireNonNull(turn1Io);
+            String rawMessagesLog = Messages.format(io.getLlmRawMessages());
+
+            if (!rawMessagesLog.isBlank()) {
+                contextWithMeta = contextWithMeta.addHistoryEntry(
+                        publishedMessages,
+                        turn1Messages,
+                        TaskResult.Type.REVIEW,
+                        turn1Model,
+                        "Please review this diff");
+            }
+
+            var result = new TaskResult(contextWithMeta, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+            scope.append(result);
+
+            return new ReviewResult(review, contextWithMeta);
         }
     }
 
@@ -893,8 +904,12 @@ public class ReviewAgent {
                 - Key changes: highlight the most important changes, especially to data structures.
                 - Design notes: Higher level concerns (architectural issues, coupling, abstraction problems).
                 - Tactical notes: Simple issues localized to a single method or file.
-                - Each design note MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant
+                - Each design note MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant.
                 - Each Tactical note must include EXACTLY ONE excerpt block.
+
+                IMPORTANT: Each Design Note and Tactical Note MUST be self-contained enough to enqueue as an engineering task.
+                That means each note must include the fully qualified class and method names it refers to, and must not rely on
+                the reader having seen the rest of the review.
 
                 All titles should be 3-6 words.
 
@@ -935,16 +950,16 @@ public class ReviewAgent {
 
                 ## Design Notes
                 ### [Title of first design note]
-                [Description text. Include code blocks as needed.]
-                **Recommendation:** [Detailed instructions for fixing the design issue. Must be actionable by a developer without reference to your review outside of this note's description.]
+                [Description text. Include code blocks as needed. The description must stand alone without requiring the reader to reference other review sections.]
+                **Recommendation:** [Actionable, step-by-step instructions for fixing the issue.]
 
                 ### [Title of second design note, etc.]
                 ...
 
                 ## Tactical Notes
                 ### [Title of first tactical note]
-                [Description text. Include exactly one code block.]
-                **Recommendation:** [Detailed instructions for the fix.]
+                [Description text. Include exactly one code block. The description must stand alone without requiring the reader to reference other review sections.]
+                **Recommendation:** [Actionable, step-by-step instructions instructions for fixing the issue.]
 
                 ## Additional Tests [Omit this if no additional tests are needed]
                 ### [Title of first test suggestion]

@@ -6,6 +6,7 @@ import ai.brokk.analyzer.ProjectFile;
 import io.methvin.watcher.DirectoryChangeEvent;
 import io.methvin.watcher.DirectoryWatcher;
 import java.io.IOException;
+import java.nio.file.ClosedWatchServiceException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -33,12 +34,12 @@ public class NativeProjectWatchService extends AbstractWatchService {
     private static final long DEBOUNCE_DELAY_MS = 500;
 
     @Nullable
-    private volatile DirectoryWatcher watcher;
+    volatile DirectoryWatcher watcher;
 
-    private volatile boolean running = true;
+    volatile boolean running = true;
 
     @Nullable
-    private volatile Thread watcherThread;
+    volatile Thread watcherThread;
 
     // Debouncing fields - all guarded by 'lock'
     private final ScheduledExecutorService debounceExecutor;
@@ -104,8 +105,10 @@ public class NativeProjectWatchService extends AbstractWatchService {
                     paths.add(globalGitignoreDir);
                 }
             }
+            logger.debug("DirectoryWatcher paths to watch: {}", paths);
             builder.paths(paths);
             watcher = builder.build();
+            logger.debug("DirectoryWatcher built successfully, fileHashing=true");
 
             // Wait for the initial future to complete
             try {
@@ -121,6 +124,15 @@ public class NativeProjectWatchService extends AbstractWatchService {
             // Start watching (blocks until watcher is closed)
             logger.info("Starting native directory watcher for: {}", root);
             requireNonNull(watcher).watch();
+        } catch (ClosedWatchServiceException e) {
+            // ClosedWatchServiceException during watch() is expected if close() was called concurrently.
+            // This can happen during registerPaths() or runEventLoop() when the underlying WatchService
+            // is closed by another thread calling NativeProjectWatchService.close().
+            if (!running) {
+                logger.debug("Native directory watcher closed during startup/watching (normal shutdown)");
+            } else {
+                logger.error("Unexpected ClosedWatchServiceException while watcher is still running", e);
+            }
         } catch (IOException e) {
             logger.error("Error setting up native directory watcher", e);
         }
@@ -135,7 +147,7 @@ public class NativeProjectWatchService extends AbstractWatchService {
         Path changedPath = event.path();
         DirectoryChangeEvent.EventType eventType = event.eventType();
 
-        logger.trace("File event: {} on {}", eventType, changedPath);
+        logger.debug("handleEvent ENTRY: type={}, path={}, running={}", eventType, changedPath, running);
 
         lock.lock();
         try {
@@ -169,7 +181,13 @@ public class NativeProjectWatchService extends AbstractWatchService {
                     return;
                 }
             }
-            accumulatedBatch.getFiles().add(new ProjectFile(baseForFile, relativePath));
+            var pf = new ProjectFile(baseForFile, relativePath);
+            accumulatedBatch.getFiles().add(pf);
+            logger.debug(
+                    "handleEvent: added ProjectFile={}, batchSize={}, pauseCount={}",
+                    pf,
+                    accumulatedBatch.getFiles().size(),
+                    pauseCount);
 
             // Conditionally schedule flush only if not paused
             if (pauseCount == 0) {

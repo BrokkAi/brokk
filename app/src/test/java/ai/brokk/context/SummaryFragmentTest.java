@@ -53,7 +53,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Test.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(expectedFile), files, "files() should include Test.java");
         }
     }
@@ -125,7 +125,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Children.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(children), files, "files() should include Children.java");
         }
     }
@@ -183,7 +183,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Multi.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(multi), files, "files() should include only Multi.java");
         }
     }
@@ -224,7 +224,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Child.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(child), files, "files() should include Child.java");
         }
     }
@@ -261,7 +261,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Test.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files().join();
+            var files = fragment.referencedFiles().join();
             assertEquals(Set.of(expectedFile), files, "files() should include only Test.java");
         }
     }
@@ -391,6 +391,237 @@ public class SummaryFragmentTest {
             assertTrue(
                     targetIds.containsAll(cuTargetIds),
                     "FILE_SKELETONS ancestors should be a superset of individual units");
+        }
+    }
+
+    @Test
+    public void pythonFileSkeleton() throws IOException {
+        String pythonCode =
+                """
+                from __future__ import annotations
+
+                import math
+                from dataclasses import dataclass
+                from typing import Optional
+
+                # Grid unit size in inches (1 grid unit = 0.25 inches)
+                GRID_INCHES: float = 0.25
+
+
+                def inches_to_grid(inches: float) -> int:
+                    \"""Convert inches to grid units, rounding to nearest.\"""
+                    return round(inches / GRID_INCHES)
+
+
+                def inches_to_grid_ceil(inches: float) -> int:
+                    \"""Convert inches to grid units, ceiling (for bounding boxes).\"""
+                    return math.ceil(inches / GRID_INCHES)
+
+
+                def grid_to_inches(grid_units: int) -> float:
+                    \"""Convert grid units to inches.\"""
+                    return grid_units * GRID_INCHES
+
+
+                def grid_to_pixels(grid_units: int, dpi: int) -> int:
+                    \"""Convert grid units to pixels at the given DPI.\"""
+                    return round(grid_units * GRID_INCHES * dpi)
+
+
+                def pixels_to_grid_ceil(pixels: int, dpi: int) -> int:
+                    \"""Convert pixels to grid units, ceiling (for bounding boxes).\"""
+                    inches = pixels / dpi
+                    return math.ceil(inches / GRID_INCHES)
+
+
+                @dataclass(frozen=True)
+                class GridRect:
+                    \"""Axis-aligned rectangle in grid units (integers), top-left origin.\"""
+
+                    x: int
+                    y: int
+                    w: int
+                    h: int
+
+                    def __post_init__(self) -> None:
+                        if self.w < 1 or self.h < 1:
+                            raise ValueError(
+                                f"GridRect dimensions must be positive, got {self.w}x{self.h}"
+                            )
+
+                    @property
+                    def area(self) -> int:
+                        return self.w * self.h
+
+                    @property
+                    def x2(self) -> int:
+                        return self.x + self.w
+
+                    @property
+                    def y2(self) -> int:
+                        return self.y + self.h
+
+                    def intersection(self, other: "GridRect") -> Optional["GridRect"]:
+                        \"""Return the intersection rectangle, or None if no overlap.\"""
+                        x1 = max(self.x, other.x)
+                        y1 = max(self.y, other.y)
+                        x2 = min(self.x2, other.x2)
+                        y2 = min(self.y2, other.y2)
+                        if x2 <= x1 or y2 <= y1:
+                            return None
+                        return GridRect(x1, y1, x2 - x1, y2 - y1)
+
+                    def intersection_area(self, other: "GridRect") -> int:
+                        \"""Return the area of intersection, or 0 if no overlap.\"""
+                        inter = self.intersection(other)
+                        return inter.area if inter else 0
+
+                    def intersects(self, other: "GridRect") -> bool:
+                        \"""Return True if rectangles overlap (not just touch).\"""
+                        return not (
+                            self.x2 <= other.x
+                            or other.x2 <= self.x
+                            or self.y2 <= other.y
+                            or other.y2 <= self.y
+                        )
+
+                    def expanded(self, pad: int) -> "GridRect":
+                        \"""Return a new rectangle expanded by pad grid units on all sides.\"""
+                        new_w = self.w + 2 * pad
+                        new_h = self.h + 2 * pad
+                        if new_w < 1 or new_h < 1:
+                            raise ValueError(f"Expansion by {pad} results in non-positive dimensions")
+                        return GridRect(self.x - pad, self.y - pad, new_w, new_h)
+
+                    def contained_in(self, bounds: "GridRect") -> bool:
+                        \"""Return True if this rectangle is fully inside bounds.\"""
+                        return (
+                            self.x >= bounds.x
+                            and self.y >= bounds.y
+                            and self.x2 <= bounds.x2
+                            and self.y2 <= bounds.y2
+                        )
+
+                    def contains_point(self, x: int, y: int) -> bool:
+                        \"""Return True if the point (x, y) is inside this rectangle.\"""
+                        return self.x <= x < self.x2 and self.y <= y < self.y2
+
+
+                @dataclass(frozen=True)
+                class Rect:
+                    \"""Axis-aligned rectangle, top-left origin coordinate system.\"""
+
+                    x: float
+                    y: float
+                    w: float
+                    h: float
+
+                    def __post_init__(self) -> None:
+                        if self.w < 0.001 or self.h < 0.001:
+                            raise ValueError(f"Rect dimensions must be positive, got {self.w}x{self.h}")
+
+                    @property
+                    def area(self) -> float:
+                        return self.w * self.h
+
+                    @property
+                    def x2(self) -> float:
+                        return self.x + self.w
+
+                    @property
+                    def y2(self) -> float:
+                        return self.y + self.h
+
+                    def intersection(self, other: "Rect") -> Optional["Rect"]:
+                        x1 = max(self.x, other.x)
+                        y1 = max(self.y, other.y)
+                        x2 = min(self.x2, other.x2)
+                        y2 = min(self.y2, other.y2)
+                        if x2 <= x1 or y2 <= y1:
+                            return None
+                        return Rect(x1, y1, x2 - x1, y2 - y1)
+
+                    def intersection_area(self, other: "Rect") -> float:
+                        inter = self.intersection(other)
+                        return inter.area if inter else 0.0
+
+                    def intersects(self, other: "Rect") -> bool:
+                        return not (
+                            self.x2 <= other.x
+                            or other.x2 <= self.x
+                            or self.y2 <= other.y
+                            or other.y2 <= self.y
+                        )
+
+                    def expanded(self, pad: float) -> "Rect":
+                        return Rect(self.x - pad, self.y - pad, self.w + 2 * pad, self.h + 2 * pad)
+
+                    def contained_in(self, bounds: "Rect") -> bool:
+                        return (
+                            self.x >= bounds.x
+                            and self.y >= bounds.y
+                            and self.x2 <= bounds.x2
+                            and self.y2 <= bounds.y2
+                        )
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(pythonCode, "rect.py").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            ProjectFile chosen = testProject.getAllFiles().stream()
+                    .filter(pf -> pf.getFileName().equals("rect.py"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var fragment = new SummaryFragment(cm, chosen.getRelPath().toString(), SummaryType.FILE_SKELETONS);
+            String text = fragment.text().join();
+
+            assertNotNull(text);
+            assertCodeEquals(
+                    """
+package rect;
+
+GRID_INCHES: float = 0.25
+
+def inches_to_grid(inches: float) -> int: ...
+
+def inches_to_grid_ceil(inches: float) -> int: ...
+
+def grid_to_inches(grid_units: int) -> float: ...
+
+def grid_to_pixels(grid_units: int, dpi: int) -> int: ...
+
+def pixels_to_grid_ceil(pixels: int, dpi: int) -> int: ...
+
+  def __post_init__(self) -> None: ...
+  @property
+  def area(self) -> int: ...
+  @property
+  def x2(self) -> int: ...
+  @property
+  def y2(self) -> int: ...
+  def intersection(self, other: "GridRect") -> Optional["GridRect"]: ...
+  def intersection_area(self, other: "GridRect") -> int: ...
+  def intersects(self, other: "GridRect") -> bool: ...
+  def expanded(self, pad: int) -> "GridRect": ...
+  def contained_in(self, bounds: "GridRect") -> bool: ...
+  def contains_point(self, x: int, y: int) -> bool: ...
+
+  def __post_init__(self) -> None: ...
+  @property
+  def area(self) -> float: ...
+  @property
+  def x2(self) -> float: ...
+  @property
+  def y2(self) -> float: ...
+  def intersection(self, other: "Rect") -> Optional["Rect"]: ...
+  def intersection_area(self, other: "Rect") -> float: ...
+  def intersects(self, other: "Rect") -> bool: ...
+  def expanded(self, pad: float) -> "Rect": ...
+  def contained_in(self, bounds: "Rect") -> bool: ...
+  """,
+                    text);
         }
     }
 

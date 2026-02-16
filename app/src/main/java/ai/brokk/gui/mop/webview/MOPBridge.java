@@ -229,7 +229,7 @@ public final class MOPBridge {
 
         // Convert messages from log when available
         List<BrokkEvent.HistoryTask.Message> messages = new ArrayList<>();
-        var taskFragment = entry.log();
+        var taskFragment = entry.mopLog();
 
         if (taskFragment != null) {
             var msgs = taskFragment.messages();
@@ -705,7 +705,10 @@ public final class MOPBridge {
 
             String version = BuildInfo.version;
             String projectName = project.getRoot().getFileName().toString();
-            int totalFileCount = project.getAllFiles().size();
+
+            // Repo files only, excluding .brokk and custom exclusion patterns
+            var repoFiles = project.filterExcludedFiles(project.getRepo().getFilesForAnalysis());
+            int totalFileCount = repoFiles.size();
 
             List<Map<String, Object>> analyzerLanguagesInfo = new ArrayList<>();
             try {
@@ -747,16 +750,20 @@ public final class MOPBridge {
                     try {
                         // Convert language name to Language object
                         var language = Languages.valueOf(langName);
+                        var extensions = language.getExtensions();
 
-                        // Get analyzable files for this language
-                        var analyzableFiles = project.getAnalyzableFiles(language);
-                        int fileCount = analyzableFiles.size();
+                        // Get analyzable files for this language from the repo set only
+                        int fileCount = (int) repoFiles.stream()
+                                .filter(pf -> extensions.contains(pf.extension()))
+                                .count();
 
-                        // Count files from dependencies matching this language
+                        // Count files from dependencies matching this language's extensions
                         int depCount = 0;
                         for (var dep : liveDeps) {
-                            if (dep.language() == language) {
-                                depCount += dep.files().size();
+                            for (var file : dep.files()) {
+                                if (extensions.contains(file.extension())) {
+                                    depCount++;
+                                }
                             }
                         }
 

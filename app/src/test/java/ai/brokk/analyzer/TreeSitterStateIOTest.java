@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.zip.GZIPOutputStream;
+import net.jpountz.lz4.LZ4FrameOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -27,6 +27,25 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pcollections.HashTreePMap;
 
 public class TreeSitterStateIOTest {
+
+    private static final String CURRENT_SCHEMA_STR = TreeSitterStateIO.CURRENT_SCHEMA.toString();
+
+    private static void writeDtoWithSchemaVersion(Path out, String schemaVersion, long snapshotEpochNanos)
+            throws Exception {
+        writeDtoWithSchemaVersion(out, schemaVersion, snapshotEpochNanos, null);
+    }
+
+    private static void writeDtoWithSchemaVersion(
+            Path out, String schemaVersion, long snapshotEpochNanos, String languageInternalName) throws Exception {
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), snapshotEpochNanos, schemaVersion, languageInternalName);
+
+        var mapper = new ObjectMapper(new SmileFactory());
+        try (var os = Files.newOutputStream(out);
+                var lz4 = new LZ4FrameOutputStream(os)) {
+            mapper.writeValue(lz4, dto);
+        }
+    }
 
     @Test
     void roundTripJavaAnalyzerState() throws Exception {
@@ -133,11 +152,12 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto emptyDto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
+        AnalyzerStateDto emptyDto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, CURRENT_SCHEMA_STR, "JAVA");
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
-        Path out = tempDir.resolve("state.smile.gz");
+        // Use a recognized language filename to allow successful load inference
+        Path out = tempDir.resolve("java.bin.lz4");
         TreeSitterStateIO.save(state, out);
 
         assertTrue(Files.exists(out), "Expected final state file to exist");
@@ -172,12 +192,10 @@ public class TreeSitterStateIOTest {
                 HashTreePMap.<String, Set<CodeUnit>>empty(),
                 HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>from(stateMap),
                 HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("props_roundtrip.smile.gz");
+        Path out = tempDir.resolve("java.bin.lz4");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -195,19 +213,12 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of("KeyA", "keyb"),
-                99L);
+        // Create a DTO with the current schema version
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 99L, CURRENT_SCHEMA_STR, "JAVA");
         var original = TreeSitterStateIO.fromDto(dto);
 
-        Path out = tempDir.resolve("roundtrip.smile.gz");
+        Path out = tempDir.resolve("java.bin.lz4");
         TreeSitterStateIO.save(original, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -216,6 +227,8 @@ public class TreeSitterStateIOTest {
 
         var dtoOriginal = TreeSitterStateIO.toDto(original);
         var dtoLoaded = TreeSitterStateIO.toDto(loaded);
+
+        assertEquals(CURRENT_SCHEMA_STR, dtoLoaded.schemaVersion(), "Loaded DTO should have current schema version");
         assertEquals(dtoOriginal, dtoLoaded, "DTO after save+load should match original DTO");
     }
 
@@ -223,18 +236,17 @@ public class TreeSitterStateIOTest {
             value = OS.WINDOWS,
             disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
-    void loadReturnsEmptyOnCorruptGzip(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("state.smile.gz");
+    void loadReturnsEmptyOnCorruptLz4(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("java.bin.lz4");
 
-        Files.writeString(out, "not a gzip");
+        Files.writeString(out, "not a compressed file");
 
         var loaded = TreeSitterStateIO.load(out);
-        assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
+        assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt file");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("A"), 1L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "2.0.0", "JAVA");
         var state = TreeSitterStateIO.fromDto(dto);
-        TreeSitterStateIO.save(state, out);
+        TreeSitterStateIO.save(state, out, Languages.JAVA);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
         assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
 
@@ -251,15 +263,14 @@ public class TreeSitterStateIOTest {
             disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
     void replacesExistingCorruptFileOnWindows(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("state.smile.gz");
+        Path out = tempDir.resolve("java.bin.lz4");
 
-        Files.writeString(out, "this is corrupt gzip content");
+        Files.writeString(out, "this is corrupt content");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("win"), 42L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 42L, "2.0.0", "JAVA");
         var original = TreeSitterStateIO.fromDto(dto);
 
-        TreeSitterStateIO.save(original, out);
+        TreeSitterStateIO.save(original, out, Languages.JAVA);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
         assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
 
@@ -275,7 +286,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadReturnsEmptyOnLegacyStateMissingContainsTests(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("legacy_state.smile.gz");
+        Path out = tempDir.resolve("java.bin.lz4");
 
         // Manually construct a JSON/Smile graph that looks like AnalyzerStateDto
         // but whose FilePropertiesDto is missing the 'containsTests' field.
@@ -295,7 +306,7 @@ public class TreeSitterStateIOTest {
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+        try (var os = new net.jpountz.lz4.LZ4FrameOutputStream(Files.newOutputStream(out))) {
             mapper.writeValue(os, legacyState);
         }
 
@@ -322,12 +333,10 @@ public class TreeSitterStateIOTest {
                 HashTreePMap.<String, Set<CodeUnit>>empty(),
                 HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
                 HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>from(Map.of(projectFile, fileProps)),
-                ImportGraph.empty(),
-                TypeHierarchyGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
-        Path out = tempDir.resolve("imports_roundtrip.smile.gz");
+        Path out = tempDir.resolve("java.bin.lz4");
         TreeSitterStateIO.save(originalState, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -354,17 +363,18 @@ public class TreeSitterStateIOTest {
         var propsDto = new FilePropertiesDto(List.of(), List.of(), true);
         var entryDto = new FileStateEntryDto(fileDto, propsDto);
 
+        // Expect CURRENT_SCHEMA version after round-trip
         var originalDto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(entryDto), List.of(), List.of(), List.of(), List.of(), List.of(), 555L);
+                Map.of(), List.of(), List.of(entryDto), List.of(), 555L, CURRENT_SCHEMA_STR, "JAVA");
         var state = TreeSitterStateIO.fromDto(originalDto);
 
-        Path out = tempDir.resolve("test_props.smile.gz");
-        TreeSitterStateIO.save(state, out);
+        Path out = tempDir.resolve("java.bin.lz4");
+        TreeSitterStateIO.save(state, out, Languages.JAVA);
 
         var loadedOpt = TreeSitterStateIO.load(out);
         assertTrue(loadedOpt.isPresent(), "Should load state with containsTests");
 
-        var loadedDto = TreeSitterStateIO.toDto(loadedOpt.get());
+        var loadedDto = TreeSitterStateIO.toDto(loadedOpt.get(), Languages.JAVA);
         assertEquals(originalDto, loadedDto, "Round-trip should preserve all fields including containsTests");
         assertTrue(loadedDto.fileState().getFirst().value().containsTests(), "containsTests=true should be preserved");
     }
@@ -391,7 +401,7 @@ public class TreeSitterStateIOTest {
             assertNotNull(analyzer.treeOf(file), "Original analyzer should have parsed tree");
 
             // 3. Save state to temp file
-            Path stateFile = tempDir.resolve("lazy_test.smile.gz");
+            Path stateFile = tempDir.resolve("java.bin.lz4");
             TreeSitterStateIO.save(analyzer.snapshotState(), stateFile);
             assertTrue(Files.exists(stateFile), "State file should exist after save");
 
@@ -437,17 +447,19 @@ public class TreeSitterStateIOTest {
                     analyzer.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertTrue(descendants.contains(derivedCu), "Base should have Derived as descendant");
 
-            // Save state - this serializes the populated TypeHierarchyGraph
+            // Save state - graphs are no longer treated as authoritative and may be empty after load.
             Path storage = Languages.JAVA.getStoragePath(project);
             TreeSitterStateIO.save(analyzer.snapshotState(), storage);
 
             // Load state into a fresh analyzer instance
             IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
 
-            // Verify descendants from loaded state without re-triggering full analysis
+            // Verify descendants from loaded state by triggering lazy rebuild via analyzer APIs
             Set<CodeUnit> loadedDescendants =
                     loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
-            assertTrue(loadedDescendants.contains(derivedCu), "Loaded analyzer should retain descendants");
+            assertTrue(
+                    loadedDescendants.contains(derivedCu),
+                    "Loaded analyzer should retain descendants after lazy rebuild");
             assertEquals(descendants.size(), loadedDescendants.size());
         }
     }
@@ -483,17 +495,11 @@ public class TreeSitterStateIOTest {
             // Load into a new analyzer
             IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
 
-            // Verify that getDirectDescendants returns the same results
-            // In TreeSitterAnalyzer, if the state contains the results in TypeHierarchyGraph,
-            // they are returned immediately.
+            // Verify that getDirectDescendants returns the same results (may be rebuilt lazily)
             Set<CodeUnit> loadedDescendants =
                     loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseCu);
             assertEquals(originalDescendants, loadedDescendants, "Subtypes should match after round-trip");
 
-            // Specifically verify that no re-computation happened by checking the loaded state directly
-            // (Since we can't easily check the private cache of the loaded instance,
-            // the fact that it returns the expected set from a fresh load of the saved DTO
-            // confirms the DTO contained the subtypes).
             assertTrue(loadedDescendants.contains(aCu));
             assertTrue(loadedDescendants.contains(bCu));
         }
@@ -518,7 +524,6 @@ public class TreeSitterStateIOTest {
             CodeUnit child2Cu = analyzer.getDefinitions("com.example.Child2").getFirst();
 
             // 1. Trigger lazy supertype computation for the children.
-            // This also populates the reverse subtype index in the transient cache as a side-effect.
             var hierarchy = analyzer.as(TypeHierarchyProvider.class).orElseThrow();
             List<CodeUnit> parents1 = hierarchy.getDirectAncestors(child1Cu);
             List<CodeUnit> parents2 = hierarchy.getDirectAncestors(child2Cu);
@@ -526,62 +531,30 @@ public class TreeSitterStateIOTest {
             assertTrue(parents1.contains(baseCu));
             assertTrue(parents2.contains(baseCu));
 
-            // 2. Snapshot the state and verify the reverse index (subtypes) was merged.
+            // 2. Round-trip serialization.
             TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
-            Set<CodeUnit> subtypesInSnapshot = snapshot.typeHierarchyGraph().subtypesOf(baseCu);
-            assertTrue(subtypesInSnapshot.contains(child1Cu), "Snapshot should contain Child1 as subtype of Base");
-            assertTrue(subtypesInSnapshot.contains(child2Cu), "Snapshot should contain Child2 as subtype of Base");
-
-            // 3. Round-trip serialization
-            Path storage = tempDir.resolve("ancestor_test.smile.gz");
+            Path storage = tempDir.resolve("java.bin.lz4");
             TreeSitterStateIO.save(snapshot, storage);
 
             var loadedStateOpt = TreeSitterStateIO.load(storage);
             assertTrue(loadedStateOpt.isPresent());
             var loadedState = loadedStateOpt.get();
 
-            // 4. Verify reloaded state contains the subtype mappings
-            Set<CodeUnit> reloadedSubtypes = loadedState.typeHierarchyGraph().subtypesOf(baseCu);
-            assertTrue(reloadedSubtypes.contains(child1Cu));
-            assertTrue(reloadedSubtypes.contains(child2Cu));
-            assertEquals(2, reloadedSubtypes.size());
+            // 3. Load into a fresh analyzer and verify descendants can be queried via lazy rebuild.
+            JavaAnalyzer loaded = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
+            CodeUnit baseLoaded = loaded.getDefinitions("com.example.Base").getFirst();
+
+            Set<CodeUnit> recomputedSubtypes =
+                    loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseLoaded);
+
+            assertEquals(2, recomputedSubtypes.size(), "Should find both descendants via lazy rebuild");
+            assertTrue(
+                    recomputedSubtypes.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child1")),
+                    "Missing Child1");
+            assertTrue(
+                    recomputedSubtypes.stream().anyMatch(cu -> cu.fqName().equals("com.example.Child2")),
+                    "Missing Child2");
         }
-    }
-
-    @Test
-    void roundTripImportsAndReverseImports(@TempDir Path tempDir) throws Exception {
-        var root = tempDir.resolve("root");
-        Files.createDirectories(root);
-        var fileA = new ProjectFile(root, Path.of("A.java"));
-        var fileB = new ProjectFile(root, Path.of("B.java"));
-        var cuB = CodeUnit.cls(fileB, "com.example", "B");
-
-        var importGraph = ImportGraph.from(Map.of(fileA, Set.of(cuB)), Map.of(fileB, Set.of(fileA)));
-
-        var state = new TreeSitterAnalyzer.AnalyzerState(
-                HashTreePMap.<String, Set<CodeUnit>>empty(),
-                HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
-                HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
-                importGraph,
-                TypeHierarchyGraph.empty(),
-                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
-                System.nanoTime());
-
-        Path out = tempDir.resolve("imports.smile.gz");
-        TreeSitterStateIO.save(state, out);
-
-        var loadedOpt = TreeSitterStateIO.load(out);
-        assertTrue(loadedOpt.isPresent());
-        var loaded = loadedOpt.get();
-
-        assertEquals(
-                state.importGraph().imports(),
-                loaded.importGraph().imports(),
-                "Forward imports should match after round-trip");
-        assertEquals(
-                state.importGraph().reverseImports(),
-                loaded.importGraph().reverseImports(),
-                "Reverse imports should match after round-trip");
     }
 
     @Test
@@ -613,19 +586,16 @@ public class TreeSitterStateIOTest {
             var snapshot = analyzer.snapshotState();
             var dto = TreeSitterStateIO.toDto(snapshot);
 
-            // 3. Create a "legacy" DTO that omits the explicit subtype/supertype graph
-            // This simulates snapshots where hierarchy graphs were not persisted or were empty,
-            // but CodeUnitProperties.superTypes.supertypesComputed is still true.
+            // 3. Create a "legacy" DTO that omits the explicit subtype/supertypes graph
+            // and has a null schemaVersion and null language.
             var legacyDto = new TreeSitterStateIO.AnalyzerStateDto(
                     dto.symbolIndex(),
                     dto.codeUnitState(),
                     dto.fileState(),
-                    dto.imports(),
-                    dto.reverseImports(),
-                    null, // supertypes graph omitted
-                    null, // subtypes graph omitted
                     dto.symbolKeys(),
-                    dto.snapshotEpochNanos());
+                    dto.snapshotEpochNanos(),
+                    null,
+                    null);
 
             var legacyState = TreeSitterStateIO.fromDto(legacyDto);
 
@@ -635,7 +605,7 @@ public class TreeSitterStateIOTest {
             // 5. Resolve Base from the loaded analyzer
             CodeUnit baseLoaded = loaded.getDefinitions("com.example.Base").getFirst();
 
-            // 6. Query descendants. Even though the subtypes graph was null/empty in the DTO,
+            // 6. Query descendants. Even though the subtypes graph may be empty in the DTO,
             // the analyzer should be able to recover them from the computed supertypes in CodeUnitProperties.
             Set<CodeUnit> descendants =
                     loaded.as(TypeHierarchyProvider.class).orElseThrow().getDirectDescendants(baseLoaded);
@@ -649,6 +619,7 @@ public class TreeSitterStateIOTest {
     @Test
     void deserializeLegacyStateWithComputedSupertypes(@TempDir Path tempDir) throws Exception {
         // Construct DTO components manually to simulate legacy structure
+        Path file = tempDir.resolve("java.bin.lz4");
         var root = tempDir.toAbsolutePath().normalize();
         var pfDto = new TreeSitterStateIO.ProjectFileDto(root.toString(), "src/Test.java");
         var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
@@ -681,11 +652,11 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("subtypes", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 12345L);
+        stateDtoMap.put("schemaVersion", "2.0.0");
 
-        // Serialize to file using Smile
-        Path file = tempDir.resolve("legacy.smile.gz");
+        // Serialize to file using Smile + LZ4
         ObjectMapper mapper = new ObjectMapper(new SmileFactory());
-        try (var out = new GZIPOutputStream(Files.newOutputStream(file))) {
+        try (var out = new net.jpountz.lz4.LZ4FrameOutputStream(Files.newOutputStream(file))) {
             mapper.writeValue(out, stateDtoMap);
         }
 
@@ -701,15 +672,11 @@ public class TreeSitterStateIOTest {
 
         assertEquals("Test", loadedCu.shortName());
         assertEquals(1, loadedProps.ranges().size());
-
-        // Verify TypeHierarchyGraph data is still present
-        var hierarchy = loadedState.typeHierarchyGraph();
-        assertTrue(hierarchy.supertypes().containsKey(loadedCu), "Hierarchy data should be loaded");
     }
 
     @Test
     void loadLegacyStateWithPerCodeUnitSupertypes(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("legacy_per_cu_supertypes.smile.gz");
+        Path out = tempDir.resolve("java.bin.lz4");
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
         var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
@@ -733,10 +700,11 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
+        stateDtoMap.put("schemaVersion", "2.0.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+        try (var os = new net.jpountz.lz4.LZ4FrameOutputStream(Files.newOutputStream(out))) {
             mapper.writeValue(os, stateDtoMap);
         }
 
@@ -745,8 +713,146 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void loadStateWithNullListFieldsDoesNotThrowNPE(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("java.bin.lz4");
+
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        // Simulate a cache entry where children, signatures, and ranges are null
+        Map<String, Object> propsWithNulls = new HashMap<>();
+        propsWithNulls.put("children", null);
+        propsWithNulls.put("signatures", null);
+        propsWithNulls.put("ranges", null);
+        propsWithNulls.put("hasBody", false);
+
+        Map<String, Object> entry = Map.of("key", cuDto, "value", propsWithNulls);
+
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 1L);
+        stateDtoMap.put("schemaVersion", "2.0.0");
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new LZ4FrameOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, stateDtoMap);
+        }
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Should load state with null list fields");
+        var loadedState = loadedOpt.get();
+
+        var loadedCu = loadedState.codeUnitState().keySet().iterator().next();
+        var loadedProps = loadedState.codeUnitState().get(loadedCu);
+        assertNotNull(loadedProps);
+        assertTrue(loadedProps.children().isEmpty(), "Null children should become empty list");
+        assertTrue(loadedProps.signatures().isEmpty(), "Null signatures should become empty list");
+        assertTrue(loadedProps.ranges().isEmpty(), "Null ranges should become empty list");
+    }
+
+    @Test
+    void testUnknownLanguageReturnsEmpty(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("unknown_lang.bin.lz4");
+        // No language in DTO + unknown prefix = rebuild
+        writeDtoWithSchemaVersion(out, CURRENT_SCHEMA_STR, 1L, null);
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isEmpty(), "Expected empty result for unknown language prefix 'unknown_lang'");
+
+        Path arbitrary = tempDir.resolve("state.bin.lz4");
+        // No language in DTO + arbitrary filename = rebuild
+        writeDtoWithSchemaVersion(arbitrary, CURRENT_SCHEMA_STR, 1L, null);
+        assertTrue(TreeSitterStateIO.load(arbitrary).isEmpty(), "Expected empty result for arbitrary 'state.bin.lz4'");
+    }
+
+    @Test
+    void testLoadFromArbitraryFilenameWithDtoLanguage(@TempDir Path tempDir) throws Exception {
+        // Failing test scenario: generic filename but DTO specifies JAVA.
+        Path out = tempDir.resolve("analyzer-state.bin.lz4");
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 123L, CURRENT_SCHEMA_STR, "JAVA");
+
+        var mapper = new ObjectMapper(new SmileFactory());
+        try (var os = Files.newOutputStream(out);
+                var lz4 = new net.jpountz.lz4.LZ4FrameOutputStream(os)) {
+            mapper.writeValue(lz4, dto);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isPresent(), "Should load from arbitrary filename if DTO specifies language");
+        assertEquals(123L, loaded.get().snapshotEpochNanos());
+    }
+
+    @Test
+    void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
+        // Manually serialize a DTO with a different major version (1.0.0 vs current 2.x.x)
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.0.0", "JAVA");
+        Path out = tempDir.resolve("java.bin.lz4");
+
+        var mapper = new ObjectMapper(new SmileFactory());
+        try (var os = Files.newOutputStream(out);
+                var lz4 = new net.jpountz.lz4.LZ4FrameOutputStream(os)) {
+            mapper.writeValue(lz4, dto);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isEmpty(), "Expected empty result for major version mismatch (1.0.0)");
+    }
+
+    @Test
+    void nonStrictLanguageAcceptsMinorVersionMismatch(@TempDir Path tempDir) throws Exception {
+        // Use a version with same major but different minor (2.1.0) to test forward compatibility.
+        // We use a filename that maps to a non-strict language (PYTHON) to verify generic acceptance.
+        Path out = tempDir.resolve("python.bin.lz4");
+        writeDtoWithSchemaVersion(out, "2.1.0", 1L);
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(
+                loaded.isPresent(),
+                "Expected minor version mismatch (2.1.0) to be accepted for non-strict loads within same major");
+        assertEquals(1L, loaded.get().snapshotEpochNanos());
+    }
+
+    @Test
+    void javaStrictSchemaGating(@TempDir Path tempDir) throws Exception {
+        Path v110 = tempDir.resolve("java.bin.lz4");
+        writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
+        assertTrue(TreeSitterStateIO.load(v110).isEmpty(), "Java should REJECT legacy major schemaVersion 1.1.0");
+
+        Path v200 = tempDir.resolve("java.bin.lz4");
+        writeDtoWithSchemaVersion(v200, "2.0.0", 200L);
+        assertTrue(TreeSitterStateIO.load(v200).isPresent(), "Java should accept current schemaVersion 2.0.0");
+    }
+
+    @Test
+    void typescriptStrictSchemaGating(@TempDir Path tempDir) throws Exception {
+        Path v110 = tempDir.resolve("typescript.bin.lz4");
+        writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
+        assertTrue(TreeSitterStateIO.load(v110).isEmpty(), "TypeScript should REJECT legacy schemaVersion 1.1.0");
+
+        Path v200 = tempDir.resolve("typescript.bin.lz4");
+        writeDtoWithSchemaVersion(v200, "2.0.0", 200L);
+        assertTrue(TreeSitterStateIO.load(v200).isPresent(), "TypeScript should accept current schemaVersion 2.0.0");
+    }
+
+    @Test
+    void nonStrictLanguageRejectsLegacyMajorSchema(@TempDir Path tempDir) throws Exception {
+        // C# is non-strict but we still reject major version mismatches globally in TreeSitterStateIO
+        Path v100 = tempDir.resolve("c_sharp.bin.lz4");
+        writeDtoWithSchemaVersion(v100, "1.0.0", 100L);
+
+        assertTrue(
+                TreeSitterStateIO.load(v100).isEmpty(), "All languages should reject legacy major schemaVersion 1.0.0");
+    }
+
+    @Test
     void loadIgnoresLegacyRawSupertypesField(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("legacy_raw_supertypes.smile.gz");
+        Path out = tempDir.resolve("java.bin.lz4");
 
         // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
@@ -771,10 +877,11 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
+        stateDtoMap.put("schemaVersion", "2.0.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+        try (var os = new net.jpountz.lz4.LZ4FrameOutputStream(Files.newOutputStream(out))) {
             mapper.writeValue(os, stateDtoMap);
         }
 

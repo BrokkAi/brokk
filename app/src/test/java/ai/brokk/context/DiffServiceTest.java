@@ -85,7 +85,7 @@ class DiffServiceTest {
         var newCtx = new Context(contextManager, List.of(newFrag), List.of());
 
         // Act
-        var diffs = computeDiff(newCtx, oldCtx);
+        var diffs = diff(newCtx, oldCtx);
 
         // Assert
         assertEquals(1, diffs.size(), "Expected a single diff for the changed project file");
@@ -104,7 +104,7 @@ class DiffServiceTest {
                 contextManager, "new text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
         var newCtx = new Context(contextManager, List.of(sfNew), List.of());
 
-        var diffs = computeDiff(newCtx, oldCtx);
+        var diffs = diff(newCtx, oldCtx);
         assertEquals(0, diffs.size(), "Virtual fragments (StringFragment) should be excluded from diffs");
     }
 
@@ -121,13 +121,13 @@ class DiffServiceTest {
         var newFrag = new ContextFragments.ExternalPathFragment(extFile, contextManager);
         var newCtx = new Context(contextManager, List.of(newFrag), List.of());
 
-        var diffs = computeDiff(newCtx, oldCtx);
+        var diffs = diff(newCtx, oldCtx);
         assertEquals(
                 0, diffs.size(), "External path diffs should be excluded (only editable project files are diffed)");
     }
 
     @Test
-    void read_only_project_path_fragment_is_excluded() throws Exception {
+    void read_only_project_path_fragment_is_included() throws Exception {
         // Arrange old content
         var pf = new ProjectFile(tempDir, "src/ReadOnly.java");
         Files.createDirectories(pf.absPath().getParent());
@@ -148,8 +148,8 @@ class DiffServiceTest {
         // Mark the new fragment as read-only in the new context
         newCtx = newCtx.setReadonly(newFrag, true);
 
-        var diffs = computeDiff(newCtx, oldCtx);
-        assertEquals(0, diffs.size(), "Read-only project path fragments should be excluded from diffs");
+        var diffs = diff(newCtx, oldCtx);
+        assertEquals(1, diffs.size(), "Read-only project path fragments should be included in diffs");
     }
 
     @Test
@@ -165,7 +165,7 @@ class DiffServiceTest {
         var newImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
         var newCtx = new Context(contextManager, List.of(newImgFrag), List.of());
 
-        var diffs = computeDiff(newCtx, oldCtx);
+        var diffs = diff(newCtx, oldCtx);
         assertEquals(0, diffs.size(), "Equal images must not produce a diff entry");
     }
 
@@ -186,7 +186,7 @@ class DiffServiceTest {
         var newImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
         var newCtx = new Context(contextManager, List.of(newImgFrag), List.of());
 
-        var diffs = computeDiff(newCtx, oldCtx);
+        var diffs = diff(newCtx, oldCtx);
         assertEquals(1, diffs.size(), "Byte-different images should produce a placeholder diff");
         var de = diffs.getFirst();
         assertEquals("[Image changed]", de.diff());
@@ -259,7 +259,7 @@ class DiffServiceTest {
         var oldCtx = new Context(contextManager, List.of(oldFrag), List.of());
         var newCtx = new Context(contextManager, List.of(newFrag), List.of());
 
-        var diffs = computeDiff(newCtx, oldCtx);
+        var diffs = diff(newCtx, oldCtx);
         assertEquals(1, diffs.size(), "Should produce a fallback diff even if new text is unresolved");
         var de = diffs.getFirst();
         assertTrue(de.diff().contains("old-line"), "Diff should reflect old content vs fallback new content");
@@ -279,7 +279,7 @@ class DiffServiceTest {
         return ContextFragments.ContentSnapshot.textSnapshot(text, Set.of(), Set.of());
     }
 
-    private List<DiffService.FragmentDiff> computeDiff(Context curr, Context prev) {
+    private List<DiffService.FragmentDiff> diff(Context curr, Context prev) {
         var history = new ContextHistory(prev);
         history.pushContext(curr);
         return history.getDiffService().diff(curr).join();

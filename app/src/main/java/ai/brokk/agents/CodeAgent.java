@@ -136,8 +136,7 @@ public class CodeAgent {
     }
 
     /**
-     * Executes the coding task against the given context, suppressing the conversation history
-     * for the duration of the task.
+     * Executes the coding task against the given context, suppressing the conversation history.
      */
     @Blocking
     TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
@@ -145,8 +144,7 @@ public class CodeAgent {
             // special case no-history to avoid changing Context identity unnecessarily
             return runTaskInternal(context, List.of(), userInput, options);
         } else {
-            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
-                    .withHistory(context.getTaskHistory());
+            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options);
         }
     }
 
@@ -214,7 +212,7 @@ public class CodeAgent {
                     .getAnalyzerWrapper()
                     .updateFiles(context.allFragments()
                             .filter(f -> f.getType().isPath())
-                            .flatMap(cf -> cf.files().join().stream())
+                            .flatMap(cf -> cf.sourceFiles().join().stream())
                             .collect(Collectors.toSet()))
                     .get();
         } catch (InterruptedException e) {
@@ -311,7 +309,7 @@ public class CodeAgent {
 
             // Incorporate any newly created files into the live context immediately
             var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
-                    .flatMap(f -> f.files().join().stream())
+                    .flatMap(f -> f.sourceFiles().join().stream())
                     .collect(Collectors.toSet());
             var newlyCreated = es.changedFiles().stream()
                     .filter(pf -> !filesInContext.contains(pf))
@@ -461,10 +459,9 @@ public class CodeAgent {
         }
 
         // create the Result for history
-        String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
-                ? userInput
-                : userInput + " [" + stopDetails.reason().name() + "]";
-        var tr = new TaskResult(contextManager, finalActionDescription, cs.taskMessages, context, stopDetails, meta);
+        context = context.addHistoryEntry(
+                io.getLlmRawMessages(), cs.taskMessages, TaskResult.Type.CODE, model, userInput);
+        var tr = new TaskResult(context, stopDetails);
         logger.debug("Task result: {}", tr);
         return tr;
     }
@@ -559,7 +556,6 @@ public class CodeAgent {
 
         // Build the prompt messages
         var messages = QuickEditPrompts.instance.collectMessages(fileContents, relatedCode, styleGuide);
-        int messageHistoryStart = messages.size();
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
 
@@ -620,16 +616,19 @@ public class CodeAgent {
                             + diagnosticMessages));
             report("Quick Edit: Syntax errors detected, retrying...");
         }
-
-        var quickMeta = new TaskResult.TaskMeta(
-                TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
-        return new TaskResult(
-                contextManager,
-                "Quick Edit: " + file.getFileName(),
-                messages.subList(messageHistoryStart, messages.size()),
-                context,
-                stopDetails,
-                quickMeta);
+        context = context.copyAndRefresh(Set.of(file))
+                .addHistoryEntry(
+                        List.of(
+                                new UserMessage(instructions),
+                                new AiMessage(
+                                        stopDetails.reason() == TaskResult.StopReason.SUCCESS
+                                                ? "Quick Edit applied"
+                                                : stopDetails.explanation())),
+                        messages,
+                        TaskResult.Type.CODE,
+                        model,
+                        instructions);
+        return new TaskResult(context, stopDetails);
     }
 
     /**
@@ -760,14 +759,21 @@ public class CodeAgent {
                         new JavaPreLintFalsePositiveException(message), Map.of("sourcefile", pf.getFileName()));
             }
             logger.debug("Build verification succeeded");
+            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
+            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
+        } else {
+            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
+            if (metrics != null) {
+                metrics.buildFailures++;
+            }
 
-            var lastAiText = cs.taskMessages().isEmpty()
-                    ? ""
+            var lastAiText = cs.taskMessages.isEmpty()
+                    ? "" // taskMessages is never empty in prod, but our test code is lazy
                     : Messages.getText(cs.taskMessages().getLast());
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
             var filesInContext = context.allFragments()
                     .filter(f -> f.getType().isPath())
-                    .flatMap(f -> f.files().join().stream())
+                    .flatMap(f -> f.sourceFiles().join().stream())
                     .collect(Collectors.toSet());
 
             var notInContext = Sets.difference(mentionedFiles, filesInContext);
@@ -788,20 +794,11 @@ public class CodeAgent {
                 if (isAskingForFiles) {
                     var fileNames =
                             notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
-                    reportComplete(
-                            TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + fileNames);
+                    reportComplete(TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files");
                     return new Step.Fatal(new TaskResult.StopDetails(
                             TaskResult.StopReason.LLM_ABORTED,
                             "Agent requested additional files not in context: " + fileNames));
                 }
-            }
-
-            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
-            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
-        } else {
-            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
-            if (metrics != null) {
-                metrics.buildFailures++;
             }
 
             int newBuildFailures = es.consecutiveBuildFailures() + 1;
@@ -1397,14 +1394,7 @@ public class CodeAgent {
          * @return a new ConversationState with compacted taskMessages, preserving rawMessages
          */
         ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
-            var explanations = rawMessages.stream()
-                    .filter(AiMessage.class::isInstance)
-                    .map(AiMessage.class::cast)
-                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
-                            .map(AiMessage::text)
-                            .orElse(""))
-                    .filter(seg -> !seg.isBlank())
-                    .collect(Collectors.joining("\n\n"));
+            var explanations = extractReasoning(rawMessages);
             var changedFilesCdl =
                     es.changedFiles().stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
             var summaryText =
@@ -1424,6 +1414,17 @@ public class CodeAgent {
             compactedMessages.add(new AiMessage(summaryText));
             return new ConversationState(
                     rawMessages, compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
+        }
+
+        static String extractReasoning(List<ChatMessage> messages) {
+            return messages.stream()
+                    .filter(AiMessage.class::isInstance)
+                    .map(AiMessage.class::cast)
+                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
+                            .map(AiMessage::text)
+                            .orElse(""))
+                    .filter(seg -> !seg.isBlank())
+                    .collect(Collectors.joining("\n\n"));
         }
 
         /**
@@ -1799,13 +1800,13 @@ public class CodeAgent {
 
         var readonlyPaths = ctx.getMarkedReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragments.ProjectPathFragment)
-                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .flatMap(cf -> cf.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
         var editableAll = ctx.getEditableFragments()
-                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .flatMap(cf -> cf.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
         var readonly = ctx.getReadonlyFragments()
-                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .flatMap(cf -> cf.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
         var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
         return files.map(ProjectFile::toString).collect(Collectors.toSet());

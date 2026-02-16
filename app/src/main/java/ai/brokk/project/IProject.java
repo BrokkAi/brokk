@@ -14,12 +14,16 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.IStringDiskCache;
+import ai.brokk.util.ShellConfig;
 import java.awt.Rectangle;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.FileSystemLoopException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -64,6 +68,19 @@ public interface IProject extends AutoCloseable {
     @Blocking
     default Set<ProjectFile> getAllFiles() {
         return Set.of();
+    }
+
+    /**
+     * Finds a file in the project by its relative path.
+     *
+     * @param relPath the relative path to look up
+     * @return an Optional containing the ProjectFile if found, or empty otherwise
+     */
+    @Blocking
+    default Optional<ProjectFile> getFileByRelPath(Path relPath) {
+        return getAllFiles().stream()
+                .filter(f -> f.getRelPath().equals(relPath))
+                .findFirst();
     }
 
     /**
@@ -332,6 +349,16 @@ public interface IProject extends AutoCloseable {
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
+    /**
+     * Invalidates any cached auto-detected languages. This should be called when project
+     * structure or dependencies change in a way that might affect language detection.
+     *
+     * <p>The next call to {@link #getAnalyzerLanguages()} will re-detect languages from
+     * the filesystem if no explicit user configuration exists. This does not clear
+     * explicit user configuration set via {@link #setAnalyzerLanguages(Set)}.
+     */
+    default void invalidateAutoDetectedLanguages() {}
+
     // Primary build language configuration
     @Blocking
     default Language getBuildLanguage() {
@@ -352,17 +379,11 @@ public interface IProject extends AutoCloseable {
     }
 
     // Command executor configuration: custom shell/interpreter for command execution
-    default @Nullable String getCommandExecutor() {
-        return null;
+    default ShellConfig getShellConfig() {
+        return ShellConfig.basic();
     }
 
-    default void setCommandExecutor(@Nullable String executor) {}
-
-    default @Nullable String getExecutorArgs() {
-        return null;
-    }
-
-    default void setExecutorArgs(@Nullable String args) {}
+    default void setShellConfig(@Nullable ShellConfig config) {}
 
     /** Gets a UI filter property for persistence across sessions (e.g., "issues.status"). */
     default @Nullable String getUiFilterProperty(String key) {
@@ -571,19 +592,82 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
+     * Determine the predominant language for a dependency directory by scanning files inside it.
+     */
+    static Language detectLanguageForDependency(ProjectFile depDir) {
+        var counts = new IProject.Dependency(depDir, Languages.NONE)
+                .files().stream()
+                        .map(pf -> com.google.common.io.Files.getFileExtension(
+                                pf.absPath().toString()))
+                        .filter(ext -> !ext.isEmpty())
+                        .map(Languages::fromExtension)
+                        .filter(lang -> lang != Languages.NONE)
+                        .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
+
+        return counts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(Languages.NONE);
+    }
+
+    /**
+     * Resolves a comma-separated list of dependency names into a set of Dependency records
+     * by matching them against on-disk dependency directories.
+     */
+    default Set<Dependency> resolveDependencies(String liveDepsNames) {
+        var liveNamesSet = java.util.Arrays.stream(liveDepsNames.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        return getAllOnDiskDependencies().stream()
+                .filter(dep -> {
+                    Path fileName = dep.getRelPath().getFileName();
+                    assert fileName != null : "Dependency path must have a file name: " + dep.getRelPath();
+                    return liveNamesSet.contains(fileName.toString());
+                })
+                .map(dep -> new Dependency(dep, IProject.detectLanguageForDependency(dep)))
+                .collect(Collectors.toSet());
+    }
+
+    /**
      * Represents a decompiled dependency included in the project's code intelligence, pairing its top-level root
      * directory with the detected primary Language.
      */
     record Dependency(ProjectFile root, Language language) {
         private static final Logger logger = LogManager.getLogger(Dependency.class);
 
+        public Set<Language> languages() {
+            return files().stream()
+                    .map(pf -> Languages.fromExtension(pf.extension()))
+                    .filter(l -> l != Languages.NONE)
+                    .collect(Collectors.toSet());
+        }
+
         public Set<ProjectFile> files() {
-            try (var pathStream = Files.walk(root.absPath())) {
-                var masterRoot = root.getRoot();
-                return pathStream
-                        .filter(Files::isRegularFile)
-                        .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
-                        .collect(Collectors.toSet());
+            try {
+                try (var pathStream = Files.walk(root.absPath())) {
+                    var masterRoot = root.getRoot();
+                    return pathStream
+                            .filter(Files::isRegularFile)
+                            .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
+                            .collect(Collectors.toSet());
+                }
+            } catch (FileSystemLoopException e) {
+                logger.warn(
+                        "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
+                        root.absPath(),
+                        e.getMessage());
+                return Set.of();
+            } catch (UncheckedIOException uioe) {
+                if (uioe.getCause() instanceof FileSystemLoopException) {
+                    logger.warn(
+                            "Symlink loop while enumerating dependency files at {}: {}; skipping dependency",
+                            root.absPath(),
+                            uioe.getCause().getMessage());
+                    return Set.of();
+                }
+                throw uioe;
             } catch (IOException e) {
                 logger.error("Error loading dependency files from {}: {}", root.absPath(), e.getMessage());
                 return Set.of();

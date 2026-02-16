@@ -633,19 +633,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         //    with the same simple name has not already been added from an explicit import
         //    or a preceding wildcard import. This ensures deterministic resolution.
         for (String packageName : wildcardImportPackages) {
-            Optional<CodeUnit> pkgModule = getDefinitions(packageName).stream()
+            getDefinitions(packageName).stream()
                     .filter(CodeUnit::isModule)
-                    .findFirst();
-
-            if (pkgModule.isPresent()) {
-                for (CodeUnit child : getDirectChildren(pkgModule.get())) {
-                    if (child.isClass()
-                            && packageName.equals(child.packageName())
-                            && resolvedSimpleNames.add(child.identifier())) {
-                        resolved.add(child);
-                    }
-                }
-            }
+                    .flatMap(module -> getDirectChildren(module).stream())
+                    .filter(CodeUnit::isClass)
+                    .filter(child -> packageName.equals(child.packageName()))
+                    .filter(child -> resolvedSimpleNames.add(child.identifier()))
+                    .forEach(resolved::add);
         }
 
         return Collections.unmodifiableSet(resolved);
@@ -822,7 +816,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
         if (modulePackageName.isBlank()) {
             return;
         }
@@ -1332,6 +1327,59 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     @Override
     protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
         return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
+    }
+
+    /** Extracts parameter type signature for method/constructor overload distinction. */
+    @Override
+    protected @Nullable String extractSignature(
+            String captureName, TSNode definitionNode, SourceContent sourceContent) {
+        if (!CaptureNames.METHOD_DEFINITION.equals(captureName)
+                && !CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName)) {
+            return null;
+        }
+
+        TSNode parametersNode =
+                definitionNode.getChildByFieldName(getLanguageSyntaxProfile().parametersFieldName());
+        if (parametersNode == null || parametersNode.isNull()) {
+            return "()";
+        }
+
+        List<String> params = new ArrayList<>();
+        for (int i = 0; i < parametersNode.getNamedChildCount(); i++) {
+            TSNode param = parametersNode.getNamedChild(i);
+            if (param == null || param.isNull()) {
+                continue;
+            }
+
+            String paramType = param.getType();
+            TSNode typeNode = null;
+            if (FORMAL_PARAMETER.equals(paramType)) {
+                typeNode = param.getChildByFieldName("type");
+            } else if (SPREAD_PARAMETER.equals(paramType)) {
+                // In tree-sitter-java, spread_parameter doesn't have a 'type' field,
+                // the type node is usually the first named child.
+                typeNode = param.getNamedChild(0);
+            }
+
+            if (typeNode != null && !typeNode.isNull()) {
+                String typeText = sourceContent.substringFrom(typeNode).strip();
+
+                // Varargs are arrays at bytecode level; normalize to array notation for signature distinction.
+                boolean isVarargsParam = SPREAD_PARAMETER.equals(paramType)
+                        || sourceContent.substringFrom(param).contains("...")
+                        || typeText.endsWith("...");
+
+                if (isVarargsParam) {
+                    if (typeText.endsWith("...")) {
+                        typeText = typeText.substring(0, typeText.length() - 3).strip();
+                    }
+                    typeText += "[]";
+                }
+                params.add(stripGenericTypeArguments(typeText));
+            }
+        }
+
+        return params.stream().collect(Collectors.joining(", ", "(", ")"));
     }
 
     @Override

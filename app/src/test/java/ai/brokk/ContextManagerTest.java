@@ -116,8 +116,8 @@ class ContextManagerTest {
         List<ChatMessage> msgs1 = List.of(UserMessage.from("first"));
         List<ChatMessage> msgs2 = List.of(UserMessage.from("second"));
 
-        var tf1 = new ContextFragments.TaskFragment(cm, msgs1, "First Task");
-        var tf2 = new ContextFragments.TaskFragment(cm, msgs2, "Second Task");
+        var tf1 = new ContextFragments.TaskFragment(msgs1, "First Task");
+        var tf2 = new ContextFragments.TaskFragment(msgs2, "Second Task");
 
         var entry1 = new TaskEntry(101, tf1, null);
         var entry2 = new TaskEntry(202, tf2, null);

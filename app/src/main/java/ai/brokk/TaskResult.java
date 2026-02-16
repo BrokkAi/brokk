@@ -1,8 +1,9 @@
 package ai.brokk;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import java.util.List;
 import java.util.Locale;
@@ -14,48 +15,25 @@ import org.jetbrains.annotations.Nullable;
  *
  * Note that the Context must NOT be frozen.
  */
-public record TaskResult(
-        String actionDescription,
-        ContextFragments.TaskFragment output,
-        Context context,
-        StopDetails stopDetails,
-        @Nullable TaskMeta meta) {
+public record TaskResult(Context context, StopDetails stopDetails) {
 
-    public TaskResult(
-            IContextManager contextManager,
-            String actionDescription,
-            List<ChatMessage> uiMessages,
-            Context resultingContext,
-            StopDetails stopDetails,
-            @Nullable TaskMeta meta) {
-        this(
-                actionDescription,
-                new ContextFragments.TaskFragment(contextManager, uiMessages, actionDescription),
-                resultingContext,
-                stopDetails,
-                meta);
-    }
-
-    public static TaskResult humanResult(
-            IContextManager contextManager,
-            String actionDescription,
-            List<ChatMessage> uiMessages,
-            Context resultingContext,
-            StopReason simpleReason) {
-        return new TaskResult(
-                actionDescription,
-                new ContextFragments.TaskFragment(contextManager, uiMessages, actionDescription),
-                resultingContext,
-                new StopDetails(simpleReason),
-                null);
+    public static TaskResult humanResult(String actionDescription, Context resultingContext, StopReason simpleReason) {
+        return new TaskResult(resultingContext, new StopDetails(simpleReason));
     }
 
     public TaskResult withContext(Context ctx) {
-        return new TaskResult(actionDescription, output, ctx, stopDetails, meta);
+        return new TaskResult(ctx, stopDetails);
     }
 
     public TaskResult withHistory(List<TaskEntry> taskHistory) {
-        return new TaskResult(actionDescription, output, context.withHistory(taskHistory), stopDetails, meta);
+        return new TaskResult(context.withHistory(taskHistory), stopDetails);
+    }
+
+    public @Nullable TaskMeta meta() {
+        if (context.getTaskHistory().isEmpty()) {
+            return null;
+        }
+        return context.getTaskHistory().getFirst().meta();
     }
 
     /** Enum representing the reason a session concluded. */
@@ -81,7 +59,9 @@ public record TaskResult(
         /** an error occurred while executing a tool */
         TOOL_ERROR,
         /** the LLM exceeded the context size limit */
-        LLM_CONTEXT_SIZE
+        LLM_CONTEXT_SIZE,
+        /** hit the mercy rule ceiling */
+        TURN_LIMIT;
     }
 
     public record StopDetails(StopReason reason, String explanation) {
@@ -132,7 +112,7 @@ public record TaskResult(
         }
     }
 
-    public record TaskMeta(Type type, Service.ModelConfig primaryModel) {}
+    public record TaskMeta(Type type, AbstractService.ModelConfig primaryModel) {}
 
     public enum Type {
         NONE,
@@ -145,7 +125,8 @@ public record TaskResult(
         BLITZFORGE,
         REVIEW,
         SUMMARIZE, // also "describe"
-        CLASSIFY;
+        CLASSIFY,
+        EDIT;
 
         public String displayName() {
             var lower = name().toLowerCase(Locale.ROOT);
@@ -173,5 +154,9 @@ public record TaskResult(
             }
             return Optional.empty();
         }
+    }
+
+    public ContextFragments.TaskFragment output() {
+        return requireNonNull(context.getTaskHistory().getLast().mopLog());
     }
 }
