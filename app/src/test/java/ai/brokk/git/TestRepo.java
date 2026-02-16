@@ -77,7 +77,13 @@ public class TestRepo implements IGitRepo {
 
     @Override
     public synchronized void invalidateCaches() {
-        // No-op for this simple implementation
+        // No-op for this simple in-memory implementation.
+        //
+        // IMPORTANT: Do not clear addedFiles/removedFiles here. Those represent staged overrides that some
+        // tests may expect to persist until explicitly reset() or further add/remove calls.
+        //
+        // Tests that need "stale cache" behavior should model it explicitly (e.g., via a caching wrapper
+        // that returns a stale getTrackedFiles() snapshot until invalidateCaches() is called).
     }
 
     @Override
