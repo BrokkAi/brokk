@@ -128,8 +128,15 @@ public final class FuzzyUsageFinder {
      * Find usages for a list of overloads.
      *
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
+     *
+     * @param overloads the list of candidate code units
+     * @param maxFiles maximum files to search
+     * @param maxUsages maximum usages to process
+     * @param requestedSpecificSignature true if the user explicitly requested a specific signature
      */
-    private FuzzyResult findUsages(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {
+    private FuzzyResult findUsages(
+            List<CodeUnit> overloads, int maxFiles, int maxUsages, boolean requestedSpecificSignature)
+            throws InterruptedException {
         assert !overloads.isEmpty() : "overloads must not be empty";
         var target = overloads.getFirst();
 
@@ -154,8 +161,7 @@ public final class FuzzyUsageFinder {
 
         // If the target is signature-qualified, we check uniqueness against the exact fqName.
         // This prevents overloads from triggering ambiguity flows when the user requested a specific signature.
-        boolean targetIsSignatureQualified = target.fqName().contains("(");
-        var fqNameMatches = targetIsSignatureQualified ? analyzer.getDefinitions(target.fqName()) : List.<CodeUnit>of();
+        var fqNameMatches = requestedSpecificSignature ? analyzer.getDefinitions(target.fqName()) : List.<CodeUnit>of();
 
         // Note: isUnique is computed later AFTER parameter-count filtering so that the heuristic can reduce candidates
         // before we decide uniqueness vs ambiguous/LLM flows.
@@ -210,7 +216,7 @@ public final class FuzzyUsageFinder {
                         .collect(Collectors.toSet());
 
                 // If we are searching for a specific signature, we only care about that signature's count.
-                if (targetIsSignatureQualified) {
+                if (requestedSpecificSignature) {
                     int targetCount = parseParameterCountFromSignature(target.signature());
                     if (targetCount >= 0) {
                         declParamCounts = Set.of(targetCount);
@@ -260,7 +266,7 @@ public final class FuzzyUsageFinder {
         // Now compute uniqueness after filtering so that downstream flows (LLM / Success) operate on the pruned set.
         // A target is unique if there is only one definition for its identifier,
         // OR if the target is signature-qualified and has exactly one matching definition.
-        var isUnique = matchingCodeUnits.size() == 1 || (targetIsSignatureQualified && fqNameMatches.size() == 1);
+        var isUnique = matchingCodeUnits.size() == 1 || (requestedSpecificSignature && fqNameMatches.size() == 1);
 
         if (isUnique) {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
@@ -473,7 +479,7 @@ public final class FuzzyUsageFinder {
             overloads = List.copyOf(definitions);
         }
 
-        var result = findUsages(overloads, maxFiles, maxUsages);
+        var result = findUsages(overloads, maxFiles, maxUsages, requestedSignature != null);
         Map<CodeUnit, Set<UsageHit>> allHitsByOverload =
                 switch (result) {
                     case FuzzyResult.Success success -> success.hitsByOverload();
