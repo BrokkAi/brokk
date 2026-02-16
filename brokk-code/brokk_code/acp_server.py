@@ -3,7 +3,7 @@ import json
 import logging
 import sys
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
@@ -179,11 +179,18 @@ def _model_options(
     for model in catalog:
         if not isinstance(model, dict):
             continue
-        model_name = str(model.get("name", "")).strip()
+        raw_name = model.get("name")
+        if not isinstance(raw_name, str):
+            continue
+        model_name = raw_name.strip()
         if not model_name:
             continue
         options.append((model_name, model_name))
     return options
+
+
+def _available_model_names(catalog: list[dict[str, Any]]) -> list[str]:
+    return [model_name for model_name, _ in _model_options(catalog)]
 
 
 def _model_variants_for_model(model_name: str, catalog: list[dict[str, Any]]) -> list[str]:
@@ -233,7 +240,7 @@ def _parse_model_selection(
         level = raw[len("reasoning/") :].strip().lower()
         return (None, level if level in REASONING_LEVEL_IDS else None)
 
-    available_models = {model_id for model_id, _ in _model_options(catalog)}
+    available_models = set(_available_model_names(catalog))
     if raw in available_models:
         return (raw, None)
 
@@ -687,20 +694,20 @@ async def run_acp_server(
 
     class BrokkAcpAgent(Agent):
         def __init__(self) -> None:
-                self.client: Optional[Any] = None
-                self._mode_by_session: dict[str, str] = {}
-                self._model_by_session: dict[str, str] = {}
-                self._reasoning_by_session: dict[str, str] = {}
-                self._cwd_by_session: dict[str, str] = {}
-                self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
-                self._is_zed = ide_profile == "zed"
+            self.client: Optional[Any] = None
+            self._mode_by_session: dict[str, str] = {}
+            self._model_by_session: dict[str, str] = {}
+            self._reasoning_by_session: dict[str, str] = {}
+            self._cwd_by_session: dict[str, str] = {}
+            self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
+            self._is_zed = ide_profile == "zed"
 
-                # Load ACP defaults once on agent init
-                acp_defaults = load_acp_defaults()
-                self._default_model_id: str = acp_defaults.default_model or DEFAULT_MODEL_SELECTION
-                self._default_reasoning_level: str = (
-                    acp_defaults.default_reasoning or DEFAULT_REASONING_LEVEL
-                )
+            # Load ACP defaults once on agent init
+            acp_defaults = load_acp_defaults()
+            self._default_model_id: str = acp_defaults.default_model or DEFAULT_MODEL_SELECTION
+            self._default_reasoning_level: str = (
+                acp_defaults.default_reasoning or DEFAULT_REASONING_LEVEL
+            )
 
         async def _refresh_model_catalog(self, session_id: str) -> None:
             try:
@@ -722,7 +729,7 @@ async def run_acp_server(
 
         def _current_model_selection(self, session_id: str) -> str:
             catalog = self._catalog_for_session(session_id)
-            model_names = [str(m.get("name")) for m in catalog if isinstance(m, dict)]
+            model_names = _available_model_names(catalog)
             current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
             if current_model not in model_names and model_names:
                 current_model = model_names[0]
@@ -882,11 +889,12 @@ async def run_acp_server(
 
             # After refreshing catalog, ensure persisted defaults are valid for this catalog.
             catalog = self._catalog_for_session(session_id)
-            available_models = {str(m.get("name")) for m in catalog if isinstance(m, dict)}
+            available_models = _available_model_names(catalog)
+            available_set = set(available_models)
             # Validate model default
-            if self._model_by_session[session_id] not in available_models and available_models:
+            if self._model_by_session[session_id] not in available_set and available_models:
                 # fallback to first available model and persist that choice
-                fallback = next(iter(available_models))
+                fallback = available_models[0]
                 logger.info(
                     "Persisted ACP default model %s not available; falling back to %s",
                     self._model_by_session[session_id],
@@ -894,7 +902,12 @@ async def run_acp_server(
                 )
                 self._model_by_session[session_id] = fallback
                 self._default_model_id = fallback
-                save_acp_defaults(AcpDefaults(default_model=self._default_model_id, default_reasoning=self._default_reasoning_level))
+                save_acp_defaults(
+                    AcpDefaults(
+                        default_model=self._default_model_id,
+                        default_reasoning=self._default_reasoning_level,
+                    )
+                )
 
             # Validate reasoning default against model capabilities
             sanitized = _sanitize_reasoning_level_for_model(
@@ -911,7 +924,12 @@ async def run_acp_server(
                 )
                 self._reasoning_by_session[session_id] = sanitized
                 self._default_reasoning_level = sanitized
-                save_acp_defaults(AcpDefaults(default_model=self._default_model_id, default_reasoning=self._default_reasoning_level))
+                save_acp_defaults(
+                    AcpDefaults(
+                        default_model=self._default_model_id,
+                        default_reasoning=self._default_reasoning_level,
+                    )
+                )
 
             model_state = self._model_state_for_session(session_id)
             return NewSessionResponse(
@@ -993,9 +1011,10 @@ async def run_acp_server(
             selected_model, selected_reasoning = _parse_model_selection(model_id, catalog)
             if selected_model is None and selected_reasoning is None:
                 selected_model, selected_reasoning = resolve_model_selection(model_id)
-            available = {str(m.get("name")) for m in catalog}
-            fallback_model = next(iter(available), DEFAULT_MODEL_SELECTION)
-            chosen_model = selected_model if selected_model in available else fallback_model
+            available = _available_model_names(catalog)
+            available_set = set(available)
+            fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
+            chosen_model = selected_model if selected_model in available_set else fallback_model
             self._model_by_session[session_id] = chosen_model
 
             # Update persisted default model to the newly selected valid model
@@ -1030,8 +1049,10 @@ async def run_acp_server(
                 selected_model, selected_reasoning = resolve_model_selection(value)
                 # Validate against catalog
                 catalog = self._catalog_for_session(session_id)
-                available = {str(m.get("name")) for m in catalog}
-                chosen_model = selected_model if selected_model in available else next(iter(available), DEFAULT_MODEL_SELECTION)
+                available = _available_model_names(catalog)
+                available_set = set(available)
+                fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
+                chosen_model = selected_model if selected_model in available_set else fallback_model
                 self._model_by_session[session_id] = chosen_model
                 # Persist model change
                 try:
@@ -1082,9 +1103,12 @@ async def run_acp_server(
             if parsed_model:
                 planner_model = parsed_model
             planner_model_id, selected_reasoning_level = resolve_model_selection(planner_model)
-            available_models = {str(m.get("name")) for m in catalog}
-            if planner_model_id not in available_models:
-                planner_model_id = next(iter(available_models), DEFAULT_MODEL_SELECTION)
+            available_models = _available_model_names(catalog)
+            available_set = set(available_models)
+            if planner_model_id not in available_set:
+                planner_model_id = (
+                    available_models[0] if available_models else DEFAULT_MODEL_SELECTION
+                )
             code_model = (
                 kwargs.get("code_model") or kwargs.get("codeModel") or "gemini-3-flash-preview"
             )

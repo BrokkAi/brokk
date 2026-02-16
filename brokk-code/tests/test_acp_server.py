@@ -6,6 +6,7 @@ from brokk_code.acp_server import (
     DEFAULT_REASONING_LEVEL,
     REASONING_LEVEL_IDS,
     BrokkAcpBridge,
+    _available_model_names,
     _build_available_models,
     _extract_session_id_for_cancel,
     _model_variants_for_model,
@@ -143,6 +144,26 @@ def test_parse_model_selection_routes_model_and_variant() -> None:
     assert _parse_model_selection("gpt-5.2/high", catalog) == ("gpt-5.2", "high")
     assert _parse_model_selection("gpt-5.2/default", catalog) == ("gpt-5.2/default", None)
     assert _parse_model_selection("model/gpt-5.2", catalog) == ("gpt-5.2", None)
+
+
+def test_available_model_names_filters_invalid_entries_and_preserves_order() -> None:
+    catalog = [
+        {"name": "alpha"},
+        {"name": None},
+        {"name": "   "},
+        {"name": "beta"},
+        {"name": "alpha"},
+        {"location": "missing-name"},
+    ]
+
+    assert _available_model_names(catalog) == ["alpha", "beta", "alpha"]
+
+
+def test_parse_model_selection_ignores_none_model_name() -> None:
+    catalog = [{"name": None}, {"name": "gpt-5.2"}]
+
+    assert _parse_model_selection("None", catalog) == ("None", None)
+    assert _parse_model_selection("gpt-5.2", catalog) == ("gpt-5.2", None)
 
 
 def test_extract_prompt_text_from_blocks() -> None:
