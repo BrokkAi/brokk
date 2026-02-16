@@ -283,7 +283,6 @@ ChatPanel {
     color: $text;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 /* A small separator to visually split groups if needed. */
