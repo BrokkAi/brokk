@@ -17,6 +17,7 @@ from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
+from brokk_code.widgets.session_panel import SessionPanel
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,43 @@ class ContextModalScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class SessionModalScreen(ModalScreen[None]):
+    """Modal wrapper for the session browser panel."""
+
+    BINDINGS = [
+        Binding("escape", "close_sessions", "Close", show=False),
+        Binding("ctrl+s", "close_sessions", "Close", show=False),
+    ]
+
+    def __init__(self, on_close: Callable[[], None], on_select: Callable[[str], None]) -> None:
+        super().__init__()
+        self._on_close = on_close
+        self._on_select = on_select
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="context-modal-container"):
+            yield SessionPanel(id="session-panel")
+
+    def on_mount(self) -> None:
+        # Focus the session list for keyboard navigation
+        try:
+            self.query_one(SessionPanel).focus()
+        except Exception:
+            pass
+
+    def action_close_sessions(self) -> None:
+        self._on_close()
+        self.dismiss(None)
+
+    def on_session_panel_selected(self, event: "SessionPanel.SessionSelected") -> None:
+        # Called when user selects a session in the panel
+        try:
+            sid = event.session_id
+            self._on_select(sid)
+        finally:
+            self.dismiss(None)
+
+
 class BrokkApp(App):
     """The main Brokk TUI application."""
 
@@ -57,6 +95,7 @@ class BrokkApp(App):
         Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("f3", "toggle_mode", "Mode", show=True),
         Binding("f2", "change_theme", "Theme Palette", show=True),
+        Binding("ctrl+s", "open_sessions", "Sessions", show=True),
     ]
 
     def __init__(
@@ -678,6 +717,77 @@ class BrokkApp(App):
                     chat.add_system_message(f"Failed to list sessions: {e}", level="ERROR")
 
             self.run_worker(do_list())
+
+        elif base == "/sessions":
+            # Open session browser modal
+            chat.add_system_message("Opening session browser...")
+            def on_close():
+                # restore token bar when the modal closes
+                self._show_chat_token_bar()
+
+            async def do_open():
+                try:
+                    data = await self.executor.list_sessions()
+                    sessions = data.get("sessions", [])
+                except Exception as e:
+                    chat.add_system_message(f"Failed to list sessions: {e}", level="ERROR")
+                    sessions = []
+
+                def on_select(sid: str) -> None:
+                    # Reuse existing session-switch logic: perform import from cache if available otherwise set executor.session_id
+                    async def do_switch_inner():
+                        try:
+                            from brokk_code.session_persistence import get_session_zip_path, save_last_session_id
+                            zip_path = get_session_zip_path(self.executor.workspace_dir, sid)
+                            if zip_path.exists():
+                                try:
+                                    zip_bytes = zip_path.read_bytes()
+                                    await self.executor.import_session_zip(zip_bytes, session_id=sid)
+                                    save_last_session_id(self.executor.workspace_dir, sid)
+                                    chat.add_system_message(f"Imported and switched to session {sid}")
+                                    await self._refresh_context_panel()
+                                    return
+                                except Exception:
+                                    # fallthrough to server-side switch
+                                    pass
+
+                            # check executor sessions
+                            data2 = await self.executor.list_sessions()
+                            if not any(s.get("id", "") == sid for s in data2.get("sessions", [])):
+                                chat.add_system_message(f"Session {sid} not found on executor.", level="ERROR")
+                                return
+
+                            self.executor.session_id = sid
+                            try:
+                                save_last_session_id(self.executor.workspace_dir, sid)
+                            except Exception:
+                                logger.debug("Failed to persist last session id after switch", exc_info=True)
+                            chat.add_system_message(f"Switched to session {sid}")
+                            await self._refresh_context_panel()
+                        except Exception as e:
+                            chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
+
+                    self.run_worker(do_switch_inner())
+
+                # Push modal with populated SessionPanel
+                def open_modal_in_ui() -> None:
+                    # We create a SessionModalScreen and populate the panel after it's mounted.
+                    screen = SessionModalScreen(on_close=on_close, on_select=on_select)
+                    self.push_screen(screen)
+                    try:
+                        panel = screen.query_one(SessionPanel)
+                        panel.set_sessions(sessions)
+                    except Exception:
+                        pass
+
+                # UI operations must run on main thread - schedule via call_from_thread
+                try:
+                    self.call_from_thread(open_modal_in_ui)
+                except Exception:
+                    # fallback: try directly
+                    open_modal_in_ui()
+
+            self.run_worker(do_open())
 
         elif base == "/session-switch":
             if len(parts) < 2:
