@@ -18,13 +18,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class TypescriptAnalyzerTest {
-
-    private static final Logger logger = LoggerFactory.getLogger(TypescriptAnalyzerTest.class);
 
     private static TestProject project;
     private static TypescriptAnalyzer analyzer;
@@ -34,7 +29,7 @@ public class TypescriptAnalyzerTest {
             s.lines().map(String::strip).filter(line -> !line.isEmpty()).collect(Collectors.joining("\n"));
 
     @BeforeAll
-    static void setUp(@TempDir Path tempDir) throws IOException {
+    static void setUp() {
         // Use a common TestProject setup method if available, or adapt TreeSitterAnalyzerTest.createTestProject
         Path testResourceRoot = Path.of("src/test/resources/testcode-ts");
         assertTrue(
@@ -56,11 +51,11 @@ public class TypescriptAnalyzerTest {
 
         CodeUnit greeterClass = CodeUnit.cls(helloTsFile, "", "Greeter");
         CodeUnit globalFunc = CodeUnit.fn(helloTsFile, "", "globalFunc");
-        CodeUnit piConst = CodeUnit.field(helloTsFile, "", "_module_.PI");
+        CodeUnit piConst = CodeUnit.field(helloTsFile, "", "Hello.ts.PI");
         CodeUnit pointInterface = CodeUnit.cls(helloTsFile, "", "Point");
         CodeUnit colorEnum = CodeUnit.cls(helloTsFile, "", "Color");
-        CodeUnit stringOrNumberAlias = CodeUnit.field(helloTsFile, "", "_module_.StringOrNumber");
-        CodeUnit localDetailsAlias = CodeUnit.field(helloTsFile, "", "_module_.LocalDetails");
+        CodeUnit stringOrNumberAlias = CodeUnit.field(helloTsFile, "", "Hello.ts.StringOrNumber");
+        CodeUnit localDetailsAlias = CodeUnit.field(helloTsFile, "", "Hello.ts.LocalDetails");
 
         assertTrue(skeletons.containsKey(greeterClass), "Greeter class skeleton missing.");
         assertEquals(
@@ -137,7 +132,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(declarations.contains(CodeUnit.field(helloTsFile, "", "Color.Red")));
 
         // Test getSkeleton for individual items
-        Optional<String> stringOrNumberSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.StringOrNumber");
+        Optional<String> stringOrNumberSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Hello.ts.StringOrNumber");
         assertTrue(stringOrNumberSkeleton.isPresent());
         assertEquals(
                 normalize.apply("export type StringOrNumber = string | number"),
@@ -145,13 +140,7 @@ public class TypescriptAnalyzerTest {
 
         Optional<String> greetMethodSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Greeter.greet");
         assertTrue(greetMethodSkeleton.isPresent());
-        // Note: getSkeleton for a method might only return its own line if it's not a top-level CU.
-        // The full class skeleton is obtained by getSkeleton("Greeter").
-        // The current reconstructFullSkeleton logic builds the full nested structure from the top-level CU.
-        // If we call getSkeleton("Greeter.greet"), it should find the "Greeter" CU first, then reconstruct.
-        // This means, if "Greeter.greet" itself is a CU in `signatures` (which it should be as a child),
-        // then `reconstructFullSkeleton` called on `Greeter.greet` might only give its own signature.
-        // Let's test `getSkeleton` on a top-level item:
+
         assertEquals(
                 normalize.apply("export function globalFunc(num: number): number { ... }"),
                 normalize.apply(AnalyzerUtil.getSkeleton(analyzer, "globalFunc").orElse("")));
@@ -162,14 +151,13 @@ public class TypescriptAnalyzerTest {
         ProjectFile varsTsFile = new ProjectFile(project.getRoot(), "Vars.ts");
         Map<CodeUnit, String> skeletons = analyzer.getSkeletons(varsTsFile);
 
-        CodeUnit maxUsers = CodeUnit.field(varsTsFile, "", "_module_.MAX_USERS");
-        CodeUnit currentUser = CodeUnit.field(varsTsFile, "", "_module_.currentUser");
-        CodeUnit config = CodeUnit.field(varsTsFile, "", "_module_.config");
-        CodeUnit anArrowFunc =
-                CodeUnit.fn(varsTsFile, "", "anArrowFunc"); // Arrow func assigned to const is a function CU
-        CodeUnit legacyVar = CodeUnit.field(varsTsFile, "", "_module_.legacyVar");
+        CodeUnit maxUsers = CodeUnit.field(varsTsFile, "", "Vars.ts.MAX_USERS");
+        CodeUnit currentUser = CodeUnit.field(varsTsFile, "", "Vars.ts.currentUser");
+        CodeUnit config = CodeUnit.field(varsTsFile, "", "Vars.ts.config");
+        CodeUnit anArrowFunc = CodeUnit.fn(varsTsFile, "", "anArrowFunc");
+        CodeUnit legacyVar = CodeUnit.field(varsTsFile, "", "Vars.ts.legacyVar");
 
-        assertTrue(skeletons.containsKey(maxUsers));
+        assertTrue(skeletons.containsKey(maxUsers), "MAX_USERS missing: " + skeletons.keySet());
         assertEquals(normalize.apply("export const MAX_USERS = 100"), normalize.apply(skeletons.get(maxUsers)));
 
         assertTrue(skeletons.containsKey(currentUser));
@@ -192,7 +180,10 @@ public class TypescriptAnalyzerTest {
 
         // A function declared inside Vars.ts but not exported
         CodeUnit localHelper = CodeUnit.fn(varsTsFile, "", "localHelper");
-        assertTrue(skeletons.containsKey(localHelper));
+        assertTrue(
+                skeletons.containsKey(localHelper),
+                "localHelper function missing. Found: "
+                        + skeletons.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
         assertEquals(
                 normalize.apply("function localHelper(): string { ... }"), normalize.apply(skeletons.get(localHelper)));
     }
@@ -213,7 +204,7 @@ public class TypescriptAnalyzerTest {
                 "Arrow function skeleton should show function signature with body placeholder");
 
         // 2. Non-arrow const should remain a field
-        CodeUnit maxUsers = CodeUnit.field(varsTsFile, "", "_module_.MAX_USERS");
+        CodeUnit maxUsers = CodeUnit.field(varsTsFile, "", "Vars.ts.MAX_USERS");
         assertTrue(skeletons.containsKey(maxUsers), "MAX_USERS should be a field CU");
         assertTrue(maxUsers.isField(), "MAX_USERS CodeUnit should be a field type");
         assertEquals(
@@ -222,13 +213,13 @@ public class TypescriptAnalyzerTest {
                 "Non-arrow const should preserve 'export const' modifiers");
 
         // 3. Test 'let' modifier is preserved
-        CodeUnit currentUser = CodeUnit.field(varsTsFile, "", "_module_.currentUser");
+        CodeUnit currentUser = CodeUnit.field(varsTsFile, "", "Vars.ts.currentUser");
         assertTrue(skeletons.containsKey(currentUser), "currentUser should be a field CU");
         String currentUserSkel = skeletons.get(currentUser);
         assertTrue(currentUserSkel.contains("let"), "'let' keyword should appear in skeleton via fallback");
 
         // 4. Test 'var' modifier is preserved for legacy variables
-        CodeUnit legacyVar = CodeUnit.field(varsTsFile, "", "_module_.legacyVar");
+        CodeUnit legacyVar = CodeUnit.field(varsTsFile, "", "Vars.ts.legacyVar");
         assertTrue(skeletons.containsKey(legacyVar), "legacyVar should be a field CU");
         String legacyVarSkel = skeletons.get(legacyVar);
         assertTrue(legacyVarSkel.contains("var"), "'var' keyword should appear in skeleton via fallback");
@@ -237,7 +228,7 @@ public class TypescriptAnalyzerTest {
         // 5. Test 'declare' modifier from ambient declarations (Advanced.ts)
         ProjectFile advancedTsFile = new ProjectFile(project.getRoot(), "Advanced.ts");
         Map<CodeUnit, String> advancedSkeletons = analyzer.getSkeletons(advancedTsFile);
-        CodeUnit dollarVar = CodeUnit.field(advancedTsFile, "", "_module_.$");
+        CodeUnit dollarVar = CodeUnit.field(advancedTsFile, "", "Advanced.ts.$");
         assertTrue(advancedSkeletons.containsKey(dollarVar), "Ambient var $ should be captured");
         String dollarSkel = advancedSkeletons.get(dollarVar);
         assertTrue(dollarSkel.contains("declare"), "'declare' keyword should appear via fallback");
@@ -303,7 +294,7 @@ public class TypescriptAnalyzerTest {
                 normalize.apply("export const topLevelArrow = (input: any): any => { ... }"),
                 normalize.apply(skeletons.get(topLevelArrow)));
 
-        CodeUnit topLevelGenericAlias = CodeUnit.field(moduleTsFile, "", "_module_.TopLevelGenericAlias");
+        CodeUnit topLevelGenericAlias = CodeUnit.field(moduleTsFile, "", "Module.ts.TopLevelGenericAlias");
         assertTrue(
                 skeletons.containsKey(topLevelGenericAlias),
                 "TopLevelGenericAlias skeleton missing. Skeletons: " + skeletons.keySet());
@@ -326,13 +317,13 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(innerClassSkel.get()),
                 "getSkeleton for nested class should return the reconstructed parent skeleton.");
 
-        // Type alias FQN is "MyModule._module_.InnerTypeAlias" (package="MyModule",
-        // shortName="_module_.InnerTypeAlias")
+        // Type alias FQN is "MyModule.Module.ts.InnerTypeAlias" (package="MyModule",
+        // shortName="Module.ts.InnerTypeAlias")
         Optional<String> innerTypeAliasSkelViaParent =
-                AnalyzerUtil.getSkeleton(analyzer, "MyModule._module_.InnerTypeAlias");
+                AnalyzerUtil.getSkeleton(analyzer, "MyModule.Module.ts.InnerTypeAlias");
         assertTrue(
                 innerTypeAliasSkelViaParent.isPresent(),
-                "Skeleton for MyModule._module_.InnerTypeAlias should be part of MyModule's skeleton");
+                "Skeleton for MyModule.Module.ts.InnerTypeAlias should be part of MyModule's skeleton");
         assertEquals(
                 normalize.apply(expectedMyModuleSkeleton),
                 normalize.apply(innerTypeAliasSkelViaParent.get()),
@@ -341,9 +332,9 @@ public class TypescriptAnalyzerTest {
         Set<CodeUnit> declarations = analyzer.getDeclarations(moduleTsFile);
         // With namespace-as-package semantics: package contains namespace, shortName contains class/field name
         assertTrue(declarations.contains(CodeUnit.cls(moduleTsFile, "MyModule.NestedNamespace", "DeeperClass")));
-        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "MyModule", "_module_.InnerTypeAlias")));
+        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "MyModule", "Module.ts.InnerTypeAlias")));
         assertTrue(
-                declarations.contains(CodeUnit.field(moduleTsFile, "MyModule.NestedNamespace", "_module_.DeepType")));
+                declarations.contains(CodeUnit.field(moduleTsFile, "MyModule.NestedNamespace", "Module.ts.DeepType")));
         assertTrue(declarations.contains(topLevelGenericAlias));
     }
 
@@ -427,7 +418,7 @@ public class TypescriptAnalyzerTest {
             }"""),
                 normalize.apply(skeletons.get(fieldTest)));
 
-        CodeUnit pointyAlias = CodeUnit.field(advancedTsFile, "", "_module_.Pointy");
+        CodeUnit pointyAlias = CodeUnit.field(advancedTsFile, "", "Advanced.ts.Pointy");
         assertTrue(
                 skeletons.containsKey(pointyAlias), "Pointy type alias skeleton missing. Found: " + skeletons.keySet());
         assertEquals(
@@ -482,7 +473,7 @@ public class TypescriptAnalyzerTest {
                 "y should not appear as a top-level field - original bug created free fields instead of interface properties");
 
         // Test for ambient declarations (declare statements) - regression test for missing declare var $
-        CodeUnit dollarVar = CodeUnit.field(advancedTsFile, "", "_module_.$");
+        CodeUnit dollarVar = CodeUnit.field(advancedTsFile, "", "Advanced.ts.$");
         assertTrue(
                 skeletons.containsKey(dollarVar),
                 "declare var $ skeleton missing. This was the original reported issue.");
@@ -537,7 +528,7 @@ public class TypescriptAnalyzerTest {
         assertEquals(1, fetchFuncCount, "fetch function should only be captured once");
 
         // Test getSkeleton for individual ambient declarations
-        Optional<String> dollarSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.$");
+        Optional<String> dollarSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Advanced.ts.$");
         assertTrue(dollarSkeleton.isPresent(), "Should be able to get skeleton for ambient var $");
         assertEquals(normalize.apply("declare var $: any"), normalize.apply(dollarSkeleton.get()));
 
@@ -598,13 +589,13 @@ public class TypescriptAnalyzerTest {
             }"""),
                 normalize.apply(skeletons.get(anotherNamedClass)));
 
-        CodeUnit utilityRateConst = CodeUnit.field(defaultExportFile, "", "_module_.utilityRate");
+        CodeUnit utilityRateConst = CodeUnit.field(defaultExportFile, "", "DefaultExport.ts.utilityRate");
         assertTrue(skeletons.containsKey(utilityRateConst));
         assertEquals(
                 normalize.apply("export const utilityRate: number = 0.15"),
                 normalize.apply(skeletons.get(utilityRateConst)));
 
-        CodeUnit defaultAlias = CodeUnit.field(defaultExportFile, "", "_module_.DefaultAlias");
+        CodeUnit defaultAlias = CodeUnit.field(defaultExportFile, "", "DefaultExport.ts.DefaultAlias");
         assertTrue(
                 skeletons.containsKey(defaultAlias),
                 "DefaultAlias (default export type) skeleton missing. Skeletons: " + skeletons.keySet());
@@ -676,9 +667,8 @@ public class TypescriptAnalyzerTest {
         ProjectFile varsTsFile = new ProjectFile(project.getRoot(), "Vars.ts");
 
         CodeUnit greeterClass = CodeUnit.cls(helloTsFile, "", "Greeter");
-        CodeUnit piConst = CodeUnit.field(varsTsFile, "", "_module_.PI"); // No, PI is in Hello.ts
-        piConst = CodeUnit.field(helloTsFile, "", "_module_.PI");
-        CodeUnit anArrowFunc = CodeUnit.fn(varsTsFile, "", "anArrowFunc");
+        CodeUnit piConst = CodeUnit.field(helloTsFile, "", "Hello.ts.PI");
+        CodeUnit anArrowFunc = CodeUnit.field(varsTsFile, "", "Vars.ts.anArrowFunc");
 
         Set<CodeUnit> sources = Set.of(greeterClass, piConst, anArrowFunc);
         Set<String> symbols = analyzer.getSymbols(sources);
@@ -687,17 +677,10 @@ public class TypescriptAnalyzerTest {
         // From Greeter: "Greeter", "greeting", "constructor", "greet"
         // From PI: "PI"
         // From anArrowFunc: "anArrowFunc"
-        Set<String> expectedSymbols = Set.of(
-                "Greeter",
-                "greeting",
-                "constructor",
-                "greet",
-                "PI",
-                "anArrowFunc",
-                "StringOrNumber" // From Hello.ts, via _module_.StringOrNumber in allCodeUnits()
-                );
+        Set<String> expectedSymbols =
+                Set.of("Greeter", "greeting", "constructor", "greet", "PI", "anArrowFunc", "StringOrNumber");
         // Add StringOrNumber to sources to test its symbol directly
-        CodeUnit stringOrNumberAlias = CodeUnit.field(helloTsFile, "", "_module_.StringOrNumber");
+        CodeUnit stringOrNumberAlias = CodeUnit.field(helloTsFile, "", "Hello.ts.StringOrNumber");
         sources = Set.of(greeterClass, piConst, anArrowFunc, stringOrNumberAlias);
         symbols = analyzer.getSymbols(sources);
         assertEquals(expectedSymbols, symbols);
@@ -709,11 +692,12 @@ public class TypescriptAnalyzerTest {
 
         // Test with type alias directly
         Set<String> aliasSymbols = analyzer.getSymbols(Set.of(stringOrNumberAlias));
+        // The symbol name (identifier) is "StringOrNumber" even if FQN has prefix
         assertEquals(Set.of("StringOrNumber"), aliasSymbols);
 
         // Test with generic type alias from Advanced.ts
         ProjectFile advancedTsFile = new ProjectFile(project.getRoot(), "Advanced.ts");
-        CodeUnit pointyAlias = CodeUnit.field(advancedTsFile, "", "_module_.Pointy");
+        CodeUnit pointyAlias = CodeUnit.field(advancedTsFile, "", "Advanced.ts.Pointy");
         Set<String> pointySymbols = analyzer.getSymbols(Set.of(pointyAlias));
         assertEquals(Set.of("Pointy"), pointySymbols);
     }
@@ -1383,7 +1367,7 @@ public class TypescriptAnalyzerTest {
                 normalize.apply("export function namedFunction(): string { ... }"),
                 normalize.apply(skeletons.get(namedFunc)));
 
-        CodeUnit namedConstUnit = CodeUnit.field(anonymousFile, "", "_module_.namedConst");
+        CodeUnit namedConstUnit = CodeUnit.field(anonymousFile, "", "AnonymousDefaults.ts.namedConst");
         assertTrue(skeletons.containsKey(namedConstUnit), "Named const should be captured");
         assertEquals(
                 normalize.apply("export const namedConst: number = 100"),
@@ -1593,15 +1577,26 @@ public class TypescriptAnalyzerTest {
         assertTrue(colorSkeleton.contains("static blend"), "Color class should have static blend method");
 
         // Should have Color namespace members
-        // Note: namespace const declarations use _module_ prefix like module-level exports
+        // Note: namespace const declarations use filename prefix like module-level exports
         CodeUnit colorWhite = declarations.stream()
-                .filter(cu -> cu.fqName().equals("Color._module_.white") && cu.isField())
+                .filter(cu -> cu.fqName().equals("Color.NamespaceMerging.ts.white") && cu.isField())
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Color.white field should be found. Available: "
-                        + declarations.stream()
-                                .filter(cu -> cu.fqName().startsWith("Color."))
-                                .map(CodeUnit::fqName)
-                                .collect(Collectors.joining(", "))));
+                .orElseThrow(
+                        () -> new AssertionError("Color.NamespaceMerging.ts.white field should be found. Available: "
+                                + declarations.stream()
+                                        .filter(cu -> cu.fqName().startsWith("Color."))
+                                        .map(CodeUnit::fqName)
+                                        .collect(Collectors.joining(", "))));
+
+        CodeUnit colorRed = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Color.NamespaceMerging.ts.red") && cu.isField())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Color.NamespaceMerging.ts.red field should be found"));
+
+        CodeUnit colorBlack = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Color.NamespaceMerging.ts.black") && cu.isField())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Color.NamespaceMerging.ts.black field should be found"));
 
         CodeUnit colorFromHex = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Color.fromHex") && cu.isFunction())
@@ -1650,11 +1645,11 @@ public class TypescriptAnalyzerTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Direction.isVertical function should be found"));
 
-        // Note: namespace const declarations use _module_ prefix
+        // Note: namespace const declarations use filename prefix
         CodeUnit directionAll = declarations.stream()
-                .filter(cu -> cu.fqName().equals("Direction._module_.all") && cu.isField())
+                .filter(cu -> cu.fqName().equals("Direction.NamespaceMerging.ts.all") && cu.isField())
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Direction.all field should be found"));
+                .orElseThrow(() -> new AssertionError("Direction.NamespaceMerging.ts.all field should be found"));
 
         // Test 3: Exported class + namespace merging - Point
         CodeUnit pointClass = declarations.stream()
@@ -1666,11 +1661,11 @@ public class TypescriptAnalyzerTest {
         assertTrue(pointSkeleton.contains("export class Point"), "Point skeleton should be exported");
 
         // Should have Point namespace members
-        // Note: namespace const declarations use _module_ prefix
+        // Note: namespace const declarations use filename prefix
         CodeUnit pointOrigin = declarations.stream()
-                .filter(cu -> cu.fqName().equals("Point._module_.origin") && cu.isField())
+                .filter(cu -> cu.fqName().equals("Point.NamespaceMerging.ts.origin") && cu.isField())
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Point.origin field should be found"));
+                .orElseThrow(() -> new AssertionError("Point.NamespaceMerging.ts.origin field should be found"));
 
         CodeUnit pointFromPolar = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Point.fromPolar") && cu.isFunction())
@@ -1703,11 +1698,11 @@ public class TypescriptAnalyzerTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("HttpStatus.isError function should be found"));
 
-        // Note: namespace const declarations use _module_ prefix
+        // Note: namespace const declarations use filename prefix
         CodeUnit httpStatusMessages = declarations.stream()
-                .filter(cu -> cu.fqName().equals("HttpStatus._module_.messages") && cu.isField())
+                .filter(cu -> cu.fqName().equals("HttpStatus.NamespaceMerging.ts.messages") && cu.isField())
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("HttpStatus.messages field should be found"));
+                .orElseThrow(() -> new AssertionError("HttpStatus.NamespaceMerging.ts.messages field should be found"));
 
         // Verify no duplicate captures
         Map<String, Long> fqNameCounts = declarations.stream()
@@ -1747,7 +1742,7 @@ public class TypescriptAnalyzerTest {
         // ===== Test Tuple Types =====
 
         // Basic tuple type
-        CodeUnit coordType = CodeUnit.field(advancedTypesFile, "", "_module_.Coord");
+        CodeUnit coordType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Coord");
         assertTrue(
                 skeletons.containsKey(coordType),
                 "Coord tuple type should be captured. Found: "
@@ -1756,28 +1751,28 @@ public class TypescriptAnalyzerTest {
                 normalize.apply("export type Coord = [number, number]"), normalize.apply(skeletons.get(coordType)));
 
         // Tuple with optional elements
-        CodeUnit point3DType = CodeUnit.field(advancedTypesFile, "", "_module_.Point3D");
+        CodeUnit point3DType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Point3D");
         assertTrue(skeletons.containsKey(point3DType), "Point3D tuple type should be captured");
         assertEquals(
                 normalize.apply("export type Point3D = [number, number, number?]"),
                 normalize.apply(skeletons.get(point3DType)));
 
         // Tuple with rest elements
-        CodeUnit restTupleType = CodeUnit.field(advancedTypesFile, "", "_module_.RestTuple");
+        CodeUnit restTupleType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.RestTuple");
         assertTrue(skeletons.containsKey(restTupleType), "RestTuple type should be captured");
         assertEquals(
                 normalize.apply("export type RestTuple = [string, ...number[]]"),
                 normalize.apply(skeletons.get(restTupleType)));
 
         // Named tuple elements
-        CodeUnit rangeType = CodeUnit.field(advancedTypesFile, "", "_module_.Range");
+        CodeUnit rangeType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Range");
         assertTrue(skeletons.containsKey(rangeType), "Range named tuple type should be captured");
         assertEquals(
                 normalize.apply("export type Range = [start: number, end: number]"),
                 normalize.apply(skeletons.get(rangeType)));
 
         // Readonly tuple
-        CodeUnit readonlyCoordType = CodeUnit.field(advancedTypesFile, "", "_module_.ReadonlyCoord");
+        CodeUnit readonlyCoordType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.ReadonlyCoord");
         assertTrue(skeletons.containsKey(readonlyCoordType), "ReadonlyCoord tuple type should be captured");
         assertEquals(
                 normalize.apply("export type ReadonlyCoord = readonly [number, number]"),
@@ -1786,7 +1781,7 @@ public class TypescriptAnalyzerTest {
         // ===== Test Mapped Types =====
 
         // Basic mapped type - Readonly
-        CodeUnit readonlyType = CodeUnit.field(advancedTypesFile, "", "_module_.Readonly");
+        CodeUnit readonlyType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Readonly");
         assertTrue(skeletons.containsKey(readonlyType), "Readonly mapped type should be captured");
         String readonlySkeleton = skeletons.get(readonlyType);
         assertTrue(
@@ -1794,13 +1789,13 @@ public class TypescriptAnalyzerTest {
                 "Readonly mapped type should contain mapped type syntax");
 
         // Partial mapped type
-        CodeUnit partialType = CodeUnit.field(advancedTypesFile, "", "_module_.Partial");
+        CodeUnit partialType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Partial");
         assertTrue(skeletons.containsKey(partialType), "Partial mapped type should be captured");
         String partialSkeleton = skeletons.get(partialType);
         assertTrue(partialSkeleton.contains("[P in keyof T]?"), "Partial mapped type should contain optional modifier");
 
         // Mapped type with key remapping
-        CodeUnit gettersType = CodeUnit.field(advancedTypesFile, "", "_module_.Getters");
+        CodeUnit gettersType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Getters");
         assertTrue(skeletons.containsKey(gettersType), "Getters mapped type with key remapping should be captured");
         String gettersSkeleton = skeletons.get(gettersType);
         assertTrue(
@@ -1808,7 +1803,7 @@ public class TypescriptAnalyzerTest {
                 "Getters mapped type should contain key remapping syntax");
 
         // Mapped type with filtering
-        CodeUnit onlyStringsType = CodeUnit.field(advancedTypesFile, "", "_module_.OnlyStrings");
+        CodeUnit onlyStringsType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.OnlyStrings");
         assertTrue(skeletons.containsKey(onlyStringsType), "OnlyStrings filtered mapped type should be captured");
         String onlyStringsSkeleton = skeletons.get(onlyStringsType);
         assertTrue(
@@ -1818,27 +1813,27 @@ public class TypescriptAnalyzerTest {
         // ===== Test Conditional Types =====
 
         // Basic conditional type - Extract
-        CodeUnit extractType = CodeUnit.field(advancedTypesFile, "", "_module_.Extract");
+        CodeUnit extractType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Extract");
         assertTrue(skeletons.containsKey(extractType), "Extract conditional type should be captured");
         assertEquals(
                 normalize.apply("export type Extract<T, U> = T extends U ? T : never"),
                 normalize.apply(skeletons.get(extractType)));
 
         // Conditional type with infer
-        CodeUnit returnTypeType = CodeUnit.field(advancedTypesFile, "", "_module_.ReturnType");
+        CodeUnit returnTypeType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.ReturnType");
         assertTrue(skeletons.containsKey(returnTypeType), "ReturnType conditional type with infer should be captured");
         String returnTypeSkeleton = skeletons.get(returnTypeType);
         assertTrue(
                 returnTypeSkeleton.contains("infer R"), "ReturnType should contain infer keyword for type inference");
 
         // Nested conditional type
-        CodeUnit flattenType = CodeUnit.field(advancedTypesFile, "", "_module_.Flatten");
+        CodeUnit flattenType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Flatten");
         assertTrue(skeletons.containsKey(flattenType), "Flatten nested conditional type should be captured");
         String flattenSkeleton = skeletons.get(flattenType);
         assertTrue(flattenSkeleton.contains("Array<infer U>"), "Flatten should contain nested conditional with infer");
 
         // Multi-branch conditional type
-        CodeUnit typeNameType = CodeUnit.field(advancedTypesFile, "", "_module_.TypeName");
+        CodeUnit typeNameType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.TypeName");
         assertTrue(skeletons.containsKey(typeNameType), "TypeName multi-conditional type should be captured");
         String typeNameSkeleton = skeletons.get(typeNameType);
         assertTrue(
@@ -1848,7 +1843,7 @@ public class TypescriptAnalyzerTest {
                 "TypeName should contain multiple conditional branches");
 
         // Distributive conditional type
-        CodeUnit toArrayType = CodeUnit.field(advancedTypesFile, "", "_module_.ToArray");
+        CodeUnit toArrayType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.ToArray");
         assertTrue(skeletons.containsKey(toArrayType), "ToArray distributive conditional type should be captured");
         assertEquals(
                 normalize.apply("export type ToArray<T> = T extends any ? T[] : never"),
@@ -1857,21 +1852,21 @@ public class TypescriptAnalyzerTest {
         // ===== Test Intersection Types =====
 
         // Basic intersection
-        CodeUnit combinedType = CodeUnit.field(advancedTypesFile, "", "_module_.Combined");
+        CodeUnit combinedType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Combined");
         assertTrue(skeletons.containsKey(combinedType), "Combined intersection type should be captured");
         assertEquals(
                 normalize.apply("export type Combined = TypeA & TypeB & TypeC"),
                 normalize.apply(skeletons.get(combinedType)));
 
         // Intersection with primitives (never type)
-        CodeUnit stringAndNumberType = CodeUnit.field(advancedTypesFile, "", "_module_.StringAndNumber");
+        CodeUnit stringAndNumberType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.StringAndNumber");
         assertTrue(skeletons.containsKey(stringAndNumberType), "StringAndNumber intersection type should be captured");
         assertEquals(
                 normalize.apply("export type StringAndNumber = string & number"),
                 normalize.apply(skeletons.get(stringAndNumberType)));
 
         // Complex intersection with generics
-        CodeUnit mergeableType = CodeUnit.field(advancedTypesFile, "", "_module_.Mergeable");
+        CodeUnit mergeableType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Mergeable");
         assertTrue(skeletons.containsKey(mergeableType), "Mergeable generic intersection type should be captured");
         String mergeableSkeleton = skeletons.get(mergeableType);
         assertTrue(
@@ -1879,7 +1874,7 @@ public class TypescriptAnalyzerTest {
                 "Mergeable should contain complex intersection syntax");
 
         // Intersection with function types
-        CodeUnit universalLoggerType = CodeUnit.field(advancedTypesFile, "", "_module_.UniversalLogger");
+        CodeUnit universalLoggerType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.UniversalLogger");
         assertTrue(
                 skeletons.containsKey(universalLoggerType),
                 "UniversalLogger function intersection type should be captured");
@@ -1890,13 +1885,13 @@ public class TypescriptAnalyzerTest {
 
         // ===== Test Template Literal Types =====
 
-        CodeUnit eventNameType = CodeUnit.field(advancedTypesFile, "", "_module_.EventName");
+        CodeUnit eventNameType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.EventName");
         assertTrue(skeletons.containsKey(eventNameType), "EventName template literal type should be captured");
         String eventNameSkeleton = skeletons.get(eventNameType);
         assertTrue(
                 eventNameSkeleton.contains("`${T}Changed`"), "EventName should contain template literal type syntax");
 
-        CodeUnit propEventNameType = CodeUnit.field(advancedTypesFile, "", "_module_.PropEventName");
+        CodeUnit propEventNameType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.PropEventName");
         assertTrue(skeletons.containsKey(propEventNameType), "PropEventName template literal type should be captured");
         String propEventNameSkeleton = skeletons.get(propEventNameType);
         assertTrue(
@@ -1906,7 +1901,7 @@ public class TypescriptAnalyzerTest {
         // ===== Test Complex Combined Types =====
 
         // Mapped + conditional combination
-        CodeUnit pickByTypeType = CodeUnit.field(advancedTypesFile, "", "_module_.PickByType");
+        CodeUnit pickByTypeType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.PickByType");
         assertTrue(
                 skeletons.containsKey(pickByTypeType),
                 "PickByType combined mapped/conditional type should be captured");
@@ -1916,14 +1911,15 @@ public class TypescriptAnalyzerTest {
                 "PickByType should combine mapped type with conditional filtering");
 
         // Tuple to union
-        CodeUnit tupleToUnionType = CodeUnit.field(advancedTypesFile, "", "_module_.TupleToUnion");
+        CodeUnit tupleToUnionType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.TupleToUnion");
         assertTrue(skeletons.containsKey(tupleToUnionType), "TupleToUnion type should be captured");
         String tupleToUnionSkeleton = skeletons.get(tupleToUnionType);
         assertTrue(
                 tupleToUnionSkeleton.contains("T[number]"), "TupleToUnion should contain indexed access type syntax");
 
         // Union to intersection (advanced type manipulation)
-        CodeUnit unionToIntersectionType = CodeUnit.field(advancedTypesFile, "", "_module_.UnionToIntersection");
+        CodeUnit unionToIntersectionType =
+                CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.UnionToIntersection");
         assertTrue(skeletons.containsKey(unionToIntersectionType), "UnionToIntersection type should be captured");
         String unionToIntersectionSkeleton = skeletons.get(unionToIntersectionType);
         assertTrue(
@@ -1931,7 +1927,7 @@ public class TypescriptAnalyzerTest {
                 "UnionToIntersection should contain advanced type inference");
 
         // Recursive conditional type
-        CodeUnit deepReadonlyType = CodeUnit.field(advancedTypesFile, "", "_module_.DeepReadonly");
+        CodeUnit deepReadonlyType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.DeepReadonly");
         assertTrue(skeletons.containsKey(deepReadonlyType), "DeepReadonly recursive type should be captured");
         String deepReadonlySkeleton = skeletons.get(deepReadonlyType);
         assertTrue(
@@ -1940,17 +1936,18 @@ public class TypescriptAnalyzerTest {
 
         // ===== Test Utility Type Aliases =====
 
-        CodeUnit nonNullableType = CodeUnit.field(advancedTypesFile, "", "_module_.NonNullable");
+        CodeUnit nonNullableType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.NonNullable");
         assertTrue(skeletons.containsKey(nonNullableType), "NonNullable utility type should be captured");
         String nonNullableSkeleton = skeletons.get(nonNullableType);
         assertTrue(nonNullableSkeleton.contains("null | undefined"), "NonNullable should filter null and undefined");
 
-        CodeUnit parametersType = CodeUnit.field(advancedTypesFile, "", "_module_.Parameters");
+        CodeUnit parametersType = CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.Parameters");
         assertTrue(skeletons.containsKey(parametersType), "Parameters utility type should be captured");
         String parametersSkeleton = skeletons.get(parametersType);
         assertTrue(parametersSkeleton.contains("infer P"), "Parameters should extract function parameter types");
 
-        CodeUnit constructorParametersType = CodeUnit.field(advancedTypesFile, "", "_module_.ConstructorParameters");
+        CodeUnit constructorParametersType =
+                CodeUnit.field(advancedTypesFile, "", "AdvancedTypes.ts.ConstructorParameters");
         assertTrue(
                 skeletons.containsKey(constructorParametersType),
                 "ConstructorParameters utility type should be captured");
@@ -1962,7 +1959,7 @@ public class TypescriptAnalyzerTest {
         // ===== Verify all types are captured as FIELD_LIKE CodeUnits =====
 
         List<CodeUnit> typeAliases = declarations.stream()
-                .filter(cu -> cu.isField() && cu.fqName().startsWith("_module_."))
+                .filter(cu -> cu.isField() && cu.fqName().contains("AdvancedTypes.ts."))
                 .collect(Collectors.toList());
 
         assertTrue(typeAliases.size() >= 30, "Should capture at least 30 type aliases. Found: " + typeAliases.size());
@@ -1977,17 +1974,17 @@ public class TypescriptAnalyzerTest {
         }
 
         // Verify getSkeleton works for individual type aliases
-        Optional<String> coordSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.Coord");
+        Optional<String> coordSkeleton = AnalyzerUtil.getSkeleton(analyzer, "AdvancedTypes.ts.Coord");
         assertTrue(coordSkeleton.isPresent(), "Should retrieve Coord type alias via getSkeleton");
         assertEquals(normalize.apply("export type Coord = [number, number]"), normalize.apply(coordSkeleton.get()));
 
-        Optional<String> extractSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.Extract");
+        Optional<String> extractSkeleton = AnalyzerUtil.getSkeleton(analyzer, "AdvancedTypes.ts.Extract");
         assertTrue(extractSkeleton.isPresent(), "Should retrieve Extract type alias via getSkeleton");
         assertEquals(
                 normalize.apply("export type Extract<T, U> = T extends U ? T : never"),
                 normalize.apply(extractSkeleton.get()));
 
-        Optional<String> combinedSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.Combined");
+        Optional<String> combinedSkeleton = AnalyzerUtil.getSkeleton(analyzer, "AdvancedTypes.ts.Combined");
         assertTrue(combinedSkeleton.isPresent(), "Should retrieve Combined type alias via getSkeleton");
         assertEquals(
                 normalize.apply("export type Combined = TypeA & TypeB & TypeC"),
@@ -2006,13 +2003,13 @@ public class TypescriptAnalyzerTest {
         // ===== Test Basic Template Literal Types =====
 
         // Simple template literal
-        CodeUnit eventNameType = CodeUnit.field(templateTypesFile, "", "_module_.EventName");
+        CodeUnit eventNameType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.EventName");
         assertTrue(skeletons.containsKey(eventNameType), "EventName template literal type should be captured");
         String eventNameSkeleton = skeletons.get(eventNameType);
         assertTrue(eventNameSkeleton.contains("`${T}Changed`"), "EventName should contain template literal syntax");
 
         // Template with Capitalize
-        CodeUnit propEventHandlerType = CodeUnit.field(templateTypesFile, "", "_module_.PropEventHandler");
+        CodeUnit propEventHandlerType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.PropEventHandler");
         assertTrue(
                 skeletons.containsKey(propEventHandlerType),
                 "PropEventHandler template literal type should be captured");
@@ -2022,7 +2019,7 @@ public class TypescriptAnalyzerTest {
                 "PropEventHandler should contain Capitalize in template literal");
 
         // Template with Uppercase
-        CodeUnit actionTypeType = CodeUnit.field(templateTypesFile, "", "_module_.ActionType");
+        CodeUnit actionTypeType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.ActionType");
         assertTrue(skeletons.containsKey(actionTypeType), "ActionType template literal type should be captured");
         String actionTypeSkeleton = skeletons.get(actionTypeType);
         assertTrue(
@@ -2030,7 +2027,7 @@ public class TypescriptAnalyzerTest {
                 "ActionType should contain Uppercase in template literal");
 
         // Template with Lowercase
-        CodeUnit methodNameType = CodeUnit.field(templateTypesFile, "", "_module_.MethodName");
+        CodeUnit methodNameType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.MethodName");
         assertTrue(skeletons.containsKey(methodNameType), "MethodName template literal type should be captured");
         String methodNameSkeleton = skeletons.get(methodNameType);
         assertTrue(
@@ -2038,7 +2035,7 @@ public class TypescriptAnalyzerTest {
                 "MethodName should contain Capitalize in template literal");
 
         // Template with Uncapitalize
-        CodeUnit privatePropType = CodeUnit.field(templateTypesFile, "", "_module_.PrivateProp");
+        CodeUnit privatePropType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.PrivateProp");
         assertTrue(skeletons.containsKey(privatePropType), "PrivateProp template literal type should be captured");
         String privatePropSkeleton = skeletons.get(privatePropType);
         assertTrue(
@@ -2048,7 +2045,7 @@ public class TypescriptAnalyzerTest {
         // ===== Test Nested Template Literal Types =====
 
         // Multiple transformations
-        CodeUnit complexEventType = CodeUnit.field(templateTypesFile, "", "_module_.ComplexEvent");
+        CodeUnit complexEventType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.ComplexEvent");
         assertTrue(skeletons.containsKey(complexEventType), "ComplexEvent nested template should be captured");
         String complexEventSkeleton = skeletons.get(complexEventType);
         assertTrue(
@@ -2056,7 +2053,7 @@ public class TypescriptAnalyzerTest {
                 "ComplexEvent should contain nested template transformations");
 
         // Chained template literals
-        CodeUnit nestedTemplateType = CodeUnit.field(templateTypesFile, "", "_module_.NestedTemplate");
+        CodeUnit nestedTemplateType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.NestedTemplate");
         assertTrue(skeletons.containsKey(nestedTemplateType), "NestedTemplate type should be captured");
         String nestedTemplateSkeleton = skeletons.get(nestedTemplateType);
         assertTrue(
@@ -2064,7 +2061,7 @@ public class TypescriptAnalyzerTest {
                 "NestedTemplate should contain multiple template parameters");
 
         // Template with union
-        CodeUnit apiEndpointType = CodeUnit.field(templateTypesFile, "", "_module_.ApiEndpoint");
+        CodeUnit apiEndpointType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.ApiEndpoint");
         assertTrue(skeletons.containsKey(apiEndpointType), "ApiEndpoint template type should be captured");
         String apiEndpointSkeleton = skeletons.get(apiEndpointType);
         assertTrue(
@@ -2074,42 +2071,42 @@ public class TypescriptAnalyzerTest {
         // ===== Test Basic Utility Types =====
 
         // Partial
-        CodeUnit partialUserType = CodeUnit.field(templateTypesFile, "", "_module_.PartialUser");
+        CodeUnit partialUserType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.PartialUser");
         assertTrue(skeletons.containsKey(partialUserType), "PartialUser utility type should be captured");
         assertEquals(
                 normalize.apply("export type PartialUser = Partial<User>"),
                 normalize.apply(skeletons.get(partialUserType)));
 
         // Required
-        CodeUnit requiredConfigType = CodeUnit.field(templateTypesFile, "", "_module_.RequiredConfig");
+        CodeUnit requiredConfigType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.RequiredConfig");
         assertTrue(skeletons.containsKey(requiredConfigType), "RequiredConfig utility type should be captured");
         assertEquals(
                 normalize.apply("export type RequiredConfig = Required<Config>"),
                 normalize.apply(skeletons.get(requiredConfigType)));
 
         // Readonly
-        CodeUnit readonlyUserType = CodeUnit.field(templateTypesFile, "", "_module_.ReadonlyUser");
+        CodeUnit readonlyUserType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.ReadonlyUser");
         assertTrue(skeletons.containsKey(readonlyUserType), "ReadonlyUser utility type should be captured");
         assertEquals(
                 normalize.apply("export type ReadonlyUser = Readonly<User>"),
                 normalize.apply(skeletons.get(readonlyUserType)));
 
         // Pick
-        CodeUnit userNameEmailType = CodeUnit.field(templateTypesFile, "", "_module_.UserNameEmail");
+        CodeUnit userNameEmailType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.UserNameEmail");
         assertTrue(skeletons.containsKey(userNameEmailType), "UserNameEmail Pick type should be captured");
         assertEquals(
                 normalize.apply("export type UserNameEmail = Pick<User, 'name' | 'email'>"),
                 normalize.apply(skeletons.get(userNameEmailType)));
 
         // Omit
-        CodeUnit userWithoutIdType = CodeUnit.field(templateTypesFile, "", "_module_.UserWithoutId");
+        CodeUnit userWithoutIdType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.UserWithoutId");
         assertTrue(skeletons.containsKey(userWithoutIdType), "UserWithoutId Omit type should be captured");
         assertEquals(
                 normalize.apply("export type UserWithoutId = Omit<User, 'id'>"),
                 normalize.apply(skeletons.get(userWithoutIdType)));
 
         // Record
-        CodeUnit stringRecordType = CodeUnit.field(templateTypesFile, "", "_module_.StringRecord");
+        CodeUnit stringRecordType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.StringRecord");
         assertTrue(skeletons.containsKey(stringRecordType), "StringRecord utility type should be captured");
         assertEquals(
                 normalize.apply("export type StringRecord = Record<string, string>"),
@@ -2118,7 +2115,8 @@ public class TypescriptAnalyzerTest {
         // ===== Test Complex Utility Type Combinations =====
 
         // Partial + Pick
-        CodeUnit partialUserNameEmailType = CodeUnit.field(templateTypesFile, "", "_module_.PartialUserNameEmail");
+        CodeUnit partialUserNameEmailType =
+                CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.PartialUserNameEmail");
         assertTrue(
                 skeletons.containsKey(partialUserNameEmailType),
                 "PartialUserNameEmail combined utility type should be captured");
@@ -2129,7 +2127,7 @@ public class TypescriptAnalyzerTest {
 
         // Required + Omit
         CodeUnit requiredConfigWithoutOptionalType =
-                CodeUnit.field(templateTypesFile, "", "_module_.RequiredConfigWithoutOptional");
+                CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.RequiredConfigWithoutOptional");
         assertTrue(
                 skeletons.containsKey(requiredConfigWithoutOptionalType),
                 "RequiredConfigWithoutOptional combined utility type should be captured");
@@ -2139,7 +2137,8 @@ public class TypescriptAnalyzerTest {
                 "RequiredConfigWithoutOptional should contain nested utility types");
 
         // Readonly + Partial
-        CodeUnit readonlyPartialUserType = CodeUnit.field(templateTypesFile, "", "_module_.ReadonlyPartialUser");
+        CodeUnit readonlyPartialUserType =
+                CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.ReadonlyPartialUser");
         assertTrue(
                 skeletons.containsKey(readonlyPartialUserType),
                 "ReadonlyPartialUser combined utility type should be captured");
@@ -2148,7 +2147,8 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(skeletons.get(readonlyPartialUserType)));
 
         // Pick + Required
-        CodeUnit requiredUserNameEmailType = CodeUnit.field(templateTypesFile, "", "_module_.RequiredUserNameEmail");
+        CodeUnit requiredUserNameEmailType =
+                CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.RequiredUserNameEmail");
         assertTrue(
                 skeletons.containsKey(requiredUserNameEmailType),
                 "RequiredUserNameEmail combined utility type should be captured");
@@ -2158,7 +2158,8 @@ public class TypescriptAnalyzerTest {
                 "RequiredUserNameEmail should contain nested utility types");
 
         // Omit + Partial
-        CodeUnit partialUserWithoutIdType = CodeUnit.field(templateTypesFile, "", "_module_.PartialUserWithoutId");
+        CodeUnit partialUserWithoutIdType =
+                CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.PartialUserWithoutId");
         assertTrue(
                 skeletons.containsKey(partialUserWithoutIdType),
                 "PartialUserWithoutId combined utility type should be captured");
@@ -2170,7 +2171,7 @@ public class TypescriptAnalyzerTest {
 
         // Readonly + Partial + Pick
         CodeUnit readonlyPartialUserNameEmailType =
-                CodeUnit.field(templateTypesFile, "", "_module_.ReadonlyPartialUserNameEmail");
+                CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.ReadonlyPartialUserNameEmail");
         assertTrue(
                 skeletons.containsKey(readonlyPartialUserNameEmailType),
                 "ReadonlyPartialUserNameEmail triple utility type should be captured");
@@ -2181,7 +2182,7 @@ public class TypescriptAnalyzerTest {
 
         // Required + Omit + Readonly
         CodeUnit requiredReadonlyConfigType =
-                CodeUnit.field(templateTypesFile, "", "_module_.RequiredReadonlyConfigWithoutOptional");
+                CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.RequiredReadonlyConfigWithoutOptional");
         assertTrue(
                 skeletons.containsKey(requiredReadonlyConfigType),
                 "RequiredReadonlyConfigWithoutOptional triple utility type should be captured");
@@ -2193,13 +2194,13 @@ public class TypescriptAnalyzerTest {
         // ===== Test Advanced Utility Type Patterns =====
 
         // Record with complex value type
-        CodeUnit userRecordType = CodeUnit.field(templateTypesFile, "", "_module_.UserRecord");
+        CodeUnit userRecordType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.UserRecord");
         assertTrue(skeletons.containsKey(userRecordType), "UserRecord type should be captured");
         assertEquals(
                 normalize.apply("export type UserRecord = Record<string, User>"),
                 normalize.apply(skeletons.get(userRecordType)));
 
-        CodeUnit partialUserRecordType = CodeUnit.field(templateTypesFile, "", "_module_.PartialUserRecord");
+        CodeUnit partialUserRecordType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.PartialUserRecord");
         assertTrue(skeletons.containsKey(partialUserRecordType), "PartialUserRecord type should be captured");
         String partialUserRecordSkeleton = skeletons.get(partialUserRecordType);
         assertTrue(
@@ -2207,7 +2208,7 @@ public class TypescriptAnalyzerTest {
                 "PartialUserRecord should contain nested utility in Record value");
 
         // Nested utility types
-        CodeUnit nestedUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.NestedUtility");
+        CodeUnit nestedUtilityType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.NestedUtility");
         assertTrue(skeletons.containsKey(nestedUtilityType), "NestedUtility type should be captured");
         String nestedUtilitySkeleton = skeletons.get(nestedUtilityType);
         assertTrue(
@@ -2215,7 +2216,7 @@ public class TypescriptAnalyzerTest {
                 "NestedUtility should contain deeply nested utility types");
 
         // Utility with conditional
-        CodeUnit conditionalUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.ConditionalUtility");
+        CodeUnit conditionalUtilityType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.ConditionalUtility");
         assertTrue(skeletons.containsKey(conditionalUtilityType), "ConditionalUtility type should be captured");
         String conditionalUtilitySkeleton = skeletons.get(conditionalUtilityType);
         assertTrue(
@@ -2225,7 +2226,7 @@ public class TypescriptAnalyzerTest {
         // ===== Test Template Literals with Utility Types =====
 
         // Template literal combined with mapped type
-        CodeUnit eventHandlerType = CodeUnit.field(templateTypesFile, "", "_module_.EventHandler");
+        CodeUnit eventHandlerType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.EventHandler");
         assertTrue(
                 skeletons.containsKey(eventHandlerType), "EventHandler template with mapped type should be captured");
         String eventHandlerSkeleton = skeletons.get(eventHandlerType);
@@ -2234,7 +2235,7 @@ public class TypescriptAnalyzerTest {
                 "EventHandler should contain template literal in mapped type");
 
         // Template literal with Record
-        CodeUnit eventMapType = CodeUnit.field(templateTypesFile, "", "_module_.EventMap");
+        CodeUnit eventMapType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.EventMap");
         assertTrue(skeletons.containsKey(eventMapType), "EventMap template with Record type should be captured");
         String eventMapSkeleton = skeletons.get(eventMapType);
         assertTrue(
@@ -2244,7 +2245,7 @@ public class TypescriptAnalyzerTest {
         // ===== Test Mapped Types with Template Literals =====
 
         // Getters using template literals
-        CodeUnit gettersType = CodeUnit.field(templateTypesFile, "", "_module_.Getters");
+        CodeUnit gettersType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.Getters");
         assertTrue(skeletons.containsKey(gettersType), "Getters mapped type with template should be captured");
         String gettersSkeleton = skeletons.get(gettersType);
         assertTrue(
@@ -2252,7 +2253,7 @@ public class TypescriptAnalyzerTest {
                 "Getters should contain template literal in key remapping");
 
         // Setters using template literals
-        CodeUnit settersType = CodeUnit.field(templateTypesFile, "", "_module_.Setters");
+        CodeUnit settersType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.Setters");
         assertTrue(skeletons.containsKey(settersType), "Setters mapped type with template should be captured");
         String settersSkeleton = skeletons.get(settersType);
         assertTrue(
@@ -2260,7 +2261,7 @@ public class TypescriptAnalyzerTest {
                 "Setters should contain template literal in key remapping");
 
         // Event emitters
-        CodeUnit eventEmitterType = CodeUnit.field(templateTypesFile, "", "_module_.EventEmitter");
+        CodeUnit eventEmitterType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.EventEmitter");
         assertTrue(skeletons.containsKey(eventEmitterType), "EventEmitter mapped type should be captured");
         String eventEmitterSkeleton = skeletons.get(eventEmitterType);
         assertTrue(
@@ -2270,7 +2271,7 @@ public class TypescriptAnalyzerTest {
         // ===== Test Extreme Utility Type Combinations =====
 
         // Four levels deep
-        CodeUnit deepUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.DeepUtility");
+        CodeUnit deepUtilityType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.DeepUtility");
         assertTrue(skeletons.containsKey(deepUtilityType), "DeepUtility four-level nested type should be captured");
         String deepUtilitySkeleton = skeletons.get(deepUtilityType);
         assertTrue(
@@ -2278,7 +2279,8 @@ public class TypescriptAnalyzerTest {
                 "DeepUtility should contain four nested utility types");
 
         // Mixed utilities with Record
-        CodeUnit complexMixedUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.ComplexMixedUtility");
+        CodeUnit complexMixedUtilityType =
+                CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.ComplexMixedUtility");
         assertTrue(skeletons.containsKey(complexMixedUtilityType), "ComplexMixedUtility type should be captured");
         String complexMixedSkeleton = skeletons.get(complexMixedUtilityType);
         assertTrue(
@@ -2286,7 +2288,7 @@ public class TypescriptAnalyzerTest {
                 "ComplexMixedUtility should contain nested utilities with Record");
 
         // Utility with multiple type parameters
-        CodeUnit mergedUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.MergedUtility");
+        CodeUnit mergedUtilityType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.MergedUtility");
         assertTrue(skeletons.containsKey(mergedUtilityType), "MergedUtility generic type should be captured");
         String mergedUtilitySkeleton = skeletons.get(mergedUtilityType);
         assertTrue(
@@ -2296,7 +2298,7 @@ public class TypescriptAnalyzerTest {
         // ===== Test Real-world Use Cases =====
 
         // API response type
-        CodeUnit apiResponseType = CodeUnit.field(templateTypesFile, "", "_module_.ApiResponse");
+        CodeUnit apiResponseType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.ApiResponse");
         assertTrue(skeletons.containsKey(apiResponseType), "ApiResponse generic type should be captured");
         String apiResponseSkeleton = skeletons.get(apiResponseType);
         assertTrue(
@@ -2304,7 +2306,7 @@ public class TypescriptAnalyzerTest {
                 "ApiResponse should contain complete type definition");
 
         // Paginated API response
-        CodeUnit paginatedResponseType = CodeUnit.field(templateTypesFile, "", "_module_.PaginatedResponse");
+        CodeUnit paginatedResponseType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.PaginatedResponse");
         assertTrue(skeletons.containsKey(paginatedResponseType), "PaginatedResponse type should be captured");
         String paginatedResponseSkeleton = skeletons.get(paginatedResponseType);
         assertTrue(
@@ -2313,14 +2315,15 @@ public class TypescriptAnalyzerTest {
                 "PaginatedResponse should extend ApiResponse with intersection");
 
         // User update payload
-        CodeUnit userUpdatePayloadType = CodeUnit.field(templateTypesFile, "", "_module_.UserUpdatePayload");
+        CodeUnit userUpdatePayloadType = CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.UserUpdatePayload");
         assertTrue(skeletons.containsKey(userUpdatePayloadType), "UserUpdatePayload type should be captured");
         assertEquals(
                 normalize.apply("export type UserUpdatePayload = Partial<Omit<User, 'id'>>"),
                 normalize.apply(skeletons.get(userUpdatePayloadType)));
 
         // Partial environment config
-        CodeUnit partialEnvConfigType = CodeUnit.field(templateTypesFile, "", "_module_.PartialEnvironmentConfig");
+        CodeUnit partialEnvConfigType =
+                CodeUnit.field(templateTypesFile, "", "TemplateTypes.ts.PartialEnvironmentConfig");
         assertTrue(skeletons.containsKey(partialEnvConfigType), "PartialEnvironmentConfig type should be captured");
         String partialEnvConfigSkeleton = skeletons.get(partialEnvConfigType);
         assertTrue(
@@ -2330,7 +2333,7 @@ public class TypescriptAnalyzerTest {
         // ===== Verify All Type Aliases Are Captured =====
 
         List<CodeUnit> typeAliases = declarations.stream()
-                .filter(cu -> cu.isField() && cu.fqName().startsWith("_module_."))
+                .filter(cu -> cu.isField() && cu.fqName().contains("TemplateTypes.ts."))
                 .collect(Collectors.toList());
 
         assertTrue(
@@ -2348,14 +2351,14 @@ public class TypescriptAnalyzerTest {
 
         // ===== Test getSkeleton for Individual Type Aliases =====
 
-        Optional<String> eventNameSkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "_module_.EventName");
+        Optional<String> eventNameSkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "TemplateTypes.ts.EventName");
         assertTrue(eventNameSkeletonViaGet.isPresent(), "Should retrieve EventName type alias via getSkeleton");
         assertTrue(
                 eventNameSkeletonViaGet.get().contains("`${T}Changed`"),
                 "EventName skeleton should contain template literal");
 
         Optional<String> partialUserNameEmailSkeletonViaGet =
-                AnalyzerUtil.getSkeleton(analyzer, "_module_.PartialUserNameEmail");
+                AnalyzerUtil.getSkeleton(analyzer, "TemplateTypes.ts.PartialUserNameEmail");
         assertTrue(
                 partialUserNameEmailSkeletonViaGet.isPresent(),
                 "Should retrieve PartialUserNameEmail type alias via getSkeleton");
@@ -2363,7 +2366,7 @@ public class TypescriptAnalyzerTest {
                 partialUserNameEmailSkeletonViaGet.get().contains("Partial<Pick<User, 'name' | 'email'>>"),
                 "PartialUserNameEmail skeleton should contain nested utility types");
 
-        Optional<String> deepUtilitySkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "_module_.DeepUtility");
+        Optional<String> deepUtilitySkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "TemplateTypes.ts.DeepUtility");
         assertTrue(deepUtilitySkeletonViaGet.isPresent(), "Should retrieve DeepUtility type alias via getSkeleton");
         assertTrue(
                 deepUtilitySkeletonViaGet.get().contains("Readonly<Required<Partial<Pick<User, 'name' | 'email'>>>>"),
@@ -2384,15 +2387,15 @@ public class TypescriptAnalyzerTest {
         // so it cannot be tested via skeletons. We only verify the const declarations are captured.
 
         // Basic satisfies usage - verify const declaration is captured
-        CodeUnit configConst = CodeUnit.field(modernFeaturesFile, "", "_module_.config");
+        CodeUnit configConst = CodeUnit.field(modernFeaturesFile, "", "ModernFeatures.ts.config");
         assertTrue(skeletons.containsKey(configConst), "config const should be captured as a CodeUnit");
 
         // Satisfies with type narrowing - verify const declaration is captured
-        CodeUnit strictConfigConst = CodeUnit.field(modernFeaturesFile, "", "_module_.strictConfig");
+        CodeUnit strictConfigConst = CodeUnit.field(modernFeaturesFile, "", "ModernFeatures.ts.strictConfig");
         assertTrue(skeletons.containsKey(strictConfigConst), "strictConfig const should be captured as a CodeUnit");
 
         // Satisfies with complex types - verify const declaration is captured
-        CodeUnit themeConfigConst = CodeUnit.field(modernFeaturesFile, "", "_module_.themeConfig");
+        CodeUnit themeConfigConst = CodeUnit.field(modernFeaturesFile, "", "ModernFeatures.ts.themeConfig");
         assertTrue(skeletons.containsKey(themeConfigConst), "themeConfig const should be captured as a CodeUnit");
 
         // ===== Test Type Predicate Functions =====
@@ -2643,7 +2646,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(bindMethodSkeleton.contains("<const T extends"), "bindMethod should show const type parameter");
 
         // Const with type predicate - verify const declaration is captured
-        CodeUnit validatorConst = CodeUnit.field(modernFeaturesFile, "", "_module_.validator");
+        CodeUnit validatorConst = CodeUnit.field(modernFeaturesFile, "", "ModernFeatures.ts.validator");
         assertTrue(skeletons.containsKey(validatorConst), "validator const should be captured as a CodeUnit");
 
         // Complex combination: const type parameter + type predicate + this
@@ -2773,10 +2776,10 @@ public class TypescriptAnalyzerTest {
 
         // Verify the module-level instance of the deeply nested class is captured
         CodeUnit deepInstance = declarations.stream()
-                .filter(cu -> cu.fqName().equals("_module_.deepInstance") && cu.isField())
+                .filter(cu -> cu.fqName().equals("EdgeCases.ts.deepInstance") && cu.isField())
                 .findFirst()
-                .orElseThrow(
-                        () -> new AssertionError("_module_.deepInstance should be found as it's a module-level const"));
+                .orElseThrow(() ->
+                        new AssertionError("EdgeCases.ts.deepInstance should be found as it's a module-level const"));
 
         // The deeply nested structures (5 levels deep) may not be fully traversable by the analyzer
         // This is an edge case that reveals limitations with extreme nesting depth
@@ -3018,7 +3021,7 @@ public class TypescriptAnalyzerTest {
         assertNotNull(localFunction, "localFunction should be captured");
 
         CodeUnit localConst = declarations.stream()
-                .filter(cu -> cu.fqName().equals("_module_.localConst") && cu.isField())
+                .filter(cu -> cu.fqName().equals("ImportExportEdgeCases.ts.localConst") && cu.isField())
                 .findFirst()
                 .orElse(null);
         assertNotNull(localConst, "localConst should be captured");
