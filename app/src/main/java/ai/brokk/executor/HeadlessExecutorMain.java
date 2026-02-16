@@ -314,9 +314,7 @@ public final class HeadlessExecutorMain {
             Thread.currentThread().interrupt();
         }
 
-        if (this.jobRunner != null) {
-            this.jobRunner.shutdown();
-        }
+        this.jobRunner.shutdown();
 
         try {
             this.contextManager.close();
