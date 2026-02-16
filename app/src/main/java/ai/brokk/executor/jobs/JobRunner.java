@@ -273,6 +273,22 @@ public final class JobRunner {
     }
 
     /**
+     * Shut down the runner executor and await termination.
+     */
+    public void shutdown() {
+        logger.info("Shutting down JobRunner");
+        runner.shutdownNow();
+        try {
+            if (!runner.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                logger.warn("JobRunner executor did not terminate in time");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while waiting for JobRunner shutdown");
+        }
+    }
+
+    /**
      * Execute a job asynchronously.
      *
      * @param jobId The unique job identifier
@@ -1143,15 +1159,20 @@ public final class JobRunner {
 
                     try {
                         JobStatus s = store.loadStatus(jobId);
-                        if (s == null) {
-                            s = JobStatus.queued(jobId);
+                        // Skip redundant update if already CANCELLED (e.g. by cancel() method)
+                        if (s != null && "CANCELLED".equals(s.state())) {
+                            logger.debug("Job {} already marked CANCELLED, skipping redundant update", jobId);
+                        } else {
+                            if (s == null) {
+                                s = JobStatus.queued(jobId);
+                            }
+                            s = s.cancelled();
+                            if (console != null) {
+                                long lastSeq = console.getLastSeq();
+                                s = s.withMetadata("lastSeq", Long.toString(lastSeq));
+                            }
+                            store.updateStatus(jobId, s);
                         }
-                        s = s.cancelled();
-                        if (console != null) {
-                            long lastSeq = console.getLastSeq();
-                            s = s.withMetadata("lastSeq", Long.toString(lastSeq));
-                        }
-                        store.updateStatus(jobId, s);
                     } catch (Exception e2) {
                         logger.warn("Failed to persist CANCELLED status for job {}", jobId, e2);
                     }
