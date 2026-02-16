@@ -153,9 +153,34 @@ public class EditBlock {
             ProjectFile file;
             try {
                 file = resolveProjectFile(ctx, rawFileName, block.beforeText.startsWith("BRK_ENTIRE_FILE"));
-            } catch (SymbolAmbiguousException | SymbolInvalidException e) {
+            } catch (SymbolAmbiguousException e) {
                 logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
-                blockResults.add(ApplyResult.failure(block, null, EditBlockFailureReason.FILE_NOT_FOUND, null));
+                blockResults.add(
+                        ApplyResult.failure(block, null, EditBlockFailureReason.AMBIGUOUS_MATCH, e.getMessage()));
+                continue;
+            } catch (SymbolInvalidException e) {
+                logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
+                String commentary;
+                if (rawFileName == null || rawFileName.isBlank()) {
+                    commentary =
+                            """
+                            This SEARCH/REPLACE block is missing a filename. Every SEARCH/REPLACE block must specify
+                            the full path of the file to be modified on a separate line immediately after the opening triple backticks.
+
+                            Correct format:
+                            ```
+                            path/to/file.java
+                            <<<<<<< SEARCH
+                            ...
+                            =======
+                            ...
+                            >>>>>>> REPLACE
+                            ```
+                            """;
+                } else {
+                    commentary = e.getMessage();
+                }
+                blockResults.add(ApplyResult.failure(block, null, EditBlockFailureReason.FILE_NOT_FOUND, commentary));
                 continue;
             }
 
@@ -920,7 +945,8 @@ public class EditBlock {
         }
         if (editableMatches.size() > 1) {
             throw new SymbolAmbiguousException(
-                    "Filename '%s' matches multiple editable files: %s".formatted(filename, editableMatches));
+                    "Filename `%s` matches multiple editable files: %s. Specify the full path."
+                            .formatted(filename, editableMatches));
         }
 
         return file;

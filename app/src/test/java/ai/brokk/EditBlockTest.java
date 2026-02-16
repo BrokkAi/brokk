@@ -349,6 +349,68 @@ class EditBlockTest {
     }
 
     @Test
+    void testApplyMissingFilenameProvidesActionableCommentary(@TempDir Path tempDir) throws Exception {
+        TestConsoleIO io = new TestConsoleIO();
+        String response =
+                """
+                ```
+                <<<<<<< SEARCH
+                old
+                =======
+                new
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of());
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(ctx, io, blocks);
+
+        assertEquals(1, result.failures().size());
+        var failure = result.failures().getFirst();
+        assertEquals(EditBlock.EditBlockFailureReason.FILE_NOT_FOUND, failure.reason());
+        assertNotNull(failure.commentary());
+        assertTrue(failure.commentary().contains("missing a filename"));
+        assertTrue(failure.commentary().contains("path/to/file.java"));
+    }
+
+    @Test
+    void testApplyAmbiguousFilenameUsesAmbiguousMatchReason(@TempDir Path tempDir) throws Exception {
+        Path dir1 = tempDir.resolve("a");
+        Path dir2 = tempDir.resolve("b");
+        Files.createDirectories(dir1);
+        Files.createDirectories(dir2);
+        Files.writeString(dir1.resolve("Common.java"), "one");
+        Files.writeString(dir2.resolve("Common.java"), "two");
+
+        TestConsoleIO io = new TestConsoleIO();
+        String response =
+                """
+                ```
+                Common.java
+                <<<<<<< SEARCH
+                one
+                =======
+                updated
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("a/Common.java", "b/Common.java"));
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(ctx, io, blocks);
+
+        assertEquals(1, result.failures().size());
+        var failure = result.failures().getFirst();
+        assertEquals(EditBlock.EditBlockFailureReason.AMBIGUOUS_MATCH, failure.reason());
+        assertTrue(failure.commentary().contains("matches multiple editable files"));
+    }
+
+    @Test
     void testNoMatchFailure(@TempDir Path tempDir)
             throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
