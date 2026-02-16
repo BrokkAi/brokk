@@ -9,6 +9,7 @@ from brokk_code.acp_server import (
     _available_model_names,
     _build_available_models,
     _extract_session_id_for_cancel,
+    _fetch_normalized_catalog_with_retries,
     _model_variants_for_model,
     _normalize_model_catalog,
     _parse_model_selection,
@@ -164,6 +165,51 @@ def test_parse_model_selection_ignores_none_model_name() -> None:
 
     assert _parse_model_selection("None", catalog) == ("None", None)
     assert _parse_model_selection("gpt-5.2", catalog) == ("gpt-5.2", None)
+
+
+async def test_fetch_normalized_catalog_with_retries_recovers_after_transient_failures() -> None:
+    calls = {"count": 0}
+
+    async def fetch_payload() -> dict[str, object]:
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise RuntimeError("executor not ready")
+        return {"models": [{"name": "gpt-5.2"}]}
+
+    catalog = await _fetch_normalized_catalog_with_retries(
+        fetch_payload,
+        attempts=4,
+        initial_backoff_seconds=0,
+    )
+
+    assert catalog == [
+        {
+            "name": "gpt-5.2",
+            "location": "gpt-5.2",
+            "supportsReasoningEffort": False,
+            "supportsReasoningDisable": False,
+        }
+    ]
+    assert calls["count"] == 3
+
+
+async def test_fetch_normalized_catalog_with_retries_returns_none_when_catalog_stays_empty() -> (
+    None
+):
+    calls = {"count": 0}
+
+    async def fetch_payload() -> dict[str, object]:
+        calls["count"] += 1
+        return {"models": []}
+
+    catalog = await _fetch_normalized_catalog_with_retries(
+        fetch_payload,
+        attempts=3,
+        initial_backoff_seconds=0,
+    )
+
+    assert catalog is None
+    assert calls["count"] == 3
 
 
 def test_extract_prompt_text_from_blocks() -> None:
