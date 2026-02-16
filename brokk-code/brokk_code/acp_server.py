@@ -40,6 +40,13 @@ def _acp_settings_file() -> Path:
 
 
 def load_acp_defaults() -> AcpDefaults:
+    """Load ACP defaults from disk, falling back safely on any error.
+
+    This function is tolerant of older or corrupted acp_settings.json files:
+    - If the file is missing or unreadable the defaults are returned.
+    - If persisted values are invalid (e.g., unknown reasoning id) we log and
+      fall back to safe defaults. This ensures ACP startup does not raise.
+    """
     path = _acp_settings_file()
     if not path.exists():
         return AcpDefaults()
