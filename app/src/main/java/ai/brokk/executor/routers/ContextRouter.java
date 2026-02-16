@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -536,6 +537,12 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         if (request == null) return;
         if (request.tasks() == null) {
             RouterUtil.sendValidationError(exchange, "tasks must not be null");
+            return;
+        }
+
+        // Reject lists that contain explicit null elements to avoid server-side NPEs.
+        if (request.tasks().stream().anyMatch(Objects::isNull)) {
+            RouterUtil.sendValidationError(exchange, "tasks must not contain null elements");
             return;
         }
 
