@@ -330,8 +330,21 @@ public class EditBlock {
      * Simple record storing the parts of a search-replace block. If {@code rawFileName} is non-null, then this block
      * corresponds to a rawFileName’s search/replace. Note, {@code rawFileName} has not been checked for validity.
      */
-    public record SearchReplaceBlock(@Nullable String rawFileName, String beforeText, String afterText) {
+    public record SearchReplaceBlock(
+            @Nullable String rawFileName, String beforeText, String afterText, @Nullable String rawText) {
+
+        public SearchReplaceBlock {
+            assert rawText == null || !rawText.isBlank() : "rawText must be null or non-blank";
+        }
+
+        public SearchReplaceBlock(@Nullable String rawFileName, String beforeText, String afterText) {
+            this(rawFileName, beforeText, afterText, null);
+        }
+
         public String repr() {
+            if (rawText != null) {
+                return rawText;
+            }
             var beforeText = beforeText();
             var afterText = afterText();
             return """

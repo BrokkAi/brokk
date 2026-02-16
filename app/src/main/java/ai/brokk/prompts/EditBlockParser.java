@@ -4,7 +4,13 @@ import static ai.brokk.prompts.EditBlockUtils.*;
 
 import ai.brokk.EditBlock;
 import ai.brokk.analyzer.ProjectFile;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
@@ -14,10 +20,15 @@ import org.slf4j.LoggerFactory;
 /**
  * Parses SEARCH/REPLACE edit blocks.
  *
- * <p>Robustness goals: - Only treat our own markers ("<<<<<<< SEARCH", "=======", ">>>>>>> REPLACE") as block
- * boundaries. Do NOT confuse git conflict markers like "<<<<<<< HEAD" / ">>>>>>> branch" with our markers. - Allow
- * nested conflict markers *inside* the before/after payloads. - Continue to support "fence-less" blocks that start
- * directly with "<<<<<<< SEARCH". - Be forgiving where unambiguous, and surface meaningful errors otherwise.
+ * <p>Robustness goals:
+ *
+ * <ul>
+ *   <li>Only treat our own markers ("<<<<<<< SEARCH", "=======", ">>>>>>> REPLACE") as block boundaries.
+ *   <li>Do NOT confuse git conflict markers like "<<<<<<< HEAD" / ">>>>>>> branch" with our markers.
+ *   <li>Allow nested conflict markers inside the before/after payloads.
+ *   <li>Continue to support "fence-less" blocks that start directly with "<<<<<<< SEARCH".
+ *   <li>Be forgiving where unambiguous, and surface meaningful errors otherwise.
+ * </ul>
  *
  * <p>Public API remains unchanged.
  */
@@ -54,8 +65,12 @@ public class EditBlockParser {
     }
 
     /**
-     * Heuristic to detect unified diff-like input: - At least one line starting with "@@" - At least one other line
-     * starting with "+" or "-" (but not the file header lines "+++ " or "--- ")
+     * Heuristic to detect unified diff-like input:
+     *
+     * <ul>
+     *   <li>At least one line starting with "@@"
+     *   <li>At least one other line starting with "+" or "-" (but not the file header lines "+++ " or "--- ")
+     * </ul>
      */
     private static boolean looksLikeUnifiedDiff(String content) {
         boolean hasAtAt = false;
@@ -82,22 +97,20 @@ public class EditBlockParser {
     }
 
     /**
-     * Parses the given content into a sequence of OutputBlock records (plain text or edit blocks). Malformed blocks
-     * report a parseError and stop parsing at the first error (unchanged behavior), but previously parsed content is
-     * preserved in the returned blocks list.
-     */
-    /**
-     * Injects [BRK_BLOCK_N] markers immediately before each SEARCH/REPLACE block
-     * in the input text.
+     * Injects [BRK_BLOCK_N] markers immediately before each SEARCH/REPLACE block in the input text.
+     *
      * @param startingIndex the index of the last block tagged in a previous turn (0 for first turn)
      */
     public String tagBlocks(String content, int startingIndex) {
         var result = parse(content, Set.of());
         var output = new StringBuilder();
         int blockCounter = startingIndex + 1;
-        var seenBlocks = new LinkedHashMap<EditBlock.SearchReplaceBlock, Integer>();
 
-        for (var block : result.blocks()) {
+        record BlockKey(@Nullable String rawFileName, String beforeText, String afterText) {}
+        var seenBlocks = new LinkedHashMap<BlockKey, Integer>();
+
+        var blocks = result.blocks();
+        for (EditBlock.OutputBlock block : blocks) {
             if (block.block() != null) {
                 var srb = block.block();
                 if (Objects.equals(srb.beforeText(), srb.afterText())) {
@@ -105,10 +118,11 @@ public class EditBlockParser {
                     continue;
                 }
 
-                var existingIndex = seenBlocks.get(srb);
+                var key = new BlockKey(srb.rawFileName(), srb.beforeText(), srb.afterText());
+                var existingIndex = seenBlocks.get(key);
                 if (existingIndex == null) {
                     int currentIndex = blockCounter++;
-                    seenBlocks.put(srb, currentIndex);
+                    seenBlocks.put(key, currentIndex);
                     output.append("[BRK_BLOCK_").append(currentIndex).append("]\n");
                     output.append(srb.repr());
                 } else {
@@ -123,16 +137,21 @@ public class EditBlockParser {
     }
 
     /**
-     * Injects [BRK_BLOCK_N] markers (1-indexed) immediately before each SEARCH/REPLACE block
-     * in the input text.
+     * Injects [BRK_BLOCK_N] markers (1-indexed) immediately before each SEARCH/REPLACE block in the input text.
      */
     public String tagBlocks(String content) {
         return tagBlocks(content, 0);
     }
 
+    /**
+     * Parses the given content into a sequence of OutputBlock records (plain text or edit blocks). Malformed blocks
+     * report a parseError and stop parsing at the first error (unchanged behavior), but previously parsed content is
+     * preserved in the returned blocks list.
+     */
     public EditBlock.ExtendedParseResult parse(String content, Set<ProjectFile> projectFiles) {
         var blocks = new ArrayList<EditBlock.OutputBlock>();
 
+        content = normalizeNewlines(content);
         var lines = content.split("\n", -1);
         var plain = new StringBuilder();
 
@@ -156,6 +175,8 @@ public class EditBlockParser {
                 var searchAtNextNext = (i + 2 < lines.length) && isSearch(lines[i + 2]);
 
                 if (searchAtNext || searchAtNextNext) {
+                    int blockStartIndex = i;
+
                     // Determine block-specific filename and where SEARCH is
                     @Nullable String blockFilename;
                     int searchIndex;
@@ -187,6 +208,12 @@ public class EditBlockParser {
                     }
                     i = scan.nextIndex; // positioned after ">>>>>>> REPLACE"
 
+                    // optional closing fence
+                    if (i < lines.length && isFence(lines[i].trim())) {
+                        i++;
+                    }
+
+                    var rawText = joinLinesPreservingTrailingNewline(lines, blockStartIndex, i);
                     var beforeJoined =
                             stripQuotedWrapping(String.join("\n", scan.before), Objects.toString(blockFilename, ""));
                     var afterJoined =
@@ -201,16 +228,11 @@ public class EditBlockParser {
                     if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
 
                     blocks.add(EditBlock.OutputBlock.edit(
-                            new EditBlock.SearchReplaceBlock(blockFilename, beforeJoined, afterJoined)));
+                            new EditBlock.SearchReplaceBlock(blockFilename, beforeJoined, afterJoined, rawText)));
 
                     // Persist the discovered filename for subsequent fence-less blocks
                     if (blockFilename != null && !blockFilename.isBlank()) {
                         currentFilename = blockFilename;
-                    }
-
-                    // optional closing fence
-                    if (i < lines.length && isFence(lines[i].trim())) {
-                        i++;
                     }
                     continue;
                 }
@@ -219,6 +241,7 @@ public class EditBlockParser {
 
             // 2) Fence-less variant starting directly with "<<<<<<< SEARCH"
             if (isSearch(trimmed)) {
+                int blockStartIndex = i;
                 currentFilename = findFilenameNearby(lines, i, projectFiles, currentFilename);
 
                 // Strip filename preamble from accumulated plain text before flushing
@@ -235,6 +258,12 @@ public class EditBlockParser {
                 }
                 i = scan.nextIndex; // after ">>>>>>> REPLACE"
 
+                // optional fence directly after a fence-less block (some LLMs add it)
+                if (i < lines.length && isFence(lines[i].trim())) {
+                    i++;
+                }
+
+                var rawText = joinLinesPreservingTrailingNewline(lines, blockStartIndex, i);
                 var beforeJoined =
                         stripQuotedWrapping(String.join("\n", scan.before), Objects.toString(currentFilename, ""));
                 var afterJoined =
@@ -249,12 +278,7 @@ public class EditBlockParser {
                 if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
 
                 blocks.add(EditBlock.OutputBlock.edit(
-                        new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined)));
-
-                // optional fence directly after a fence-less block (some LLMs add it)
-                if (i < lines.length && isFence(lines[i].trim())) {
-                    i++;
-                }
+                        new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined, rawText)));
                 continue;
             }
 
@@ -273,6 +297,15 @@ public class EditBlockParser {
     }
 
     /* ============================== helpers ============================== */
+
+    private static String normalizeNewlines(String content) {
+        return content.replace("\r\n", "\n").replace("\r", "\n");
+    }
+
+    private static String joinLinesPreservingTrailingNewline(String[] lines, int startInclusive, int endExclusive) {
+        var joined = String.join("\n", Arrays.copyOfRange(lines, startInclusive, endExclusive));
+        return endExclusive < lines.length ? joined + "\n" : joined;
+    }
 
     private static boolean isFence(String trimmed) {
         // Treat triple-backtick lines as fences, with or without language specifier
@@ -309,8 +342,8 @@ public class EditBlockParser {
     }
 
     /**
-     * Strips the filename line (and optionally a preceding fence line) from the end of the plain text buffer.
-     * This ensures that preamble lines that belong to an edit block are not included in the preceding plain text.
+     * Strips the filename line (and optionally a preceding fence line) from the end of the plain text buffer. This
+     * ensures that preamble lines that belong to an edit block are not included in the preceding plain text.
      */
     private static void stripBlockPreambleFromPlain(StringBuilder plain, @Nullable String filename) {
         if (plain.isEmpty()) {
@@ -370,8 +403,7 @@ public class EditBlockParser {
 
     /**
      * Scan lines starting immediately after "<<<<<<< SEARCH" until we find the matching top-level ">>>>>>> REPLACE".
-     * While scanning, we treat "=======" as the divider between before/after only when we are at top-level (depth ==
-     * 0).
+     * While scanning, we treat "=======" as the divider between before/after only when we are at top-level (depth == 0).
      *
      * <p>Nesting rules:
      *

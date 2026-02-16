@@ -622,16 +622,14 @@ class EditBlockParserTest {
                 file1.txt
                 <<<<<<< SEARCH
                 old1
-
                 =======
                 new1
-
                 >>>>>>> REPLACE
                 ```
                 """;
 
         String actual = EditBlockParser.instance.tagBlocks(input, 5);
-        assertEquals(expected, actual);
+        AssertionHelperUtil.assertCodeEquals(expected, actual);
     }
 
     @Test
@@ -663,28 +661,21 @@ class EditBlockParserTest {
                 file1.txt
                 <<<<<<< SEARCH
                 old1
-
                 =======
                 new1
-
                 >>>>>>> REPLACE
                 ```
                 Middle text.
                 [BRK_BLOCK_2]
-                ```
-                file1.txt
                 <<<<<<< SEARCH
                 old2
-
                 =======
                 new2
-
                 >>>>>>> REPLACE
-                ```
                 Final text.""";
 
         String actual = EditBlockParser.instance.tagBlocks(input);
-        assertEquals(expected, actual);
+        AssertionHelperUtil.assertCodeEquals(expected, actual);
     }
 
     @Test
@@ -737,10 +728,8 @@ class EditBlockParserTest {
                 file1.txt
                 <<<<<<< SEARCH
                 old1
-
                 =======
                 new1
-
                 >>>>>>> REPLACE
                 ```
                 Some text.
@@ -748,6 +737,38 @@ class EditBlockParserTest {
 
         String actual = EditBlockParser.instance.tagBlocks(input);
         AssertionHelperUtil.assertCodeEquals(expected, actual);
+    }
+
+    @Test
+    void testParsePreservesRawText() {
+        String input =
+                """
+                Some preamble.
+                ```badfile.txt
+                <<<<<<< SEARCH
+                old
+                =======
+                new
+                >>>>>>> REPLACE
+                ```
+                Some postamble.
+                """;
+        var result = EditBlockParser.instance.parse(input, Set.of());
+        var block = result.blocks().get(1).block();
+        assertNotNull(block.rawText());
+        assertEquals(
+                """
+                ```badfile.txt
+                <<<<<<< SEARCH
+                old
+                =======
+                new
+                >>>>>>> REPLACE
+                ```
+                """,
+                block.rawText());
+        // Verify repr() uses rawText
+        assertEquals(block.rawText(), block.repr());
     }
 
     @Test
