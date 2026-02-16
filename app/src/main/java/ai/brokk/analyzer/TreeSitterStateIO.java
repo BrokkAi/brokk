@@ -239,11 +239,12 @@ public final class TreeSitterStateIO {
             List<FileStateEntryDto> fileState,
             List<String> symbolKeys,
             long snapshotEpochNanos,
-            @Nullable String schemaVersion) {
+            @Nullable String schemaVersion,
+            @JsonProperty("languageInternalName") @Nullable String languageInternalName) {
 
         /**
-         * Backwards-compatible constructor for callers that do not provide schemaVersion.
-         * Delegates to the canonical constructor with schemaVersion = null.
+         * Backwards-compatible constructor for callers that do not provide schemaVersion or language.
+         * Delegates to the canonical constructor with nulls.
          */
         public AnalyzerStateDto(
                 Map<String, List<CodeUnitDto>> symbolIndex,
@@ -251,7 +252,7 @@ public final class TreeSitterStateIO {
                 List<FileStateEntryDto> fileState,
                 List<String> symbolKeys,
                 long snapshotEpochNanos) {
-            this(symbolIndex, codeUnitState, fileState, symbolKeys, snapshotEpochNanos, null);
+            this(symbolIndex, codeUnitState, fileState, symbolKeys, snapshotEpochNanos, null, null);
         }
 
         @JsonCreator
@@ -261,13 +262,15 @@ public final class TreeSitterStateIO {
                 @JsonProperty("fileState") List<FileStateEntryDto> fileState,
                 @JsonProperty("symbolKeys") List<String> symbolKeys,
                 @JsonProperty("snapshotEpochNanos") long snapshotEpochNanos,
-                @JsonProperty("schemaVersion") @Nullable String schemaVersion) {
+                @JsonProperty("schemaVersion") @Nullable String schemaVersion,
+                @JsonProperty("languageInternalName") @Nullable String languageInternalName) {
             this.symbolIndex = symbolIndex;
             this.codeUnitState = codeUnitState;
             this.fileState = fileState;
             this.symbolKeys = symbolKeys;
             this.snapshotEpochNanos = snapshotEpochNanos;
             this.schemaVersion = schemaVersion;
+            this.languageInternalName = languageInternalName;
         }
     }
 
@@ -313,6 +316,11 @@ public final class TreeSitterStateIO {
 
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
+        save(state, file, null);
+    }
+
+    @Blocking
+    public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file, @Nullable Language language) {
         long startMs = System.currentTimeMillis();
         Path temp = null;
         Path parent = (file.getParent() != null ? file.getParent() : Path.of("."))
@@ -326,7 +334,7 @@ public final class TreeSitterStateIO {
             String suffix = ".tmp";
             temp = Files.createTempFile(parent, prefix, suffix);
 
-            var dto = toDto(state);
+            var dto = toDto(state, language);
             try (var os = Files.newOutputStream(temp);
                     var out = new LZ4FrameOutputStream(os)) {
                 SMILE_MAPPER.writeValue(out, dto);
@@ -453,6 +461,13 @@ public final class TreeSitterStateIO {
      * Convert live AnalyzerState to a serializable DTO.
      */
     public static AnalyzerStateDto toDto(TreeSitterAnalyzer.AnalyzerState state) {
+        return toDto(state, null);
+    }
+
+    /**
+     * Convert live AnalyzerState to a serializable DTO, including language identity.
+     */
+    public static AnalyzerStateDto toDto(TreeSitterAnalyzer.AnalyzerState state, @Nullable Language language) {
         // symbolIndex -> deep copy to DTO
         Map<String, List<CodeUnitDto>> symbolIndexCopy = new HashMap<>();
         for (var e : state.symbolIndex().entrySet()) {
@@ -506,7 +521,8 @@ public final class TreeSitterStateIO {
                 fileEntries,
                 symbolKeys,
                 state.snapshotEpochNanos(),
-                CURRENT_SCHEMA.toString());
+                CURRENT_SCHEMA.toString(),
+                language != null ? language.internalName() : null);
     }
 
     /**

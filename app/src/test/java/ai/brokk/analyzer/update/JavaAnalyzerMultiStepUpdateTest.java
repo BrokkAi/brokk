@@ -7,6 +7,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.analyzer.TreeSitterStateIO;
@@ -260,7 +261,7 @@ public class JavaAnalyzerMultiStepUpdateTest {
                 }
                 """;
 
-        Path storagePath = tempDir.resolve("analyzer-state.bin.lz4");
+        Path storagePath = tempDir.resolve("java.bin.lz4");
 
         try (IProject project = InlineTestProjectCreator.code(baseClassContent, "pkg1/BaseClass.java")
                 .build()) {
@@ -283,7 +284,7 @@ public class JavaAnalyzerMultiStepUpdateTest {
                     """);
 
             // Save, Load, Reconstruct, Update
-            TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath);
+            TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath, Languages.JAVA);
             var loadedState = TreeSitterStateIO.load(storagePath).orElseThrow();
             analyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
             analyzer = analyzer.update();
@@ -309,7 +310,7 @@ public class JavaAnalyzerMultiStepUpdateTest {
                     }
                     """);
 
-            TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath);
+            TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath, Languages.JAVA);
             loadedState = TreeSitterStateIO.load(storagePath).orElseThrow();
             analyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
             analyzer = analyzer.update();
@@ -338,7 +339,7 @@ public class JavaAnalyzerMultiStepUpdateTest {
                     }
                     """);
 
-            TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath);
+            TreeSitterStateIO.save(((TreeSitterAnalyzer) analyzer).snapshotState(), storagePath, Languages.JAVA);
             loadedState = TreeSitterStateIO.load(storagePath).orElseThrow();
             analyzer = JavaAnalyzer.fromState(project, loadedState, IAnalyzer.ProgressListener.NOOP);
             analyzer = analyzer.update();
