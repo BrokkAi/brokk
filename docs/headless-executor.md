@@ -2,6 +2,8 @@
 
 The Headless Executor runs Brokk sessions in a server mode, controllable via HTTP+JSON API. It's designed for remote execution, CI/CD pipelines, and programmatic task automation.
 
+For end-to-end request examples (sessions, jobs, events, and mode-specific payloads), see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
+
 ## Configuration
 
 The executor requires the following configuration, provided via **environment variables** or **command-line arguments** (arguments take precedence):
@@ -36,16 +38,6 @@ export LISTEN_ADDR="localhost:8080"
 export AUTH_TOKEN="my-secret-token"
 export WORKSPACE_DIR="/path/to/workspace"
 ./gradlew :app:runHeadlessExecutor
-```
-
-## Download a Session Zip
-
-To download a previously stored session zip, issue a GET request to the session sub-path.
-
-```bash
-curl -sS -X GET "http://localhost:8080/v1/sessions/<session-id>" \
-  -H "Authorization: Bearer my-secret-token" \
-  -o "<session-id>.zip"
 ```
 
 ## ASK Mode: Read-Only Answer From Current Workspace Context
@@ -87,61 +79,11 @@ ASK mode requires:
 
 ASK mode **ignores** `codeModel` since it does not perform code generation.
 
-### Example Workflows
-
-Basic ASK (no pre-scan):
-
-```bash
-# Submit a standard ASK query (no pre-scan)
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ask-query-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Where is the UserService class defined? Show me its public methods and explain what this class does.",
-  "autoCommit": false,
-  "autoCompress": true,
-  "plannerModel": "gpt-4",
-  "tags": {
-    "mode": "ASK"
-  }
-}
-JSON
-```
-
-ASK with pre-scan:
-
-```bash
-# Submit an ASK query and request a repository pre-scan (Context Engine).
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ask-prescan-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Find UserService and summarize its responsibilities and public methods.",
-  "autoCommit": false,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "preScan": true,
-  "tags": {
-    "mode": "ASK"
-  }
-}
-JSON
-```
+### ASK execution notes
 
 Note: In the current implementation, ASK pre-scan always uses the project's default scan model, regardless of `scanModel`.
 
-#### Streaming results
-
-After submitting any ASK job, stream events to observe discovery and results:
-
-```bash
-curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
-  -H "Authorization: Bearer my-secret-token" | tail -f
-```
+For concrete ASK request/streaming examples, use the curl examples document linked at the top of this page.
 
 ## SEARCH Mode: Read-Only Repository Scan (explicit scan model)
 
@@ -164,27 +106,6 @@ Key points:
 - **File search**: Search for files by name or content patterns
 - **Git history**: Search commit messages for context about changes
 - **Related code**: Automatically find related classes and dependencies
-
-### Example: SEARCH with explicit scan model
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer ${AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ${IDEMP_KEY}" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Find all usages of AuthenticationManager and summarize where it's referenced.",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-5",
-  "scanModel": "gpt-5-mini",
-  "tags": {
-    "mode": "SEARCH"
-  }
-}
-JSON
-```
 
 **Notes:**
 - `plannerModel` remains required by the API and is used for validating the job request; SEARCH will use `scanModel` (if present) as the actual scanning model.
@@ -226,47 +147,6 @@ LUTZ mode requires:
 | **Workflow** | Direct execution of user tasks | SearchAgent → task gen → Architect execution |
 | **Best For** | Single-step objectives, quick iterations | Complex multi-step goals, structured decomposition |
 
-### Example Workflow
-
-```bash
-# 1. Create a session
-curl -sS -X POST "http://localhost:8080/v1/sessions" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  --data @- <<'JSON'
-{
-  "name": "LUTZ Planning Session"
-}
-JSON
-# Returns: { "sessionId": "<session-id>" }
-
-# 2. Submit a LUTZ job with a complex objective
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: lutz-job-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Add comprehensive error handling to the UserService class and ensure all exceptions are properly logged.",
-  "autoCommit": true,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "codeModel": "gpt-5-mini",
-  "tags": {
-    "mode": "LUTZ"
-  }
-}
-JSON
-# Returns: { "jobId": "<job-id>", "state": "RUNNING", ... }
-
-# 3. Stream events to see planning and execution
-curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
-  -H "Authorization: Bearer my-secret-token" | tail -f
-# Events will show:
-# - Planning phase: SearchAgent generating subtasks
-# - Execution phase: ArchitectAgent executing each task, progress updates
-```
-
 ### Event Stream Semantics
 
 LUTZ jobs emit events following this pattern:
@@ -303,52 +183,6 @@ REVIEW mode requires:
 
 REVIEW mode **ignores** `codeModel` and `scanModel` since it performs review, not code generation.
 
-### Example: Using the Convenience Endpoint
-
-The easiest way to create a PR review job is via the dedicated endpoint:
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs/pr-review" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: review-001" \
-  --data @- <<'JSON'
-{
-  "owner": "myorg",
-  "repo": "myrepo",
-  "prNumber": 123,
-  "githubToken": "ghp_xxxxxxxxxxxx",
-  "plannerModel": "gpt-4"
-}
-JSON
-```
-
-### Example: Using Tags with Standard Job Endpoint
-
-Alternatively, use the standard `/v1/jobs` endpoint with mode tags:
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: review-002" \
-  --data @- <<'JSON'
-{
-  "taskInput": "",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-4",
-  "tags": {
-    "mode": "REVIEW",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo",
-    "pr_number": "123"
-  }
-}
-JSON
-```
-
 ### Key Characteristics of REVIEW Mode
 
 - **Full GitHub integration**: Fetches PR, computes diff, posts comments
@@ -357,6 +191,45 @@ JSON
 - **Duplicate detection**: Skips posting duplicate comments on the same line
 - **Fallback behavior**: Falls back to regular PR comment if inline comment fails (HTTP 422)
 - **Read-only to local repo**: Does not modify local files or make commits
+
+## ISSUE_DIAGNOSE Mode: Analyze a GitHub Issue
+
+ISSUE_DIAGNOSE mode analyzes a GitHub issue (including all comments and images) and posts a diagnosis comment without making code changes. This is designed for a two-phase workflow where the bot first analyzes and posts its understanding, then waits for user approval before proceeding to fix.
+
+### How ISSUE_DIAGNOSE Works
+
+When you submit an ISSUE_DIAGNOSE job, the system:
+1. Fetches the issue details (title, body, all comments, attached images) via the GitHub API
+2. Captures any images from the issue into the LLM context
+3. Runs an analysis using the planner model to understand the issue
+4. Posts a diagnosis comment to the issue with a hidden marker (`<!-- brokk:diagnosis:v1 timestamp="..." -->`)
+5. Completes without creating branches, making code changes, or opening PRs
+
+The diagnosis comment includes:
+- A structured analysis of the issue
+- Next steps prompting the user to reply with `@BrokkBot solve` to proceed
+
+### Configuration
+
+ISSUE_DIAGNOSE mode requires:
+- `plannerModel`: The LLM model for analyzing the issue
+- GitHub issue metadata (passed via tags):
+  - `github_token`: GitHub personal access token with repo access
+  - `repo_owner`: Repository owner (user or organization)
+  - `repo_name`: Repository name
+  - `issue_number`: Issue number to analyze
+
+ISSUE_DIAGNOSE mode **ignores** `codeModel` since it performs analysis only, not code generation.
+
+### Two-Phase Workflow
+
+ISSUE_DIAGNOSE is designed to work with ISSUE (solve) mode in a two-phase workflow:
+
+1. **Phase 1: Diagnose** — Run ISSUE_DIAGNOSE to analyze the issue and post a diagnosis comment
+2. **User Review** — User reviews the diagnosis, optionally adds steering comments
+3. **Phase 2: Solve** — Run ISSUE mode to implement the fix (detects existing diagnosis and skips re-posting)
+
+This workflow allows human oversight before code changes are made.
 
 ## ISSUE_WRITER Mode: Create a GitHub Issue
 
@@ -374,49 +247,27 @@ ISSUE_WRITER requires:
 
 ISSUE_WRITER is read-only to the local repo (no file modifications or commits), but it creates a GitHub issue.
 
-### Example: Create an issue via POST /v1/jobs
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-writer-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Create an issue describing the NPE when AuthenticationProvider receives a null user, including evidence from the codebase.",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-5",
-  "tags": {
-    "mode": "ISSUE_WRITER",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo"
-  }
-}
-JSON
-```
-
 ## ISSUE Mode: Automated Issue Resolution with Build Verification (and optional quick mode)
 
-ISSUE mode enables end-to-end resolution of GitHub Issues. The executor fetches the issue content, creates a branch, decomposes the work into tasks, applies changes, and—by default—verifies changes with build/test/lint checks before delivering them (e.g., creating a Pull Request). ISSUE mode also supports a "quick" or skip-verification variant that omits verification and review loops for faster, lower-cost runs.
+ISSUE mode enables end-to-end resolution of GitHub Issues. The executor fetches the issue content (including all comments and images), creates a branch, decomposes the work into tasks, applies changes, and—by default—verifies changes with build/test/lint checks before delivering them (e.g., creating a Pull Request). ISSUE mode also supports a "quick" or skip-verification variant that omits verification and review loops for faster, lower-cost runs.
 
 ### How ISSUE Works (default — full verification)
 
 When you submit an ISSUE job using the default behavior (omitting `skipVerification` or setting it to `false`), the system follows these steps:
 
-1. Fetch Issue: Retrieves the title and body of the GitHub issue.
-2. Branch Creation: Creates and checks out a new branch named like `brokk/issue-{number}`, guaranteeing uniqueness by appending a suffix if needed.
-3. Task Planning: Uses the `plannerModel` to decompose the issue into an ordered set of actionable tasks.
-4. Execution & Per-Task Verification:
+1. Fetch Issue: Retrieves the full issue details including title, body, all comments, and attached images via the GitHub API. Images are captured into the LLM context for analysis.
+2. Analysis & Diagnosis: Runs a fresh analysis of the issue using the planner model. If no prior diagnosis comment exists (detected by the `<!-- brokk:diagnosis:v1` marker), posts a diagnosis comment for transparency. If a diagnosis already exists (e.g., from a prior ISSUE_DIAGNOSE run), skips posting to avoid duplicates.
+3. Branch Creation: Creates and checks out a new branch named like `brokk/issue-{number}`, guaranteeing uniqueness by appending a suffix if needed.
+4. Task Planning: Uses the `plannerModel` to decompose the issue into an ordered set of actionable tasks.
+5. Execution & Per-Task Verification:
    - Implementation: ArchitectAgent implements each task using `plannerModel` and `codeModel`.
    - Build Verification: After implementing a task, the executor runs the configured build/lint/test verification for that task.
    - Per-task self-correction: If verification fails, the executor performs one (single) automated fix attempt for the task and then re-runs verification. If verification still fails, the job reports failure and halts.
    - Note: Per-task verification is governed by `buildSettings.maxBuildAttempts` (per-task retry budget).
-5. Final Gate & Delivery:
+6. Final Gate & Delivery:
    - After all tasks pass per-task verification, the executor runs final checks (full tests + lint).
    - If delivery is enabled (default), the executor commits, pushes, and opens a Pull Request on GitHub. You can disable PR creation by setting the `issue_delivery` tag to `none` in the job payload.
-6. Cleanup: Restore original branch and remove temporary issue branches as appropriate (best-effort).
+7. Cleanup: Restore original branch and remove temporary issue branches as appropriate (best-effort).
 
 ### Quick Mode: skipVerification (optional for ISSUE jobs)
 
@@ -456,69 +307,6 @@ ISSUE mode requires:
 - `buildSettings` (optional): JSON object to configure verification commands and per-task `maxBuildAttempts` (used only in full verification mode).
 - `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap) — used only in full verification mode. Default: 20.
 - `skipVerification` (optional boolean): When present and `true` (only honored for ISSUE jobs), runs the quick/skip-verification flow described above. Default: `false`.
-
-### Example: Convenience Endpoint with skipVerification (quick mode)
-
-This example shows `/v1/jobs/issue` with `skipVerification=true`. Compared to the default, this tells the executor to skip per-task and final verification and review loops — it will still create the branch, apply changes, and may open a PR if delivery is enabled.
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-quick-001" \
-  --data @- <<'JSON'
-{
-  "owner": "myorg",
-  "repo": "myrepo",
-  "issueNumber": 42,
-  "githubToken": "ghp_xxxxxxxxxxxx",
-  "plannerModel": "gpt-4",
-  "codeModel": "gpt-4",
-  "maxIssueFixAttempts": 20,
-  "buildSettings": {
-    "buildLintCommand": "./gradlew classes",
-    "testAllCommand": "./gradlew test",
-    "environmentVariables": {
-      "JAVA_HOME": "/usr/lib/jvm/java-21"
-    },
-    "maxBuildAttempts": 5
-  },
-  "skipVerification": true
-}
-JSON
-```
-
-### Example: Generic POST /v1/jobs with tags and skipVerification
-
-You may also submit ISSUE jobs via the generic `/v1/jobs` endpoint. For ISSUE-mode jobs, include `tags.mode = "ISSUE"`. The optional top-level `skipVerification` boolean is accepted in the job payload but is only honored when `tags.mode == "ISSUE"`.
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-quick-002" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Ignored for ISSUE mode; issue body drives the work.",
-  "plannerModel": "gpt-4",
-  "codeModel": "gpt-4",
-  "buildSettings": {
-    "buildLintCommand": "./gradlew classes",
-    "testAllCommand": "./gradlew test",
-    "maxBuildAttempts": 3
-  },
-  "maxIssueFixAttempts": 20,
-  "skipVerification": true,
-  "tags": {
-    "mode": "ISSUE",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo",
-    "issue_number": "42"
-  }
-}
-JSON
-```
 
 ### Notes on behavior and observability
 
@@ -615,30 +403,7 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
   - Must be between `0.0` and `2.0` (inclusive).
   - If omitted or null, the executor uses the model/service default temperature for the code model.
 
-##### Example: ARCHITECT with reasoningLevel + temperature
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: architect-overrides-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Refactor the auth module to improve logging and error messages.",
-  "autoCommit": true,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "codeModel": "gpt-5-mini",
-  "reasoningLevel": "HIGH",
-  "reasoningLevelCode": "MEDIUM",
-  "temperature": 0.2,
-  "temperatureCode": 0.0,
-  "tags": {
-    "mode": "ARCHITECT"
-  }
-}
-JSON
-```
+#### Convenience endpoints and job inspection
 
 - **`POST /v1/jobs/issue`** - Create an issue resolution job (convenience endpoint)
   - Requires `Idempotency-Key` header

@@ -1,7 +1,6 @@
 package ai.brokk.context;
 
 import static java.lang.Math.min;
-import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
@@ -98,8 +97,8 @@ public record ContextDelta(
         // 1. Check for updated special fragments
         var updatedSpecials = new ArrayList<ContextFragments.StringFragment>();
         for (SpecialTextType type : SpecialTextType.values()) {
-            var fromSpecial = from.getSpecial(type.description());
-            var toSpecial = to.getSpecial(type.description());
+            var fromSpecial = from.getSpecial(type);
+            var toSpecial = to.getSpecial(type);
 
             if (fromSpecial.isPresent() && toSpecial.isPresent()) {
                 if (!fromSpecial.get().contentEquals(toSpecial.get())) {
@@ -219,9 +218,7 @@ public record ContextDelta(
     private String buildTaskDescription(TaskEntry entry, IContextManager icm) throws InterruptedException {
         String prefix = (entry.meta() == null) ? "" : entry.meta().type().displayName() + ": ";
 
-        String taskText =
-                entry.isCompressed() ? requireNonNull(entry.summary()) : requireNonNull(entry.log()).shortDescription;
-
+        String taskText = entry.description();
         String cacheKey = "action_" + StringDiskCache.sha1Hex(taskText);
         var actionText = taskText.split("\\s+").length <= 7
                 ? taskText

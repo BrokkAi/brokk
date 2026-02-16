@@ -48,6 +48,12 @@ public final class IssueService {
         return new IssueDetails(title, body, author, state);
     }
 
+    @Blocking
+    public static void postIssueComment(GHRepository repo, int issueNumber, String body) throws IOException {
+        GHIssue issue = repo.getIssue(issueNumber);
+        issue.comment(body);
+    }
+
     /**
      * Deserializes a JSON string into {@link BuildAgent.BuildDetails}.
      *

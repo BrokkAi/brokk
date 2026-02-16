@@ -21,7 +21,6 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -95,7 +94,7 @@ public final class DiffService {
                     .map(ContextHistory.GitState::commitHash)
                     .orElse("HEAD");
             return LoggingFuture.supplyAsync(
-                    () -> computeDiff(k.curr(), castNonNull(k.prev()), revision), cm.getBackgroundTasks());
+                    () -> diff(k.curr(), castNonNull(k.prev()), revision), cm.getBackgroundTasks());
         });
     }
 
@@ -109,12 +108,13 @@ public final class DiffService {
 
     @Blocking
     private static boolean isNewFragmentInteresting(ContextFragment fragment, IProject project, String revision) {
-        var interestingFiles = project.filterExcludedFiles(fragment.files().join());
+        var interestingFiles =
+                project.filterExcludedFiles(fragment.sourceFiles().join());
         if (interestingFiles.isEmpty()) {
             return false;
         }
 
-        return fragment.files().join().stream().anyMatch(file -> {
+        return fragment.sourceFiles().join().stream().anyMatch(file -> {
             try {
                 // If getFileContent returns an empty string for the revision, the file is not yet committed.
                 return project.getRepo().getFileContent(revision, file).isEmpty();
@@ -131,16 +131,8 @@ public final class DiffService {
      * Triggers async computations and awaits their completion.
      */
     @Blocking
-    private List<FragmentDiff> computeDiff(Context ctx, Context other, String revision) {
-        // Candidates:
-        // - Editable fragments
-        // - Image fragments (non-text), including pasted images and image files.
-        // Exclude external path fragments from editable candidates; only project files should be diffed.
-        var editableFragments =
-                ctx.getEditableFragments().filter(f -> f.getType() != ContextFragment.FragmentType.EXTERNAL_PATH);
-        var imageFragments = ctx.allFragments().filter(f -> !f.isText());
-
-        var candidates = Stream.concat(editableFragments, imageFragments);
+    public static List<FragmentDiff> diff(Context ctx, Context other, String revision) {
+        var candidates = ctx.allFragments().filter(cf -> isDiffable(cf));
         var diffFutures = candidates
                 .map(cf -> computeDiffForFragment(ctx, cf, other, revision))
                 .toList();
@@ -153,6 +145,10 @@ public final class DiffService {
                 .toList();
     }
 
+    private static boolean isDiffable(ContextFragment fragment) {
+        return fragment.getType().isEditable() || !fragment.isText();
+    }
+
     /**
      * Helper method to compute diff for a single fragment against the other context asynchronously.
      * Returns a CompletableFuture that completes when all async dependencies (e.g., ComputedValue)
@@ -163,7 +159,7 @@ public final class DiffService {
      * The DiffEntry returned is Nullable!
      */
     @Blocking
-    private CompletableFuture<FragmentDiff> computeDiffForFragment(
+    private static CompletableFuture<FragmentDiff> computeDiffForFragment(
             Context curr, ContextFragment thisFragment, Context other, String revision) {
         var otherFragment = other.allFragments()
                 .filter(thisFragment::hasSameSource)
@@ -186,7 +182,7 @@ public final class DiffService {
 
         // Delegate to the general-purpose computeDiff helper which handles text vs image parity,
         // content extraction, and diff computation.
-        return computeDiff(otherFragment, thisFragment).exceptionally(ex -> {
+        return diff(otherFragment, thisFragment).exceptionally(ex -> {
             var desc = thisFragment.shortDescription().join();
             logger.warn("Error computing diff for fragment '{}'", desc, ex);
             return null;
@@ -194,7 +190,7 @@ public final class DiffService {
     }
 
     @Blocking
-    public static CompletableFuture<FragmentDiff> computeDiff(
+    public static CompletableFuture<FragmentDiff> diff(
             @Nullable ContextFragment oldFragment, ContextFragment newFragment) {
         // If fragments don't share the same source, we can't sensibly diff them here.
         if (oldFragment != null && !newFragment.hasSameSource(oldFragment)) {
@@ -327,7 +323,7 @@ public final class DiffService {
     }
 
     @Blocking
-    public static CumulativeChanges computeCumulativeDiff(
+    public static CumulativeChanges cumulativeDiff(
             IGitRepo repo, String leftRef, String rightRef, List<CommitInfo> commits) {
         if (!(repo instanceof GitRepo gitRepo)) {
             return new CumulativeChanges(0, 0, 0, List.of(), commits);
@@ -350,6 +346,34 @@ public final class DiffService {
         }
 
         return new CumulativeChanges(fileDiffs.size(), totalAdded, totalDeleted, fileDiffs, commits);
+    }
+
+    @Blocking
+    public static String cumulativeDiff(IGitRepo repo, Context from, Context to) {
+        var projectPathFiles = to.allFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .flatMap(f -> f.sourceFiles().join().stream())
+                .collect(Collectors.toSet());
+
+        var candidates = to.allFragments().filter(f -> isDiffable(f)).filter(f -> {
+            // Deduplicate: skip Code/Usage fragments if their file is already in a ProjectPathFragment
+            if (f instanceof ContextFragments.CodeFragment || f instanceof ContextFragments.UsageFragment) {
+                return f.sourceFiles().join().stream().noneMatch(projectPathFiles::contains);
+            }
+            return true;
+        });
+
+        return candidates
+                .map(newFrag -> {
+                    var oldFrag = from.allFragments()
+                            .filter(newFrag::hasSameSource)
+                            .findFirst()
+                            .orElse(null);
+                    return diff(oldFrag, newFrag).join();
+                })
+                .filter(Objects::nonNull)
+                .map(FragmentDiff::diff)
+                .collect(Collectors.joining("\n\n"));
     }
 
     /**
@@ -435,7 +459,7 @@ public final class DiffService {
             ContextFragment fragment, String diff, int linesAdded, int linesDeleted, String oldText, String newText) {
         @Blocking
         public String title() {
-            var files = fragment.files().join();
+            var files = fragment.sourceFiles().join();
             if (!files.isEmpty()) {
                 var pf = files.iterator().next();
                 return pf.getRelPath().toString();

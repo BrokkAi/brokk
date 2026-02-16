@@ -500,9 +500,9 @@ class BrokkApp(App):
             chat.append_token(
                 token=data.get("token", ""),
                 message_type=data.get("messageType", "AI"),
-                is_new_message=data.get("isNewMessage", False),
-                is_reasoning=data.get("isReasoning", False),
-                is_terminal=data.get("isTerminal", False),
+                is_new_message=bool(data.get("isNewMessage", False)),
+                is_reasoning=bool(data.get("isReasoning", False)),
+                is_terminal=bool(data.get("isTerminal", False)),
             )
         elif event_type == "NOTIFICATION":
             level = data.get("level", "INFO")

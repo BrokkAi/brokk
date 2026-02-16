@@ -17,8 +17,8 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Environment;
-import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.SerialByKeyExecutor;
+import ai.brokk.util.ShellConfig;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -76,7 +76,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private int maxRuns = 50;
     private final TestRunsStore runsStore;
     private boolean restoringRuns = false;
-    private final ExecutorService sessionExecutor = ExecutorsUtil.newFixedThreadExecutor(2, "TestRunner-");
+    private final ExecutorService sessionExecutor = ExecutorsUtil.newFixedThreadExecutor("TestRunner-", 2);
     private final SerialByKeyExecutor saveExecutor = new SerialByKeyExecutor(sessionExecutor);
 
     // Limit stored output size to avoid unbounded JSON growth
@@ -549,7 +549,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         cm.submitBackgroundTask("Running tests", () -> {
             int exitCode = -1;
             try {
-                ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
+                ShellConfig execCfg = project.getShellConfig();
 
                 Environment.instance.runShellCommand(
                         command,

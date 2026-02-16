@@ -10,4 +10,4 @@ For the full set of project rules, environment setup, and architecture, see the 
 - **Python**: 3.11+ required.
 - **Style**: Use `ruff` for formatting and linting.
 - **Types**: Always use type hints for function signatures.
-- **Tests**: Located in `../tests/`. Run using `pytest`.
+- **Tests**: Located in `../tests/`. Run using `uv run pytest`.

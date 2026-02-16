@@ -1,10 +1,17 @@
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
 
 def main():
     parser = argparse.ArgumentParser(description="Brokk Code - Interactive Terminal Interface")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["acp"],
+        help="Run in ACP server mode over stdio",
+    )
     parser.add_argument(
         "--workspace",
         type=str,
@@ -57,29 +64,54 @@ def main():
         dest="resume_session",
         help="Synonym for --no-resume",
     )
+    parser.add_argument(
+        "--ide",
+        type=str,
+        choices=["intellij", "zed"],
+        default="intellij",
+        help="ACP client profile to target (default: intellij)",
+    )
     args = parser.parse_args()
+
+    workspace_path = Path(args.workspace).resolve()
+    if not workspace_path.exists():
+        print(f"Error: Workspace path does not exist: {workspace_path}")
+        sys.exit(1)
+    jar_path = Path(args.jar).resolve() if args.jar else None
+
+    if args.command == "acp":
+        try:
+            from brokk_code.acp_server import run_acp_server
+        except ImportError:
+            print("Error: Could not import ACP server module.", file=sys.stderr)
+            sys.exit(1)
+
+        asyncio.run(
+            run_acp_server(
+                workspace_dir=workspace_path,
+                jar_path=jar_path,
+                executor_version=args.executor_version,
+                executor_snapshot=args.executor_snapshot,
+                ide=args.ide,
+            )
+        )
+        return
 
     try:
         from brokk_code.app import BrokkApp
-
-        workspace_path = Path(args.workspace).resolve()
-        if not workspace_path.exists():
-            print(f"Error: Workspace path does not exist: {workspace_path}")
-            sys.exit(1)
-
-        jar_path = Path(args.jar).resolve() if args.jar else None
-        app = BrokkApp(
-            workspace_dir=workspace_path,
-            jar_path=jar_path,
-            executor_version=args.executor_version,
-            executor_snapshot=args.executor_snapshot,
-            session_id=args.session,
-            resume_session=args.resume_session,
-        )
-        app.run()
     except ImportError:
         print("Error: Could not import BrokkApp. Is app.py missing?")
         sys.exit(1)
+
+    app = BrokkApp(
+        workspace_dir=workspace_path,
+        jar_path=jar_path,
+        executor_version=args.executor_version,
+        executor_snapshot=args.executor_snapshot,
+        session_id=args.session,
+        resume_session=args.resume_session,
+    )
+    app.run()
 
 
 if __name__ == "__main__":

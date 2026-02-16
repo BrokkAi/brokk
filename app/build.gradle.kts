@@ -99,6 +99,7 @@ dependencies {
     implementation(libs.java.diff.utils)
     implementation(libs.jackson.databind)
     implementation(libs.jackson.smile)
+    implementation(libs.jackson.jq)
     implementation(libs.lz4)
     implementation(libs.jspecify)
     implementation(libs.picocli)
@@ -459,23 +460,16 @@ tasks.register("analyze") {
     dependsOn("compileJavaErrorProne", "spotlessCheck")
 }
 
-// Make check task run ErrorProne compilation and Python linting for CI validation
+// Make check task run ErrorProne compilation, Python linting, and all tests for CI validation
 tasks.named("check") {
     dependsOn("compileJavaErrorProne")
-    // Wire Python verification into lifecycle tasks
     val skipPythonTasks = project.rootProject.hasProperty("skipPython")
     if (!skipPythonTasks) {
         dependsOn(rootProject.tasks.named("brokkCodeRuffCheck"))
+        dependsOn(rootProject.tasks.named("pytest"))
     }
 }
 
-// Wire Python tests into the main app test task
-tasks.named<Test>("test") {
-    val skipPythonTasks = project.rootProject.hasProperty("skipPython")
-    if (!skipPythonTasks) {
-        dependsOn(rootProject.tasks.named("brokkCodePytest"))
-    }
-}
 
 
 tasks.withType<Test> {

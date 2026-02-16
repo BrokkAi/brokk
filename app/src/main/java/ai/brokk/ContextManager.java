@@ -20,7 +20,6 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.concurrent.UserActionManager;
 import ai.brokk.concurrent.UserActionManager.ThrowingRunnable;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextFragments.PathFragment;
@@ -1144,7 +1143,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             var last = history.getLast();
-            var log = last.log();
+            var log = last.mopLog();
             if (log != null) {
                 addFragments(log);
                 return;
@@ -1639,7 +1638,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Set<ProjectFile> allReferenced = new HashSet<>();
         for (var f : fragments) {
             try {
-                var files = f.files().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
+                var files = f.referencedFiles().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
                 allReferenced.addAll(files);
             } catch (TimeoutException te) {
                 logger.warn("Timed out waiting for files() of fragment {}", f.id());
@@ -1664,7 +1663,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var newLiveContext = ch.push(contextGenerator);
         if (oldLiveContext.equals(newLiveContext)) {
             // No change occurred
-            return newLiveContext;
+            return oldLiveContext;
         }
 
         contextPushed(ch, newLiveContext);
@@ -2158,14 +2157,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         String summary = result.text();
-        if (summary.isBlank()) {
-            logger.warn("History compression resulted in empty summary for entry: {}", entry);
-            return entry;
-        }
-
+        assert !summary.isBlank(); // llm checks for this
         logger.debug("Compressed summary:\n{}", summary);
         // Create new entry with both original log and new summary
         return entry.withSummary(summary);
+    }
+
+    @Blocking
+    @Override
+    public String compressHistory(String history) throws InterruptedException {
+        var msgs = SummarizerPrompts.instance.compressHistory(history);
+        Llm.StreamingResult result = getLlm(
+                        serviceProvider.get().summarizeModel(), "Compress history entry", TaskResult.Type.SUMMARIZE)
+                .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
+        return result.error() == null ? history : result.text();
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
@@ -2174,7 +2179,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
-        var taskFragment = new ContextFragments.TaskFragment(this, messages, input);
+        var taskFragment = new ContextFragments.TaskFragment(messages, input);
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, taskFragment, null));
 
         // rename the session if needed
@@ -2217,72 +2222,34 @@ public class ContextManager implements IContextManager, AutoCloseable {
             requireNonNull(analyzerWrapper).pause();
         }
 
-        /**
-         * Appends a TaskResult to the context history and returns updated local context, optionally attaching metadata.
-         * If meta is provided and the TaskResult does not already carry metadata, the metadata is attached before
-         * creating the TaskEntry to ensure persistence in history.
-         *
-         * @param result   The TaskResult to append.
-         */
         @Blocking
-        public Context append(TaskResult result) throws InterruptedException {
-            assert !closed.get() : "TaskScope already closed";
-
-            // If interrupted before any LLM output, skip
-            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
-                    && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
-                logger.debug("Command cancelled before LLM responded — skipping publish");
-                return result.context();
-            }
-
-            // If there is literally nothing to record (no messages and no content changes)
-            if (result.output().messages().isEmpty()) {
-                // Treat result.context() as new (right) and current topContext() as old (left)
-                Context other = liveContext();
-                var delta = ContextDelta.between(result.context(), other).join();
-                if (delta.isEmpty()) {
-                    logger.debug("Empty TaskResult delta, skipping publish");
-                    return result.context();
-                } else {
-                    // This is the "content-only change, no messages" path.
-                    // We record the checkpoint but skip conversation history.
-                    return publish(result.context());
-                }
-            }
-
-            assert !closed.get() : "TaskScope already closed";
-            // push context
-            logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
-            var updated = result.context();
-            TaskEntry entry = updated.createTaskEntry(result);
-            var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(entry);
-            });
-
-            if (group) {
-                UUID contextId = updatedContext.id();
-                // UI-level session locking should keep contextHistory stable between push and add-to-group
-                contextHistory.addContextToGroup(contextId, groupId, groupLabel);
-            }
+        public void append(TaskResult result) throws InterruptedException {
+            publish(result.context());
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
-            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
+            io.prepareOutputForNextStream(result.context().getTaskHistory());
+        }
 
-            return updatedContext;
+        @Blocking
+        public void append(Context context) throws InterruptedException {
+            publish(context);
+
+            // prepare MOP to display new history with the next streamed message
+            // needed because after the last append (before close) the MOP should not update
+            io.prepareOutputForNextStream(context.getTaskHistory());
         }
 
         /**
          * Publishes an intermediate Context snapshot to history without finalizing a TaskResult.
          * This allows capturing checkpoints during long-running tasks.
          */
-        public Context publish(Context context) {
+        public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
             var newId = pushContext(currentLiveCtx -> context).id();
             if (group) {
                 contextHistory.addContextToGroup(newId, groupId, groupLabel);
             }
-            return context;
         }
 
         public Context compressTop() {
@@ -2331,14 +2298,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         @Override
-        public Context append(TaskResult result) throws InterruptedException {
-            return result.context();
-        }
+        public void append(TaskResult result) throws InterruptedException {}
 
         @Override
-        public Context publish(Context context) {
-            return context;
-        }
+        public void publish(Context context) {}
 
         @Override
         public void closeInternal() {}
@@ -2822,7 +2785,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
             List<Future<TaskEntry>> futures =
                     new ArrayList<>(ctx.getTaskHistory().size());
-            try (var exec = ExecutorsUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
+            try (var exec = ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5)) {
                 // Submit all compression tasks
                 for (TaskEntry entry : ctx.getTaskHistory()) {
                     futures.add(exec.submit(() -> compressHistory(entry)));

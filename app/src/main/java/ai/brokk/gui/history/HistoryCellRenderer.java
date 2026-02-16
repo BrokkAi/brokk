@@ -214,7 +214,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
     private String computeBareName(DiffService.FragmentDiff de) {
         var fragment = de.fragment();
         Set<ProjectFile> files = Set.of();
-        var computedFilesOpt = fragment.files();
+        var computedFilesOpt = fragment.sourceFiles();
         var filesOpt = computedFilesOpt.tryGet();
         if (filesOpt.isPresent()) {
             files = filesOpt.get();

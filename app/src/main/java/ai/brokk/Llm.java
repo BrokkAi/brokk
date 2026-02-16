@@ -866,7 +866,7 @@ public class Llm {
         try {
             var dir = getOrCreateTaskHistoryDir();
             var formattedRequest = "# Request to %s:\n\n%s\n"
-                    .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
+                    .formatted(contextManager.getService().nameOf(model), Messages.format(request.messages()));
             var formattedTools = request.toolSpecifications() == null
                             || request.toolSpecifications().isEmpty()
                     ? ""

@@ -313,7 +313,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         // Ensure the base directory exists
         Files.createDirectories(projectsBaseDir);
 
-        ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(threads, "TSRR-");
+        ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor("TSRR-", threads);
         AtomicInteger successCount = new AtomicInteger(0);
         List<Callable<Void>> tasks = new ArrayList<>();
 
