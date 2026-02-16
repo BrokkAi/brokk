@@ -568,11 +568,14 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             } catch (UnsupportedOperationException | NoSuchMethodError ignore) {
                 // Fallback to async variant if synchronous not available
                 try {
+                    boolean hadUndoBefore = contextManager.getContextHistory().hasUndoStates();
                     var fut = contextManager.undoContextAsync();
                     if (fut != null) {
                         fut.get(5, TimeUnit.SECONDS);
-                        // Heuristic: check history has undo states removed
-                        wasUndone = !contextManager.getContextHistory().hasUndoStates();
+                        boolean hasUndoAfter =
+                                contextManager.getContextHistory().hasUndoStates();
+                        // Heuristic: success if we had undo states before and either they are gone or the state changed
+                        wasUndone = hadUndoBefore && (!hasUndoAfter || hadUndoBefore != hasUndoAfter);
                     }
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
@@ -614,9 +617,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 var fut = contextManager.redoContextAsync();
                 if (fut != null) {
                     fut.get(5, TimeUnit.SECONDS);
-                    // Heuristic: if there was a redo available before, we assume something was redone
-                    wasRedone =
-                            hadRedoBefore || !contextManager.getContextHistory().hasRedoStates();
+                    boolean hasRedoAfter = contextManager.getContextHistory().hasRedoStates();
+                    // Heuristic: if there was a redo available before, and it either changed or is gone, assume success
+                    wasRedone = hadRedoBefore && (!hasRedoAfter || hadRedoBefore != hasRedoAfter);
                 }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
