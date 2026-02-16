@@ -1,43 +1,69 @@
-# Brokk Code Agent Guide
+"""
+Manual smoke test / high-level integration steps.
 
-## What this project is for
+This test file is intentionally written as a documented manual-smoke guide rather than
+an automated unit test. It can be executed by a developer as a pytest-marked docstring,
+or simply read to follow the steps to validate end-to-end integration between the
+Python TUI (brokk-code) and a local Java executor JAR.
 
-This project is a Python (Textual) terminal UI client for Brokk that launches and manages a local Java executor subprocess. It authenticates via an HTTP bearer token to submit jobs and stream real-time events or tokens, presenting an interactive workspace through dedicated chat, context, and task panels.
+How to run the manual smoke test scenario (manual steps):
 
-## Environment & Requirements
+1. Build the executor JAR locally (from the `app/` Gradle project):
+   - From repository root:
+     ./gradlew :app:clean :app:assemble
+   - The resulting JAR can typically be found under `app/build/libs/`.
 
-- **Python Version**: 3.11 or higher is required.
-- **Key Dependencies**:
-  - `textual`: For building the TUI.
-  - `httpx`: For asynchronous communication with the executor.
+2. Start the TUI against the local executor JAR:
+   - In a terminal, run:
+     uv run python -m brokk_code.app
+     (or set up your environment and run `python -m brokk_code.app`)
+   - The TUI will spawn the executor JAR as a subprocess and attempt to connect.
 
-## Communication Architecture
+3. Create and manage sessions:
+   - In the TUI chat input, type:
+     /session new
+     This creates a new session on the executor and makes it active.
+   - Verify the chat/system notifications show a session created message.
+   - Optionally export the session to workspace cache:
+     /session export
+     Check that the file exists at: <workspace>/.brokk/sessions/<sessionId>.zip
 
-This project acts as a client that communicates with the Java-based Brokk executor via an HTTP API.
-- The TUI spawns the Java executor as a subprocess.
-- It authenticates using a bearer token generated at startup.
-- It streams job events and updates the UI based on state hints from the executor.
-- For ACP mode startup, create an executor session before calling `wait_ready()`. The readiness check can fail indefinitely without an active session.
-- In ACP mode, emit a read-only context snapshot after each prompt completes. Format it as compact chip-style rows (kind, short description, tokens, pin marker).
+4. List and switch sessions:
+   - /session list  (should show the current session ID and any others)
+   - /session switch <sessionId>  (switch to another available session)
+   - Verify the Context panel updates after switching sessions.
 
-## Code Style & Standards
+5. Submit a small job (ask a short question) to generate context:
+   - Type a prompt such as:
+     What is a one-line description of the function `trim()`?
+   - Observe token streaming in the ChatPanel and that, after completion, the Context panel
+     refreshes to include any new fragments (if the executor provided context snapshots).
 
-- **PEP 8**: Follow standard Python style guidelines.
-- **Linting**: Use `ruff` for linting and formatting. 
-- **Type Hints**: Use type hints for all function signatures and complex variables.
-- **Naming**: Use `snake_case` for variables and functions, and `PascalCase` for classes.
+6. Trigger edits and undo/redo:
+   - Make a small edit that affects context (for example via an agent action or by adding a pasted
+     text fragment through the `/paste` feature if available).
+   - In the chat, run:
+     /undo
+     Verify the Context panel reflects the undone change and that the system reports success.
+   - Then run:
+     /redo
+     Verify the Context panel reflects the redo.
 
-## Testing
+7. Failures and diagnostics:
+   - If an HTTP endpoint returns NOT_FOUND for undo/redo (older executor), the TUI should surface
+     a helpful diagnostic; upgrade executor or fallback to alternate flows as needed.
+   - If the executor version is unsupported, the TUI logs or displays a message indicating
+     the required protocol version.
 
-- **Framework**: Use `pytest` for all tests.
-- **Command**: Run tests with `uv run pytest` so the project-managed environment is always used.
-- **Location**: Place tests in the `tests/` directory.
-- **Smoke Tests**: Maintain `test_smoke.py` to ensure basic app and executor manager instantiation works without starting the subprocess.
+Notes for automated test authors:
+- When authoring pytest tests that simulate these steps, prefer mocking the executor HTTP API
+  using httpx.MockTransport for ExecutorManager unit tests, and create small BrokkApp tests
+  that run methods (not spawn subprocesses) to validate command handlers and UI refresh logic.
+- Tests that require a real executor should run in CI with a prebuilt JAR and appropriate isolation.
 
-## Project Structure
-
-- `brokk_code/`: Main package directory. (See [brokk_code/AGENTS.md](brokk_code/AGENTS.md) for subtree rules).
-  - `app.py`: Main Textual Application class.
-  - `executor.py`: Logic for managing the Java executor lifecycle and API calls.
-  - `widgets/`: Custom Textual widgets (Chat, Context, TaskList).
-  - `styles/`: TCSS files for application styling.
+Acceptance criteria for this smoke procedure:
+- You can create/list/switch sessions from the TUI against a local executor.
+- Submitting a short job updates the Context panel and token counts.
+- /undo and /redo result in visible Context panel updates and return status messages.
+- Session ZIPs can be exported to the workspace cache (.brokk/sessions).
+"""
