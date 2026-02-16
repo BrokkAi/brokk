@@ -2,7 +2,6 @@ package ai.brokk.executor.routers;
 
 import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
-import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import com.sun.net.httpserver.HttpExchange;
@@ -215,22 +214,9 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
             sessionId = UUID.randomUUID();
         }
 
-        Path zipPath = sessionManager.getSessionsDir().resolve(sessionId.toString() + ".zip");
-        Files.createDirectories(zipPath.getParent());
-
         try (InputStream in = exchange.getRequestBody()) {
-            AtomicWrites.save(zipPath, out -> {
-                byte[] buffer = new byte[64 * 1024];
-                long totalRead = 0;
-                int n;
-                while ((n = in.read(buffer)) != -1) {
-                    totalRead += n;
-                    if (totalRead > MAX_SESSION_UPLOAD_SIZE) {
-                        throw new IOException("Upload limit exceeded");
-                    }
-                    out.write(buffer, 0, n);
-                }
-            });
+            // Use SessionManager to import atomically and register in cache
+            sessionManager.importSession(sessionId, in, MAX_SESSION_UPLOAD_SIZE);
 
             // Switch to session asynchronously and wait briefly
             try {

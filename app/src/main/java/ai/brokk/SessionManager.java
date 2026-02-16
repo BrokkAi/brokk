@@ -19,6 +19,7 @@ import com.github.f4b6a3.uuid.util.UuidUtil;
 import com.google.common.base.Splitter;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -207,6 +208,49 @@ public class SessionManager implements AutoCloseable {
             }
             return List.of();
         }
+    }
+
+    /**
+     * Imports a session from a zip input stream, writing it atomically and registering it in the cache.
+     * If the zip contains a valid manifest.json, uses that SessionInfo; otherwise creates a new one.
+     *
+     * @param sessionId The session ID to use (from X-Session-Id header or generated)
+     * @param zipContent The input stream containing the zip data
+     * @param maxSize Maximum allowed size in bytes (to prevent DoS)
+     * @return The SessionInfo for the imported session
+     * @throws IOException if the upload exceeds maxSize or an I/O error occurs
+     */
+    public SessionInfo importSession(UUID sessionId, InputStream zipContent, long maxSize) throws IOException {
+        Path zipPath = getSessionHistoryPath(sessionId);
+        Files.createDirectories(zipPath.getParent());
+
+        // Write atomically with size limit
+        AtomicWrites.save(zipPath, out -> {
+            byte[] buffer = new byte[64 * 1024];
+            long totalRead = 0;
+            int n;
+            while ((n = zipContent.read(buffer)) != -1) {
+                totalRead += n;
+                if (totalRead > maxSize) {
+                    throw new IOException("Upload limit exceeded");
+                }
+                out.write(buffer, 0, n);
+            }
+        });
+
+        // Read or create SessionInfo
+        SessionInfo info = readSessionInfoFromZip(zipPath).orElse(null);
+        if (info == null) {
+            // Create new manifest if missing
+            long now = System.currentTimeMillis();
+            info = new SessionInfo(sessionId, "Imported Session", now, now);
+            writeSessionInfoToZip(zipPath, info);
+        }
+
+        // Register in cache
+        sessionsCache.put(sessionId, info);
+
+        return info;
     }
 
     public SessionInfo newSession(String name) {
