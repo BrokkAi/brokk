@@ -9,9 +9,13 @@ import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
@@ -43,6 +47,7 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
         var path = exchange.getRequestURI().getPath();
         var normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
 
+        // Create / import handled specially
         if (method.equals("POST") && normalizedPath.equals("/v1/sessions")) {
             handleCreateSession(exchange);
             return;
@@ -51,21 +56,206 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
             handlePutSession(exchange);
             return;
         }
-        if (method.equals("GET")) {
+
+        // List sessions
+        if (method.equals("GET") && normalizedPath.equals("/v1/sessions")) {
+            handleListSessions(exchange);
+            return;
+        }
+
+        // sessionId-specific paths: either /v1/sessions/{id} (GET zip, PATCH rename, DELETE) or /v1/sessions/{id}/copy
+        if (normalizedPath.startsWith("/v1/sessions/")) {
+            // First try parseSessionPath for simple /v1/sessions/{id}
             var parseResult = RouterUtil.parseSessionPath(normalizedPath);
             if (parseResult.status() == RouterUtil.SessionPathStatus.VALID) {
-                handleGetSessionZip(exchange, Objects.requireNonNull(parseResult.sessionId()));
-                return;
-            }
-            if (parseResult.status() == RouterUtil.SessionPathStatus.INVALID_SESSION_ID) {
+                var sessionId = Objects.requireNonNull(parseResult.sessionId());
+                // GET on specific id returns ZIP (existing behavior)
+                if (method.equals("GET")) {
+                    handleGetSessionZip(exchange, sessionId);
+                    return;
+                }
+                if (method.equals("PATCH")) {
+                    handlePatchRenameSession(exchange, sessionId);
+                    return;
+                }
+                if (method.equals("DELETE")) {
+                    handleDeleteSession(exchange, sessionId);
+                    return;
+                }
+            } else if (parseResult.status() == RouterUtil.SessionPathStatus.INVALID_SESSION_ID) {
                 RouterUtil.sendValidationError(exchange, "Invalid session ID in path");
                 return;
             }
-            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
-            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+
+            // If path is /v1/sessions/{id}/copy
+            if (method.equals("POST") && normalizedPath.endsWith("/copy")) {
+                // extract id between base and /copy
+                var base = "/v1/sessions/";
+                var suffix = normalizedPath.substring(base.length(), normalizedPath.length() - "/copy".length());
+                if (suffix.isBlank()) {
+                    RouterUtil.sendValidationError(exchange, "Session ID is required for copy");
+                    return;
+                }
+                UUID sessionId;
+                try {
+                    sessionId = UUID.fromString(suffix);
+                } catch (IllegalArgumentException e) {
+                    RouterUtil.sendValidationError(exchange, "Invalid session ID in path");
+                    return;
+                }
+                handleCopySession(exchange, sessionId);
+                return;
+            }
+        }
+
+        // Fallbacks
+        RouterUtil.sendMethodNotAllowed(exchange);
+    }
+
+    private void handleListSessions(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
             return;
         }
-        RouterUtil.sendMethodNotAllowed(exchange);
+        try {
+            List<SessionManager.SessionInfo> sessions = sessionManager.listSessions();
+            List<Map<String, Object>> out = new ArrayList<>();
+            for (var s : sessions) {
+                Map<String, Object> m = new HashMap<>();
+                m.put("id", s.id().toString());
+                m.put("name", s.name());
+                m.put("created", s.created());
+                m.put("modified", s.modified());
+                m.put("version", s.version());
+                m.put("createdAt", s.createdAt().toString());
+                m.put("lastModified", s.lastModified().toString());
+                out.add(m);
+            }
+            SimpleHttpServer.sendJsonResponse(exchange, out);
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/sessions", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to list sessions", e));
+        }
+    }
+
+    private void handlePatchRenameSession(HttpExchange exchange, UUID sessionId) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "PATCH")) {
+            return;
+        }
+        var req = RouterUtil.parseJsonOr400(exchange, RenameSessionRequest.class, "/v1/sessions/{id}");
+        if (req == null) return;
+
+        var newName = req.name() == null ? "" : req.name().strip();
+        if (newName.isBlank()) {
+            RouterUtil.sendValidationError(exchange, "Session name is required and must not be blank");
+            return;
+        }
+        if (newName.length() > 200) {
+            RouterUtil.sendValidationError(exchange, "Session name must not exceed 200 characters");
+            return;
+        }
+
+        try {
+            // Use renameSessionAsync on contextManager; it expects a Future<String>
+            CompletableFuture<String> nameFuture = CompletableFuture.completedFuture(newName);
+            try {
+                contextManager.renameSessionAsync(sessionId, nameFuture).get(5, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                logger.warn("Timed out renaming session {}; continuing asynchronously", sessionId);
+            }
+
+            // Attempt to find updated SessionInfo from sessionManager
+            var updated = sessionManager.listSessions().stream()
+                    .filter(si -> si.id().equals(sessionId))
+                    .findFirst()
+                    .orElse(null);
+
+            if (updated == null) {
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Session not found: " + sessionId));
+                return;
+            }
+
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("id", updated.id().toString());
+            resp.put("name", updated.name());
+            resp.put("created", updated.created());
+            resp.put("modified", updated.modified());
+            resp.put("version", updated.version());
+            SimpleHttpServer.sendJsonResponse(exchange, resp);
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, "Invalid session ID: " + e.getMessage());
+        } catch (Exception e) {
+            logger.error("Error handling PATCH /v1/sessions/{}", sessionId, e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to rename session", e));
+        }
+    }
+
+    private void handleDeleteSession(HttpExchange exchange, UUID sessionId) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "DELETE")) {
+            return;
+        }
+        try {
+            try {
+                contextManager.deleteSessionAsync(sessionId).get(5, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                logger.warn("Timed out deleting session {}; continuing asynchronously", sessionId);
+            }
+
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("deleted", sessionId.toString()));
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, "Invalid session ID: " + e.getMessage());
+        } catch (Exception e) {
+            logger.error("Error handling DELETE /v1/sessions/{}", sessionId, e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to delete session", e));
+        }
+    }
+
+    private void handleCopySession(HttpExchange exchange, UUID sessionId) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
+            return;
+        }
+        var req = RouterUtil.parseJsonOr400(exchange, RenameSessionRequest.class, "/v1/sessions/{id}/copy");
+        if (req == null) return;
+
+        String copyName = req.name() == null || req.name().isBlank()
+                ? "Copy of " + sessionId.toString()
+                : req.name().strip();
+        if (copyName.length() > 200) {
+            RouterUtil.sendValidationError(exchange, "Session name must not exceed 200 characters");
+            return;
+        }
+
+        try {
+            // Prefer using SessionManager.copySession to obtain new SessionInfo directly.
+            SessionManager.SessionInfo newInfo = sessionManager.copySession(sessionId, copyName);
+
+            // Optionally attempt to inform ContextManager
+            try {
+                var fut = contextManager.copySessionAsync(sessionId, newInfo.name());
+                // copySessionAsync may not return the new id; we won't rely on it.
+                try {
+                    fut.get(5, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
+                    logger.warn("Timed out contextManager.copySessionAsync for {}; continuing", sessionId);
+                }
+            } catch (Exception ignore) {
+                // Non-fatal; SessionManager already created the copy on disk.
+                logger.debug("ContextManager.copySessionAsync not available or failed: {}", ignore.toString());
+            }
+
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("id", newInfo.id().toString());
+            resp.put("name", newInfo.name());
+            resp.put("created", newInfo.created());
+            resp.put("modified", newInfo.modified());
+            resp.put("version", newInfo.version());
+            SimpleHttpServer.sendJsonResponse(exchange, 201, resp);
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, "Invalid session ID: " + e.getMessage());
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/sessions/{}/copy", sessionId, e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to copy session", e));
+        }
     }
 
     private void handleCreateSession(HttpExchange exchange) throws IOException {
@@ -198,4 +388,6 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
     }
 
     private record CreateSessionRequest(String name) {}
+
+    private record RenameSessionRequest(String name) {}
 }
