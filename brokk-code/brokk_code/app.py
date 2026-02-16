@@ -284,11 +284,11 @@ class BrokkApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        # Compact status line under header
-        yield StatusLine(id="status-line")
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
+        # Compact status line above footer (hidden by default)
+        yield StatusLine(id="status-line", classes="hidden")
         yield OrderedFooter(show_command_palette=False)
 
     async def on_mount(self) -> None:
@@ -370,6 +370,11 @@ class BrokkApp(App):
                     chat.add_system_message("Ready!")
                 else:
                     logger.info("Executor ready")
+                # Ensure status line reflects executor readiness and workspace dir
+                try:
+                    self._update_status_line()
+                except Exception:
+                    pass
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
             else:
