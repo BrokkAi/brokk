@@ -20,6 +20,7 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -881,16 +882,6 @@ public final class JobRunner {
 
                                             // 6. Parse review output (JSON only)
                                             String reviewText = review.responseText();
-                                            if (reviewText.isBlank()) {
-                                                reviewText = PrReviewService.extractAiTranscript(
-                                                        reviewResult.output().messages());
-                                            }
-                                            if (reviewText.isBlank()) {
-                                                reviewText = reviewResult
-                                                        .output()
-                                                        .text()
-                                                        .join();
-                                            }
 
                                             var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
 
@@ -1520,8 +1511,16 @@ public final class JobRunner {
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
 
-        String responseText = response == null ? "" : response.text();
-        return new ReviewDiffResult(new TaskResult(ctx, stop), responseText);
+        String responseText = "";
+        List<ChatMessage> responseMessages = List.of();
+        if (response != null && response.chatResponse() != null) {
+            var aiMessage = response.aiMessage();
+            responseMessages = List.of(aiMessage);
+            responseText = Messages.getText(aiMessage);
+        }
+
+        Context reviewContext = ctx.addHistoryEntry(responseMessages, messages, TaskResult.Type.REVIEW, model, "PR Review");
+        return new ReviewDiffResult(new TaskResult(reviewContext, stop), responseText);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
@@ -2294,15 +2293,7 @@ public final class JobRunner {
                         Thread.currentThread().interrupt();
                         throw new IssueExecutionException("Interrupted while running PR Review", e);
                     }
-                    TaskResult reviewResult = review.taskResult();
                     String reviewText = review.responseText();
-                    if (reviewText.isBlank()) {
-                        reviewText = PrReviewService.extractAiTranscript(
-                                reviewResult.output().messages());
-                    }
-                    if (reviewText.isBlank()) {
-                        reviewText = reviewResult.output().text().join();
-                    }
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
                     if (reviewResponse == null) {
