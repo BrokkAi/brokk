@@ -8,6 +8,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -37,7 +38,7 @@ public final class ImportGraphCandidateProvider implements CandidateFileProvider
             Path parent = sourceFile.getParent();
             var language = Languages.fromExtension(sourceFile.extension());
             Set<ProjectFile> siblings = analyzer.getProject().getAnalyzableFiles(language).stream()
-                    .filter(f -> f.getParent().equals(parent))
+                    .filter(f -> Objects.equals(f.getParent(), parent))
                     .collect(Collectors.toSet());
             candidates.addAll(siblings);
         }
