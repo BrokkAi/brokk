@@ -871,6 +871,7 @@ public final class JobRunner {
                                             // 5. Call reviewDiff() to get LLM review with enriched context
                                             var plannerModel = requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
+
                                             ReviewDiffResult review = reviewDiff(
                                                     context,
                                                     plannerModel,
@@ -886,6 +887,12 @@ public final class JobRunner {
                                             var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
 
                                             if (reviewResponse == null) {
+                                                if (reviewText.isBlank()) {
+                                                    logger.error(
+                                                            "LLM returned empty response for review job {}", jobId);
+                                                    throw new IllegalStateException(
+                                                            "LLM returned empty response for PR review");
+                                                }
                                                 // JSON parsing failed - treat as hard error
                                                 String preview = reviewText.length() > 500
                                                         ? reviewText.substring(0, 500) + "..."
@@ -2298,6 +2305,9 @@ public final class JobRunner {
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
                     if (reviewResponse == null) {
+                        if (reviewText.isBlank()) {
+                            throw new IssueExecutionException("LLM returned empty response for issue diff review");
+                        }
                         String preview = reviewText.length() > 500 ? reviewText.substring(0, 500) + "..." : reviewText;
                         throw new IssueExecutionException(
                                 "Issue diff review response was not valid JSON. Response preview: " + preview);

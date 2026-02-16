@@ -1,6 +1,8 @@
 package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.IssueRewriterAgent;
@@ -209,5 +211,23 @@ class JobRunnerTest {
         assertTrue(
                 maxPolicyIndex > commentPolicyIndex,
                 "Max comments policy line should appear inside the comment policy section");
+    }
+
+    @Test
+    void testParsePrReviewResponse_ReturnsNullForEmptyAndMalformedInput() {
+        assertNull(PrReviewService.parsePrReviewResponse(""), "Empty text should not parse");
+        assertNull(PrReviewService.parsePrReviewResponse("   "), "Whitespace-only text should not parse");
+        assertNull(PrReviewService.parsePrReviewResponse("This is not JSON at all"), "Plain text should not parse");
+        assertNull(
+                PrReviewService.parsePrReviewResponse("{\"unrelated\": true}"),
+                "JSON without summaryMarkdown should not parse");
+    }
+
+    @Test
+    void testParsePrReviewResponse_ParsesValidReviewJson() {
+        String json = "{\"summaryMarkdown\": \"## Review\\nLooks good.\", \"comments\": []}";
+        var parsed = PrReviewService.parsePrReviewResponse(json);
+        assertNotNull(parsed, "Valid review JSON should parse");
+        assertEquals("## Review\nLooks good.", parsed.summaryMarkdown());
     }
 }
