@@ -656,7 +656,7 @@ public final class FuzzyUsageFinder {
                 // Search slightly before and after for '::'
                 boolean isMethodRef =
                         (scan + 1 < line.length() && line.charAt(scan) == ':' && line.charAt(scan + 1) == ':')
-                                || (pos >= 2 && line.charAt(pos - 1) == ':' && line.charAt(pos - 2) == ':');
+                                || (pos >= 2 && line.substring(pos - 2, pos).equals("::"));
                 if (isMethodRef) {
                     return OptionalInt.empty();
                 }
@@ -806,8 +806,7 @@ public final class FuzzyUsageFinder {
     private static int computeGlobalPos(String[] lines, int lineIndex, int col) {
         int pos = 0;
         for (int i = 0; i < lineIndex; i++) {
-            pos += lines[i].length();
-            pos += 1; // account for the '\n' that was removed by split
+            pos += lines[i].length() + 1; // +1 for the newline
         }
         return pos + col;
     }

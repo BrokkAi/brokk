@@ -362,33 +362,23 @@ public class FuzzyUsageFinderJavaTest {
             var files = fileNamesFromHits(hits);
             assertTrue(files.contains("OverloadsUser.java"), "Expected usage in OverloadsUser.java; actual: " + files);
 
-            // Now demonstrate the parameter-count heuristic by querying a MORE SPECIFIC fqName that denotes a single
-            // overload. The JavaAnalyzer exposes signatures on definitions; using a signed fqName will target a single
-            // overload and the finder will filter call sites by argument count. The signed fqName format varies by
-            // analyzer; historical tests used forms like Class.method (without explicit signature) for aggregation.
-            // Many analyzers accept a fully-qualified name without signature to mean "all overloads". To target a
-            // single overload we attempt to include a simple signature fragment. This portion of the test is
-            // intentionally conservative: if the analyzer does not expose per-overload lookup by fqName, we at least
-            // verify the aggregated behavior above.
-            //
-            // The following attempts to target the two-argument overload. If the analyzer accepts it, the resulting
-            // hits should include only calls that pass two arguments; otherwise the test still passes because we
-            // validated aggregation above.
-            String twoArgFq = "Overloads.foo"; // best-effort: analyzers may support signature-qualified fqNames
+            // Target the two-argument overload explicitly.
+            String twoArgFq = "Overloads.foo(int, int)";
             var either2 = finder.findUsages(twoArgFq).toEither();
             if (either2.hasErrorMessage()) {
                 fail("Got failure for " + twoArgFq + " -> " + either2.getErrorMessage());
             }
             var hits2 = either2.getUsages();
 
-            // There must be at least the two-arg call present somewhere; ensure it's found when aggregation is used.
-            assertFalse(hits2.isEmpty(), "Expected at least one usage hit for " + twoArgFq);
-
-            // Assert that at least one of the found snippets corresponds to a two-argument call (conservative check).
-            boolean foundTwoArg = hits2.stream()
-                    .anyMatch(h ->
-                            h.snippet().contains("foo(1, 2)") || h.snippet().contains("foo(10, 20)"));
-            assertTrue(foundTwoArg, "Expected to find a two-argument call snippet in the hits; hits: " + hits2);
+            // Verify that only the 2-argument calls are returned.
+            assertFalse(hits2.isEmpty(), "Expected hits for " + twoArgFq);
+            for (var hit : hits2) {
+                assertTrue(
+                        hit.snippet().contains("(1, 2)") || hit.snippet().contains("(10, 20)"),
+                        "Hit snippet should contain 2-arg call: " + hit.snippet());
+                assertFalse(hit.snippet().contains("o.foo();"), "Should not contain 0-arg call");
+                assertFalse(hit.snippet().contains("o.foo(1);"), "Should not contain 1-arg call");
+            }
         }
     }
 
@@ -430,9 +420,8 @@ public class FuzzyUsageFinderJavaTest {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
             var finder = newFinder(inlineProject, inlineAnalyzer);
 
-            // Attempt to target the single-argument overload by using the base fqName. Some analyzers will resolve
-            // to multiple definitions here (aggregation), while others may support signature-qualified lookup.
-            String targetFq = "OverloadTarget.foo";
+            // Target the single-argument overload.
+            String targetFq = "OverloadTarget.foo(int)";
             var result = finder.findUsages(targetFq);
             var either = result.toEither();
             if (either.hasErrorMessage()) {
@@ -440,30 +429,13 @@ public class FuzzyUsageFinderJavaTest {
             }
             var hits = either.getUsages();
 
-            // If analyzer aggregated overloads, we will see both calls. If analyzer supports per-overload lookup and
-            // the parameter-count heuristic is applied, at least the mismatched call should be filtered when possible.
-            boolean containsNoArg = hits.stream().anyMatch(h -> h.snippet().contains("t.foo();"));
+            // The 1-arg call should be found.
             boolean containsOneArg = hits.stream().anyMatch(h -> h.snippet().contains("t.foo(5);"));
+            assertTrue(containsOneArg, "Expected 1-arg call 't.foo(5)' to be present in hits");
 
-            // At minimum one of the call sites must be found.
-            assertTrue(containsNoArg || containsOneArg, "Expected at least one call to be present in hits");
-
-            // If only one kind present, that's acceptable. If both present and analyzer aggregates overloads, that is
-            // expected. If analyzer supports selecting a single overload, then when targeting that overload the other
-            // form would be filtered; because the exact fqName signature format may vary, we avoid hard-failing here.
-            //
-            // However, to ensure the parameter-count heuristic is in the test-suite, assert that when a hit includes a
-            // snippet with arguments, the argument count parser can at least detect the presence of arguments.
-            boolean anyWithArgs = hits.stream()
-                    .anyMatch(h -> h.snippet().contains("foo(") && h.snippet().contains(","));
-            // This is a weak assertion ensuring the snippets contain argument lists when applicable.
-            if (anyWithArgs) {
-                assertTrue(
-                        hits.stream()
-                                .anyMatch(h -> h.snippet().contains("foo(5)")
-                                        || h.snippet().contains("foo(10, 20)")),
-                        "Expected to observe explicit argument lists in at least one snippet");
-            }
+            // The 0-arg call should be filtered out by the heuristic.
+            boolean containsNoArg = hits.stream().anyMatch(h -> h.snippet().contains("t.foo();"));
+            assertFalse(containsNoArg, "Expected 0-arg call 't.foo()' to be filtered out");
         }
     }
 
