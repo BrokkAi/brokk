@@ -198,6 +198,10 @@ class BrokkApp(App):
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
         Binding("ctrl+space", "task_toggle", "Task Toggle", show=False),
         Binding("f3", "toggle_mode", "Mode", show=False),
+
+        # Undo/Redo bindings: ctrl+z and ctrl+shift+z (redo). These operate on the executor's current session only.
+        Binding("ctrl+z", "undo_context", "Undo", show=False),
+        Binding("ctrl+shift+z", "redo_context", "Redo", show=False),
     ]
 
     def __init__(
@@ -1013,6 +1017,7 @@ class BrokkApp(App):
         parts = cmd.split()
         base = parts[0].lower()
 
+        # Basic model/setting commands
         if base == "/model" and len(parts) > 1:
             self.current_model = parts[1]
             chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
@@ -1031,6 +1036,8 @@ class BrokkApp(App):
             chat.add_system_message_markup(
                 f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
             )
+
+        # Settings and mode switches
         elif base == "/settings":
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
@@ -1039,6 +1046,8 @@ class BrokkApp(App):
             self._set_mode(base[1:].upper())
         elif base == "/info":
             self._render_info()
+
+        # History commands
         elif base == "/history":
             history = load_history(self.executor.workspace_dir)
             if not history:
@@ -1050,6 +1059,8 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+
+        # Task list commands
         elif base == "/task":
             panel = self.query_one(TaskListPanel)
             if len(parts) == 1:
@@ -1089,6 +1100,8 @@ class BrokkApp(App):
                     chat.add_system_message(
                         "Unknown /task command. Use: next, prev, toggle, delete, add, edit."
                     )
+
+        # Help
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
@@ -1114,12 +1127,33 @@ class BrokkApp(App):
                 "  /session switch <id>  - Switch to an existing session\n"
                 "  /session delete <id>  - Delete a session\n"
                 "  /info                 - Show current configuration and status\n"
+                "  /undo                 - Undo last context change (executor session-local)\n"
+                "  /redo                 - Redo last undone context change (executor session-local)\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
             )
             chat.append_message("System", help_text)
+
+        # Session commands
         elif base == "/session":
             self._handle_session_command(parts, chat)
+
+        # Undo / Redo commands - operate against executor's current session only.
+        # Note: These invoke the remote executor history endpoints and therefore affect
+        # the server-side session state. They are intentionally session-local.
+        elif base == "/undo":
+            # Fire-and-forget via run_worker so we don't block the UI
+            if not self._executor_ready:
+                chat.add_system_message("Executor is not ready. Cannot perform undo.", level="ERROR")
+            else:
+                self.run_worker(self._undo_context())
+        elif base == "/redo":
+            if not self._executor_ready:
+                chat.add_system_message("Executor is not ready. Cannot perform redo.", level="ERROR")
+            else:
+                self.run_worker(self._redo_context())
+
+        # Quit
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
