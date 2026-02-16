@@ -243,17 +243,48 @@ ChatPanel {
     border: solid $primary-darken-2;
 }
 
+/* Compact single-row status line placed between content and footer.
+   Uses the same visual language as other horizontal panels (background + subtle border).
+   It is intentionally lightweight: a single row, small horizontal padding, and a horizontal layout
+   for concatenated segments like "Mode: X | Model: Y | Reasoning: Z | Dir: path". */
 #status-line {
     height: 1;
+    min-height: 1;
     width: 100%;
+    layout: horizontal;
     background: $panel;
     color: $text;
     border-top: solid $primary-darken-2;
     border-bottom: solid $primary-darken-2;
     padding: 0 2;
+    gap: 1;
     content-align: left middle;
+    /* Ensure the line doesn't consume extra vertical space when displayed */
+    margin: 0;
 }
 
+/* Small helper classes for segments inside the status line to keep spacing consistent. */
+.status-segment {
+    margin-right: 2;
+    color: $text;
+    width: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Muted segment style for less important information (e.g., reasoning level). */
+.status-segment.muted {
+    color: $text-muted;
+}
+
+/* Separator visual (thin, subtle) between segments when needed. */
+.status-separator {
+    color: $text-disabled;
+    margin: 0 1;
+}
+
+/* Hidden utility remains compatible and will hide the status line when toggled. */
 .hidden {
     display: none;
 }
