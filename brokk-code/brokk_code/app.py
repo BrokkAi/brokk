@@ -225,10 +225,31 @@ class BrokkApp(App):
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.sub_title = f"Mode: {self.agent_mode}"
-        self.current_model = "gpt-5.2"
-        self.code_model: Optional[str] = "gemini-3-flash-preview"
-        self.reasoning_level: Optional[str] = "low"
-        self.reasoning_level_code: Optional[str] = "disable"
+
+        # Initialize model and reasoning settings from persisted Settings if present,
+        # otherwise fall back to safe defaults.
+        # We accept persisted values as-is at startup; validation against the
+        # executor model catalog can occur later if needed.
+        self.current_model = (
+            str(self.settings.last_model).strip()
+            if self.settings.last_model
+            else "gpt-5.2"
+        )
+        self.code_model = (
+            str(self.settings.last_code_model).strip()
+            if self.settings.last_code_model
+            else "gemini-3-flash-preview"
+        )
+        self.reasoning_level = (
+            str(self.settings.last_reasoning_level).strip()
+            if self.settings.last_reasoning_level
+            else "low"
+        )
+        self.reasoning_level_code = (
+            str(self.settings.last_code_reasoning_level).strip()
+            if self.settings.last_code_reasoning_level
+            else "disable"
+        )
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
