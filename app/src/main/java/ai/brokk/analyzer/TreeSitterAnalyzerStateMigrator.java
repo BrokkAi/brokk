@@ -5,7 +5,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class TreeSitterAnalyzerStateMigrator {
 
-    public static final SemVer JAVA_TS_REBUILD_THRESHOLD = SemVer.parse("1.2.0");
+    public static final SemVer REBUILD_THRESHOLD = SemVer.parse("1.1.0");
 
     private TreeSitterAnalyzerStateMigrator() {}
 
@@ -18,7 +18,7 @@ public final class TreeSitterAnalyzerStateMigrator {
             return false;
         }
 
-        return fromVer == null || fromVer.compareTo(JAVA_TS_REBUILD_THRESHOLD) < 0;
+        return fromVer == null || fromVer.compareTo(REBUILD_THRESHOLD) < 0;
     }
 
     static TreeSitterStateIO.AnalyzerStateDto migrate(TreeSitterStateIO.AnalyzerStateDto dto, SemVer from, SemVer to) {
