@@ -94,10 +94,10 @@ public class MultiAnalyzerTest {
 
     @Test
     public void testDelegateRouting_JavaFile_getSources() {
-        // Get the correct CodeUnit from analyzer
+        // Create a CodeUnit for the testMethod
         var methodUnit = multiAnalyzer.getDefinitions("TestClass.testMethod").stream()
-                .findFirst()
-                .orElseThrow();
+                .findAny()
+                .get();
 
         // Get method sources through MultiAnalyzer - should route to Java delegate via getSources
         Set<String> sources = multiAnalyzer.getSources(methodUnit, true);

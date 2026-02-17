@@ -11,6 +11,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
+import ai.brokk.analyzer.java.JdtUsageAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
@@ -40,6 +41,7 @@ import org.jetbrains.annotations.Nullable;
 public final class FuzzyUsageFinder {
 
     private static final Logger logger = LogManager.getLogger(FuzzyUsageFinder.class);
+    private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
     public static final int DEFAULT_MAX_FILES = 1000;
     public static final int DEFAULT_MAX_USAGES = 1000;
 
@@ -139,6 +141,27 @@ public final class FuzzyUsageFinder {
             // Case 1: Too many call sites
             logger.debug("Too many call sites found for {}: {} files matched", target, candidateFiles.size());
             return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
+        }
+
+        // --- Precise Java Analysis Path ---
+        if (!FUZZY_USAGES_ONLY && lang.contains(Languages.JAVA)) {
+            // When in MultiLanguage mode, filter to only Java files for JDT analysis
+            Set<ProjectFile> javaCandidateFiles = candidateFiles;
+            if (lang instanceof Language.MultiLanguage) {
+                javaCandidateFiles = candidateFiles.stream()
+                        .filter(f -> Languages.JAVA.getExtensions().contains(f.extension()))
+                        .collect(Collectors.toSet());
+            }
+
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, javaCandidateFiles, project);
+
+            logger.debug(
+                    "Extracted {} precise JDT usage hits for {} from {} candidate files",
+                    hits.size(),
+                    target.fqName(),
+                    candidateFiles.size());
+
+            return new FuzzyResult.Success(Map.of(target, hits));
         }
 
         // Extract raw usage hits from candidate files using the provided patterns
