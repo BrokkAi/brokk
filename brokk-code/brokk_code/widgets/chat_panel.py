@@ -102,8 +102,8 @@ class ChatPanel(Vertical):
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
-            yield TokenBar(id="chat-token-bar", classes="hidden")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
+        yield TokenBar(id="chat-token-bar", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield StatusLine(id="status-line")
 
@@ -238,15 +238,10 @@ class ChatPanel(Vertical):
             area = self.query_one("#chat-spinner-area", Horizontal)
             spinner = self.query_one("#chat-spinner", LoadingIndicator)
             timer = self.query_one("#chat-timer", Static)
-            token_bar = self.query_one("#chat-token-bar", TokenBar)
         except Exception:
             return
 
-        should_show = (
-            not token_bar.has_class("hidden")
-            or not spinner.has_class("hidden")
-            or not timer.has_class("hidden")
-        )
+        should_show = not spinner.has_class("hidden") or not timer.has_class("hidden")
         area.set_class(not should_show, "hidden")
 
     def _show_spinner(self, show: bool) -> None:
