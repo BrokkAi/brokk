@@ -1,4 +1,5 @@
 import json
+import stat
 
 import pytest
 
@@ -83,3 +84,15 @@ def test_configure_zed_acp_settings_force_overwrites_existing_brokk_code(tmp_pat
     data = json.loads(settings_path.read_text(encoding="utf-8"))
     assert data["agent_servers"]["Brokk Code"]["command"] == "brokk-code"
     assert data["agent_servers"]["Brokk Code"]["args"] == ["acp", "--ide", "zed"]
+
+
+def test_configure_zed_acp_settings_preserves_existing_permissions(tmp_path) -> None:
+    settings_path = tmp_path / ".config" / "zed" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps({"theme": "One Dark"}), encoding="utf-8")
+    settings_path.chmod(0o640)
+
+    configure_zed_acp_settings(settings_path=settings_path)
+
+    mode = stat.S_IMODE(settings_path.stat().st_mode)
+    assert mode == 0o640

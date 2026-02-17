@@ -1,4 +1,5 @@
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,24 @@ def _brokk_code_agent_server_config() -> dict[str, Any]:
         "args": ["acp", "--ide", "zed"],
         "env": {},
     }
+
+
+def _atomic_write_settings(path: Path, settings: dict[str, Any]) -> None:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as temp_file:
+        temp_file.write(f"{json.dumps(settings, indent=2)}\n")
+        temp_path = Path(temp_file.name)
+
+    if path.exists():
+        temp_path.chmod(path.stat().st_mode)
+
+    temp_path.replace(path)
 
 
 def configure_zed_acp_settings(*, force: bool = False, settings_path: Path | None = None) -> Path:
@@ -48,5 +67,5 @@ def configure_zed_acp_settings(*, force: bool = False, settings_path: Path | Non
     agent_servers["Brokk Code"] = _brokk_code_agent_server_config()
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"{json.dumps(settings, indent=2)}\n", encoding="utf-8")
+    _atomic_write_settings(path, settings)
     return path
