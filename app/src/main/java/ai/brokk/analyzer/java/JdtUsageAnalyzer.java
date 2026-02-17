@@ -23,6 +23,7 @@ import org.eclipse.jdt.core.dom.ImportDeclaration;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.SimpleType;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -218,6 +219,12 @@ public class JdtUsageAnalyzer {
                 @Override
                 public boolean visit(ClassInstanceCreation node) {
                     checkBinding(node.resolveConstructorBinding(), node);
+                    return true;
+                }
+
+                @Override
+                public boolean visit(SimpleType node) {
+                    checkBinding(node.resolveBinding(), node);
                     return true;
                 }
 

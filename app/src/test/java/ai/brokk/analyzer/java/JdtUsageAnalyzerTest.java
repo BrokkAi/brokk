@@ -313,6 +313,32 @@ public class JdtUsageAnalyzerTest {
     }
 
     @Test
+    public void testTypeReferenceInFieldDeclaration() throws Exception {
+        String source =
+                """
+                package com.example;
+                public class Target {
+                    public static final Target INSTANCE = new Target();
+                }
+                """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(source, "com/example/Target.java").build()) {
+            ProjectFile targetFile = project.getAllFiles().iterator().next();
+
+            // Search for type usages of Target
+            CodeUnit classTarget = new CodeUnit(targetFile, CodeUnitType.CLASS, "com.example", "Target");
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(classTarget, project.getAllFiles(), project);
+
+            // Should find the type reference on LHS of field declaration: "Target INSTANCE"
+            // Note: constructor call "new Target()" is also a hit via ClassInstanceCreation visitor
+            assertTrue(
+                    hits.stream().anyMatch(h -> h.snippet().contains("Target INSTANCE")),
+                    "Should find type reference in field declaration LHS");
+        }
+    }
+
+    @Test
     public void testSignatureConsistencyWithJavaAnalyzer() throws Exception {
         String source =
                 """
