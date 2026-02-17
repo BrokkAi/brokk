@@ -4,7 +4,6 @@ import pytest
 
 from brokk_code.app import BrokkApp, ContextModalScreen
 from brokk_code.widgets.chat_panel import ChatPanel
-from brokk_code.widgets.context_panel import ContextPanel
 
 
 @pytest.mark.asyncio

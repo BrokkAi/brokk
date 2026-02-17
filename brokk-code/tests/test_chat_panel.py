@@ -1,9 +1,4 @@
-import asyncio
-import time
-
 import pytest
-from textual.containers import Horizontal
-from textual.widgets import Static
 
 from brokk_code.widgets.chat_panel import ChatPanel
 
@@ -12,6 +7,7 @@ from brokk_code.widgets.chat_panel import ChatPanel
 async def test_token_usage_update():
     """Verify that updating token usage updates the widget text."""
     from textual.app import App, ComposeResult
+
     from brokk_code.widgets.token_bar import TokenBar
 
     class TestApp(App):
@@ -50,6 +46,7 @@ async def test_job_progress_delegated_to_status_line():
     Verify that job running state is reflected in StatusLine, not owned by ChatPanel.
     """
     from textual.app import App, ComposeResult
+
     from brokk_code.widgets.status_line import StatusLine
 
     class TestApp(App):

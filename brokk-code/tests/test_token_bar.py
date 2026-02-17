@@ -1,4 +1,3 @@
-import pytest
 from brokk_code.widgets.token_bar import TokenBar
 
 
@@ -51,8 +50,10 @@ def test_compute_segments_history_not_grouped_even_if_small():
         {"chipKind": "EDIT", "tokens": 990},
         {"chipKind": "HISTORY", "tokens": 10},
     ]
-    # HISTORY is 1.0 wide. Should NOT be grouped, and should be at least 1 wide (or min width if we prefer)
-    # In our implementation, HISTORY isn't grouped but also doesn't have a min_w of 2 unless it hits floor logic.
+    # HISTORY is 1.0 wide. Should NOT be grouped, and should be at least 1 wide
+    # (or min width if we prefer).
+    # In our implementation, HISTORY isn't grouped but also doesn't have a min_w of 2
+    # unless it hits floor logic.
     segments = TokenBar.compute_segments(100, 1000, 1000, fragments)
     assert (99, "EDIT") in segments
     assert (1, "HISTORY") in segments
