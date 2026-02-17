@@ -306,5 +306,3 @@ ChatPanel {
 #token-bar.hidden {
     display: none;
 }
-
-</fragment>
