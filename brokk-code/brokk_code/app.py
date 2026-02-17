@@ -1297,14 +1297,15 @@ class BrokkApp(App):
         if self._session_exported:
             return
 
-        # Quick-circuit: no session or executor not ready -> nothing to export
-        if not self.executor.session_id or not self._executor_ready:
+        # Only require a session_id here; availability is checked by the caller.
+        if not self.executor.session_id:
             return
 
         from brokk_code.session_persistence import get_session_zip_path
 
         try:
             session_id = self.executor.session_id
+            assert session_id is not None
             zip_bytes = await self.executor.download_session_zip(session_id)
             zip_path = get_session_zip_path(self.executor.workspace_dir, session_id)
             zip_path.write_bytes(zip_bytes)
