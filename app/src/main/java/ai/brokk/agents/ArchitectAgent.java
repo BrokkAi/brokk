@@ -67,6 +67,19 @@ public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
     private static final int MAX_TURNS = 10;
 
+    /**
+     * Listener for ArchitectAgent events.
+     */
+    @FunctionalInterface
+    public interface ArchitectListener {
+        /**
+         * Invoked when a CodeAgent call completes.
+         *
+         * @param context the resulting context from the CodeAgent run
+         */
+        void onCodeAgentResult(Context context);
+    }
+
     private final IConsoleIO io;
 
     // Lock to ensure only one SearchAgent streams output at a time during parallel execution
@@ -110,6 +123,9 @@ public class ArchitectAgent {
 
     // Tracks if we have ever entered emergency mode (restricted tools due to context size)
     private boolean hasEnteredEmergencyMode = false;
+
+    @Nullable
+    private ArchitectListener listener;
 
     private final Set<ProjectFile> presentedRelatedFiles = new HashSet<>();
 
@@ -188,6 +204,10 @@ public class ArchitectAgent {
 
     public void setVerifyCommand(@Nullable String verifyCommand) {
         this.verifyCommand = verifyCommand;
+    }
+
+    public void setListener(@Nullable ArchitectListener listener) {
+        this.listener = listener;
     }
 
     /**
@@ -280,6 +300,10 @@ public class ArchitectAgent {
 
             // re-check in case verifyCommand failed
             if (reason == StopReason.SUCCESS) {
+                if (listener != null) {
+                    listener.onCodeAgentResult(context);
+                }
+
                 var fileList = changedFragments.stream()
                         .map(cf -> cf.shortDescription().join())
                         .sorted()
@@ -312,6 +336,10 @@ public class ArchitectAgent {
             this.lastFatalReason = reason;
             logger.error("Fatal {} during CodeAgent execution: {}", reason, stopDetails.explanation());
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
+        }
+
+        if (listener != null) {
+            listener.onCodeAgentResult(context);
         }
 
         // Extract and compress reasoning
