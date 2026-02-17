@@ -11,6 +11,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
+from brokk_code.widgets.token_bar import TokenBar
 
 from brokk_code.widgets.status_line import StatusLine
 
@@ -101,7 +102,11 @@ class ChatPanel(Vertical):
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
-            yield Static(id="chat-token-usage", classes="token-usage hidden")
+            # Spinner/timer area intentionally does NOT host the token bar anymore.
+        # TokenBar is placed aligned with the chat input margins so it shares the same
+        # horizontal region as #chat-input (margins defined in CSS). It is visually
+        # decoupled from the spinner/timer area so spinner visibility logic remains.
+        yield TokenBar(id="token-bar")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield StatusLine(id="status-line")
@@ -237,15 +242,20 @@ class ChatPanel(Vertical):
             area = self.query_one("#chat-spinner-area", Horizontal)
             spinner = self.query_one("#chat-spinner", LoadingIndicator)
             timer = self.query_one("#chat-timer", Static)
-            usage_label = self.query_one("#chat-token-usage", Static)
+            token_bar = self.query_one("#token-bar", TokenBar)
         except Exception:
             return
 
-        should_show = (
-            not usage_label.has_class("hidden")
-            or not spinner.has_class("hidden")
-            or not timer.has_class("hidden")
-        )
+        # The spinner area should be visible if any of spinner/timer/token_bar is visible.
+        # TokenBar is decoupled from the spinner area visually, but we keep the previous
+        # semantics: showing the token bar can make the spinner-area visible in layouts
+        # that depend on it. Use token_bar.has_class("hidden") to determine visibility.
+        try:
+            token_visible = not token_bar.has_class("hidden")
+        except Exception:
+            token_visible = False
+
+        should_show = (token_visible or not spinner.has_class("hidden") or not timer.has_class("hidden"))
         area.set_class(not should_show, "hidden")
 
     def _show_spinner(self, show: bool) -> None:
@@ -262,6 +272,7 @@ class ChatPanel(Vertical):
             spinner.add_class("hidden")
             timer.add_class("hidden")
 
+        # Re-evaluate area visibility; token bar is considered by that method.
         self._update_spinner_area_visibility()
 
     def _update_elapsed_time_label(self) -> None:
@@ -424,11 +435,12 @@ class ChatPanel(Vertical):
     def set_token_bar_visible(self, visible: bool) -> None:
         """Toggles the visibility of the token usage bar."""
         try:
-            usage_label = self.query_one("#chat-token-usage", Static)
-            usage_label.set_class(not visible, "hidden")
+            token_bar = self.query_one("#token-bar", TokenBar)
+            token_bar.set_class(not visible, "hidden")
         except Exception:
             return
 
+        # TokenBar visibility is considered when updating the spinner/timer area.
         self._update_spinner_area_visibility()
 
     def clear_input(self) -> None:
@@ -439,25 +451,18 @@ class ChatPanel(Vertical):
         self._draft_buffer = ""
 
     def set_token_usage(self, used: int, max_tokens: Optional[int] = None) -> None:
-        """Updates the token usage display in the spinner area."""
+        """Updates the token usage display by delegating to the TokenBar widget.
+
+        Keeps the original signature for compatibility with BrokkApp._refresh_context_panel.
+        Delegates all rendering and zero/None handling to TokenBar.set_usage.
+        """
         try:
-            usage_label = self.query_one("#chat-token-usage", Static)
+            token_bar = self.query_one("#token-bar", TokenBar)
         except Exception:
             return
 
-        if used <= 0:
-            usage_label.update("")
+        try:
+            token_bar.set_usage(used, max_tokens)
+        except Exception:
+            # Swallow UI errors for best-effort updates.
             return
-
-        if max_tokens and max_tokens > 0:
-            bar_width = 20
-            # Clamp ratio between 0 and 1
-            ratio = max(0.0, min(1.0, used / max_tokens))
-            filled_len = int(bar_width * ratio)
-            bar = "█" * filled_len + "░" * (bar_width - filled_len)
-            usage_text = f"[{bar}] {used:,} / {max_tokens:,}"
-        else:
-            usage_text = f"Tokens: {used:,}"
-
-        # Using Text object to avoid markup injection/crashes
-        usage_label.update(Text(usage_text))
