@@ -153,9 +153,7 @@ public final class FuzzyUsageFinder {
                         .collect(Collectors.toSet());
             }
 
-            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, javaCandidateFiles, project).stream()
-                    .filter(h -> !h.enclosing().equals(target))
-                    .collect(Collectors.toSet());
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, javaCandidateFiles, project);
 
             logger.debug(
                     "Extracted {} precise JDT usage hits for {} from {} candidate files",
