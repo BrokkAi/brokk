@@ -24,6 +24,7 @@ class ContextRoutingIntegrationTest {
 
     @BeforeEach
     void setup(@TempDir Path tempDir) throws IOException {
+        System.setProperty("ai.brokk.executor.testMode", "true");
         var project = MainProject.forTests(tempDir);
         var contextManager = new ContextManager(project);
 

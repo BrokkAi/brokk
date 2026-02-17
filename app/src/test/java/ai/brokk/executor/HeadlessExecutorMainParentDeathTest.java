@@ -43,6 +43,7 @@ class HeadlessExecutorMainParentDeathTest {
 
     @BeforeEach
     void setup(@TempDir Path tempDir) throws Exception {
+        System.setProperty("ai.brokk.executor.testMode", "true");
         var workspaceDir = tempDir.resolve("workspace");
         Files.createDirectories(workspaceDir);
 

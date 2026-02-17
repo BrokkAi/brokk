@@ -25,6 +25,7 @@ class HeadlessReadinessLifecycleTest {
 
     @BeforeEach
     void setup(@TempDir Path tempDir) throws Exception {
+        System.setProperty("ai.brokk.executor.testMode", "true");
         // Use a minimal stub IContextManager that always returns a fixed session ID.
         var fixedSessionId = UUID.randomUUID();
         IContextManager stubCm = new IContextManager() {

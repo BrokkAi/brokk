@@ -35,10 +35,18 @@ public final class HeadlessExecutorMain {
     private final AtomicInteger portHolder = new AtomicInteger(0);
 
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, IContextManager contextManager) {
+        checkTestOnly();
         this.execId = execId;
         this.listenAddr = listenAddr;
         this.authToken = authToken;
         this.contextManager = contextManager;
+    }
+
+    private static void checkTestOnly() {
+        if (!Boolean.getBoolean("ai.brokk.executor.testMode")) {
+            throw new IllegalStateException("HeadlessExecutorMain stub is for test-use only. "
+                    + "Set -Dai.brokk.executor.testMode=true to use.");
+        }
     }
 
     /**
@@ -78,7 +86,7 @@ public final class HeadlessExecutorMain {
         });
 
         // Minimal context endpoint used by routing tests.
-        server.registerUnauthenticatedContext("/v1/context", exchange -> {
+        server.registerAuthenticatedContext("/v1/context", exchange -> {
             SimpleHttpServer.sendJsonResponse(
                     exchange,
                     Map.of(
@@ -88,7 +96,7 @@ public final class HeadlessExecutorMain {
         });
 
         // Tasklist endpoints: GET and POST/replace
-        server.registerUnauthenticatedContext("/v1/tasklist", exchange -> {
+        server.registerAuthenticatedContext("/v1/tasklist", exchange -> {
             String method = exchange.getRequestMethod();
             if ("GET".equalsIgnoreCase(method)) {
                 SimpleHttpServer.sendJsonResponse(exchange, Map.of("tasks", List.of()));
@@ -100,7 +108,7 @@ public final class HeadlessExecutorMain {
         });
 
         // Models endpoint: returns an empty models list (routing presence only).
-        server.registerUnauthenticatedContext("/v1/models", exchange -> {
+        server.registerAuthenticatedContext("/v1/models", exchange -> {
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("models", Collections.emptyList()));
         });
 
