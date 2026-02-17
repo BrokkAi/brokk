@@ -45,6 +45,17 @@ class TokenBar(Static):
     def on_resize(self) -> None:
         self._render_bar()
 
+    @staticmethod
+    def format_tokens(tokens: int) -> str:
+        """
+        Ported from Swing TokenUsageBar.formatTokens().
+        """
+        if tokens < 1000:
+            return str(tokens)
+        if tokens < 1_000_000:
+            return f"{tokens / 1000.0:.1f}K"
+        return f"{tokens / 1_000_000.0:.1f}M"
+
     def _render_bar(self) -> None:
         if self._used_tokens <= 0:
             self.update(Text("No context yet", style="dim italic"))
@@ -54,19 +65,34 @@ class TokenBar(Static):
         if width <= 0:
             return
 
+        usage_str = f" {self.format_tokens(self._used_tokens)}"
+        # Reserve space for the text at the end
+        bar_width = width - len(usage_str)
+        if bar_width <= 0:
+            self.update(Text(usage_str.strip(), style="dim"))
+            return
+
         segments = self.compute_segments(
-            width, self._used_tokens, self._max_tokens, self._fragments
+            bar_width, self._used_tokens, self._max_tokens, self._fragments
         )
 
         text = Text()
-        for seg_width, kind in segments:
-            # Map chip kinds to app.tcss classes (simplified for Rich)
-            # We use background colors that approximate the TUI theme
+        filled_width = 0
+        for i, (seg_width, kind) in enumerate(segments):
+            if i > 0:
+                text.append(" ")  # SEGMENT_GAP
+                filled_width += 1
+
             color = self._get_kind_color(kind)
-            text.append(" " * seg_width, style=Style(bgcolor=color))
+            text.append("█" * seg_width, style=color)
+            filled_width += seg_width
+
+        # Fill remaining track
+        remaining = bar_width - filled_width
+        if remaining > 0:
+            text.append("█" * remaining, style="dim grey23")
 
         # Append numerical usage text
-        usage_str = f"  {self._used_tokens:,} / {self._max_tokens:,}"
         text.append(usage_str, style="dim")
 
         self.update(text)
@@ -150,11 +176,14 @@ class TokenBar(Static):
             )
 
         # 3. Allocation (Simplified largest-remainder)
+        total_gaps = len(alloc_items) - 1
+        effective_fill = max(0, total_fill_width - total_gaps)
+
         # First pass: Floor and min-width clamping
         sum_w = 0
         working_items = []
         for item in alloc_items:
-            raw_w = (item["tokens"] / total_tokens) * total_fill_width
+            raw_w = (item["tokens"] / total_tokens) * effective_fill
             w = max(int(math.floor(raw_w)), item["min_w"])
             working_items.append(
                 {"kind": item["kind"], "width": w, "rem": raw_w - math.floor(raw_w)}
@@ -162,7 +191,7 @@ class TokenBar(Static):
             sum_w += w
 
         # Distribute deficit/excess
-        deficit = total_fill_width - sum_w
+        deficit = effective_fill - sum_w
         if deficit > 0:
             # Sort by remainder descending
             for item in sorted(working_items, key=lambda x: x["rem"], reverse=True)[:deficit]:
