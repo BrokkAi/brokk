@@ -1,7 +1,9 @@
 from typing import Optional
 
+import time
 from textual.containers import Horizontal
-from textual.widgets import Static
+from textual.widgets import Static, LoadingIndicator
+from textual import work
 from rich.text import Text
 
 
@@ -47,8 +49,11 @@ class StatusLine(Static):
         self._model_seg = Static("", classes="status-segment")
         self._reasoning_seg = Static("", classes="status-segment")
         self._workspace_seg = Static("", classes="status-segment")
-        # Job status segment (spinner/timer placeholder). Aligns to the right by using max-width.
-        self._job_seg = Static("", classes="status-segment status-job")
+        # Job status: contains a small loading indicator and elapsed timer label
+        self._job_seg = Horizontal(classes="status-segment status-job")
+        self._job_spinner = LoadingIndicator(id="status-spinner", classes="status-spinner")
+        self._job_timer = Static("", id="status-timer", classes="status-timer")
+
         # Mount children synchronously in on_mount
         self.mount(self._container)
         self._container.mount(self._mode_seg)
@@ -56,10 +61,16 @@ class StatusLine(Static):
         self._container.mount(self._reasoning_seg)
         self._container.mount(self._workspace_seg)
         self._container.mount(self._job_seg)
+        # Mount spinner and timer into job segment
+        self._job_seg.mount(self._job_spinner)
+        self._job_seg.mount(self._job_timer)
 
         # Internal state for job/timer
         self._job_running = False
         self._timer_text: Optional[str] = None
+        self._job_start_time: Optional[float] = None
+        self._timer_interval = None
+        self._get_now = time.time
 
         # Initialize from app state if available
         app = self.app
@@ -81,6 +92,12 @@ class StatusLine(Static):
             workspace = None
 
         self.update_status(mode=mode, model=model, reasoning=reasoning, workspace=workspace)
+        # Start with spinner hidden
+        try:
+            self._job_spinner.add_class("hidden")
+            self._job_timer.update("")
+        except Exception:
+            pass
 
     def _seg_text(self, label: str, value: Optional[str]) -> Text:
         """Helper to produce a compact labelled Text for a segment."""
@@ -131,36 +148,78 @@ class StatusLine(Static):
             return
 
     def set_job_running(self, running: bool) -> None:
-        """Public API to indicate a job is active. The visual representation is minimal;
-        callers may also call set_timer_text to update elapsed time text."""
-        self._job_running = bool(running)
+        """Public API to indicate a job is active. Starts/stops an internal elapsed timer
+        and shows/hides the spinner and timer visuals."""
+        running = bool(running)
+        if running:
+            if self._job_start_time is None:
+                self._job_start_time = self._get_now()
+                # Start an interval to update elapsed label periodically
+                if self._timer_interval is None:
+                    self._timer_interval = self.set_interval(0.2, self._update_elapsed_time_label)
+            # Show spinner and timer
+            try:
+                self._job_spinner.remove_class("hidden")
+            except Exception:
+                pass
+        else:
+            # Stop timer and reset label
+            self._job_start_time = None
+            if self._timer_interval is not None:
+                try:
+                    self._timer_interval.stop()
+                except Exception:
+                    pass
+                self._timer_interval = None
+            try:
+                self._job_spinner.add_class("hidden")
+                self._job_timer.update("")
+            except Exception:
+                pass
+
+        self._job_running = running
         self._refresh_job_segment()
 
     def set_timer_text(self, text: Optional[str]) -> None:
         """Update the timer text shown in the job segment. Example: 'Elapsed: 00:12'."""
         self._timer_text = text
+        try:
+            if text:
+                self._job_timer.update(f" {text}")
+            else:
+                self._job_timer.update("")
+        except Exception:
+            pass
         self._refresh_job_segment()
 
     def _refresh_job_segment(self) -> None:
-        """Compose the job segment content based on current state."""
+        """Refresh job segment visual state. Most of the content is handled by
+        dedicated child widgets (spinner and timer), so this method is a lightweight no-op
+        to keep legacy expectations of updating the job segment container."""
         if not hasattr(self, "_job_seg"):
             return
-        if not self._job_running and not self._timer_text:
-            # Clear job segment
-            self._job_seg.update(Text(""))
-            return
-
-        pieces = []
-        if self._job_running:
-            # Simple spinner placeholder; the actual spinner widget will be moved in later integration.
-            pieces.append(("●", "bold green"))
-        if self._timer_text:
-            pieces.append((" " + str(self._timer_text), "dim"))
-
-        txt = Text.assemble(*pieces)
-        self._job_seg.update(txt)
+        # No-op: spinner and timer children manage their own content/visibility.
+        return
 
     # Keep legacy formatter as a utility for tests or external callers that prefer a single string.
+    def _update_elapsed_time_label(self) -> None:
+        """Internal timer tick to recompute elapsed time and update child label."""
+        if self._job_start_time is None:
+            return
+        elapsed = max(0, int(self._get_now() - self._job_start_time))
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+
+        if hours > 0:
+            time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
+        else:
+            time_str = f"{minutes:02}:{seconds:02}"
+
+        try:
+            self._job_timer.update(f" Elapsed: {time_str}")
+        except Exception:
+            pass
+
     @staticmethod
     def _format_status(
         mode: Optional[str],
