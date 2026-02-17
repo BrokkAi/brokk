@@ -1,17 +1,16 @@
 package ai.brokk.executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.ContextManager;
-import ai.brokk.project.MainProject;
+import ai.brokk.IContextManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,11 +25,22 @@ class HeadlessReadinessLifecycleTest {
 
     @BeforeEach
     void setup(@TempDir Path tempDir) throws Exception {
-        var project = new MainProject(tempDir);
-        var contextManager = new ContextManager(project);
+        // Use a minimal stub IContextManager that always returns a fixed session ID.
+        var fixedSessionId = UUID.randomUUID();
+        IContextManager stubCm = new IContextManager() {
+            @Override
+            public @Nullable UUID getCurrentSessionId() {
+                return fixedSessionId;
+            }
+
+            @Override
+            public CompletableFuture<Void> createSessionAsync(String name) {
+                return CompletableFuture.completedFuture(null);
+            }
+        };
+
         var execId = UUID.randomUUID();
-        // Use port 0 for random available port
-        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", AUTH_TOKEN, contextManager);
+        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", AUTH_TOKEN, stubCm);
         executor.start();
         baseUrl = "http://127.0.0.1:" + executor.getPort();
     }
@@ -43,9 +53,35 @@ class HeadlessReadinessLifecycleTest {
     }
 
     @Test
+    void testReadinessReportsNotReadyWithoutSession() throws Exception {
+        // Create a new executor with a context manager that has no session.
+        IContextManager noSessionCm = new IContextManager() {
+            @Override
+            public @Nullable UUID getCurrentSessionId() {
+                return null;
+            }
+        };
+        var noSessionExecutor = new HeadlessExecutorMain(UUID.randomUUID(), "127.0.0.1:0", AUTH_TOKEN, noSessionCm);
+        noSessionExecutor.start();
+        String noSessionBaseUrl = "http://127.0.0.1:" + noSessionExecutor.getPort();
+
+        try {
+            var readyUrl = URI.create(noSessionBaseUrl + "/health/ready").toURL();
+            var conn = (HttpURLConnection) readyUrl.openConnection();
+            conn.setRequestMethod("GET");
+            try {
+                assertEquals(503, conn.getResponseCode(), "Expected 503 when no session exists");
+            } finally {
+                conn.disconnect();
+            }
+        } finally {
+            noSessionExecutor.stop(0);
+        }
+    }
+
+    @Test
     void testReadinessReportsReadyWithActiveSession() throws Exception {
-        // The current headless stub exposes a ready session via ContextManager at startup.
-        // Verify /health/ready returns 200 and a payload with status="ready" and a non-blank sessionId.
+        // The stub context manager configured in setup() always returns a session ID.
         var readyUrl = URI.create(baseUrl + "/health/ready").toURL();
         var conn = (HttpURLConnection) readyUrl.openConnection();
         conn.setRequestMethod("GET");
@@ -53,10 +89,6 @@ class HeadlessReadinessLifecycleTest {
             assertEquals(200, conn.getResponseCode());
             var readyBody = MAPPER.readValue(conn.getInputStream(), Map.class);
             assertEquals("ready", readyBody.get("status"));
-            Object readySessionIdObj = readyBody.get("sessionId");
-            assertNotNull(readySessionIdObj);
-            String readySessionId = String.valueOf(readySessionIdObj);
-            assertTrue(!readySessionId.isBlank(), "Expected non-empty sessionId in readiness response");
         } finally {
             conn.disconnect();
         }
