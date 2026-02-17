@@ -2,13 +2,16 @@ import asyncio
 import time
 from typing import Optional
 
+from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.text import Text
 from textual import events, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import LoadingIndicator, Static, TextArea
+from textual.selection import Selection
+from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
 
 
 class ChatInput(TextArea):
@@ -64,6 +67,14 @@ class ChatInput(TextArea):
         await super()._on_key(event)
 
 
+class SelectableRichLog(RichLog):
+    """RichLog with text selection extraction based on rendered log lines."""
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        text = "\n".join(str(line) for line in self.lines)
+        return selection.extract(text), "\n"
+
+
 class ChatPanel(Vertical):
     """Main chat interface with message display and input."""
 
@@ -93,25 +104,18 @@ class ChatPanel(Vertical):
         self._draft_buffer: str = ""  # Stores text before history navigation started
 
     def compose(self) -> ComposeResult:
-        yield TextArea(read_only=True, show_line_numbers=False, id="chat-log")
+        yield SelectableRichLog(highlight=True, markup=True, id="chat-log")
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
             yield Static(id="chat-token-usage", classes="token-usage hidden")
-        yield TextArea(
-            read_only=True,
-            show_line_numbers=False,
+        yield SelectableRichLog(
+            highlight=True,
+            markup=False,
             id="notification-panel",
             classes="hidden",
         )
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
-
-    def _append_log_line(self, panel_id: str, text: str = "") -> None:
-        """Appends a line of text to an output TextArea and keeps the cursor at the end."""
-        log = self.query_one(panel_id, TextArea)
-        prefix = "\n" if log.text else ""
-        log.insert(f"{prefix}{text}")
-        log.move_cursor(log.document.end)
 
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
@@ -342,7 +346,8 @@ class ChatPanel(Vertical):
             self._flush_message()
 
     def _flush_message(self) -> None:
-        """Renders the accumulated buffer into the read-only chat output area."""
+        """Renders the accumulated buffer as Markdown or a reasoning Panel."""
+        log = self.query_one("#chat-log", RichLog)
 
         # If the buffer is empty or only whitespace, clear per-message state
         # so we don't leave a stale reasoning/typing mode active for subsequent messages.
@@ -354,40 +359,55 @@ class ChatPanel(Vertical):
 
         if self._is_reasoning:
             content = self._current_message_buffer.strip()
-            self._append_log_line("#chat-log", f"Thinking:\n{content}")
-            self._append_log_line("#chat-log")  # Spacer
+            log.write(
+                Panel(
+                    Text(content, style="grey50"),
+                    title="Thinking",
+                    border_style="grey37",
+                )
+            )
+            log.write("")  # Spacer
             self._current_message_buffer = ""
             self._is_reasoning = False
             self._current_message_type = None
         else:
             content = self._current_message_buffer.strip()
-            self._append_log_line("#chat-log", content)
-            self._append_log_line("#chat-log")  # Spacer
+            log.write(Markdown(content))
+            log.write("")  # Spacer
             self._current_message_buffer = ""
             self._current_message_type = None
 
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""
-        self._append_log_line("#chat-log", f"You:\n{text}")
-        self._append_log_line("#chat-log")
+        log = self.query_one("#chat-log", RichLog)
+        log.write(
+            Panel(Text(text, justify="left"), title="You", title_align="right", border_style="blue")
+        )
+        log.write("")
 
     def add_system_message(self, text: str, level: str = "INFO") -> None:
         """Renders a system message styled by level. Treats text as plain text."""
+        log = self.query_one("#chat-log", RichLog)
         style_map = {"INFO": "italic grey50", "WARNING": "bold yellow", "ERROR": "bold red"}
         style = style_map.get(level.upper(), "italic grey50")
 
         prefix = f"[{level}] " if level != "INFO" else ""
-        self._append_log_line("#chat-log", str(Text(f"{prefix}{text}", style=style)))
+        # Using Text object ensures 'text' containing markup like [/] doesn't crash parsing
+        log.write(Text(f"{prefix}{text}", style=style))
 
     def add_system_message_markup(self, text: str, level: str = "INFO") -> None:
         """Renders a system message and allows intentional Rich markup in 'text'."""
+        log = self.query_one("#chat-log", RichLog)
+        style_map = {"INFO": "italic grey50", "WARNING": "bold yellow", "ERROR": "bold red"}
+        style = style_map.get(level.upper(), "italic grey50")
+
         prefix = f"[{level}] " if level != "INFO" else ""
-        self._append_log_line("#chat-log", f"{prefix}{text}")
+        log.write(f"[{style}]{prefix}{text}[/]")
 
     def add_notification(self, text: str, level: str = "INFO") -> None:
         """Renders a notification in the notification panel using a Text object."""
         try:
-            self.query_one("#notification-panel", TextArea)
+            log = self.query_one("#notification-panel", RichLog)
         except Exception:
             return
 
@@ -395,7 +415,7 @@ class ChatPanel(Vertical):
         style = style_map.get(level.upper(), "italic grey50")
 
         prefix = f"[{level}] " if level != "INFO" else ""
-        self._append_log_line("#notification-panel", str(Text(f"{prefix}{text}", style=style)))
+        log.write(Text(f"{prefix}{text}", style=style))
 
     def append_message(self, author: str, text: str) -> None:
         """Legacy helper for simple messages."""
@@ -405,7 +425,12 @@ class ChatPanel(Vertical):
             level = "ERROR" if author == "Error" else "INFO"
             self.add_system_message(text, level=level)
         else:
-            self._append_log_line("#chat-log", f"{author}: {text}")
+            log = self.query_one("#chat-log", RichLog)
+            # Use Text objects for the author and message to avoid markup injection/crashes
+            output = Text()
+            output.append(f"{author}: ", style="bold green")
+            output.append(text)
+            log.write(output)
 
     def set_token_bar_visible(self, visible: bool) -> None:
         """Toggles the visibility of the token usage bar."""
