@@ -75,6 +75,8 @@ class StatusLine(Static):
         model_s = str(model or "unknown")
         reasoning_s = str(reasoning or "unknown")
         workspace_s = str(workspace or "unknown")
-        return f"Mode: {mode_s} | \
-        Model: {model_s} (reasoning: {reasoning_s}) | \
-        Workspace: {workspace_s}"
+        return (
+            f"Mode: {mode_s} - "
+            f"Model: {model_s} (reasoning: {reasoning_s}) - "
+            f"Workspace: {workspace_s}"
+        )

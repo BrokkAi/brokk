@@ -237,7 +237,7 @@ ChatPanel {
 }
 
 #chat-input {
-    margin: 1 2;
+    margin: 1 2 0 2;
     border: solid $primary;
     height: 4;
 }
@@ -257,11 +257,12 @@ ChatPanel {
     height: 1;
     min-height: 1;
     max-height: 1;
-    padding: 0 1;
+    margin: 0 2 1 2;
+    padding: 0;
     layout: horizontal;
-    background: $panel;
-    border-top: solid $primary-darken-2;
-    color: $text;
+    background: transparent;
+    border: none;
+    color: $text-muted;
     content-align: left middle;
     overflow: hidden;
 }
