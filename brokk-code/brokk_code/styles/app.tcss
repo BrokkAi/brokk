@@ -67,33 +67,9 @@ ChatPanel {
     background: $surface;
 }
 
-#chat-spinner-area {
-    height: 1;
-    margin: 0 2;
-    layout: horizontal;
-    min-height: 1;
-}
-
-#chat-spinner {
-    height: 1;
-    width: auto;
-    min-width: 4;
-    background: transparent;
-    color: $accent;
-}
-
-#chat-timer {
-    height: 1;
-    width: auto;
-    content-align: left middle;
-}
-
-.token-usage {
-    width: 1fr;
-    height: 1;
-    content-align: right middle;
-    color: $text-disabled;
-}
+/* Spinner/timer visuals are provided by ChatPanel and StatusLine children.
+   Individual visual tweaks for those widgets are handled by their own selectors
+   or by generic classes. Removed legacy standalone selectors to avoid confusion. */
 
 #context-panel {
     margin: 0;
@@ -330,3 +306,5 @@ ChatPanel {
 #token-bar.hidden {
     display: none;
 }
+
+</fragment>
