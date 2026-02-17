@@ -91,8 +91,9 @@ def test_configure_zed_acp_settings_preserves_existing_permissions(tmp_path) -> 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps({"theme": "One Dark"}), encoding="utf-8")
     settings_path.chmod(0o640)
+    expected_mode = stat.S_IMODE(settings_path.stat().st_mode)
 
     configure_zed_acp_settings(settings_path=settings_path)
 
     mode = stat.S_IMODE(settings_path.stat().st_mode)
-    assert mode == 0o640
+    assert mode == expected_mode
