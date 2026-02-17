@@ -3,6 +3,7 @@ import asyncio
 import sys
 from pathlib import Path
 
+from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
 
@@ -125,6 +126,7 @@ def main():
     if not workspace_path.exists():
         print(f"Error: Workspace path does not exist: {workspace_path}")
         sys.exit(1)
+    workspace_path = resolve_workspace_dir(workspace_path)
     jar_path = Path(args.jar).resolve() if args.jar else None
 
     if args.command == "acp":

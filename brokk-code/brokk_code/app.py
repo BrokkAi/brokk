@@ -19,6 +19,7 @@ from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
+from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
@@ -216,12 +217,12 @@ class BrokkApp(App):
         if executor:
             self.executor = executor
             if workspace_dir:
-                self.executor.workspace_dir = workspace_dir.resolve()
+                self.executor.workspace_dir = resolve_workspace_dir(workspace_dir)
             if vendor is not None:
                 self.executor.vendor = vendor
         else:
             self.executor = ExecutorManager(
-                workspace_dir or Path.cwd(),
+                resolve_workspace_dir(workspace_dir or Path.cwd()),
                 jar_path,
                 executor_version=executor_version,
                 executor_snapshot=executor_snapshot,
