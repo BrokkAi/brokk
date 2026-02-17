@@ -110,37 +110,27 @@ async def test_token_usage_update():
     app = TestApp()
     async with app.run_test():
         panel = app.query_one("#chat", ChatPanel)
-        usage_label = panel.query_one("#chat-token-usage", Static)
         token_bar = panel.query_one("#chat-token-bar", TokenBar)
 
-        # Initial empty
-        assert str(usage_label.render()) == ""
-        assert str(token_bar.render()) == ""
+        # Initial empty - should show no context message
+        assert "No context yet" in str(token_bar.render())
 
         # Update with used and max
         panel.set_token_usage(1500, 100000)
-        # 1,500 / 100,000 is 1.5%. In a 20-char bar, that's 0 blocks filled.
-        # bar_width = 20, ratio = 0.015, filled_len = 0
-        expected_bar = "░" * 20
-        assert str(usage_label.render()) == f"[{expected_bar}] 1,500 / 100,000"
         assert "1,500 / 100,000" in str(token_bar.render())
 
         # Update with half usage
         panel.set_token_usage(50000, 100000)
-        expected_half_bar = "█" * 10 + "░" * 10
-        assert str(usage_label.render()) == f"[{expected_half_bar}] 50,000 / 100,000"
         assert "50,000 / 100,000" in str(token_bar.render())
 
         # Update with only used
         panel.set_token_usage(2500)
-        assert str(usage_label.render()) == "Tokens: 2,500"
         # TokenBar defaults max to 200,000 if not provided
         assert "2,500 / 200,000" in str(token_bar.render())
 
         # Update with 0 clears it
         panel.set_token_usage(0)
-        assert str(usage_label.render()) == ""
-        assert str(token_bar.render()) == ""
+        assert "No context yet" in str(token_bar.render())
 
 
 @pytest.mark.asyncio
@@ -155,21 +145,17 @@ async def test_token_bar_visibility_control():
     app = TestApp()
     async with app.run_test():
         panel = app.query_one("#chat", ChatPanel)
-        usage_label = panel.query_one("#chat-token-usage", Static)
         token_bar = panel.query_one("#chat-token-bar")
 
         # Initial state: hidden
-        assert usage_label.has_class("hidden")
         assert token_bar.has_class("hidden")
 
         # Set visible
         panel.set_token_bar_visible(True)
-        assert not usage_label.has_class("hidden")
         assert not token_bar.has_class("hidden")
 
         # Set hidden
         panel.set_token_bar_visible(False)
-        assert usage_label.has_class("hidden")
         assert token_bar.has_class("hidden")
 
 

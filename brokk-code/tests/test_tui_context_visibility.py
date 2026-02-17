@@ -18,7 +18,7 @@ async def test_toggle_context_opens_fullscreen_modal_and_syncs_token_bar_visibil
 
     async with app.run_test() as pilot:
         chat_panel = app.query_one("#chat-main", ChatPanel)
-        token_usage = chat_panel.query_one("#chat-token-usage")
+        token_usage = chat_panel.query_one("#chat-token-bar")
         spinner_area = chat_panel.query_one("#chat-spinner-area")
 
         # Initial state: no context modal on top; token usage bar visible.

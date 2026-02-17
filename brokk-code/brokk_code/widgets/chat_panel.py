@@ -103,7 +103,6 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
             yield TokenBar(id="chat-token-bar", classes="hidden")
-            yield Static(id="chat-token-usage", classes="token-usage hidden")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield StatusLine(id="status-line")
@@ -239,12 +238,12 @@ class ChatPanel(Vertical):
             area = self.query_one("#chat-spinner-area", Horizontal)
             spinner = self.query_one("#chat-spinner", LoadingIndicator)
             timer = self.query_one("#chat-timer", Static)
-            usage_label = self.query_one("#chat-token-usage", Static)
+            token_bar = self.query_one("#chat-token-bar", TokenBar)
         except Exception:
             return
 
         should_show = (
-            not usage_label.has_class("hidden")
+            not token_bar.has_class("hidden")
             or not spinner.has_class("hidden")
             or not timer.has_class("hidden")
         )
@@ -426,8 +425,6 @@ class ChatPanel(Vertical):
     def set_token_bar_visible(self, visible: bool) -> None:
         """Toggles the visibility of the token usage bar."""
         try:
-            usage_label = self.query_one("#chat-token-usage", Static)
-            usage_label.set_class(not visible, "hidden")
             token_bar = self.query_one("#chat-token-bar", TokenBar)
             token_bar.set_class(not visible, "hidden")
         except Exception:
@@ -452,25 +449,5 @@ class ChatPanel(Vertical):
         try:
             token_bar = self.query_one("#chat-token-bar", TokenBar)
             token_bar.update_tokens(used, max_tokens, fragments)
-
-            # Keep the old label updated for backward compatibility or simple fallback
-            usage_label = self.query_one("#chat-token-usage", Static)
         except Exception:
-            return
-
-        if used <= 0:
-            usage_label.update("")
-            return
-
-        if max_tokens and max_tokens > 0:
-            bar_width = 20
-            # Clamp ratio between 0 and 1
-            ratio = max(0.0, min(1.0, used / max_tokens))
-            filled_len = int(bar_width * ratio)
-            bar = "█" * filled_len + "░" * (bar_width - filled_len)
-            usage_text = f"[{bar}] {used:,} / {max_tokens:,}"
-        else:
-            usage_text = f"Tokens: {used:,}"
-
-        # Using Text object to avoid markup injection/crashes
-        usage_label.update(Text(usage_text))
+            pass

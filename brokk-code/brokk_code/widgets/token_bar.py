@@ -1,23 +1,30 @@
+import math
 from typing import Any, Dict, List, Optional
 
+from rich.style import Style
+from rich.text import Text
 from textual.widgets import Static
 
 
 class TokenBar(Static):
     """
-    A widget to display textual token usage information.
+    A widget to display segmented token usage information.
     """
 
     DEFAULT_CSS = """
     TokenBar {
-        width: auto;
+        width: 1fr;
         height: 1;
         content-align: right middle;
     }
     """
 
+    MIN_SEGMENT_WIDTH = 2
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self._used_tokens = 0
+        self._max_tokens = 200_000
         self._fragments: List[Dict[str, Any]] = []
 
     def update_tokens(
@@ -29,15 +36,146 @@ class TokenBar(Static):
         """
         Update the displayed token counts and store fragment metadata.
         """
-        if used_tokens <= 0:
-            self.update("")
-            self._fragments = []
+        self._used_tokens = used_tokens
+        # Reset to default if not provided, matching expected test behavior
+        self._max_tokens = max_tokens if max_tokens is not None and max_tokens > 0 else 200_000
+        self._fragments = fragments if fragments is not None else []
+        self._render_bar()
+
+    def on_resize(self) -> None:
+        self._render_bar()
+
+    def _render_bar(self) -> None:
+        if self._used_tokens <= 0:
+            self.update(Text("No context yet", style="dim italic"))
             return
 
-        if max_tokens is None or max_tokens <= 0:
-            max_tokens = 200_000
+        width = self.size.width
+        if width <= 0:
+            return
 
-        self._fragments = fragments if fragments is not None else []
+        segments = self.compute_segments(
+            width, self._used_tokens, self._max_tokens, self._fragments
+        )
 
-        # Render: "used / max" with thousands separators
-        self.update(f"{used_tokens:,} / {max_tokens:,}")
+        text = Text()
+        for seg_width, kind in segments:
+            # Map chip kinds to app.tcss classes (simplified for Rich)
+            # We use background colors that approximate the TUI theme
+            color = self._get_kind_color(kind)
+            text.append(" " * seg_width, style=Style(bgcolor=color))
+
+        # Append numerical usage text
+        usage_str = f"  {self._used_tokens:,} / {self._max_tokens:,}"
+        text.append(usage_str, style="dim")
+
+        self.update(text)
+
+    @staticmethod
+    def _get_kind_color(kind: str) -> str:
+        """Maps chip kind to a Rich-compatible color string."""
+        k = kind.upper()
+        if k == "EDIT":
+            return "green"
+        if k == "SUMMARY" or k == "SUMMARIES":
+            return "yellow"
+        if k == "HISTORY":
+            return "magenta"
+        if k == "TASK_LIST":
+            return "blue"
+        if k == "INVALID":
+            return "red"
+        return "grey37"  # OTHER
+
+    @classmethod
+    def compute_segments(
+        cls,
+        width: int,
+        used_tokens: int,
+        max_tokens: int,
+        fragments: List[Dict[str, Any]],
+    ) -> List[tuple[int, str]]:
+        """
+        Pure helper to compute segment widths and labels.
+        Analogous to Swing TokenUsageBar.computeSegments.
+        """
+        if not fragments or used_tokens <= 0:
+            # Fallback to single "OTHER" block if no breakdown
+            effective_max = max(max_tokens, used_tokens)
+            fill_width = int(math.floor(width * (used_tokens / effective_max)))
+            if fill_width > 0:
+                return [(fill_width, "OTHER")]
+            return []
+
+        # 1. Group Summaries
+        summaries = [f for f in fragments if f.get("chipKind", f.get("chip_kind")) == "SUMMARY"]
+        others = [f for f in fragments if f.get("chipKind", f.get("chip_kind")) != "SUMMARY"]
+
+        tokens_summaries = sum(int(f.get("tokens", 0)) for f in summaries)
+        total_tokens = sum(int(f.get("tokens", 0)) for f in fragments)
+
+        if total_tokens <= 0:
+            return []
+
+        effective_max = max(max_tokens, total_tokens)
+        total_fill_width = int(math.floor(width * (total_tokens / effective_max)))
+        if total_fill_width <= 0:
+            return []
+
+        # 2. Identify small fragments to group into "OTHER" (except HISTORY)
+        alloc_items = []
+        small_fragments = []
+
+        for f in others:
+            t = int(f.get("tokens", 0))
+            kind = f.get("chipKind", f.get("chip_kind", "OTHER"))
+            raw_w = (t / total_tokens) * total_fill_width
+
+            if raw_w < cls.MIN_SEGMENT_WIDTH and kind != "HISTORY":
+                small_fragments.append(f)
+            else:
+                alloc_items.append({"tokens": t, "kind": kind, "min_w": 0})
+
+        # Add "OTHER" group if needed
+        if small_fragments:
+            tokens_other = sum(int(f.get("tokens", 0)) for f in small_fragments)
+            alloc_items.append(
+                {"tokens": tokens_other, "kind": "OTHER", "min_w": cls.MIN_SEGMENT_WIDTH}
+            )
+
+        # Add "SUMMARIES" group if needed
+        if summaries:
+            alloc_items.append(
+                {"tokens": tokens_summaries, "kind": "SUMMARIES", "min_w": cls.MIN_SEGMENT_WIDTH}
+            )
+
+        # 3. Allocation (Simplified largest-remainder)
+        # First pass: Floor and min-width clamping
+        sum_w = 0
+        working_items = []
+        for item in alloc_items:
+            raw_w = (item["tokens"] / total_tokens) * total_fill_width
+            w = max(int(math.floor(raw_w)), item["min_w"])
+            working_items.append(
+                {"kind": item["kind"], "width": w, "rem": raw_w - math.floor(raw_w)}
+            )
+            sum_w += w
+
+        # Distribute deficit/excess
+        deficit = total_fill_width - sum_w
+        if deficit > 0:
+            # Sort by remainder descending
+            for item in sorted(working_items, key=lambda x: x["rem"], reverse=True)[:deficit]:
+                item["width"] += 1
+        elif deficit < 0:
+            # Shrink items that are above their minimums
+            need = -deficit
+            for item in sorted(working_items, key=lambda x: x["rem"]):
+                if need <= 0:
+                    break
+                # We don't have explicit min_w in working_items here, but we can check if > 1
+                if item["width"] > 1:
+                    item["width"] -= 1
+                    need -= 1
+
+        return [(item["width"], item["kind"]) for item in working_items if item["width"] > 0]

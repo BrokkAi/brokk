@@ -88,11 +88,10 @@ ChatPanel {
     content-align: left middle;
 }
 
-.token-usage, #chat-token-bar {
+#chat-token-bar {
     width: 1fr;
     height: 1;
     content-align: right middle;
-    color: $text-disabled;
 }
 
 #context-panel {
