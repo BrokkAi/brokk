@@ -1,19 +1,17 @@
+import time
 from typing import Optional
 
-from textual.widgets import Static
+from textual.app import ComposeResult
+from textual.containers import Horizontal
+from textual.widgets import LoadingIndicator, Static
 
 
-class StatusLine(Static):
-    """A compact single-line status summary.
+class StatusLine(Horizontal):
+    """A compact status bar containing metadata and job progress.
 
     Displays:
-      - mode (current_mode / agent_mode)
-      - planner model (current_model)
-      - reasoning level (reasoning_level)
-      - workspace dir (executor.workspace_dir)
-
-    The widget reads initial values from the App instance on_mount and provides a
-    small API to update its displayed values at runtime.
+      - mode, model, reasoning, workspace (via MetadataLabel)
+      - spinner and elapsed timer (via JobProgress)
     """
 
     DEFAULT_CSS = """
@@ -22,15 +20,48 @@ class StatusLine(Static):
         padding: 0 1;
         background: $panel;
         color: $text-disabled;
+        layout: horizontal;
+    }
+    #status-metadata {
+        width: 1fr;
+    }
+    #status-progress {
+        width: auto;
+        layout: horizontal;
+    }
+    #status-progress.hidden {
+        display: none;
+    }
+    #status-spinner {
+        height: 1;
+        width: auto;
+        min-width: 4;
+        color: $accent;
+        background: transparent;
+        margin-right: 1;
+    }
+    #status-timer {
+        width: auto;
+        color: $text;
     }
     """
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._job_start_time: Optional[float] = None
+        self._timer_interval = None
+        self._get_now = time.time
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="status-metadata")
+        with Horizontal(id="status-progress", classes="hidden"):
+            yield LoadingIndicator(id="status-spinner")
+            yield Static(id="status-timer")
+
     def on_mount(self) -> None:
-        # Defer to the running App for initial state. The app may not be typed here,
-        # so use getattr with sensible fallbacks.
         app = self.app
         if app is None:
-            self.update(self._format_status(None, None, None, None))
+            self.update_status()
             return
 
         mode = getattr(app, "current_mode", getattr(app, "agent_mode", "unknown"))
@@ -44,9 +75,9 @@ class StatusLine(Static):
                 if ws is not None:
                     workspace = str(ws)
         except Exception:
-            workspace = "unknown"
+            pass
 
-        self.update(self._format_status(mode, model, reasoning, workspace))
+        self.update_status(mode, model, reasoning, workspace)
 
     def update_status(
         self,
@@ -55,28 +86,52 @@ class StatusLine(Static):
         reasoning: Optional[str] = None,
         workspace: Optional[str] = None,
     ) -> None:
-        """Public API to update the status line. Any argument left as None will be
-        treated as 'unknown' or left as-is by formatting logic."""
-        try:
-            self.update(self._format_status(mode, model, reasoning, workspace))
-        except Exception:
-            # Best-effort: avoid raising when the widget is not mounted or when the
-            # provided values are unexpected.
-            return
-
-    @staticmethod
-    def _format_status(
-        mode: Optional[str],
-        model: Optional[str],
-        reasoning: Optional[str],
-        workspace: Optional[str],
-    ) -> str:
+        """Update the metadata text segment."""
         mode_s = str(mode or "unknown")
         model_s = str(model or "unknown")
         reasoning_s = str(reasoning or "unknown")
         workspace_s = str(workspace or "unknown")
-        return (
+        text = (
             f"Mode: {mode_s} - "
             f"Model: {model_s} (reasoning: {reasoning_s}) - "
             f"Workspace: {workspace_s}"
         )
+        try:
+            self.query_one("#status-metadata", Static).update(text)
+        except Exception:
+            pass
+
+    def set_job_running(self, running: bool) -> None:
+        """Start or stop the job progress indicator and timer."""
+        progress = self.query_one("#status-progress", Horizontal)
+        if running:
+            if self._job_start_time is None:
+                self._job_start_time = self._get_now()
+                self._update_timer()
+                if self._timer_interval is None:
+                    self._timer_interval = self.set_interval(0.2, self._update_timer)
+            progress.remove_class("hidden")
+        else:
+            self._job_start_time = None
+            if self._timer_interval is not None:
+                self._timer_interval.stop()
+                self._timer_interval = None
+            progress.add_class("hidden")
+            try:
+                self.query_one("#status-timer", Static).update("")
+            except Exception:
+                pass
+
+    def _update_timer(self) -> None:
+        if self._job_start_time is None:
+            return
+        elapsed = max(0, int(self._get_now() - self._job_start_time))
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        time_str = (
+            f"{hours:02}:{minutes:02}:{seconds:02}" if hours > 0 else f"{minutes:02}:{seconds:02}"
+        )
+        try:
+            self.query_one("#status-timer", Static).update(f"Elapsed: {time_str}")
+        except Exception:
+            pass

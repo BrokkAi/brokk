@@ -299,7 +299,13 @@ class BrokkApp(App):
 
     def _update_statusline(self) -> None:
         """Collect current state and update the mounted StatusLine (best-effort)."""
-        status = self._maybe_statusline()
+        chat = self._maybe_chat()
+        if not chat:
+            return
+        try:
+            status = chat.query_one("#status-line", StatusLine)
+        except Exception:
+            return
         if not status:
             return
         try:
@@ -1213,7 +1219,8 @@ class BrokkApp(App):
     def action_toggle_statusline(self) -> None:
         """Toggle visibility of the status line (best-effort)."""
         try:
-            panel = self.query_one("#status-line")
+            # Look in ChatPanel since it's nested there
+            panel = self.query_one(ChatPanel).query_one("#status-line")
             panel.toggle_class("hidden")
         except Exception:
             # If not mounted, ignore

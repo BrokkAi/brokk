@@ -135,6 +135,15 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     # Change mode and ensure the status line receive an update containing the new mode.
     app._set_mode("ASK", announce=False)
 
+    # Since StatusLine is nested in ChatPanel, we need to ensure the query works.
+    # We mock _maybe_chat to return a mock ChatPanel which returns our mock status.
+    mock_chat = MagicMock(spec=ChatPanel)
+    app._maybe_chat = MagicMock(return_value=mock_chat)
+    mock_chat.query_one.return_value = mock_status
+
+    # Change mode and ensure the status line receive an update containing the new mode.
+    app._set_mode("ASK", announce=False)
+
     # Ensure _update_statusline triggered update_status with correct keyword arguments.
     assert mock_status.update_status.called, (
         "StatusLine.update_status should be called on mode change"
