@@ -767,9 +767,7 @@ class BrokkApp(App):
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
-        status = self._maybe_statusline()
-        if status and hasattr(status, "set_job_running"):
-            status.set_job_running(True)
+        chat.set_job_running(True)
         chat.set_response_pending()
         try:
             self.current_job_id = await self.executor.submit_job(
@@ -825,16 +823,16 @@ class BrokkApp(App):
                 else:
                     self.job_in_progress = False
                     self.current_job_id = None
-                    status = self._maybe_statusline()
-                    if status and hasattr(status, "set_job_running"):
-                        status.set_job_running(False)
+                    chat = self._maybe_chat()
+                    if chat:
+                        chat.set_job_running(False)
             else:
                 # Only mark idle once we are sure no more prompts are queued
                 self.job_in_progress = False
                 self.current_job_id = None
-                status = self._maybe_statusline()
-                if status and hasattr(status, "set_job_running"):
-                    status.set_job_running(False)
+                chat = self._maybe_chat()
+                if chat:
+                    chat.set_job_running(False)
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")

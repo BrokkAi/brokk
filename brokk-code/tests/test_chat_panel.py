@@ -41,13 +41,11 @@ async def test_token_usage_update():
 
 
 @pytest.mark.asyncio
-async def test_job_progress_delegated_to_status_line():
+async def test_job_progress_in_chat_panel():
     """
-    Verify that job running state is reflected in StatusLine, not owned by ChatPanel.
+    Verify that job running state is reflected in ChatPanel's progress widget.
     """
     from textual.app import App, ComposeResult
-
-    from brokk_code.widgets.status_line import StatusLine
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -56,18 +54,17 @@ async def test_job_progress_delegated_to_status_line():
     app = TestApp()
     async with app.run_test():
         chat = app.query_one(ChatPanel)
-        status = chat.query_one(StatusLine)
-        progress = status.query_one("#status-progress")
+        progress = chat.query_one("#status-progress")
 
         # Initially hidden
         assert progress.has_class("hidden")
 
         # Start job
-        status.set_job_running(True)
+        chat.set_job_running(True)
         assert not progress.has_class("hidden")
 
         # Stop job
-        status.set_job_running(False)
+        chat.set_job_running(False)
         assert progress.has_class("hidden")
 
 

@@ -68,6 +68,27 @@ ChatPanel {
 }
 
 
+#status-progress {
+    width: 1fr;
+    height: 1;
+    layout: horizontal;
+    margin: 0 2;
+}
+
+#status-spinner {
+    height: 1;
+    width: auto;
+    min-width: 4;
+    color: $accent;
+    background: transparent;
+    margin-right: 1;
+}
+
+#status-timer {
+    width: auto;
+    color: $text;
+}
+
 #chat-token-bar {
     width: 1fr;
     height: 1;
