@@ -6,26 +6,7 @@ from pathlib import Path
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Brokk Code - Interactive Terminal Interface")
-    parser.add_argument(
-        "command",
-        nargs="?",
-        choices=["acp", "install"],
-        help="Run in ACP server mode or install integration settings",
-    )
-    parser.add_argument(
-        "install_target",
-        nargs="?",
-        choices=["zed"],
-        help="Install target for integration settings",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        default=False,
-        help="Overwrite existing install configuration when supported",
-    )
+def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--workspace",
         type=str,
@@ -59,6 +40,11 @@ def main():
         dest="executor_snapshot",
         help="Download the latest stable release instead of the snapshot",
     )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Brokk Code - Interactive Terminal Interface")
+    _add_common_runtime_args(parser)
     parser.add_argument(
         "--session",
         type=str,
@@ -78,23 +64,40 @@ def main():
         dest="resume_session",
         help="Synonym for --no-resume",
     )
-    parser.add_argument(
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    acp_parser = subparsers.add_parser("acp", help="Run in ACP server mode")
+    _add_common_runtime_args(acp_parser)
+    acp_parser.add_argument(
         "--ide",
         type=str,
         choices=["intellij", "zed"],
         default="intellij",
         help="ACP client profile to target (default: intellij)",
     )
+
+    install_parser = subparsers.add_parser("install", help="Install integration settings")
+    install_parser.add_argument(
+        "target",
+        choices=["zed"],
+        help="Install target for integration settings",
+    )
+    install_parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Overwrite existing install configuration when supported",
+    )
+
+    return parser
+
+
+def main():
+    parser = _build_parser()
     args = parser.parse_args()
 
     if args.command == "install":
-        if args.install_target != "zed":
-            print(
-                "Error: install currently supports only 'brokk-code install zed'.",
-                file=sys.stderr,
-            )
-            sys.exit(2)
-
         try:
             settings_path = configure_zed_acp_settings(force=args.force)
         except ExistingBrokkCodeEntryError as exc:

@@ -76,6 +76,19 @@ def test_main_acp_routes_to_server_with_ide(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["ide"] == "zed"
 
 
+def test_main_acp_rejects_extra_positional(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk-code", "acp", "zed", "--workspace", str(tmp_path)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 2
+
+
 def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
     captured: dict[str, Any] = {}
 
