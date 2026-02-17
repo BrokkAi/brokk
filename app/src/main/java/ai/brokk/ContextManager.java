@@ -8,7 +8,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
-import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -1259,7 +1258,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return false;
         }
 
-        List<ContextFragments.SummaryFragment> marshalledSummaries = new ArrayList<>();
+        List<ContextFragments.SummaryFragment> marshalledSummaries = toSummaries(files, classes);
+
+        if (marshalledSummaries.isEmpty()) {
+            io.toolError("No files or classes provided to summarize.");
+            return false;
+        }
+
+        // Atomic update to context
+        addFragments(marshalledSummaries);
+
+        // Notifications
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + marshalledSummaries.size() + " entities");
+
+        return true;
+    }
+
+    public List<ContextFragments.SummaryFragment> toSummaries(Set<ProjectFile> files, Set<CodeUnit> classes) {
+        var marshalledSummaries = new ArrayList<ContextFragments.SummaryFragment>();
 
         // Marshall SummaryFragments for files
         if (!files.isEmpty()) {
@@ -1278,31 +1294,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
 
-        if (marshalledSummaries.isEmpty()) {
-            io.toolError("No files or classes provided to summarize.");
-            return false;
-        }
-
-        // Atomic update to context
-        addFragments(marshalledSummaries);
-
-        // Notifications
-        if (!files.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinFilesForOutput(files));
-        }
-        if (!classFqns.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinClassesForOutput(classFqns));
-        }
-
-        return true;
-    }
-
-    private static String joinClassesForOutput(List<String> classFqns) {
-        var toJoin = classFqns.stream().sorted().toList();
-        if (toJoin.size() <= 2) {
-            return String.join(", ", toJoin);
-        }
-        return "%d classes".formatted(toJoin.size());
+        return marshalledSummaries;
     }
 
     /**
@@ -1324,14 +1316,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .collect(Collectors.joining(", "));
         }
         return count + " fragments";
-    }
-
-    private static String joinFilesForOutput(Collection<? extends BrokkFile> files) {
-        var toJoin = files.stream().map(BrokkFile::getFileName).sorted().toList();
-        if (files.size() <= 2) {
-            return joinClassesForOutput(toJoin);
-        }
-        return "%d files".formatted(files.size());
     }
 
     public List<ChatMessage> getHistoryMessagesForCopy() {

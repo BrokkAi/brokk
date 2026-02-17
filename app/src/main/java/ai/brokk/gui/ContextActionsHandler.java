@@ -6,7 +6,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.AnalyzerWrapper;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -734,7 +733,6 @@ public class ContextActionsHandler {
         }
 
         HashSet<ProjectFile> selectedFiles = new HashSet<>();
-        HashSet<CodeUnit> selectedClasses = new HashSet<>();
 
         selectedFragments.stream()
                 .flatMap(frag -> frag.referencedFiles().join().stream())
@@ -745,7 +743,7 @@ public class ContextActionsHandler {
             return;
         }
 
-        boolean success = contextManager.addSummaries(selectedFiles, selectedClasses);
+        boolean success = contextManager.addSummaries(selectedFiles, Set.of());
         if (!success) {
             chrome.toolError("No summarizable content found in the selected files or symbols.");
             return;

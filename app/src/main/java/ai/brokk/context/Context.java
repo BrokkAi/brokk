@@ -924,4 +924,36 @@ public class Context {
     public Context addHistoryEntry(ContextFragments.TaskFragment log, @Nullable TaskResult.TaskMeta meta) {
         return addHistoryEntryInternal(new TaskEntry(getTaskHistory().size(), log, log, null, meta));
     }
+
+    @Blocking
+    public Context addAsSummaries(List<ContextFragment> fragments) {
+        List<ContextFragment> toAdd = new ArrayList<>();
+        for (var cf : fragments) {
+            ContextFragments.SummaryFragment sf = null;
+            switch (cf) {
+                case ContextFragments.ProjectPathFragment ppf ->
+                    sf = new ContextFragments.SummaryFragment(
+                            contextManager, ppf.file().toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+                case ContextFragments.CodeFragment ccf -> {
+                    var analyzer = contextManager.getAnalyzerUninterrupted();
+                    var cuOpt = analyzer.parentOf(
+                            analyzer.getDefinitions(ccf.getFullyQualifiedName()).getFirst());
+                    if (cuOpt.isEmpty()) {
+                        logger.warn("Missing parent for " + ccf.getFullyQualifiedName());
+                    } else {
+                        sf = new ContextFragments.SummaryFragment(
+                                contextManager, cuOpt.get().fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+                    }
+                }
+                case ContextFragments.SummaryFragment ssf -> sf = ssf;
+                default -> logger.warn("Unexpected fragment type added by Architect {}", cf.getClass());
+            }
+
+            if (sf != null) {
+                toAdd.add(sf);
+            }
+        }
+
+        return addFragments(toAdd);
+    }
 }
