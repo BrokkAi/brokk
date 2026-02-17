@@ -147,7 +147,7 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
             return;
         }
 
-        if (request.sessionId() == null || request.sessionId().isBlank()) {
+        if (request.sessionId().isBlank()) {
             RouterUtil.sendValidationError(exchange, "sessionId is required");
             return;
         }
