@@ -1,106 +1,14 @@
-import asyncio
-import time
-
 import pytest
-from textual.containers import Horizontal
-from textual.widgets import Static
 
 from brokk_code.widgets.chat_panel import ChatPanel
-
-
-@pytest.mark.asyncio
-async def test_spinner_and_timer_lifecycle():
-    """
-    Verify that the spinner and elapsed timer visibility and values are controlled
-    explicitly and respond to simulated time.
-    """
-    from textual.app import App, ComposeResult
-
-    class TestApp(App):
-        def compose(self) -> ComposeResult:
-            yield ChatPanel(id="chat")
-
-    app = TestApp()
-    async with app.run_test() as pilot:
-        panel = app.query_one("#chat", ChatPanel)
-        spinner_area = panel.query_one("#chat-spinner-area", Horizontal)
-        timer_label = panel.query_one("#chat-timer", Static)
-
-        # Setup deterministic clock
-        current_time = 1000.0
-
-        def mock_now():
-            return current_time
-
-        panel._get_now = mock_now
-
-        # Helper to wait for timer label to reach expected state
-        async def wait_for_timer(expected: str, timeout: float = 1.0):
-            start = time.time()
-            while time.time() - start < timeout:
-                if str(timer_label.render()) == expected:
-                    return
-                await pilot.pause()
-                await asyncio.sleep(0.01)
-            assert str(timer_label.render()) == expected
-
-        # Initial state: hidden, no timer text
-        await pilot.pause()
-        assert spinner_area.has_class("hidden")
-        assert str(timer_label.render()) == ""
-
-        # Start job
-        panel.set_job_running(True)
-        await pilot.pause()
-        assert not spinner_area.has_class("hidden")
-
-        # Wait for the update worker to run once
-        await wait_for_timer("Elapsed: 00:00")
-
-        # Advance time by 65 seconds
-        current_time += 65.0
-        # Give the Textual interval a moment to fire and process the mock time update
-        await wait_for_timer("Elapsed: 01:05")
-
-        # Advance time to cross 1 hour (3600s + 65s = 3665s)
-        current_time += 3600.0
-        await wait_for_timer("Elapsed: 01:01:05")
-
-        # Verify timer continues even with NO tokens arriving
-        current_time += 10.0
-        await wait_for_timer("Elapsed: 01:01:15")
-
-        # Append tokens - spinner should STAY visible
-        panel.append_token(
-            "Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=False
-        )
-        assert "hidden" not in spinner_area.classes
-
-        panel.append_token(
-            " world", "AI", is_new_message=False, is_reasoning=False, is_terminal=True
-        )
-        assert "hidden" not in spinner_area.classes
-
-        # Verify set_response_finished does NOT hide spinner or stop timer
-        panel.set_response_finished()
-        assert "hidden" not in spinner_area.classes
-
-        current_time += 5.0
-        await wait_for_timer("Elapsed: 01:01:20")
-
-        # Explicit job finish - hides area and clears timer
-        panel.set_job_running(False)
-        await pilot.pause()
-        assert spinner_area.has_class("hidden")
-        # Wait for worker to exit and check final state
-        await asyncio.sleep(0.1)
-        assert str(timer_label.render()) == ""
 
 
 @pytest.mark.asyncio
 async def test_token_usage_update():
     """Verify that updating token usage updates the widget text."""
     from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.token_bar import TokenBar
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -109,30 +17,55 @@ async def test_token_usage_update():
     app = TestApp()
     async with app.run_test():
         panel = app.query_one("#chat", ChatPanel)
-        usage_label = panel.query_one("#chat-token-usage", Static)
+        token_bar = panel.query_one("#chat-token-bar", TokenBar)
 
-        # Initial empty
-        assert str(usage_label.render()) == ""
+        # Initial empty - should show no context message
+        assert "No context yet" in str(token_bar.render())
 
         # Update with used and max
         panel.set_token_usage(1500, 100000)
-        # 1,500 / 100,000 is 1.5%. In a 20-char bar, that's 0 blocks filled.
-        # bar_width = 20, ratio = 0.015, filled_len = 0
-        expected_bar = "░" * 20
-        assert str(usage_label.render()) == f"[{expected_bar}] 1,500 / 100,000"
+        assert "1,500 / 100,000 tokens" in str(token_bar.render())
 
         # Update with half usage
         panel.set_token_usage(50000, 100000)
-        expected_half_bar = "█" * 10 + "░" * 10
-        assert str(usage_label.render()) == f"[{expected_half_bar}] 50,000 / 100,000"
+        assert "50,000 / 100,000 tokens" in str(token_bar.render())
 
         # Update with only used
         panel.set_token_usage(2500)
-        assert str(usage_label.render()) == "Tokens: 2,500"
+        # TokenBar defaults max to 200,000 if not provided
+        assert "2,500 / 200,000 tokens" in str(token_bar.render())
 
         # Update with 0 clears it
         panel.set_token_usage(0)
-        assert str(usage_label.render()) == ""
+        assert "No context yet" in str(token_bar.render())
+
+
+@pytest.mark.asyncio
+async def test_job_progress_in_chat_panel():
+    """
+    Verify that job running state is reflected in ChatPanel's progress widget.
+    """
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one(ChatPanel)
+        progress = chat.query_one("#status-progress")
+
+        # Initially hidden
+        assert progress.has_class("hidden")
+
+        # Start job
+        chat.set_job_running(True)
+        assert not progress.has_class("hidden")
+
+        # Stop job
+        chat.set_job_running(False)
+        assert progress.has_class("hidden")
 
 
 @pytest.mark.asyncio
@@ -147,18 +80,18 @@ async def test_token_bar_visibility_control():
     app = TestApp()
     async with app.run_test():
         panel = app.query_one("#chat", ChatPanel)
-        usage_label = panel.query_one("#chat-token-usage", Static)
+        token_bar = panel.query_one("#chat-token-bar")
 
         # Initial state: hidden
-        assert usage_label.has_class("hidden")
+        assert token_bar.has_class("hidden")
 
         # Set visible
         panel.set_token_bar_visible(True)
-        assert not usage_label.has_class("hidden")
+        assert not token_bar.has_class("hidden")
 
         # Set hidden
         panel.set_token_bar_visible(False)
-        assert usage_label.has_class("hidden")
+        assert token_bar.has_class("hidden")
 
 
 @pytest.mark.asyncio

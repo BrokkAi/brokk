@@ -1,11 +1,10 @@
-import asyncio
 import time
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
-from textual import events, work
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -13,6 +12,7 @@ from textual.message import Message
 from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
+from brokk_code.widgets.token_bar import TokenBar
 
 
 class ChatInput(TextArea):
@@ -98,11 +98,11 @@ class ChatPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
-        with Horizontal(id="chat-spinner-area", classes="hidden"):
-            yield LoadingIndicator(id="chat-spinner", classes="hidden")
-            yield Static(id="chat-timer", classes="ml-1 hidden")
-            yield Static(id="chat-token-usage", classes="token-usage hidden")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
+        with Horizontal(id="status-progress", classes="hidden"):
+            yield LoadingIndicator(id="status-spinner")
+            yield Static(id="status-timer")
+        yield TokenBar(id="chat-token-bar", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield StatusLine(id="status-line")
 
@@ -193,112 +193,22 @@ class ChatPanel(Vertical):
         self._history_index = -1
         self._draft_buffer = ""
 
-    def set_job_running(self, running: bool) -> None:
-        """Explicitly controls the visibility of the job progress spinner and timer."""
-        if running:
-            if self._job_start_time is None:
-                self._job_start_time = self._get_now()
-                self._update_elapsed_time_label()
-                if self._timer_interval is None:
-                    self._timer_interval = self.set_interval(0.2, self._update_elapsed_time_label)
-        else:
-            self._job_start_time = None
-            if self._timer_interval is not None:
-                self._timer_interval.stop()
-                self._timer_interval = None
-            try:
-                self.query_one("#chat-timer", Static).update("")
-            except Exception:
-                pass
-
-        self._show_spinner(running)
-
     def set_response_pending(self) -> None:
         """Called when a job is submitted and we are waiting for the first token."""
         self.response_pending = True
         self.response_active = False
 
     def set_response_active(self) -> None:
-        """Called when the first token of a response (or new message in stream) arrives."""
+        """Called when the first token of a response arrives."""
         self.response_pending = False
         self.response_active = True
         self._last_token_time = self._get_now()
 
     def set_response_finished(self) -> None:
-        """Called when the job loop exits. Flushes remaining tokens.
-        Does not manage spinner/ticker state (see set_job_running)."""
+        """Called when the job loop exits. Flushes remaining tokens."""
         self.response_pending = False
         self.response_active = False
-        # Some backends do not emit an explicit terminal token; flush any buffered text on finish.
         self._flush_message()
-
-    def _update_spinner_area_visibility(self) -> None:
-        try:
-            area = self.query_one("#chat-spinner-area", Horizontal)
-            spinner = self.query_one("#chat-spinner", LoadingIndicator)
-            timer = self.query_one("#chat-timer", Static)
-            usage_label = self.query_one("#chat-token-usage", Static)
-        except Exception:
-            return
-
-        should_show = (
-            not usage_label.has_class("hidden")
-            or not spinner.has_class("hidden")
-            or not timer.has_class("hidden")
-        )
-        area.set_class(not should_show, "hidden")
-
-    def _show_spinner(self, show: bool) -> None:
-        try:
-            spinner = self.query_one("#chat-spinner", LoadingIndicator)
-            timer = self.query_one("#chat-timer", Static)
-        except Exception:
-            return
-
-        if show:
-            spinner.remove_class("hidden")
-            timer.remove_class("hidden")
-        else:
-            spinner.add_class("hidden")
-            timer.add_class("hidden")
-
-        self._update_spinner_area_visibility()
-
-    def _update_elapsed_time_label(self) -> None:
-        """Updates the elapsed time ticker label."""
-        if self._job_start_time is None:
-            return
-
-        try:
-            timer_label = self.query_one("#chat-timer", Static)
-        except Exception:
-            return
-
-        elapsed = max(0, int(self._get_now() - self._job_start_time))
-        hours, remainder = divmod(elapsed, 3600)
-        minutes, seconds = divmod(remainder, 60)
-
-        if hours > 0:
-            time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
-        else:
-            time_str = f"{minutes:02}:{seconds:02}"
-
-        timer_label.update(f"Elapsed: {time_str}")
-
-    @work(exclusive=True)
-    async def _monitor_inactivity(self) -> None:
-        """Re-shows spinner if no tokens arrive for a while during an active stream."""
-        while self.response_active:
-            await asyncio.sleep(1.0)
-            self._check_inactivity()
-
-    def _check_inactivity(self) -> None:
-        """Internal check to update spinner based on time since last token."""
-        if (
-            self.response_active
-            and (self._get_now() - self._last_token_time) > self._inactivity_timeout
-        ):
-            self._show_spinner(True)
 
     def append_token(
         self,
@@ -315,7 +225,6 @@ class ChatPanel(Vertical):
         # Defensive: Ensure response is marked active if tokens are arriving
         if not self.response_active:
             self.set_response_active()
-            self._monitor_inactivity()
 
         # Handle transitions: new message flag or switching between reasoning/normal
         should_start_new = is_new_message or (
@@ -424,12 +333,10 @@ class ChatPanel(Vertical):
     def set_token_bar_visible(self, visible: bool) -> None:
         """Toggles the visibility of the token usage bar."""
         try:
-            usage_label = self.query_one("#chat-token-usage", Static)
-            usage_label.set_class(not visible, "hidden")
+            token_bar = self.query_one("#chat-token-bar", TokenBar)
+            token_bar.set_class(not visible, "hidden")
         except Exception:
-            return
-
-        self._update_spinner_area_visibility()
+            pass
 
     def clear_input(self) -> None:
         """Clears the chat input and resets history navigation state."""
@@ -438,26 +345,54 @@ class ChatPanel(Vertical):
         self._history_index = -1
         self._draft_buffer = ""
 
-    def set_token_usage(self, used: int, max_tokens: Optional[int] = None) -> None:
+    def set_token_usage(
+        self,
+        used: int,
+        max_tokens: Optional[int] = None,
+        fragments: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
         """Updates the token usage display in the spinner area."""
         try:
-            usage_label = self.query_one("#chat-token-usage", Static)
+            token_bar = self.query_one("#chat-token-bar", TokenBar)
+            token_bar.update_tokens(used, max_tokens, fragments)
+        except Exception:
+            pass
+
+    def set_job_running(self, running: bool) -> None:
+        """Start or stop the job progress indicator and timer."""
+        try:
+            progress = self.query_one("#status-progress", Horizontal)
         except Exception:
             return
 
-        if used <= 0:
-            usage_label.update("")
-            return
-
-        if max_tokens and max_tokens > 0:
-            bar_width = 20
-            # Clamp ratio between 0 and 1
-            ratio = max(0.0, min(1.0, used / max_tokens))
-            filled_len = int(bar_width * ratio)
-            bar = "█" * filled_len + "░" * (bar_width - filled_len)
-            usage_text = f"[{bar}] {used:,} / {max_tokens:,}"
+        if running:
+            if self._job_start_time is None:
+                self._job_start_time = self._get_now()
+                self._update_timer()
+                if self._timer_interval is None:
+                    self._timer_interval = self.set_interval(0.2, self._update_timer)
+            progress.remove_class("hidden")
         else:
-            usage_text = f"Tokens: {used:,}"
+            self._job_start_time = None
+            if self._timer_interval is not None:
+                self._timer_interval.stop()
+                self._timer_interval = None
+            progress.add_class("hidden")
+            try:
+                self.query_one("#status-timer", Static).update("")
+            except Exception:
+                pass
 
-        # Using Text object to avoid markup injection/crashes
-        usage_label.update(Text(usage_text))
+    def _update_timer(self) -> None:
+        if self._job_start_time is None:
+            return
+        elapsed = max(0, int(self._get_now() - self._job_start_time))
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        time_str = (
+            f"{hours:02}:{minutes:02}:{seconds:02}" if hours > 0 else f"{minutes:02}:{seconds:02}"
+        )
+        try:
+            self.query_one("#status-timer", Static).update(f"Elapsed: {time_str}")
+        except Exception:
+            pass

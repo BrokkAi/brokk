@@ -293,13 +293,22 @@ class BrokkApp(App):
     def _maybe_statusline(self) -> Optional[StatusLine]:
         """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
         try:
+            chat = self._maybe_chat()
+            if chat:
+                return chat.query_one(StatusLine)
             return self.query_one(StatusLine)
         except (ScreenStackError, Exception):
             return None
 
     def _update_statusline(self) -> None:
         """Collect current state and update the mounted StatusLine (best-effort)."""
-        status = self._maybe_statusline()
+        chat = self._maybe_chat()
+        if not chat:
+            return
+        try:
+            status = chat.query_one("#status-line", StatusLine)
+        except Exception:
+            return
         if not status:
             return
         try:
@@ -488,7 +497,8 @@ class BrokkApp(App):
                 if chat:
                     used = context_data.get("usedTokens", 0)
                     max_tokens = context_data.get("maxTokens")
-                    chat.set_token_usage(used, max_tokens)
+                    fragments = context_data.get("fragments")
+                    chat.set_token_usage(used, max_tokens, fragments)
 
                 # Clear error tracking on success
                 self._reported_refresh_errors.clear()
@@ -813,12 +823,16 @@ class BrokkApp(App):
                 else:
                     self.job_in_progress = False
                     self.current_job_id = None
-                    chat.set_job_running(False)
+                    chat = self._maybe_chat()
+                    if chat:
+                        chat.set_job_running(False)
             else:
                 # Only mark idle once we are sure no more prompts are queued
                 self.job_in_progress = False
                 self.current_job_id = None
-                chat.set_job_running(False)
+                chat = self._maybe_chat()
+                if chat:
+                    chat.set_job_running(False)
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
@@ -1212,7 +1226,8 @@ class BrokkApp(App):
     def action_toggle_statusline(self) -> None:
         """Toggle visibility of the status line (best-effort)."""
         try:
-            panel = self.query_one("#status-line")
+            # Look in ChatPanel since it's nested there
+            panel = self.query_one(ChatPanel).query_one("#status-line")
             panel.toggle_class("hidden")
         except Exception:
             # If not mounted, ignore
@@ -1255,7 +1270,8 @@ class BrokkApp(App):
             self._pending_updated_at = 0
             self._pending_generation = 0
             self._pending_min_wait_until = 0.0
-            self.query_one(ChatPanel).add_system_message("Cancelling job...")
+            if chat_panel:
+                chat_panel.add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)
             # Reset double-tap timer so they don't accidentally quit while cancelling
             self._last_ctrl_c_time = now

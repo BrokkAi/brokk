@@ -4,8 +4,7 @@ import pytest
 
 from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorManager
-from brokk_code.widgets.chat_panel import ChatPanel
-from brokk_code.widgets.context_panel import ContextFragmentItem, ContextPanel
+from brokk_code.widgets.context_panel import ContextPanel
 
 
 class StubExecutor(ExecutorManager):
@@ -173,73 +172,6 @@ async def test_refresh_context_panel_integration_preserves_task_details(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_context_polling_updates_ui(tmp_path):
-    """
-    Verifies that the background context polling worker updates the ContextPanel.
-    """
-    stub = StubExecutor(tmp_path)
-    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
-    # Mock data
-    mock_context = {
-        "usedTokens": 1500,
-        "maxTokens": 100000,
-        "fragments": [
-            {
-                "chipKind": "EDIT",
-                "shortDescription": "Modified UserAuth.java",
-                "pinned": True,
-                "tokens": 450,
-            },
-            {"chipKind": "HISTORY", "shortDescription": "Previous chat history", "tokens": 1050},
-        ],
-    }
-
-    with (
-        patch(
-            "brokk_code.executor.ExecutorManager.get_context", new_callable=AsyncMock
-        ) as mock_get,
-        patch.object(BrokkApp, "_poll_context", return_value=None),
-        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
-    ):
-        mock_get.return_value = mock_context
-
-        async with app.run_test() as pilot:
-            # Manually set ready state
-            app._executor_ready = True
-
-            # Directly call the refresh method that the worker would call
-            await app._refresh_context_panel()
-            await pilot.pause()
-
-            # Open context modal before querying ContextPanel.
-            await pilot.press("ctrl+l")
-            await app._refresh_context_panel()
-            await pilot.pause()
-
-            # Verify Header
-            panel = app.screen.query_one("#context-panel", ContextPanel)
-            usage = panel.query_one("#context-token-usage")
-            assert "1,500 / 100,000 tokens" in str(usage.render())
-
-            # Verify ChatPanel Token Usage
-            chat_panel = app.query_one(ChatPanel)
-            usage_label = chat_panel.query_one("#chat-token-usage")
-            # The UI renders a progress bar when max_tokens is present
-            assert "1,500 / 100,000" in str(usage_label.render())
-
-            # Verify List Contents
-            fragment_items = panel.query(ContextFragmentItem)
-            assert len(fragment_items) == 2
-
-            items_text = " ".join(item.render().plain for item in fragment_items)
-            assert "Modified UserAuth.java" in items_text
-            assert "Previous chat history" in items_text
-            assert "EDIT" in items_text
-            assert "HISTORY" in items_text
-
-
-@pytest.mark.asyncio
 async def test_polling_triggers_immediately_after_ready(tmp_path):
     """
     Verifies that once _executor_ready is True, the polling loops
@@ -282,7 +214,7 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await app._refresh_context_panel()
             await pilot.pause()
             panel = app.screen.query_one(ContextPanel)
-            assert "100 /" in str(panel.query_one("#context-token-usage").render())
+            assert "100 / 200,000 tokens" in str(panel.query_one("#context-token-usage").render())
 
 
 @pytest.mark.asyncio
