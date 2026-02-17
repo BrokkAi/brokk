@@ -4,8 +4,7 @@ import pytest
 
 from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorManager
-from brokk_code.widgets.chat_panel import ChatPanel
-from brokk_code.widgets.context_panel import ContextFragmentItem, ContextPanel
+from brokk_code.widgets.context_panel import ContextPanel
 
 
 class StubExecutor(ExecutorManager):
