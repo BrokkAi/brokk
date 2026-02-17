@@ -560,7 +560,13 @@ public class BuildAgent {
         logger.debug("Final exclusionPatterns (existing + LLM, deduplicated): {}", deduplicatedPatterns);
         logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
-                buildLintCommand, testAllCommand, testSomeCommand, deduplicatedPatterns, defaultEnvForProject());
+                buildLintCommand,
+                testAllCommand,
+                testSomeCommand,
+                deduplicatedPatterns,
+                defaultEnvForProject(),
+                null,
+                "");
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
@@ -660,12 +666,14 @@ public class BuildAgent {
                     Set<String> exclusionPatterns,
             @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables,
-            @Nullable Integer maxBuildAttempts) {
+            @Nullable Integer maxBuildAttempts,
+            // blank = do nothing
+            String afterTaskListCommand) {
 
         @VisibleForTesting
         public BuildDetails(
                 String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null);
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null, "");
         }
 
         public BuildDetails(
@@ -674,10 +682,10 @@ public class BuildAgent {
                 String testSomeCommand,
                 Set<String> exclusionPatterns,
                 Map<String, String> environmentVariables) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null);
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null, "");
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null);
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null, "");
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
@@ -691,7 +699,8 @@ public class BuildAgent {
                 @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
                 @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables,
-                @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts) {
+                @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts,
+                @JsonProperty("afterTaskListCommand") @Nullable String afterTaskListCommand) {
             // Migrate legacy excludedDirectories to exclusionPatterns
             Set<String> patterns = new LinkedHashSet<>();
             if (exclusionPatterns != null) {
@@ -706,7 +715,8 @@ public class BuildAgent {
                     testSomeCommand != null ? testSomeCommand : "",
                     patterns,
                     environmentVariables != null ? environmentVariables : Map.of(),
-                    maxBuildAttempts);
+                    maxBuildAttempts,
+                    afterTaskListCommand != null ? afterTaskListCommand : "");
         }
     }
 
@@ -1094,33 +1104,6 @@ public class BuildAgent {
                 return runVerification(ctx, override);
             } catch (InterruptedException e) {
                 // Preserve interrupt status and defer propagation until after pushContext returns
-                Thread.currentThread().interrupt();
-                interrupted.set(e);
-                return ctx;
-            }
-        });
-        var ie = interrupted.get();
-        if (ie != null) {
-            throw ie;
-        }
-        return updated.getBuildError();
-    }
-
-    /**
-     * Run a caller-specified command (intended for ISSUE-mode gates, but reusable), stream output to the console, and
-     * update the session's Build Results fragment.
-     *
-     * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
-     * text.
-     */
-    @Blocking
-    public static String runExplicitCommand(IContextManager cm, String command, @Nullable BuildDetails override)
-            throws InterruptedException {
-        var interrupted = new AtomicReference<InterruptedException>(null);
-        var updated = cm.pushContext(ctx -> {
-            try {
-                return runExplicitCommand(ctx, command, override);
-            } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 interrupted.set(e);
                 return ctx;

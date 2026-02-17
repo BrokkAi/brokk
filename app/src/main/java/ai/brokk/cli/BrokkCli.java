@@ -382,7 +382,8 @@ public final class BrokkCli implements Callable<Integer> {
                 testSome,
                 existingDetails.exclusionPatterns(),
                 env,
-                existingDetails.maxBuildAttempts());
+                existingDetails.maxBuildAttempts(),
+                existingDetails.afterTaskListCommand());
 
         project.setBuildDetails(bd);
         project.saveBuildDetails(bd);
