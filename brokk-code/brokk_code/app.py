@@ -274,6 +274,11 @@ class BrokkApp(App):
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
 
+        # Shutdown coordination flags and lock
+        self._shutting_down: bool = False
+        self._session_exported: bool = False
+        self._shutdown_lock = asyncio.Lock()
+
     @property
     def current_mode(self) -> str:
         """Alias for agent_mode used by tests and for unified access."""
@@ -731,7 +736,7 @@ class BrokkApp(App):
         Persistence Policy:
         - Only non-command prompts (text not starting with '/') are recorded.
         - Prompts are recorded at the moment of submission, regardless of whether
-          they trigger a cancellation or are later aborted.
+        they trigger a cancellation or are later aborted.
         - History is stored in the project-specific directory:
           `self.executor.workspace_dir / ".brokk" / "prompts.json"`
         """
@@ -1284,7 +1289,15 @@ class BrokkApp(App):
             self._last_ctrl_c_time = now
 
     async def _export_session(self) -> None:
-        """Best-effort export of the current session zip to workspace cache."""
+        """Best-effort export of the current session zip to workspace cache.
+
+        This method is idempotent and will only attempt export once per app lifetime.
+        """
+        # Avoid re-exporting multiple times
+        if self._session_exported:
+            return
+
+        # Quick-circuit: no session or executor not ready -> nothing to export
         if not self.executor.session_id or not self._executor_ready:
             return
 
@@ -1296,26 +1309,73 @@ class BrokkApp(App):
             zip_path = get_session_zip_path(self.executor.workspace_dir, session_id)
             zip_path.write_bytes(zip_bytes)
             logger.info("Session %s exported to %s", session_id, zip_path)
+            self._session_exported = True
+        except ExecutorError as ee:
+            # Treat intentional "Executor not started" after a controlled stop as benign.
+            msg = str(ee)
+            if "Executor not started" in msg:
+                logger.debug("Session export skipped because executor is not started (expected during shutdown).")
+            else:
+                logger.warning("Failed to export session zip on shutdown: %s", ee)
         except Exception as e:
             logger.warning("Failed to export session zip on shutdown: %s", e)
 
+    async def _shutdown_once(self, *, show_message: bool = True) -> None:
+        """Perform shutdown actions exactly once. Idempotent and concurrency-safe."""
+        # Fast path
+        async with self._shutdown_lock:
+            if self._shutting_down:
+                return
+            self._shutting_down = True
+
+            # Notify user once
+            if show_message:
+                msg = "Shutting down..."
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message(msg)
+                else:
+                    logger.info(msg)
+
+            # Attempt to export the session before we stop the executor.
+            # Only attempt export if executor reports ready or alive.
+            try:
+                can_export = False
+                if self.executor.session_id:
+                    # Prefer _executor_ready, but if it's false we still attempt only if process alive
+                    if self._executor_ready or self.executor.check_alive():
+                        can_export = True
+
+                if can_export:
+                    await self._export_session()
+                else:
+                    logger.debug("Skipping session export: no session or executor not available.")
+            except Exception:
+                logger.debug("Export step failed during shutdown", exc_info=True)
+
+            # Mark executor not ready immediately so any concurrent refresh/export short-circuits.
+            self._executor_ready = False
+
+            # Stop executor (best-effort). Multiple calls are safe because ExecutorManager.stop is idempotent.
+            try:
+                await self.executor.stop()
+            except Exception:
+                logger.debug("Executor.stop encountered an error during shutdown", exc_info=True)
+
     async def action_quit(self) -> None:
-        msg = "Shutting down..."
-        chat = self._maybe_chat()
-        if chat:
-            chat.add_system_message(msg)
-        else:
-            logger.info(msg)
-        await self._export_session()
-        await self.executor.stop()
-        self.exit()
+        # Centralized shutdown; show_message True to surface to user via chat/logs.
+        await self._shutdown_once(show_message=True)
+        # After clean shutdown, exit the app
+        try:
+            self.exit()
+        except Exception:
+            # exit() may raise in some test harnesses; ignore to avoid double-shutdown.
+            pass
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""
-        # Note: action_quit already calls _export_session.
-        # on_unmount is a fallback for other exit paths.
-        await self._export_session()
-        await self.executor.stop()
+        # on_unmount is a fallback shutdown path; avoid double-running shutdown logic.
+        await self._shutdown_once(show_message=False)
 
 
 if __name__ == "__main__":
