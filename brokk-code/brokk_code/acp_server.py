@@ -673,6 +673,7 @@ async def run_acp_server(
     executor_version: Optional[str],
     executor_snapshot: bool,
     ide: str = "intellij",
+    vendor: Optional[str] = None,
 ) -> None:
     try:
         from acp import (
@@ -722,6 +723,7 @@ async def run_acp_server(
         jar_path=jar_path,
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
+        vendor=vendor,
     )
     bridge = BrokkAcpBridge(executor)
 

@@ -23,7 +23,15 @@ def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
-        ["brokk-code", "--workspace", str(tmp_path), "--session", "session-1"],
+        [
+            "brokk-code",
+            "--workspace",
+            str(tmp_path),
+            "--session",
+            "session-1",
+            "--vendor",
+            "OpenAI",
+        ],
     )
 
     main_module.main()
@@ -31,6 +39,7 @@ def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
     assert captured["ran"] is True
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["session_id"] == "session-1"
+    assert captured["kwargs"]["vendor"] == "OpenAI"
 
 
 def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
@@ -45,7 +54,15 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
-        ["brokk-code", "acp", "--workspace", str(tmp_path), "--executor-stable"],
+        [
+            "brokk-code",
+            "acp",
+            "--workspace",
+            str(tmp_path),
+            "--executor-stable",
+            "--vendor",
+            "Gemini",
+        ],
     )
 
     main_module.main()
@@ -53,6 +70,7 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["executor_snapshot"] is False
     assert captured["kwargs"]["ide"] == "intellij"
+    assert captured["kwargs"]["vendor"] == "Gemini"
 
 
 def test_main_acp_routes_to_server_with_ide(monkeypatch, tmp_path) -> None:

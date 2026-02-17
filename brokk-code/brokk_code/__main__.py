@@ -14,6 +14,17 @@ def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
         help="Path to the workspace directory (default: current directory)",
     )
     parser.add_argument(
+        "--vendor",
+        type=str,
+        choices=["Default", "Anthropic", "Gemini", "OpenAI", "OpenAI - Codex"],
+        default=None,
+        help=(
+            "Set 'Other Models' vendor preference (affects " + \
+                    "internal roles like summarize/scan/commit). "
+            "Use 'Default' to clear overrides."
+        ),
+    )
+    parser.add_argument(
         "--jar",
         type=str,
         default=None,
@@ -130,6 +141,7 @@ def main():
                 executor_version=args.executor_version,
                 executor_snapshot=args.executor_snapshot,
                 ide=args.ide,
+                vendor=args.vendor,
             )
         )
         return
@@ -147,6 +159,7 @@ def main():
         executor_snapshot=args.executor_snapshot,
         session_id=args.session,
         resume_session=args.resume_session,
+        vendor=args.vendor,
     )
     app.run()
 
