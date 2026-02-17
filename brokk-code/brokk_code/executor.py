@@ -436,6 +436,7 @@ class ExecutorManager:
         mode: str = "LUTZ",
         tags: Optional[Dict[str, str]] = None,
         session_id: Optional[str] = None,
+        auto_commit: bool = True,
     ) -> str:
         """Submits a new job to the executor.
 
@@ -453,7 +454,7 @@ class ExecutorManager:
         payload = {
             "taskInput": task_input,
             "plannerModel": planner_model,
-            "autoCommit": True,
+            "autoCommit": auto_commit,
             "autoCompress": True,
             "tags": job_tags,
         }

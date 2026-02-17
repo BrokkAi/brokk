@@ -15,6 +15,7 @@ def test_settings_default_load(tmp_path, monkeypatch):
     assert settings.last_code_model is None
     assert settings.last_reasoning_level is None
     assert settings.last_code_reasoning_level is None
+    assert settings.last_auto_commit is None
 
 
 def test_settings_prompt_history_persistence(tmp_path, monkeypatch):
@@ -88,6 +89,7 @@ def test_settings_models_roundtrip(tmp_path, monkeypatch):
         last_code_model="gemini-3-flash-preview",
         last_reasoning_level="medium",
         last_code_reasoning_level="disable",
+        last_auto_commit=False,
     )
     settings.save()
 
@@ -98,6 +100,7 @@ def test_settings_models_roundtrip(tmp_path, monkeypatch):
     assert loaded.last_code_model == "gemini-3-flash-preview"
     assert loaded.last_reasoning_level == "medium"
     assert loaded.last_code_reasoning_level == "disable"
+    assert loaded.last_auto_commit is False
 
 
 def test_settings_load_from_older_json_without_new_keys(tmp_path, monkeypatch):
@@ -120,3 +123,4 @@ def test_settings_load_from_older_json_without_new_keys(tmp_path, monkeypatch):
     assert loaded.last_code_model is None
     assert loaded.last_reasoning_level is None
     assert loaded.last_code_reasoning_level is None
+    assert loaded.last_auto_commit is None

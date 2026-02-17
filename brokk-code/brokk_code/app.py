@@ -252,6 +252,11 @@ class BrokkApp(App):
             if self.settings.last_code_reasoning_level
             else "disable"
         )
+        self.auto_commit = (
+            bool(self.settings.last_auto_commit)
+            if isinstance(self.settings.last_auto_commit, bool)
+            else True
+        )
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
@@ -757,6 +762,7 @@ class BrokkApp(App):
                 reasoning_level=self.reasoning_level,
                 reasoning_level_code=self.reasoning_level_code,
                 mode=self.current_mode,
+                auto_commit=self.auto_commit,
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
@@ -872,6 +878,7 @@ class BrokkApp(App):
             f"Workspace: [bold]{self.executor.workspace_dir}[/]\n"
             f"Executor JAR: [bold]{jar_path}[/]\n"
             f"Mode: [bold]{self.agent_mode}[/]\n"
+            f"Auto-commit: [bold]{'ON' if self.auto_commit else 'OFF'}[/]\n"
             f"{planner_info}\n"
             f"{code_info}"
         )
@@ -924,6 +931,54 @@ class BrokkApp(App):
             chat.add_system_message_markup(
                 f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
             )
+        elif base == "/autocommit":
+            if len(parts) == 1:
+                state = "ON" if self.auto_commit else "OFF"
+                chat.add_system_message_markup(
+                    "Auto-commit mode: "
+                    f"[bold]{state}[/]\n"
+                    "Usage: /autocommit on|off|toggle",
+                    level="WARNING",
+                )
+                return
+
+            if len(parts) != 2:
+                chat.add_system_message(
+                    "Usage: /autocommit on|off|toggle (or true/false/1/0/yes/no)",
+                    level="ERROR",
+                )
+                return
+
+            arg = parts[1].strip().lower()
+            truthy = {"on", "true", "1", "yes"}
+            falsy = {"off", "false", "0", "no"}
+            if arg in truthy:
+                new_value = True
+            elif arg in falsy:
+                new_value = False
+            elif arg == "toggle":
+                new_value = not self.auto_commit
+            else:
+                chat.add_system_message(
+                    "Usage: /autocommit on|off|toggle (or true/false/1/0/yes/no)",
+                    level="ERROR",
+                )
+                return
+
+            self.auto_commit = new_value
+            try:
+                self.settings.last_auto_commit = self.auto_commit
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_auto_commit setting")
+
+            if self.auto_commit:
+                chat.add_system_message_markup("Auto-commit mode: [bold]ON[/]")
+            else:
+                chat.add_system_message_markup(
+                    "Auto-commit mode: [bold]OFF[/] (changes will not be committed automatically)",
+                    level="WARNING",
+                )
         elif base == "/settings":
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
@@ -992,6 +1047,7 @@ class BrokkApp(App):
                 "  /model-code <name>    - Change the code LLM model\n"
                 "  /reasoning <level>    - Set reasoning level for planner (Shortcut: Ctrl+E)\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
+                "  /autocommit [on|off|toggle] - Toggle auto-commit for submitted jobs\n"
                 "  /settings             - Open settings\n"
                 "  /history              - Show recent prompt history\n"
                 "  /history-clear        - Clear prompt history\n"
