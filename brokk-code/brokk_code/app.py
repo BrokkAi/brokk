@@ -939,9 +939,7 @@ class BrokkApp(App):
             if len(parts) == 1:
                 state = "ON" if self.auto_commit else "OFF"
                 chat.add_system_message_markup(
-                    "Auto-commit mode: "
-                    f"[bold]{state}[/]\n"
-                    "Usage: /autocommit on|off|toggle",
+                    f"Auto-commit mode: [bold]{state}[/]\nUsage: /autocommit on|off|toggle",
                     level="WARNING",
                 )
                 return

@@ -64,4 +64,3 @@ async def test_run_job_passes_auto_commit_flag():
 
     assert executor.submit_job.await_count == 1
     assert executor.submit_job.await_args.kwargs["auto_commit"] is False
-
