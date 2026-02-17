@@ -1,9 +1,8 @@
-import time
 from typing import Optional
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import LoadingIndicator, Static
+from textual.widgets import Static
 
 
 class StatusLine(Horizontal):

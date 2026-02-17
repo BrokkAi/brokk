@@ -1,7 +1,6 @@
 import math
 from typing import Any, Dict, List, Optional
 
-from rich.style import Style
 from rich.text import Text
 from textual.widgets import Static
 
