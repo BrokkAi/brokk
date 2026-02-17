@@ -210,18 +210,22 @@ class BrokkApp(App):
         executor: Optional[ExecutorManager] = None,
         session_id: Optional[str] = None,
         resume_session: bool = True,
+        vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
         if executor:
             self.executor = executor
             if workspace_dir:
                 self.executor.workspace_dir = workspace_dir.resolve()
+            if vendor is not None:
+                self.executor.vendor = vendor
         else:
             self.executor = ExecutorManager(
                 workspace_dir or Path.cwd(),
                 jar_path,
                 executor_version=executor_version,
                 executor_snapshot=executor_snapshot,
+                vendor=vendor,
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
