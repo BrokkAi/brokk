@@ -98,8 +98,8 @@ def test_render_bar_with_track():
     from textual.geometry import Size
 
     bar = TokenBar()
-    # " 500 / 1,000 tokens" is 18 chars. Need width for bar + text.
     bar._test_size = Size(40, 1)
+    # " 500 / 1,000 tokens" is 18 chars. Need width for bar + text.
     # used=500, max=1000. usage_str=" 500 / 1,000 tokens" (18 chars). bar_width=22.
     # fill=11. track=11.
     bar.update_tokens(500, 1000)
@@ -123,8 +123,8 @@ def test_render_bar_auto_rescale():
     from textual.geometry import Size
 
     bar = TokenBar()
-    # " 2,000 / 1,000 tokens" is 20 chars.
     bar._test_size = Size(40, 1)
+    # " 2,000 / 1,000 tokens" is 20 chars.
     # used=2000, max=1000. bar_width=20.
     # used > max, so effective_max=2000. fill should be 100% of bar_width.
     bar.update_tokens(2000, 1000)
