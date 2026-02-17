@@ -62,6 +62,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             } else if (normalizedPath.equals("/v1/tasklist")) {
                 handleGetTaskList(exchange);
                 return;
+            } else if (normalizedPath.equals("/v1/context/conversation")) {
+                handleGetConversation(exchange);
+                return;
             }
         }
 
@@ -607,4 +610,57 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     private record ReplaceTaskListRequest(
             @org.jetbrains.annotations.Nullable String bigPicture,
             @org.jetbrains.annotations.Nullable List<TaskList.TaskItem> tasks) {}
+
+    // ── GET /v1/context/conversation ──────────────────────
+
+    /**
+     * Returns the current live context's task history as displayable conversation messages.
+     */
+    private void handleGetConversation(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) return;
+
+        try {
+            var taskHistory = contextManager.liveContext().getTaskHistory();
+            var entries = new ArrayList<Map<String, Object>>();
+
+            for (var task : taskHistory) {
+                var entryMap = new HashMap<String, Object>();
+                entryMap.put("sequence", task.sequence());
+                entryMap.put("isCompressed", task.isCompressed());
+
+                if (task.meta() != null) {
+                    entryMap.put("taskType", task.meta().type().displayName());
+                }
+
+                var log = task.mopLog();
+                if (log != null) {
+                    var msgList = new ArrayList<Map<String, Object>>();
+                    for (var msg : log.messages()) {
+                        var msgMap = new HashMap<String, Object>();
+                        msgMap.put("role", msg.type().name().toLowerCase(java.util.Locale.ROOT));
+                        msgMap.put("text", Messages.getText(msg));
+
+                        if (msg instanceof dev.langchain4j.data.message.AiMessage ai
+                                && ai.reasoningContent() != null
+                                && !ai.reasoningContent().isBlank()) {
+                            msgMap.put("reasoning", ai.reasoningContent());
+                        }
+
+                        msgList.add(msgMap);
+                    }
+                    entryMap.put("messages", msgList);
+                } else if (task.summary() != null) {
+                    entryMap.put("summary", task.summary());
+                }
+
+                entries.add(entryMap);
+            }
+
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("entries", entries));
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/context/conversation", e);
+            var error = ErrorPayload.internalError("Failed to retrieve conversation", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 }

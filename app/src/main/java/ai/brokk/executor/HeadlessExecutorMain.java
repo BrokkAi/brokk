@@ -10,6 +10,7 @@ import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.executor.routers.ActivityRouter;
 import ai.brokk.executor.routers.ContextRouter;
 import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelsRouter;
@@ -247,6 +248,9 @@ public final class HeadlessExecutorMain {
 
         var modelsRouter = new ModelsRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/models", modelsRouter);
+
+        var activityRouter = new ActivityRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/activity", activityRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
