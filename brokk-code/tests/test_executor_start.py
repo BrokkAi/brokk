@@ -146,3 +146,98 @@ async def test_executor_start_includes_vendor_flag(monkeypatch, tmp_path):
     assert captured_cmd[idx + 1] == "OpenAI"
 
     await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_executor_exits_when_stdin_closed(monkeypatch, tmp_path):
+    """Regression: closing the subprocess stdin should allow the child to exit.
+
+    This test simulates a real subprocess where closing the stdin pipe causes the
+    child process to observe EOF and exit. We monkeypatch asyncio.create_subprocess_exec
+    to return a fake process whose stdin.close() sets returncode to a non-None value,
+    and then assert that ExecutorManager.check_alive() eventually becomes False.
+    """
+    dummy_jar = tmp_path / "brokk.jar"
+    dummy_jar.write_text("dummy")
+
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+        class FakeStdout:
+            def __init__(self):
+                self._lines = [
+                    b"Executor listening on http://127.0.0.1:54321\n",
+                    b"",
+                ]
+                self._idx = 0
+
+            async def readline(self):
+                if self._idx < len(self._lines):
+                    ln = self._lines[self._idx]
+                    self._idx += 1
+                    await asyncio.sleep(0)
+                    return ln
+                return b""
+
+        class FakeStdin:
+            def __init__(self, process):
+                self._closed = False
+                self._process = process
+
+            def close(self):
+                self._closed = True
+                self._process.returncode = 0
+
+            async def wait_closed(self):
+                await asyncio.sleep(0)
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = FakeStdout()
+                self.returncode = None
+                self.stdin = None
+
+            async def wait(self):
+                while self.returncode is None:
+                    await asyncio.sleep(0.01)
+                return self.returncode
+
+            def terminate(self):
+                if self.returncode is None:
+                    self.returncode = -15
+
+            def kill(self):
+                if self.returncode is None:
+                    self.returncode = -9
+
+        proc = FakeProcess()
+        proc.stdin = FakeStdin(proc)
+        return proc
+
+    monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    manager = ExecutorManager(workspace_dir=tmp_path)
+
+    await manager.start()
+    assert manager.check_alive() is True
+
+    # Simulate parent death: close stdin without calling stop()
+    # Access _stdin directly (test-only access pattern; see executor.py docstring)
+    if manager._stdin is None:
+        pytest.skip("No stdin stream available; cannot test stdin-closure behavior")
+
+    manager._stdin.close()
+    wait_closed = getattr(manager._stdin, "wait_closed", None)
+    if callable(wait_closed):
+        await wait_closed()
+
+    # Poll for process exit with conservative timeout to avoid flakes
+    deadline = asyncio.get_event_loop().time() + 5.0
+    while asyncio.get_event_loop().time() < deadline:
+        if not manager.check_alive():
+            break
+        await asyncio.sleep(0.05)
+
+    assert manager.check_alive() is False, "Executor process did not exit after stdin was closed"
+
+    # Cleanup remaining resources
+    await manager.stop()
