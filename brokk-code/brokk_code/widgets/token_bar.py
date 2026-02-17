@@ -141,24 +141,28 @@ class TokenBar(Static):
         others = [f for f in fragments if f.get("chipKind", f.get("chip_kind")) != "SUMMARY"]
 
         tokens_summaries = sum(int(f.get("tokens", 0)) for f in summaries)
-        total_tokens = sum(int(f.get("tokens", 0)) for f in fragments)
+        fragment_total_tokens = sum(int(f.get("tokens", 0)) for f in fragments)
 
-        if total_tokens <= 0:
+        if fragment_total_tokens <= 0:
             return []
 
-        effective_max = max(max_tokens, total_tokens)
-        total_fill_width = int(math.floor(width * (total_tokens / effective_max)))
+        # Total filled width is determined by used_tokens vs max_tokens.
+        effective_max = max(max_tokens, used_tokens)
+        total_fill_width = int(math.floor(width * (used_tokens / effective_max)))
         if total_fill_width <= 0:
             return []
 
         # 2. Identify small fragments to group into "OTHER" (except HISTORY)
-        alloc_items = []
-        small_fragments = []
+        alloc_items: List[Dict[str, Any]] = []
+        small_fragments: List[Dict[str, Any]] = []
+
+        # Use the sum of fragment tokens to determine proportions within the filled area.
+        proportion_base = fragment_total_tokens
 
         for f in others:
             t = int(f.get("tokens", 0))
             kind = f.get("chipKind", f.get("chip_kind", "OTHER"))
-            raw_w = (t / total_tokens) * total_fill_width
+            raw_w = (t / proportion_base) * total_fill_width
 
             if raw_w < cls.MIN_SEGMENT_WIDTH and kind != "HISTORY":
                 small_fragments.append(f)
@@ -184,9 +188,9 @@ class TokenBar(Static):
 
         # First pass: Floor and min-width clamping
         sum_w = 0
-        working_items = []
+        working_items: List[Dict[str, Any]] = []
         for item in alloc_items:
-            raw_w = (item["tokens"] / total_tokens) * effective_fill
+            raw_w = (item["tokens"] / proportion_base) * effective_fill
             w = max(int(math.floor(raw_w)), item["min_w"])
             working_items.append(
                 {"kind": item["kind"], "width": w, "rem": raw_w - math.floor(raw_w)}

@@ -17,11 +17,12 @@ def test_compute_segments_basic_proportions():
         {"chipKind": "EDIT", "tokens": 500},
         {"chipKind": "HISTORY", "tokens": 500},
     ]
-    # 50% usage of 1000 max. In a 100-wide bar, total fill is 50.
+    # used_tokens 500 of max_tokens 1000 -> 50% usage.
+    # In a 100-wide bar, total fill is 50.
     # Total gaps: 1 (between EDIT and HISTORY).
     # Effective fill: 50 - 1 = 49.
     # Each gets 24.5 -> floor 24. Deficit 1. 1st gets 25, 2nd 24.
-    segments = TokenBar.compute_segments(100, 1000, 1000, fragments)
+    segments = TokenBar.compute_segments(100, 500, 1000, fragments)
     assert sum(w for w, k in segments) == 49
     assert (25, "EDIT") in segments
     assert (24, "HISTORY") in segments
