@@ -155,7 +155,7 @@ public class JdtUsageAnalyzerTest {
             // The usage is inside FieldConsumer (TypeDeclaration), so it should have an enclosing context.
             assertFalse(hits.isEmpty(), "Should find usage in field initializer");
             assertEquals(
-                    "com.example.FieldConsumer",
+                    "com.example.FieldConsumer.external",
                     hits.iterator().next().enclosing().fqName());
         }
     }
@@ -321,20 +321,24 @@ public class JdtUsageAnalyzerTest {
                     public static final Target INSTANCE = new Target();
                 }
                 """;
-
         try (IProject project =
                 InlineTestProjectCreator.code(source, "com/example/Target.java").build()) {
             ProjectFile targetFile = project.getAllFiles().iterator().next();
-
-            // Search for type usages of Target
             CodeUnit classTarget = new CodeUnit(targetFile, CodeUnitType.CLASS, "com.example", "Target");
             Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(classTarget, project.getAllFiles(), project);
 
-            // Should find the type reference on LHS of field declaration: "Target INSTANCE"
-            // Note: constructor call "new Target()" is also a hit via ClassInstanceCreation visitor
+            // Should find usage in LHS "Target INSTANCE"
             assertTrue(
                     hits.stream().anyMatch(h -> h.snippet().contains("Target INSTANCE")),
                     "Should find type reference in field declaration LHS");
+
+            // Verify attribution is to the field INSTANCE
+            UsageHit hit = hits.stream()
+                    .filter(h -> h.snippet().contains("Target INSTANCE"))
+                    .findFirst()
+                    .get();
+            assertEquals("com.example.Target.INSTANCE", hit.enclosing().fqName());
+            assertEquals(CodeUnitType.FIELD, hit.enclosing().kind());
         }
     }
 

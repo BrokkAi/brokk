@@ -14,6 +14,7 @@ import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.ClassInstanceCreation;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.FieldDeclaration;
 import org.eclipse.jdt.core.dom.FileASTRequestor;
 import org.eclipse.jdt.core.dom.IBinding;
 import org.eclipse.jdt.core.dom.IMethodBinding;
@@ -25,6 +26,7 @@ import org.eclipse.jdt.core.dom.MethodInvocation;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SimpleType;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
+import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -225,7 +227,7 @@ public class JdtUsageAnalyzer {
                 @Override
                 public boolean visit(SimpleType node) {
                     checkBinding(node.resolveBinding(), node);
-                    return true;
+                    return false; // Prevent visiting children (SimpleName) to avoid duplicates
                 }
 
                 private void checkBinding(@Nullable IBinding binding, ASTNode node) {
@@ -262,6 +264,22 @@ public class JdtUsageAnalyzer {
                         if (current instanceof MethodDeclaration md) {
                             IMethodBinding b = md.resolveBinding();
                             if (b != null) return createCodeUnit(b, CodeUnitType.FUNCTION);
+                        } else if (current instanceof VariableDeclarationFragment vdf) {
+                            ASTNode parent = vdf.getParent();
+                            if (parent instanceof FieldDeclaration) {
+                                IVariableBinding vb = vdf.resolveBinding();
+                                if (vb != null) return createCodeUnit(vb, CodeUnitType.FIELD);
+                            }
+                        } else if (current instanceof FieldDeclaration fd) {
+                            // If the usage is attached to the FieldDeclaration directly (like the Type),
+                            // and there is exactly one fragment, we can attribute it to that field.
+                            if (fd.fragments().size() == 1) {
+                                Object frag = fd.fragments().get(0);
+                                if (frag instanceof VariableDeclarationFragment vdf) {
+                                    IVariableBinding vb = vdf.resolveBinding();
+                                    if (vb != null) return createCodeUnit(vb, CodeUnitType.FIELD);
+                                }
+                            }
                         } else if (current instanceof TypeDeclaration td) {
                             ITypeBinding b = td.resolveBinding();
                             if (b != null) return createCodeUnit(b, CodeUnitType.CLASS);
