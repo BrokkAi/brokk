@@ -1,5 +1,7 @@
 package ai.brokk.executor;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
@@ -15,6 +17,7 @@ import ai.brokk.executor.routers.ModelsRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -36,13 +39,21 @@ public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
 
     // Valid argument keys that the application accepts
-    private static final Set<String> VALID_ARGS =
-            Set.of("exec-id", "listen-addr", "auth-token", "workspace-dir", "brokk-api-key", "proxy-setting", "help");
+    private static final Set<String> VALID_ARGS = Set.of(
+            "exec-id",
+            "listen-addr",
+            "auth-token",
+            "workspace-dir",
+            "brokk-api-key",
+            "proxy-setting",
+            "vendor",
+            "help");
 
     private final UUID execId;
     private final SimpleHttpServer server;
     private final ContextManager contextManager;
     private final JobStore jobStore;
+    private final JobRunner jobRunner;
     private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
     private final Thread initThread;
@@ -149,6 +160,8 @@ public final class HeadlessExecutorMain {
         System.out.println("  --workspace-dir <path>     Path to workspace directory (required)");
         System.out.println("  --brokk-api-key <key>      Brokk API key override (optional)");
         System.out.println("  --proxy-setting <setting>  LLM proxy: BROKK, LOCALHOST, STAGING (optional)");
+        System.out.println(
+                "  --vendor <vendor>          Other-models vendor: Default, Anthropic, Gemini, OpenAI, OpenAI - Codex (optional)");
         System.out.println("  --help                     Show this help message");
         System.out.println();
         System.out.println("Arguments can also be provided via environment variables:");
@@ -191,7 +204,7 @@ public final class HeadlessExecutorMain {
         Files.createDirectories(sessionsDir);
 
         // Initialize JobStore and SessionManager
-        this.jobStore = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
+        this.jobStore = new JobStore(workspaceDir.resolve(".brokk"));
         this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
@@ -224,12 +237,9 @@ public final class HeadlessExecutorMain {
                 new SessionsRouter(this.contextManager, this.sessionManager, val -> this.sessionLoaded = val);
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
+        this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
         var jobsRouter = new JobsRouter(
-                this.contextManager,
-                this.jobStore,
-                new JobRunner(this.contextManager, this.jobStore),
-                this.jobReservation,
-                this.headlessInit);
+                this.contextManager, this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
         this.server.registerAuthenticatedContext("/v1/jobs", jobsRouter);
 
         var contextRouter = new ContextRouter(this.contextManager);
@@ -319,6 +329,8 @@ public final class HeadlessExecutorMain {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+
+        this.jobRunner.shutdown();
 
         try {
             this.contextManager.close();
@@ -428,6 +440,46 @@ public final class HeadlessExecutorMain {
 
             // Build ContextManager from workspace
             var project = new MainProject(workspaceDir);
+
+            // Apply vendor preference and role mappings (if requested)
+            String vendorArg = parsedArgs.get("vendor");
+            if (vendorArg != null && !vendorArg.isBlank()) {
+                String requestedVendor = vendorArg.trim();
+                String canonicalVendor;
+                if (ModelProperties.DEFAULT_VENDOR.equalsIgnoreCase(requestedVendor)) {
+                    canonicalVendor = ModelProperties.DEFAULT_VENDOR;
+                } else {
+                    canonicalVendor = ModelProperties.getAvailableVendors().stream()
+                            .filter(v -> v.equalsIgnoreCase(requestedVendor))
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalArgumentException(
+                                    "Invalid vendor: '" + requestedVendor + "'. Must be one of: "
+                                            + ModelProperties.DEFAULT_VENDOR + ", "
+                                            + String.join(", ", ModelProperties.getAvailableVendors())));
+                }
+
+                if (ModelProperties.DEFAULT_VENDOR.equals(canonicalVendor)) {
+                    for (ModelProperties.ModelType type : ModelProperties.ModelType.values()) {
+                        if (type != ModelProperties.ModelType.CODE && type != ModelProperties.ModelType.ARCHITECT) {
+                            project.removeModelConfig(type);
+                        }
+                    }
+                    MainProject.setOtherModelsVendorPreference("");
+                    logger.info("Cleared other-models vendor preference and internal role overrides");
+                } else {
+                    if ("OpenAI - Codex".equals(canonicalVendor) && !MainProject.isOpenAiCodexOauthConnected()) {
+                        throw new IllegalArgumentException(
+                                "OpenAI - Codex selected but Codex OAuth is not connected; connect/login first.");
+                    }
+                    var vendorModels = requireNonNull(
+                            ModelProperties.getVendorModels(canonicalVendor),
+                            "Vendor models unexpectedly null for " + canonicalVendor);
+                    vendorModels.forEach(project::setModelConfig);
+                    MainProject.setOtherModelsVendorPreference(canonicalVendor);
+                    logger.info("Applied other-models vendor preference: {}", canonicalVendor);
+                }
+            }
+
             var contextManager = new ContextManager(project);
 
             // Set per-executor Brokk API key override if provided
@@ -461,6 +513,9 @@ public final class HeadlessExecutorMain {
                     + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
             System.out.println(
                     "  proxySetting: " + (proxySetting != null ? proxySetting.name() : "(using global config)"));
+            if (vendorArg != null && !vendorArg.isBlank()) {
+                System.out.println("  vendor:      " + vendorArg.trim());
+            }
             System.out.println();
             System.out.println("Available HTTP Endpoints:");
             System.out.println();
@@ -491,6 +546,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/context/methods          - add method sources to context");
             System.out.println("    POST /v1/context/text             - add pasted text to context");
             System.out.println("    GET  /v1/tasklist                 - get current task list content");
+            System.out.println("    POST /v1/tasklist                 - replace current task list content");
             System.out.println();
 
             // Create and start executor

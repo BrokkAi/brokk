@@ -1,8 +1,10 @@
 import asyncio
 import json
 import logging
+import re
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
@@ -18,6 +20,73 @@ DEFAULT_MODEL_SELECTION = "gpt-5.2"
 DEFAULT_REASONING_LEVEL = "low"
 THOUGHT_LEVEL_CONFIG_ID = "thought_level"
 DEFAULT_VARIANT_VALUE = "default"
+MODEL_DISCOVERY_INITIAL_ATTEMPTS = 4
+MODEL_DISCOVERY_RECOVERY_ATTEMPTS = 2
+MODEL_DISCOVERY_INITIAL_BACKOFF_SECONDS = 0.2
+
+
+# ACP persistence dataclass and helpers. Persisted in ~/.brokk/acp_settings.json
+@dataclass
+class AcpDefaults:
+    default_model: str = DEFAULT_MODEL_SELECTION
+    default_reasoning: str = DEFAULT_REASONING_LEVEL
+
+    def to_dict(self) -> dict[str, str]:
+        return {"default_model": self.default_model, "default_reasoning": self.default_reasoning}
+
+
+def _acp_settings_dir() -> Path:
+    return Path.home() / ".brokk"
+
+
+def _acp_settings_file() -> Path:
+    return _acp_settings_dir() / "acp_settings.json"
+
+
+def load_acp_defaults() -> AcpDefaults:
+    """Load ACP defaults from disk, falling back safely on any error.
+
+    This function is tolerant of older or corrupted acp_settings.json files:
+    - If the file is missing or unreadable the defaults are returned.
+    - If persisted values are invalid (e.g., unknown reasoning id) we log and
+      fall back to safe defaults. This ensures ACP startup does not raise.
+    """
+    path = _acp_settings_file()
+    if not path.exists():
+        return AcpDefaults()
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+            model = str(data.get("default_model") or DEFAULT_MODEL_SELECTION).strip()
+            reasoning = str(data.get("default_reasoning") or DEFAULT_REASONING_LEVEL).strip()
+            if not model:
+                model = DEFAULT_MODEL_SELECTION
+            if not reasoning:
+                reasoning = DEFAULT_REASONING_LEVEL
+            # Ensure reasoning is a recognized id; else fallback to default
+            if reasoning not in REASONING_LEVEL_IDS:
+                logger.info(
+                    "Persisted ACP reasoning %s invalid; falling back to %s",
+                    reasoning,
+                    DEFAULT_REASONING_LEVEL,
+                )
+                reasoning = DEFAULT_REASONING_LEVEL
+            return AcpDefaults(default_model=model, default_reasoning=reasoning)
+    except Exception as e:
+        logger.warning("Failed to load ACP defaults from %s: %s", path, e)
+        return AcpDefaults()
+
+
+def save_acp_defaults(defaults: AcpDefaults) -> None:
+    try:
+        path = _acp_settings_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_suffix(".tmp")
+        with temp.open("w", encoding="utf-8") as f:
+            json.dump(defaults.to_dict(), f, indent=2)
+        temp.replace(path)
+    except Exception as e:
+        logger.error("Failed to save ACP defaults to %s: %s", _acp_settings_file(), e)
 
 
 def normalize_mode(mode: Optional[str]) -> str:
@@ -52,6 +121,34 @@ def _fallback_model_catalog() -> list[dict[str, Any]]:
         }
         for model_id in BASE_MODEL_IDS
     ]
+
+
+async def _fetch_normalized_catalog_with_retries(
+    fetch_models_payload: Callable[[], Awaitable[dict[str, Any]]],
+    attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
+    initial_backoff_seconds: float = MODEL_DISCOVERY_INITIAL_BACKOFF_SECONDS,
+) -> Optional[list[dict[str, Any]]]:
+    for attempt in range(1, attempts + 1):
+        try:
+            payload = await fetch_models_payload()
+            normalized = _normalize_model_catalog(payload)
+            if normalized:
+                return normalized
+            logger.info(
+                "Model discovery returned no valid models on attempt %s/%s",
+                attempt,
+                attempts,
+            )
+        except Exception:
+            logger.info(
+                "Model discovery attempt %s/%s failed",
+                attempt,
+                attempts,
+                exc_info=True,
+            )
+        if attempt < attempts:
+            await asyncio.sleep(initial_backoff_seconds * (2 ** (attempt - 1)))
+    return None
 
 
 def _normalize_model_catalog(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -114,11 +211,18 @@ def _model_options(
     for model in catalog:
         if not isinstance(model, dict):
             continue
-        model_name = str(model.get("name", "")).strip()
+        raw_name = model.get("name")
+        if not isinstance(raw_name, str):
+            continue
+        model_name = raw_name.strip()
         if not model_name:
             continue
         options.append((model_name, model_name))
     return options
+
+
+def _available_model_names(catalog: list[dict[str, Any]]) -> list[str]:
+    return [model_name for model_name, _ in _model_options(catalog)]
 
 
 def _model_variants_for_model(model_name: str, catalog: list[dict[str, Any]]) -> list[str]:
@@ -168,7 +272,7 @@ def _parse_model_selection(
         level = raw[len("reasoning/") :].strip().lower()
         return (None, level if level in REASONING_LEVEL_IDS else None)
 
-    available_models = {model_id for model_id, _ in _model_options(catalog)}
+    available_models = set(_available_model_names(catalog))
     if raw in available_models:
         return (raw, None)
 
@@ -335,6 +439,24 @@ def _discarded_context_markdown(block: dict[str, Any]) -> str:
     return "```json\n" + json.dumps(payload, indent=2) + "\n```\n"
 
 
+def _display_uri(uri: str, fragment: dict[str, Any]) -> str:
+    if not uri.startswith("brokk://context/fragment/"):
+        return uri
+
+    short_description = str(fragment.get("shortDescription", "")).strip()
+    if not short_description:
+        return uri
+
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", short_description).strip("-").lower()
+    if not slug:
+        return uri
+    return f"brokk://context/{slug}"
+
+
+def _is_brokk_context_uri(uri: str) -> bool:
+    return uri.startswith("brokk://context/")
+
+
 def build_context_chip_blocks(
     context_data: dict[str, Any], fragment_resources: dict[str, dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -358,7 +480,7 @@ def build_context_chip_blocks(
                             _chip_kind_rank(kind),
                             i,
                             {
-                                "uri": uri,
+                                "uri": _display_uri(uri, fragment),
                                 "mime_type": mime_type,
                                 "text": text,
                                 "chip_kind": kind,
@@ -478,6 +600,8 @@ class BrokkAcpBridge:
                 current_kind: Optional[str] = None
                 for block in blocks:
                     kind = str(block["chip_kind"])
+                    block_uri = str(block["uri"])
+                    is_brokk_context = _is_brokk_context_uri(block_uri)
                     if kind != current_kind:
                         current_kind = kind
                         await send_update(
@@ -487,19 +611,22 @@ class BrokkAcpBridge:
                     is_resource_list_kind = kind in {"EDIT", "SUMMARY"}
                     snapshot_text = (
                         str(block["short_description"])
-                        if use_short_description_context
+                        if use_short_description_context or is_brokk_context
                         else str(block["text"])
                     )
                     if is_resource_list_kind and not _is_discarded_context(block):
                         await send_update(session_id, update_agent_message_text("- "))
-                        await send_update(
-                            session_id,
-                            build_context_snapshot_update(
-                                str(block["uri"]),
-                                str(block["mime_type"]),
-                                snapshot_text,
-                            ),
-                        )
+                        if is_brokk_context:
+                            await send_update(session_id, update_agent_message_text(snapshot_text))
+                        else:
+                            await send_update(
+                                session_id,
+                                build_context_snapshot_update(
+                                    block_uri,
+                                    str(block["mime_type"]),
+                                    snapshot_text,
+                                ),
+                            )
                         await send_update(
                             session_id,
                             update_agent_message_text(f" | {int(block['tokens'])}\n"),
@@ -509,10 +636,14 @@ class BrokkAcpBridge:
                         session_id,
                         update_agent_message_text(_discarded_context_markdown(block))
                         if _is_discarded_context(block)
-                        else build_context_snapshot_update(
-                            str(block["uri"]),
-                            str(block["mime_type"]),
-                            snapshot_text,
+                        else (
+                            update_agent_message_text(snapshot_text)
+                            if is_brokk_context
+                            else build_context_snapshot_update(
+                                block_uri,
+                                str(block["mime_type"]),
+                                snapshot_text,
+                            )
                         ),
                     )
                     await send_update(session_id, update_agent_message_text("\n"))
@@ -542,6 +673,7 @@ async def run_acp_server(
     executor_version: Optional[str],
     executor_snapshot: bool,
     ide: str = "intellij",
+    vendor: Optional[str] = None,
 ) -> None:
     try:
         from acp import (
@@ -591,6 +723,7 @@ async def run_acp_server(
         jar_path=jar_path,
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
+        vendor=vendor,
     )
     bridge = BrokkAcpBridge(executor)
 
@@ -628,29 +761,61 @@ async def run_acp_server(
             self._reasoning_by_session: dict[str, str] = {}
             self._cwd_by_session: dict[str, str] = {}
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
+            self._catalog_is_fallback_by_session: dict[str, bool] = {}
             self._is_zed = ide_profile == "zed"
 
-        async def _refresh_model_catalog(self, session_id: str) -> None:
-            try:
+            # Load ACP defaults once on agent init
+            acp_defaults = load_acp_defaults()
+            self._default_model_id: str = acp_defaults.default_model or DEFAULT_MODEL_SELECTION
+            self._default_reasoning_level: str = (
+                acp_defaults.default_reasoning or DEFAULT_REASONING_LEVEL
+            )
+
+        async def _refresh_model_catalog(
+            self,
+            session_id: str,
+            attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
+        ) -> None:
+            async def fetch_payload() -> dict[str, Any]:
                 await bridge.ensure_ready()
-                payload = await bridge.executor.get_models()
-                normalized = _normalize_model_catalog(payload)
-                self._model_catalog_by_session[session_id] = (
-                    normalized if normalized else _fallback_model_catalog()
-                )
-            except Exception:
+                return await bridge.executor.get_models()
+
+            normalized = await _fetch_normalized_catalog_with_retries(
+                fetch_payload,
+                attempts=attempts,
+            )
+            if normalized:
+                self._model_catalog_by_session[session_id] = normalized
+                self._catalog_is_fallback_by_session[session_id] = False
+                return
+
+            existing = self._model_catalog_by_session.get(session_id)
+            if existing and not self._catalog_is_fallback_by_session.get(session_id, True):
                 logger.info(
-                    "Model discovery unavailable; using fallback catalog",
-                    exc_info=True,
+                    "Model discovery unavailable; keeping previously discovered model catalog "
+                    "for session %s",
+                    session_id,
                 )
-                self._model_catalog_by_session[session_id] = _fallback_model_catalog()
+                return
+
+            logger.info("Model discovery unavailable; using fallback catalog")
+            self._model_catalog_by_session[session_id] = _fallback_model_catalog()
+            self._catalog_is_fallback_by_session[session_id] = True
+
+        async def _refresh_model_catalog_if_fallback(self, session_id: str) -> None:
+            if not self._catalog_is_fallback_by_session.get(session_id, False):
+                return
+            await self._refresh_model_catalog(
+                session_id,
+                attempts=MODEL_DISCOVERY_RECOVERY_ATTEMPTS,
+            )
 
         def _catalog_for_session(self, session_id: str) -> list[dict[str, Any]]:
             return self._model_catalog_by_session.get(session_id, _fallback_model_catalog())
 
         def _current_model_selection(self, session_id: str) -> str:
             catalog = self._catalog_for_session(session_id)
-            model_names = [str(m.get("name")) for m in catalog if isinstance(m, dict)]
+            model_names = _available_model_names(catalog)
             current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
             if current_model not in model_names and model_names:
                 current_model = model_names[0]
@@ -800,10 +965,58 @@ async def run_acp_server(
             del mcp_servers, kwargs
             session_id = str(uuid.uuid4())
             self._mode_by_session[session_id] = "LUTZ"
-            self._model_by_session[session_id] = DEFAULT_MODEL_SELECTION
-            self._reasoning_by_session[session_id] = DEFAULT_REASONING_LEVEL
+            # Seed session model/reasoning from persisted defaults; validation happens after
+            self._model_by_session[session_id] = self._default_model_id or DEFAULT_MODEL_SELECTION
+            self._reasoning_by_session[session_id] = (
+                self._default_reasoning_level or DEFAULT_REASONING_LEVEL
+            )
             self._cwd_by_session[session_id] = cwd
             await self._refresh_model_catalog(session_id)
+
+            # After refreshing catalog, ensure persisted defaults are valid for this catalog.
+            catalog = self._catalog_for_session(session_id)
+            available_models = _available_model_names(catalog)
+            available_set = set(available_models)
+            # Validate model default
+            if self._model_by_session[session_id] not in available_set and available_models:
+                # fallback to first available model and persist that choice
+                fallback = available_models[0]
+                logger.info(
+                    "Persisted ACP default model %s not available; falling back to %s",
+                    self._model_by_session[session_id],
+                    fallback,
+                )
+                self._model_by_session[session_id] = fallback
+                self._default_model_id = fallback
+                save_acp_defaults(
+                    AcpDefaults(
+                        default_model=self._default_model_id,
+                        default_reasoning=self._default_reasoning_level,
+                    )
+                )
+
+            # Validate reasoning default against model capabilities
+            sanitized = _sanitize_reasoning_level_for_model(
+                self._model_by_session[session_id],
+                self._reasoning_by_session[session_id],
+                catalog,
+            )
+            if sanitized != self._reasoning_by_session[session_id]:
+                logger.info(
+                    "Persisted ACP reasoning %s invalid for model %s; falling back to %s",
+                    self._reasoning_by_session[session_id],
+                    self._model_by_session[session_id],
+                    sanitized,
+                )
+                self._reasoning_by_session[session_id] = sanitized
+                self._default_reasoning_level = sanitized
+                save_acp_defaults(
+                    AcpDefaults(
+                        default_model=self._default_model_id,
+                        default_reasoning=self._default_reasoning_level,
+                    )
+                )
+
             model_state = self._model_state_for_session(session_id)
             return NewSessionResponse(
                 session_id=session_id,
@@ -880,15 +1093,29 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> SetSessionModelResponse:
             del kwargs
+            await self._refresh_model_catalog_if_fallback(session_id)
             catalog = self._catalog_for_session(session_id)
             selected_model, selected_reasoning = _parse_model_selection(model_id, catalog)
             if selected_model is None and selected_reasoning is None:
                 selected_model, selected_reasoning = resolve_model_selection(model_id)
-            available = {str(m.get("name")) for m in catalog}
-            fallback_model = next(iter(available), DEFAULT_MODEL_SELECTION)
-            self._model_by_session[session_id] = (
-                selected_model if selected_model in available else fallback_model
-            )
+            available = _available_model_names(catalog)
+            available_set = set(available)
+            fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
+            chosen_model = selected_model if selected_model in available_set else fallback_model
+            self._model_by_session[session_id] = chosen_model
+
+            # Update persisted default model to the newly selected valid model
+            try:
+                self._default_model_id = chosen_model
+                save_acp_defaults(
+                    AcpDefaults(
+                        default_model=self._default_model_id,
+                        default_reasoning=self._default_reasoning_level,
+                    )
+                )
+            except Exception:
+                logger.exception("Failed to persist ACP default model change")
+
             if selected_reasoning:
                 self._reasoning_by_session[session_id] = selected_reasoning
             elif not self._is_zed:
@@ -906,19 +1133,53 @@ async def run_acp_server(
             if config_id == "mode" and value:
                 self._mode_by_session[session_id] = normalize_mode(value)
             elif config_id == "model" and value:
+                await self._refresh_model_catalog_if_fallback(session_id)
                 selected_model, selected_reasoning = resolve_model_selection(value)
-                self._model_by_session[session_id] = selected_model
+                # Validate against catalog
+                catalog = self._catalog_for_session(session_id)
+                available = _available_model_names(catalog)
+                available_set = set(available)
+                fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
+                chosen_model = selected_model if selected_model in available_set else fallback_model
+                self._model_by_session[session_id] = chosen_model
+                # Persist model change
+                try:
+                    self._default_model_id = chosen_model
+                    save_acp_defaults(
+                        AcpDefaults(
+                            default_model=self._default_model_id,
+                            default_reasoning=self._default_reasoning_level,
+                        )
+                    )
+                except Exception:
+                    logger.exception("Failed to persist ACP default model change")
                 if selected_reasoning:
                     self._reasoning_by_session[session_id] = selected_reasoning
             elif (
                 config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort", "reasoning"}
                 and value in REASONING_LEVEL_IDS
             ):
-                self._reasoning_by_session[session_id] = value
+                # Sanitize for model capabilities
+                catalog = self._catalog_for_session(session_id)
+                model = self._model_by_session.get(session_id, self._default_model_id)
+                sanitized = _sanitize_reasoning_level_for_model(model, value, catalog)
+                self._reasoning_by_session[session_id] = sanitized
+                # Persist reasoning change
+                try:
+                    self._default_reasoning_level = sanitized
+                    save_acp_defaults(
+                        AcpDefaults(
+                            default_model=self._default_model_id,
+                            default_reasoning=self._default_reasoning_level,
+                        )
+                    )
+                except Exception:
+                    logger.exception("Failed to persist ACP default reasoning change")
             options = self._config_options_for_session(session_id)
             return SetSessionConfigOptionResponse(config_options=options)
 
         async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+            await self._refresh_model_catalog_if_fallback(session_id)
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
             planner_model = (
                 kwargs.get("planner_model")
@@ -931,9 +1192,12 @@ async def run_acp_server(
             if parsed_model:
                 planner_model = parsed_model
             planner_model_id, selected_reasoning_level = resolve_model_selection(planner_model)
-            available_models = {str(m.get("name")) for m in catalog}
-            if planner_model_id not in available_models:
-                planner_model_id = next(iter(available_models), DEFAULT_MODEL_SELECTION)
+            available_models = _available_model_names(catalog)
+            available_set = set(available_models)
+            if planner_model_id not in available_set:
+                planner_model_id = (
+                    available_models[0] if available_models else DEFAULT_MODEL_SELECTION
+                )
             code_model = (
                 kwargs.get("code_model") or kwargs.get("codeModel") or "gemini-3-flash-preview"
             )

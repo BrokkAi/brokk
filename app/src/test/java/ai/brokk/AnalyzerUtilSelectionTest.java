@@ -3,6 +3,7 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.ContextFragment;
@@ -135,42 +136,76 @@ public class AnalyzerUtilSelectionTest {
 
     @Test
     void class_exact_noSummarize() {
-        Optional<ContextFragment> frag = AnalyzerUtil.selectClassFragment(analyzer, cm, "com.acme.Foo", false);
-        assertTrue(frag.isPresent(), "Expected fragment for exact class name");
-        assertTrue(frag.get() instanceof ContextFragments.CodeFragment, "Expected CodeFragment when summarize=false");
+        Set<ContextFragment> frags = AnalyzerUtil.selectClassFragment(analyzer, cm, "com.acme.Foo", false);
+        assertFalse(frags.isEmpty(), "Expected fragment for exact class name");
+        assertTrue(
+                frags.iterator().next() instanceof ContextFragments.CodeFragment,
+                "Expected CodeFragment when summarize=false");
     }
 
     @Test
     void class_fallback_summarize() {
-        Optional<ContextFragment> frag = AnalyzerUtil.selectClassFragment(analyzer, cm, "Foo", true);
-        assertTrue(frag.isPresent(), "Expected fragment via fallback search for class 'Foo'");
-        assertTrue(frag.get() instanceof ContextFragments.SummaryFragment, "Expected SummaryFragment");
-        ContextFragments.SummaryFragment s = (ContextFragments.SummaryFragment) frag.get();
+        Set<ContextFragment> frags = AnalyzerUtil.selectClassFragment(analyzer, cm, "Foo", true);
+        assertFalse(frags.isEmpty(), "Expected fragment via fallback search for class 'Foo'");
+        ContextFragment first = frags.iterator().next();
+        assertTrue(first instanceof ContextFragments.SummaryFragment, "Expected SummaryFragment");
+        ContextFragments.SummaryFragment s = (ContextFragments.SummaryFragment) first;
         assertEquals(
                 ContextFragment.SummaryType.CODEUNIT_SKELETON,
                 s.getSummaryType(),
                 "Summary type should be CODEUNIT_SKELETON");
+    }
+
+    @Test
+    void class_overloaded_noSummarize() {
+        // Simulating C++ template specializations where FQN is same but signature differs
+        CodeUnit cls1 = new CodeUnit(pfA, CodeUnitType.CLASS, "com.acme", "Bar", "<T>");
+        CodeUnit cls2 = new CodeUnit(pfA, CodeUnitType.CLASS, "com.acme", "Bar", "<int>");
+
+        // TestAnalyzer constructor takes List<CodeUnit> for top-level declarations
+        TestAnalyzer overloadAnalyzer = new TestAnalyzer(List.of(cls1, cls2), Map.of()); // No methods
+        TestContextManager overloadCm = new TestContextManager(projectRoot, new NoOpConsoleIO(), overloadAnalyzer);
+
+        Set<ContextFragment> frags =
+                AnalyzerUtil.selectClassFragment(overloadAnalyzer, overloadCm, "com.acme.Bar", false);
+        assertEquals(2, frags.size(), "Expected two fragments for overloaded/specialized class");
     }
 
     // (d) Method selection
 
     @Test
     void method_exact_noSummarize() {
-        Optional<ContextFragment> frag = AnalyzerUtil.selectMethodFragment(analyzer, cm, "com.acme.Foo.bar", false);
-        assertTrue(frag.isPresent(), "Expected fragment for exact method name");
-        assertTrue(frag.get() instanceof ContextFragments.CodeFragment, "Expected CodeFragment when summarize=false");
+        Set<ContextFragment> frags = AnalyzerUtil.selectMethodFragment(analyzer, cm, "com.acme.Foo.bar", false);
+        assertFalse(frags.isEmpty(), "Expected fragment for exact method name");
+        assertTrue(
+                frags.iterator().next() instanceof ContextFragments.CodeFragment,
+                "Expected CodeFragment when summarize=false");
     }
 
     @Test
     void method_fallback_summarize() {
-        Optional<ContextFragment> frag = AnalyzerUtil.selectMethodFragment(analyzer, cm, "bar", true);
-        assertTrue(frag.isPresent(), "Expected fragment via fallback search for method 'bar'");
-        assertTrue(frag.get() instanceof ContextFragments.SummaryFragment, "Expected SummaryFragment");
-        ContextFragments.SummaryFragment s = (ContextFragments.SummaryFragment) frag.get();
+        Set<ContextFragment> frags = AnalyzerUtil.selectMethodFragment(analyzer, cm, "bar", true);
+        assertFalse(frags.isEmpty(), "Expected fragment via fallback search for method 'bar'");
+        ContextFragment first = frags.iterator().next();
+        assertTrue(first instanceof ContextFragments.SummaryFragment, "Expected SummaryFragment");
+        ContextFragments.SummaryFragment s = (ContextFragments.SummaryFragment) first;
         assertEquals(
                 ContextFragment.SummaryType.CODEUNIT_SKELETON,
                 s.getSummaryType(),
                 "Summary type should be CODEUNIT_SKELETON");
+    }
+
+    @Test
+    void method_overloaded_noSummarize() {
+        CodeUnit bar1 = new CodeUnit(pfA, CodeUnitType.FUNCTION, "com.acme.Foo", "bar", "(int)");
+        CodeUnit bar2 = new CodeUnit(pfA, CodeUnitType.FUNCTION, "com.acme.Foo", "bar", "(double)");
+
+        TestAnalyzer overloadAnalyzer = new TestAnalyzer(List.of(), Map.of("com.acme.Foo.bar", List.of(bar1, bar2)));
+        TestContextManager overloadCm = new TestContextManager(projectRoot, new NoOpConsoleIO(), overloadAnalyzer);
+
+        Set<ContextFragment> frags =
+                AnalyzerUtil.selectMethodFragment(overloadAnalyzer, overloadCm, "com.acme.Foo.bar", false);
+        assertEquals(2, frags.size(), "Expected two fragments for overloaded method");
     }
 
     // (e) Usage selection

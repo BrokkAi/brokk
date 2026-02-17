@@ -1250,7 +1250,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         }
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Attach files", () -> fragments.stream()
-                        .flatMap(frag -> frag.files().join().stream())
+                        .flatMap(frag -> frag.referencedFiles().join().stream())
                         .collect(Collectors.toCollection(ArrayList::new)))
                 .thenAccept(flist -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(flist)));
     }
@@ -1655,7 +1655,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 // Run the task
                 if (engineAction == Action.ASK) {
-                    var fragment = new ContextFragments.TaskFragment(cm, readOnlyMessages, instructions);
+                    var fragment = new ContextFragments.TaskFragment(readOnlyMessages, instructions);
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
                     var ctx = new Context(cm)

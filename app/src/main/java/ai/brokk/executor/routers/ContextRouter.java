@@ -10,6 +10,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -25,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -82,6 +84,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             case "/v1/context/classes" -> handlePostContextClasses(exchange);
             case "/v1/context/methods" -> handlePostContextMethods(exchange);
             case "/v1/context/text" -> handlePostContextText(exchange);
+            case "/v1/tasklist" -> handlePostTaskList(exchange);
             default ->
                 SimpleHttpServer.sendJsonResponse(
                         exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
@@ -194,7 +197,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             Path filePath = null;
             if (fragment.getType().isPath()) {
                 // Use a non-blocking renderNowOr(Set.of()) to obtain currently-available backing files.
-                var filesNow = fragment.files().renderNowOr(Set.of());
+                var filesNow = fragment.referencedFiles().renderNowOr(Set.of());
                 filePath =
                         filesNow.stream().findFirst().map(ProjectFile::absPath).orElse(null);
             }
@@ -531,6 +534,29 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         SimpleHttpServer.sendJsonResponse(exchange, Map.of("id", id, "chars", text.length()));
     }
 
+    private void handlePostTaskList(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        var request = RouterUtil.parseJsonOr400(exchange, ReplaceTaskListRequest.class, "/v1/tasklist");
+        if (request == null) return;
+
+        var tasks = request.tasks();
+        if (tasks == null) {
+            RouterUtil.sendValidationError(exchange, "tasks must not be null");
+            return;
+        }
+
+        // Reject lists that contain explicit null elements to avoid server-side NPEs.
+        if (tasks.stream().anyMatch(Objects::isNull)) {
+            RouterUtil.sendValidationError(exchange, "tasks must not contain null elements");
+            return;
+        }
+
+        var nonNullTasks = Objects.requireNonNull(tasks);
+        var updated = new TaskList.TaskListData(request.bigPicture(), List.copyOf(nonNullTasks));
+        contextManager.pushContext(ctx -> ctx.withTaskList(updated));
+        SimpleHttpServer.sendJsonResponse(exchange, contextManager.getTaskList());
+    }
+
     private String classifyChipKind(ContextFragment fragment) {
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) return "SUMMARY";
         if (!fragment.isValid()) return "INVALID";
@@ -580,6 +606,10 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     private record AddContextMethodsResponse(List<AddedContextMethod> added) {}
 
     private record AddContextTextRequest(String text) {}
+
+    private record ReplaceTaskListRequest(
+            @org.jetbrains.annotations.Nullable String bigPicture,
+            @org.jetbrains.annotations.Nullable List<TaskList.TaskItem> tasks) {}
 
     // ── GET /v1/context/conversation ──────────────────────
 

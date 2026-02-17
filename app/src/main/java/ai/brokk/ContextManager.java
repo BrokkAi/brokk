@@ -1687,7 +1687,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Set<ProjectFile> allReferenced = new HashSet<>();
         for (var f : fragments) {
             try {
-                var files = f.files().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
+                var files = f.referencedFiles().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
                 allReferenced.addAll(files);
             } catch (TimeoutException te) {
                 logger.warn("Timed out waiting for files() of fragment {}", f.id());
@@ -2206,14 +2206,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         String summary = result.text();
-        if (summary.isBlank()) {
-            logger.warn("History compression resulted in empty summary for entry: {}", entry);
-            return entry;
-        }
-
+        assert !summary.isBlank(); // llm checks for this
         logger.debug("Compressed summary:\n{}", summary);
         // Create new entry with both original log and new summary
         return entry.withSummary(summary);
+    }
+
+    @Blocking
+    @Override
+    public String compressHistory(String history) throws InterruptedException {
+        var msgs = SummarizerPrompts.instance.compressHistory(history);
+        Llm.StreamingResult result = getLlm(
+                        serviceProvider.get().summarizeModel(), "Compress history entry", TaskResult.Type.SUMMARIZE)
+                .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
+        return result.error() == null ? history : result.text();
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
@@ -2222,7 +2228,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
-        var taskFragment = new ContextFragments.TaskFragment(this, messages, input);
+        var taskFragment = new ContextFragments.TaskFragment(messages, input);
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, taskFragment, null));
 
         // rename the session if needed
@@ -2828,7 +2834,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
             List<Future<TaskEntry>> futures =
                     new ArrayList<>(ctx.getTaskHistory().size());
-            try (var exec = ExecutorsUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
+            try (var exec = ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5)) {
                 // Submit all compression tasks
                 for (TaskEntry entry : ctx.getTaskHistory()) {
                     futures.add(exec.submit(() -> compressHistory(entry)));

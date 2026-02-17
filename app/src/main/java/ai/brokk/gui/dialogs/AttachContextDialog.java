@@ -465,8 +465,8 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-        var frag = AnalyzerUtil.selectClassFragment(analyzer, cm, input, summarizeCheck.isSelected());
-        selection = frag.map(Set::of).orElse(null);
+        Set<ContextFragment> frags = AnalyzerUtil.selectClassFragment(analyzer, cm, input, summarizeCheck.isSelected());
+        selection = frags.isEmpty() ? null : frags;
         dispose();
     }
 
@@ -477,8 +477,9 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-        var frag = AnalyzerUtil.selectMethodFragment(analyzer, cm, input, summarizeCheck.isSelected());
-        selection = frag.map(Set::of).orElse(null);
+        Set<ContextFragment> frags =
+                AnalyzerUtil.selectMethodFragment(analyzer, cm, input, summarizeCheck.isSelected());
+        selection = frags.isEmpty() ? null : frags;
         dispose();
     }
 

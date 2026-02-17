@@ -21,13 +21,11 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
-import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.prompts.SearchPrompts;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.Streams;
@@ -82,11 +80,6 @@ public final class BprCli implements Callable<Integer> {
     private List<String> addClasses = new ArrayList<>();
 
     @CommandLine.Option(
-            names = "--add-url",
-            description = "Add content from a URL as a read-only fragment. Can be repeated.")
-    private List<String> addUrls = new ArrayList<>();
-
-    @CommandLine.Option(
             names = "--add-summary-class",
             description = "Add a summary of the given class to the workspace. Can be repeated.")
     private List<String> addSummaryClasses = new ArrayList<>();
@@ -109,10 +102,6 @@ public final class BprCli implements Callable<Integer> {
     @Nullable
     private String codePrompt;
 
-    @CommandLine.Option(names = "--ask", description = "Run Ask command with the given prompt.")
-    @Nullable
-    private String askPrompt;
-
     @CommandLine.Option(
             names = "--search-answer",
             description = "Run Search agent to find an answer for the given prompt.")
@@ -124,10 +113,6 @@ public final class BprCli implements Callable<Integer> {
             description = "Research and execute a set of tasks to accomplish the given prompt")
     @Nullable
     private String lutzPrompt;
-
-    @CommandLine.Option(names = "--lutz-lite", description = "Execute a single task to solve the given issue.")
-    @Nullable
-    private String lutzLitePrompt;
 
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
@@ -278,14 +263,7 @@ public final class BprCli implements Callable<Integer> {
         }
 
         // --- Action Validation ---
-        long actionCount = Stream.of(
-                        architectPrompt,
-                        codePrompt,
-                        askPrompt,
-                        searchAnswerPrompt,
-                        lutzPrompt,
-                        lutzLitePrompt,
-                        searchWorkspace)
+        long actionCount = Stream.of(architectPrompt, codePrompt, searchAnswerPrompt, lutzPrompt, searchWorkspace)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;
@@ -293,13 +271,13 @@ public final class BprCli implements Callable<Integer> {
         boolean deepScan = deepScanGoal != null;
         if (actionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
+                    "At most one action (--architect, --code, --search-answer, --lutz, --merge, --build, --search-workspace) can be specified.");
             return 1;
         }
         if (deepScan) actionCount++;
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "At least one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --deepscan) or --worktree is required.");
+                    "At least one action (--architect, --code, --search-answer, --lutz, --merge, --build, --search-workspace, --deepscan) or --worktree is required.");
             return 1;
         }
 
@@ -312,8 +290,8 @@ public final class BprCli implements Callable<Integer> {
         }
 
         //  Expand @file syntax for prompt parameters
-        TaskFileInfo architectTaskInfo = null, codeTaskInfo = null, askTaskInfo = null;
-        TaskFileInfo searchAnswerTaskInfo = null, lutzTaskInfo = null, lutzLiteTaskInfo = null;
+        TaskFileInfo architectTaskInfo = null, codeTaskInfo = null;
+        TaskFileInfo searchAnswerTaskInfo = null, lutzTaskInfo = null;
         TaskFileInfo searchWorkspaceTaskInfo = null;
 
         try {
@@ -325,10 +303,6 @@ public final class BprCli implements Callable<Integer> {
                 codeTaskInfo = maybeLoadFromFile(codePrompt);
                 codePrompt = codeTaskInfo.content;
             }
-            if (askPrompt != null) {
-                askTaskInfo = maybeLoadFromFile(askPrompt);
-                askPrompt = askTaskInfo.content;
-            }
             if (searchAnswerPrompt != null) {
                 searchAnswerTaskInfo = maybeLoadFromFile(searchAnswerPrompt);
                 searchAnswerPrompt = searchAnswerTaskInfo.content;
@@ -336,10 +310,6 @@ public final class BprCli implements Callable<Integer> {
             if (lutzPrompt != null) {
                 lutzTaskInfo = maybeLoadFromFile(lutzPrompt);
                 lutzPrompt = lutzTaskInfo.content;
-            }
-            if (lutzLitePrompt != null) {
-                lutzLiteTaskInfo = maybeLoadFromFile(lutzLitePrompt);
-                lutzLitePrompt = lutzLiteTaskInfo.content;
             }
             if (searchWorkspace != null) {
                 searchWorkspaceTaskInfo = maybeLoadFromFile(searchWorkspace);
@@ -426,12 +396,10 @@ public final class BprCli implements Callable<Integer> {
         boolean needsPlanModel = architectPrompt != null
                 || searchAnswerPrompt != null
                 || lutzPrompt != null
-                || lutzLitePrompt != null
                 || deepScan
                 || merge
                 || (searchWorkspace != null && !searchWorkspace.isBlank());
-        boolean needsCodeModel =
-                codePrompt != null || askPrompt != null || architectPrompt != null || lutzLitePrompt != null || merge;
+        boolean needsCodeModel = codePrompt != null || architectPrompt != null || merge;
 
         if (needsPlanModel && planModelName == null) {
             System.err.println("Error: This action requires --planmodel to be specified.");
@@ -521,9 +489,6 @@ public final class BprCli implements Callable<Integer> {
         if (!resolvedSummaryClasses.isEmpty()) tools.addClassSummariesToWorkspace(resolvedSummaryClasses);
         if (!addSummaryFiles.isEmpty()) tools.addFileSummariesToWorkspace(addSummaryFiles);
         if (!addMethodSources.isEmpty()) tools.addMethodsToWorkspace(addMethodSources);
-        for (var url : addUrls) {
-            tools.addUrlContentsToWorkspace(url);
-        }
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();
 
@@ -531,10 +496,8 @@ public final class BprCli implements Callable<Integer> {
         boolean isStandaloneDeepScan = deepScan
                 && architectPrompt == null
                 && codePrompt == null
-                && askPrompt == null
                 && searchAnswerPrompt == null
                 && lutzPrompt == null
-                && lutzLitePrompt == null
                 && !merge
                 && !build
                 && searchWorkspace == null;
@@ -556,7 +519,7 @@ public final class BprCli implements Callable<Integer> {
             } else if (isStandaloneDeepScan) {
                 goalForScan = "Analyze the workspace and suggest relevant context";
             } else {
-                goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
+                goalForScan = Stream.of(architectPrompt, codePrompt, searchAnswerPrompt, lutzPrompt)
                         .filter(s -> s != null && !s.isBlank())
                         .findFirst()
                         .orElseThrow();
@@ -564,13 +527,7 @@ public final class BprCli implements Callable<Integer> {
 
             // Determine task file for cache
             @Nullable
-            Path taskFile = Stream.of(
-                            architectTaskInfo,
-                            codeTaskInfo,
-                            askTaskInfo,
-                            searchAnswerTaskInfo,
-                            lutzTaskInfo,
-                            lutzLiteTaskInfo)
+            Path taskFile = Stream.of(architectTaskInfo, codeTaskInfo, searchAnswerTaskInfo, lutzTaskInfo)
                     .filter(Objects::nonNull)
                     .map(info -> info.taskFile)
                     .filter(Objects::nonNull)
@@ -606,7 +563,7 @@ public final class BprCli implements Callable<Integer> {
                             cm.addFragments(fragment);
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
-                        default -> cm.addSummaries(fragment.files().renderNowOr(Set.of()), Set.of());
+                        default -> cm.addSummaries(fragment.sourceFiles().renderNowOr(Set.of()), Set.of());
                     }
                 }
             } else {
@@ -618,7 +575,7 @@ public final class BprCli implements Callable<Integer> {
                 var metrics = SearchMetrics.tracking();
                 // Collect files added from recommendations
                 var filesAddedPaths = recommendations.fragments().stream()
-                        .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                        .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                         .map(pf -> pf.getRelPath().toString())
                         .collect(Collectors.toSet());
                 metrics.recordContextScan(
@@ -654,16 +611,12 @@ public final class BprCli implements Callable<Integer> {
             scopeInput = architectPrompt;
         } else if (codePrompt != null) {
             scopeInput = codePrompt;
-        } else if (askPrompt != null) {
-            scopeInput = requireNonNull(askPrompt);
         } else if (merge) {
             scopeInput = "Merge";
         } else if (searchAnswerPrompt != null) {
             scopeInput = requireNonNull(searchAnswerPrompt);
         } else if (build) {
             scopeInput = "Build";
-        } else if (lutzLitePrompt != null) {
-            scopeInput = requireNonNull(lutzLitePrompt);
         } else { // lutzPrompt != null
             scopeInput = requireNonNull(lutzPrompt);
         }
@@ -692,14 +645,6 @@ public final class BprCli implements Callable<Integer> {
                     }
                     var agent = new CodeAgent(cm, codeModel);
                     result = agent.execute(codePrompt, Set.of());
-                    scope.append(result);
-                } else if (askPrompt != null) {
-                    if (codeModel == null) {
-                        System.err.println("Error: --ask requires --codemodel to be specified.");
-                        return 1;
-                    }
-                    result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
-                    context = result.context();
                     scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
@@ -756,28 +701,6 @@ public final class BprCli implements Callable<Integer> {
                     System.exit(buildError.isEmpty() ? 0 : 1);
                     // make the compiler happy
                     result = null;
-                } else if (lutzLitePrompt != null) {
-                    if (planModel == null) {
-                        System.err.println("Error: --lutz-lite requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    if (codeModel == null) {
-                        System.err.println("Error: --lutz-lite requires --codemodel to be specified.");
-                        return 1;
-                    }
-
-                    var taskText =
-                            """
-                            Solve the following issue. Pull appropriate existing tests into the Workspace; if you are adding new functionality, add new tests if you can do so within the existing constraints.
-
-                            Issue: """
-                                    + requireNonNull(lutzLitePrompt);
-                    var task = new TaskList.TaskItem("", taskText, false);
-
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
-                    result = cm.executeTask(task, planModel, codeModel);
-                    scope.append(result);
-                    context = result.context();
                 } else { // lutzPrompt != null
                     if (planModel == null) {
                         System.err.println("Error: --lutz requires --planmodel to be specified.");

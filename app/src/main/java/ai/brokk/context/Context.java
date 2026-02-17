@@ -196,7 +196,7 @@ public class Context {
         var incomingPathFiles = expanded.stream()
                 .filter(f -> f instanceof ContextFragments.PathFragment)
                 .map(f -> (ContextFragments.PathFragment) f)
-                .flatMap(pf -> pf.files().join().stream())
+                .flatMap(pf -> pf.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
 
         // 3. Process the CURRENT fragments:
@@ -204,7 +204,7 @@ public class Context {
         //    b) Keep everything else (we will deduplicate against new inputs in the next step).
         var partitioned = this.fragments.stream().collect(Collectors.partitioningBy(f -> {
             if (f instanceof ContextFragments.SummaryFragment) {
-                var skeletonFiles = f.files().join();
+                var skeletonFiles = f.sourceFiles().join();
                 // If the skeleton's files overlap with incoming full paths, drop the skeleton.
                 return !Collections.disjoint(skeletonFiles, incomingPathFiles);
             }
@@ -258,16 +258,17 @@ public class Context {
 
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
 
         record WeightedFile(ProjectFile file, double weight) {}
 
         var weightedSeeds = fragments.stream()
-                .filter(f -> !f.files().join().isEmpty())
+                .filter(f -> !f.sourceFiles().join().isEmpty())
                 .flatMap(fragment -> {
-                    double weight = Math.sqrt(1.0 / fragment.files().join().size());
-                    return fragment.files().join().stream().map(file -> new WeightedFile(file, weight));
+                    double weight =
+                            Math.sqrt(1.0 / fragment.sourceFiles().join().size());
+                    return fragment.sourceFiles().join().stream().map(file -> new WeightedFile(file, weight));
                 })
                 .collect(Collectors.groupingBy(wf -> wf.file, HashMap::new, Collectors.summingDouble(wf -> wf.weight)));
 
@@ -471,7 +472,7 @@ public class Context {
      */
     @Blocking
     public boolean isFileContentEmpty() {
-        return fragments.stream().allMatch(f -> f.files().join().isEmpty());
+        return fragments.stream().allMatch(f -> f.sourceFiles().join().isEmpty());
     }
 
     Context addHistoryEntryInternal(TaskEntry taskEntry) {
@@ -611,14 +612,15 @@ public class Context {
      */
     @Blocking
     public Map<String, String> getDiscardedFragmentsNotes() {
-        return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
+        return getSpecial(SpecialTextType.DISCARDED_CONTEXT)
                 .map(sf -> SpecialTextType.deserializeDiscardedContext(sf.text().join()))
                 .orElseGet(LinkedHashMap::new);
     }
 
     // --- SpecialTextType helpers ---
 
-    public Optional<ContextFragments.StringFragment> getSpecial(String description) {
+    public Optional<ContextFragments.StringFragment> getSpecial(SpecialTextType type) {
+        String description = type.description();
         // Since special looks for self-freezing fragments, we can reliably use `renderNow`
         return allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment sf
@@ -631,7 +633,7 @@ public class Context {
     public Context withSpecial(SpecialTextType type, String content) {
         var desc = type.description();
 
-        var existing = getSpecial(desc);
+        var existing = getSpecial(type);
         if (existing.isPresent() && content.equals(existing.get().text().join())) {
             return this;
         }
@@ -684,36 +686,6 @@ public class Context {
     }
 
     /**
-     * Merges this context with another context, combining their fragments while avoiding duplicates.
-     * Fragments from {@code other} that are not present in this context are added.
-     * File fragments are deduplicated by their source file; virtual fragments by their id().
-     * Task history and parsed output from this context are preserved.
-     *
-     * @param other the context to merge with
-     * @return a new context containing the union of fragments from both contexts
-     */
-    public Context union(Context other) {
-        if (this.fragments.isEmpty() && this.taskHistory.isEmpty()) {
-            return other;
-        }
-
-        Context result = this.addFragments(other.allFragments().toList());
-
-        // Merge task history, deduplicated by sequence and preserved in order
-        var mergedHistory = new ArrayList<>(this.taskHistory);
-        var existingSequences =
-                this.taskHistory.stream().map(TaskEntry::sequence).collect(Collectors.toSet());
-
-        other.taskHistory.stream()
-                .filter(entry -> !existingSequences.contains(entry.sequence()))
-                .forEach(mergedHistory::add);
-
-        mergedHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
-
-        return result.withHistory(mergedHistory);
-    }
-
-    /**
      * Returns true if the given fragment is equivalent to one already in the Context
      */
     public boolean contains(ContextFragment fragment) {
@@ -733,7 +705,7 @@ public class Context {
     }
 
     public Optional<ContextFragments.StringFragment> getBuildFragment() {
-        return getSpecial(SpecialTextType.BUILD_RESULTS.description());
+        return getSpecial(SpecialTextType.BUILD_RESULTS);
     }
 
     /**
@@ -744,7 +716,7 @@ public class Context {
     @Blocking
     public Context withBuildResult(boolean success, String processedOutput) {
         if (success) {
-            var existing = getSpecial(SpecialTextType.BUILD_RESULTS.description());
+            var existing = getSpecial(SpecialTextType.BUILD_RESULTS);
             if (existing.isEmpty()) {
                 return this;
             }
@@ -764,7 +736,7 @@ public class Context {
      * Retrieves the Task List fragment if present.
      */
     public Optional<ContextFragments.StringFragment> getTaskListFragment() {
-        return getSpecial(SpecialTextType.TASK_LIST.description());
+        return getSpecial(SpecialTextType.TASK_LIST);
     }
 
     /**
@@ -813,7 +785,7 @@ public class Context {
     public Context withTaskList(TaskList.TaskListData data) {
         // If tasks are empty, remove the Task List fragment instead of creating an empty one
         if (data.tasks().isEmpty()) {
-            var existing = getSpecial(SpecialTextType.TASK_LIST.description());
+            var existing = getSpecial(SpecialTextType.TASK_LIST);
             if (existing.isEmpty()) {
                 return this; // No change needed; no fragment to remove
             }
@@ -840,7 +812,7 @@ public class Context {
         // Map each fragment to the set of ProjectFiles it contains
         var fragmentsToRefresh = new HashSet<ContextFragment>();
         for (var f : fragments) {
-            if (!Collections.disjoint(f.files().join(), maybeChanged)) {
+            if (!Collections.disjoint(f.sourceFiles().join(), maybeChanged)) {
                 fragmentsToRefresh.add(f);
             }
         }
@@ -938,8 +910,8 @@ public class Context {
         var mc = AbstractService.ModelConfig.from(model, contextManager.getService());
         return addHistoryEntryInternal(new TaskEntry(
                 getTaskHistory().size(),
-                new ContextFragments.TaskFragment(contextManager, mopMessages, instructions),
-                new ContextFragments.TaskFragment(contextManager, llmMessages, instructions),
+                new ContextFragments.TaskFragment(mopMessages, instructions),
+                new ContextFragments.TaskFragment(llmMessages, instructions),
                 null,
                 new TaskResult.TaskMeta(type, mc)));
     }

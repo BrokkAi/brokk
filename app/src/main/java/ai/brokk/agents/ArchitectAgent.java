@@ -16,6 +16,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.SearchPrompts;
@@ -221,6 +222,12 @@ public class ArchitectAgent {
             throws ToolRegistry.FatalLlmException, InterruptedException {
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
+        // Remove any stale diff from a previous failed CodeAgent attempt
+        var existingChanges = context.getSpecial(SpecialTextType.CODE_AGENT_CHANGES);
+        if (existingChanges.isPresent()) {
+            context = context.removeFragments(List.of(existingChanges.get()));
+        }
+
         // Record planning history before invoking CodeAgent
         context = cm.compressHistory(context);
         addPlanningToHistory();
@@ -235,28 +242,35 @@ public class ArchitectAgent {
         var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        // Update architect context with the CodeAgent's resulting context, preserving the Architect history
-        context = result.context()
-                .withHistory(context.getTaskHistory())
-                .addHistoryEntry(result.context().getTaskHistory().getLast());
+
+        // Update architect context with the CodeAgent's fragments, preserving the Architect history
+        context = result.context().withHistory(context.getTaskHistory());
         scope.append(context);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
-            var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
             var fileList = changedFragments.stream()
                     .map(cf -> cf.shortDescription().join())
                     .sorted()
                     .collect(Collectors.joining(", "));
-            resultString += " Changed fragments: " + (fileList.isEmpty() ? "None" : fileList);
-            if (!fileList.isEmpty()) {
-                resultString += "\n\nThe changes made are reflected in the Workspace.";
-            }
 
             logger.debug("callCodeAgent finished successfully");
             codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
-            return resultString;
+            return """
+            # Status
+            %s
+
+            # Changed fragments
+            %s
+            %s
+            """
+                    .formatted(
+                            deferBuild
+                                    ? "CodeAgent finished with build deferred as requested."
+                                    : "CodeAgent finished with a successful build.",
+                            fileList.isEmpty() ? "None" : fileList,
+                            fileList.isEmpty() ? "" : "\nThe changes made are reflected in the Workspace.");
         }
 
         // For non-SUCCESS outcomes, format error feedback appropriately
@@ -271,13 +285,21 @@ public class ArchitectAgent {
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
+        // Extract and compress reasoning
+        var lastEntry = result.context().getTaskHistory().getLast();
+        var messages = new ArrayList<>(lastEntry.mopMessages());
+        var summary = cm.compressHistory(CodeAgent.ConversationState.extractReasoning(messages));
+        var reasoningSummarySuffix = "\n\n# CodeAgent reasoning summary\n\n" + summary;
+
         // Format recoverable errors with clear guidance for the LLM
-        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation());
+        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation()) + reasoningSummarySuffix;
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
-        // Offer undo if the CodeAgent failed and left changes behind
+        // Offer undo and attach diff if the CodeAgent failed and left changes behind
         if (!changedFragments.isEmpty()) {
             this.offerUndoToolNext = true;
+            String combinedDiffText = DiffService.cumulativeDiff(cm.getRepo(), initialContext, context);
+            context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
         }
 
         return resultString;
@@ -462,7 +484,7 @@ public class ArchitectAgent {
             @P(
                             "The search mode: WORKSPACE to direct SearchAgent to add relevant fragments to the Workspace; ANSWER to answer the question and leave the Workspace untouched")
                     String mode)
-            throws ToolRegistry.FatalLlmException {
+            throws ToolRegistry.FatalLlmException, InterruptedException {
         logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
 
         var objective = parseSearchObjective(mode);
@@ -480,7 +502,13 @@ public class ArchitectAgent {
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
             var searchAgent = new SearchAgent(
-                    context, query, planningModel, objective, scope, saIo, SearchAgent.ScanConfig.noAppend());
+                    context.clearHistory(),
+                    query,
+                    planningModel,
+                    objective,
+                    scope,
+                    saIo,
+                    SearchAgent.ScanConfig.noAppend());
             var result = searchAgent.execute();
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
@@ -495,9 +523,43 @@ public class ArchitectAgent {
                 return result.stopDetails().toString();
             }
 
-            var stringResult = objective == SearchPrompts.Objective.WORKSPACE_ONLY
-                    ? "Workspace updated"
-                    : result.stopDetails().explanation();
+            var lastEntry = result.context().getTaskHistory().getLast();
+            var reasoningSummary = lastEntry.description();
+
+            String stringResult;
+            if (objective == SearchPrompts.Objective.WORKSPACE_ONLY) {
+                var delta = ContextDelta.between(
+                                context.clearHistory(), result.context().clearHistory())
+                        .join();
+                var addedFragmentList = delta.addedFragments().stream()
+                        .map(f -> "- " + f.shortDescription().join())
+                        .collect(Collectors.joining("\n"));
+
+                stringResult =
+                        """
+                        # Search results
+                        Search Agent successfully completed.
+
+                        ## Reasoning summary
+                        %s
+
+                        ## Added fragments
+                        %s
+                        """
+                                .formatted(
+                                        reasoningSummary, addedFragmentList.isEmpty() ? "(None)" : addedFragmentList);
+            } else {
+                stringResult =
+                        """
+                        # Search Answer
+                        %s
+
+                        ## Reasoning summary
+                        %s
+                        """
+                                .formatted(result.stopDetails().explanation(), reasoningSummary);
+            }
+
             logger.debug(stringResult);
             return stringResult;
         } finally {
@@ -780,10 +842,11 @@ public class ArchitectAgent {
                             baseSaResult = searchOutcome.taskResult();
                         }
 
-                        // Merge contexts deterministically
+                        // Merge context fragments
+                        var outcomeContext = searchOutcome.taskResult().context();
                         if (searchOutcome.objective() == SearchPrompts.Objective.WORKSPACE_ONLY) {
-                            combinedContext = combinedContext.union(
-                                    searchOutcome.taskResult().context());
+                            combinedContext = combinedContext.addFragments(
+                                    outcomeContext.allFragments().toList());
                         }
 
                         // Count failures by SearchAgent stop reason
@@ -820,10 +883,6 @@ public class ArchitectAgent {
                     currentBatchSize = 0;
                     throw new InterruptedException();
                 }
-
-                // SearchAgents like to drop fragments unrelated to their mission; union our original context
-                // with the Search results
-                combinedContext = combinedContext.union(context);
 
                 // Post-batch message with workspace merge summary
                 outputSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);

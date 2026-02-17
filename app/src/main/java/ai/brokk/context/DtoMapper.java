@@ -202,7 +202,7 @@ public class DtoMapper {
             return _buildVirtualFragment(castNonNull(dto), mgr, imageBytesMap, contentReader);
         }
         if (taskDtos.containsKey(idToResolve)) {
-            return _buildTaskFragment(castNonNull(taskDtos.get(idToResolve)), mgr, contentReader);
+            return _buildTaskFragment(castNonNull(taskDtos.get(idToResolve)), contentReader);
         }
         logger.error("Fragment DTO not found for ID: {} during resolveAndBuildFragment", idToResolve);
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve);
@@ -236,13 +236,13 @@ public class DtoMapper {
     }
 
     private static @Nullable ContextFragments.TaskFragment _buildTaskFragment(
-            @Nullable TaskFragmentDto dto, IContextManager mgr, ContentReader reader) {
+            @Nullable TaskFragmentDto dto, ContentReader reader) {
         if (dto == null) return null;
         var messages = dto.messages().stream()
                 .map(msgDto -> fromChatMessageDto(msgDto, reader))
                 .toList();
         return new ContextFragments.TaskFragment(
-                dto.id(), mgr, messages, dto.taskDescription() == null ? "" : dto.taskDescription());
+                dto.id(), messages, dto.taskDescription() == null ? "" : dto.taskDescription());
     }
 
     private static @Nullable ContextFragment _buildVirtualFragment(
@@ -263,7 +263,7 @@ public class DtoMapper {
                 logger.warn("Search fragments are no longer supported, dropping fragment");
                 yield null;
             }
-            case TaskFragmentDto taskDto -> _buildTaskFragment(taskDto, mgr, reader);
+            case TaskFragmentDto taskDto -> _buildTaskFragment(taskDto, reader);
             case StringFragmentDto stringDto ->
                 new ContextFragments.StringFragment(
                         stringDto.id(),

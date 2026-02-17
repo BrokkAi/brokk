@@ -91,8 +91,7 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 | `Ctrl+C` | Cancel job / quit |
 | `Ctrl+G` | Toggle mode (LUTZ/ASK/SEARCH) |
 | `F3` | Toggle mode (LUTZ/ASK/SEARCH) |
-| `F2` | Open the theme palette |
-| `Ctrl+P` | Open command palette |
+| `Ctrl+P` | Open settings |
 
 ## Theming
 
@@ -104,8 +103,8 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 
 ### Persistence & Interaction
 - **Settings**: The current theme is persisted in `~/.brokk/settings.json` under the `theme` key.
-- **Theme Picker**: Use `F2`, or `Ctrl+P` then select `Change theme` to open the full theme palette (including options like solarized).
-- **Command**: You can also use `/theme` (or `/palette`) to open the same theme picker.
+- **Settings Picker**: Use `Ctrl+P` then select `Change theme` to open settings (including theme options like solarized).
+- **Command**: You can use `/settings` to open the same picker.
 
 ### Commands
 

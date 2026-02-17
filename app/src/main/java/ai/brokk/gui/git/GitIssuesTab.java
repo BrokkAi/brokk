@@ -1293,7 +1293,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             IssueDetails details, List<ChatMessage> messages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: %s", header.id(), header.title());
-        return new ContextFragments.TaskFragment(this.contextManager, messages, description, false);
+        return new ContextFragments.TaskFragment(messages, description, false);
     }
 
     private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
@@ -1314,7 +1314,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             IssueDetails details, List<ChatMessage> commentMessages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: Comments", header.id());
-        return new ContextFragments.TaskFragment(this.contextManager, commentMessages, description, false);
+        return new ContextFragments.TaskFragment(commentMessages, description, false);
     }
 
     private int processAndCaptureImagesFromDetails(IssueDetails details) {

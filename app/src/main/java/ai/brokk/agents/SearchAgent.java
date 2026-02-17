@@ -224,14 +224,23 @@ public class SearchAgent {
         tools.add("addFileSummariesToWorkspace");
 
         // Non-analyzer tools
-        tools.add("searchSubstrings");
-        tools.add("searchFilenames");
+        tools.add("findFilesContaining");
+        tools.add("findFilenames");
+        tools.add("searchFileContents");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
         if (project.hasGit()) {
             tools.add("searchGitCommitMessages");
             tools.add("getGitLog");
             tools.add("explainCommit");
+        }
+
+        var allFiles = project.getAllFiles();
+        if (allFiles.stream().anyMatch(f -> f.extension().equals("xml"))) {
+            tools.add("xpathQuery");
+        }
+        if (allFiles.stream().anyMatch(f -> f.extension().equals("json"))) {
+            tools.add("jq");
         }
 
         if (!mcpTools.isEmpty()) {
@@ -521,8 +530,8 @@ public class SearchAgent {
             case "searchSymbols",
                     "getSymbolLocations",
                     "scanUsages",
-                    "searchSubstrings",
-                    "searchFilenames",
+                    "findFilesContaining",
+                    "findFilenames",
                     "searchGitCommitMessages" -> 20;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimDirectory" -> 40;
@@ -1133,7 +1142,7 @@ public class SearchAgent {
         }
         return context.allFragments()
                 .filter(f1 -> f1.getType().includeInProjectGuide())
-                .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
     }
 
@@ -1153,7 +1162,7 @@ public class SearchAgent {
                         f.getType().toString(),
                         f.id(),
                         f.description().renderNowOr("(incomplete)"),
-                        f.files().renderNowOr(Set.of()).stream()
+                        f.sourceFiles().renderNowOr(Set.of()).stream()
                                 .map(pf -> pf.getRelPath().toString())
                                 .sorted()
                                 .toList()))
@@ -1369,8 +1378,11 @@ public class SearchAgent {
                         "getSymbolLocations",
                         "searchSymbols",
                         "scanUsages",
-                        "searchSubstrings",
-                        "searchFilenames",
+                        "findFilesContaining",
+                        "findFilenames",
+                        "searchFileContents",
+                        "xpathQuery",
+                        "jq",
                         "searchGitCommitMessages",
                         "getGitLog")
                 .contains(toolName);

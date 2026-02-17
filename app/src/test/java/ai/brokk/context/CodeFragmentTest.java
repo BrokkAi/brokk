@@ -70,7 +70,7 @@ public class CodeFragmentTest {
         assertTrue(sources.contains(subCls));
         assertEquals(1, sources.size());
 
-        Set<ProjectFile> files = fragment.files().join();
+        Set<ProjectFile> files = fragment.referencedFiles().join();
         assertTrue(files.contains(subFile));
         assertEquals(1, files.size());
     }
@@ -93,7 +93,7 @@ public class CodeFragmentTest {
         assertTrue(fragment.supportingFragments().isEmpty(), "Methods should not pull in class ancestors");
 
         assertEquals(Set.of(method), fragment.sources().join());
-        assertEquals(Set.of(file), fragment.files().join());
+        assertEquals(Set.of(file), fragment.referencedFiles().join());
     }
 
     @Test

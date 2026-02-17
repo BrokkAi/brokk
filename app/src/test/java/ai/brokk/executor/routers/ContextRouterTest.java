@@ -22,8 +22,10 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,6 +44,13 @@ class ContextRouterTest {
         var project = new MainProject(tempDir);
         contextManager = new ContextManager(project);
         contextRouter = new ContextRouter(contextManager);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (contextManager != null) {
+            contextManager.close();
+        }
     }
 
     @Test
@@ -82,6 +91,89 @@ class ContextRouterTest {
         assertEquals("T2", returnedTasks.get(1).get("title"));
         assertEquals(true, returnedTasks.get(1).get("done"));
         assertTrue(!((String) returnedTasks.get(0).get("id")).isBlank());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostTaskList_replacesTaskList() throws Exception {
+        var body = Map.of(
+                "bigPicture",
+                "Updated Goal",
+                "tasks",
+                List.of(
+                        Map.of("title", "First", "text", "First", "done", false),
+                        Map.of("title", "Second", "text", "Second", "done", true)));
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/tasklist", body);
+        contextRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> response = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertEquals("Updated Goal", response.get("bigPicture"));
+
+        List<Map<String, Object>> returnedTasks = (List<Map<String, Object>>) response.get("tasks");
+        assertEquals(2, returnedTasks.size());
+        assertEquals("First", returnedTasks.get(0).get("title"));
+        assertEquals(false, returnedTasks.get(0).get("done"));
+        assertEquals("Second", returnedTasks.get(1).get("title"));
+        assertEquals(true, returnedTasks.get(1).get("done"));
+        assertTrue(!((String) returnedTasks.get(0).get("id")).isBlank());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostTaskList_worksWhenFragmentAbsent() throws Exception {
+        // 1. Initial state: GET /v1/tasklist returns empty
+        var get1 = TestHttpExchange.request("GET", "/v1/tasklist");
+        contextRouter.handle(get1);
+        assertEquals(200, get1.responseCode());
+        var body1 = MAPPER.readValue(get1.responseBodyBytes(), new TypeReference<Map<String, Object>>() {});
+        assertEquals(null, body1.get("bigPicture"));
+        assertTrue(((List<?>) body1.get("tasks")).isEmpty());
+
+        // 2. POST /v1/tasklist with empty tasks (explicitly clearing/confirming absence)
+        var postEmpty = Map.of("bigPicture", "Still Empty", "tasks", List.of());
+        var postEx1 = TestHttpExchange.jsonRequest("POST", "/v1/tasklist", postEmpty);
+        contextRouter.handle(postEx1);
+        assertEquals(200, postEx1.responseCode());
+
+        var get2 = TestHttpExchange.request("GET", "/v1/tasklist");
+        contextRouter.handle(get2);
+        var body2 = MAPPER.readValue(get2.responseBodyBytes(), new TypeReference<Map<String, Object>>() {});
+        // withTaskList(empty) removes fragment, so getTaskListDataOrEmpty returns (null, [])
+        assertEquals(null, body2.get("bigPicture"));
+        assertTrue(((List<?>) body2.get("tasks")).isEmpty());
+
+        // 3. POST /v1/tasklist with non-empty list
+        var postData = Map.of(
+                "bigPicture", "New Goal", "tasks", List.of(Map.of("title", "Task 1", "text", "Do it", "done", false)));
+        var postEx2 = TestHttpExchange.jsonRequest("POST", "/v1/tasklist", postData);
+        contextRouter.handle(postEx2);
+        assertEquals(200, postEx2.responseCode());
+
+        // 4. Verify GET reflects new tasks
+        var get3 = TestHttpExchange.request("GET", "/v1/tasklist");
+        contextRouter.handle(get3);
+        var body3 = MAPPER.readValue(get3.responseBodyBytes(), new TypeReference<Map<String, Object>>() {});
+        assertEquals("New Goal", body3.get("bigPicture"));
+        var tasks3 = (List<Map<String, Object>>) body3.get("tasks");
+        assertEquals(1, tasks3.size());
+        assertEquals("Task 1", tasks3.get(0).get("title"));
+    }
+
+    @Test
+    void handlePostTaskList_nullTasks_returnsValidationError() throws Exception {
+        var body = new HashMap<String, Object>();
+        body.put("bigPicture", "Goal");
+        body.put("tasks", null);
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/tasklist", body);
+        contextRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("tasks must not be null"));
     }
 
     @Test

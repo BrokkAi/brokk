@@ -84,6 +84,8 @@ public class CodeAgent {
     /** maximum consecutive build failures before giving up */
     final int MAX_BUILD_FAILURES;
 
+    private final boolean allowPromotion;
+
     final IContextManager contextManager;
     private final StreamingChatModel model;
     private final IConsoleIO io;
@@ -110,6 +112,8 @@ public class CodeAgent {
             }
         }
         this.MAX_BUILD_FAILURES = Math.max(1, attempts);
+
+        this.allowPromotion = !"false".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_PROMOTION"));
 
         // placeholder to make Null Away happy; initialized in runTaskInternal
         this.context = new Context(contextManager);
@@ -212,7 +216,7 @@ public class CodeAgent {
                     .getAnalyzerWrapper()
                     .updateFiles(context.allFragments()
                             .filter(f -> f.getType().isPath())
-                            .flatMap(cf -> cf.files().join().stream())
+                            .flatMap(cf -> cf.sourceFiles().join().stream())
                             .collect(Collectors.toSet()))
                     .get();
         } catch (InterruptedException e) {
@@ -231,7 +235,7 @@ public class CodeAgent {
             }
 
             // Select the appropriate model for this turn
-            if (es.useArchitectModel()) {
+            if (allowPromotion && es.useArchitectModel()) {
                 var architectConfig = contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
                 coder.setModel(architectConfig);
             } else {
@@ -309,7 +313,7 @@ public class CodeAgent {
 
             // Incorporate any newly created files into the live context immediately
             var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
-                    .flatMap(f -> f.files().join().stream())
+                    .flatMap(f -> f.sourceFiles().join().stream())
                     .collect(Collectors.toSet());
             var newlyCreated = es.changedFiles().stream()
                     .filter(pf -> !filesInContext.contains(pf))
@@ -773,31 +777,41 @@ public class CodeAgent {
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
             var filesInContext = context.allFragments()
                     .filter(f -> f.getType().isPath())
-                    .flatMap(f -> f.files().join().stream())
+                    .flatMap(f -> f.sourceFiles().join().stream())
                     .collect(Collectors.toSet());
 
             var notInContext = Sets.difference(mentionedFiles, filesInContext);
             if (!notInContext.isEmpty()) {
-                var quickModel = contextManager.getService().quickestModel();
-                var llm = contextManager.getLlm(quickModel, "Check if asking for files", TaskResult.Type.CLASSIFY);
-
+                var classifier = contextManager.getLlm(
+                        contextManager.getService().getScanModel(),
+                        "Check if asking for files",
+                        TaskResult.Type.CLASSIFY);
                 var filterDescription =
                         "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";
+
                 boolean isAskingForFiles;
                 try {
-                    isAskingForFiles = RelevanceClassifier.isRelevant(llm, filterDescription, lastAiText);
+                    var lastMsg = cs.taskMessages().getLast();
+                    assert lastMsg instanceof AiMessage;
+                    var textOpt = CodePrompts.redactEditBlocks((AiMessage) lastMsg, false)
+                            .map(AiMessage::text);
+                    isAskingForFiles = textOpt.isPresent()
+                            && RelevanceClassifier.isRelevant(classifier, filterDescription, textOpt.get());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
                 }
 
                 if (isAskingForFiles) {
+                    if (metrics != null) {
+                        metrics.internalStopReason = TaskResult.StopReason.LLM_ABORTED;
+                    }
                     var fileNames =
                             notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
-                    reportComplete(TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files");
-                    return new Step.Fatal(new TaskResult.StopDetails(
-                            TaskResult.StopReason.LLM_ABORTED,
-                            "Agent requested additional files not in context: " + fileNames));
+                    reportComplete(
+                            TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + fileNames);
+                    return new Step.Fatal(
+                            new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Build is failing"));
                 }
             }
 
@@ -931,8 +945,13 @@ public class CodeAgent {
 
                     // Retrieve the base index for the blocks parsed in this response
                     int turnParsedBase = es.totalBlocksParsed() - attemptedBlockCount;
+                    boolean isLastApplyRetryBeforeAbort = updatedConsecutiveApplyFailures == MAX_APPLY_FAILURES - 1;
                     var retryMessages = CodePrompts.buildApplyRetryMessages(
-                            lastAiText, editResult.blockResults(), buildError, turnParsedBase);
+                            lastAiText,
+                            editResult.blockResults(),
+                            buildError,
+                            turnParsedBase,
+                            isLastApplyRetryBeforeAbort);
 
                     // Replace the last AI message in taskMessages with the tagged version
                     // Note: rawMessages is not modified - it preserves the original conversation
@@ -1394,14 +1413,7 @@ public class CodeAgent {
          * @return a new ConversationState with compacted taskMessages, preserving rawMessages
          */
         ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
-            var explanations = rawMessages.stream()
-                    .filter(AiMessage.class::isInstance)
-                    .map(AiMessage.class::cast)
-                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
-                            .map(AiMessage::text)
-                            .orElse(""))
-                    .filter(seg -> !seg.isBlank())
-                    .collect(Collectors.joining("\n\n"));
+            var explanations = extractReasoning(rawMessages);
             var changedFilesCdl =
                     es.changedFiles().stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
             var summaryText =
@@ -1421,6 +1433,17 @@ public class CodeAgent {
             compactedMessages.add(new AiMessage(summaryText));
             return new ConversationState(
                     rawMessages, compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
+        }
+
+        static String extractReasoning(List<ChatMessage> messages) {
+            return messages.stream()
+                    .filter(AiMessage.class::isInstance)
+                    .map(AiMessage.class::cast)
+                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
+                            .map(AiMessage::text)
+                            .orElse(""))
+                    .filter(seg -> !seg.isBlank())
+                    .collect(Collectors.joining("\n\n"));
         }
 
         /**
@@ -1824,6 +1847,9 @@ public class CodeAgent {
         int applyRetries = 0;
         int apiRetries = 0;
 
+        @Nullable
+        TaskResult.StopReason internalStopReason = null;
+
         void addTokens(@Nullable Llm.ResponseMetadata usage) {
             if (usage == null) {
                 return;
@@ -1858,7 +1884,7 @@ public class CodeAgent {
             jsonMap.put("applyRetries", applyRetries);
             jsonMap.put("apiRetries", apiRetries);
             jsonMap.put("changedFiles", changedFilesList);
-            jsonMap.put("stopReason", stopDetails.reason().name());
+            jsonMap.put("stopReason", (internalStopReason != null ? internalStopReason : stopDetails.reason()).name());
             jsonMap.put("stopExplanation", stopDetails.explanation());
 
             try {

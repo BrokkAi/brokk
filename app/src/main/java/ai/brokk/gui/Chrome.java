@@ -2009,7 +2009,15 @@ public class Chrome
             var ip = rightPanel.getInstructionsPanel();
             var hop = rightPanel.getHistoryOutputPanel();
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
-                ip.getInstructionsArea().copy();
+                JTextArea area = ip.getInstructionsArea();
+                if (area.getSelectionStart() == area.getSelectionEnd()) {
+                    String instructions = ip.getInstructions();
+                    if (!instructions.isBlank()) {
+                        ip.clearCommandInput();
+                        return;
+                    }
+                }
+                area.copy();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getLlmStreamArea())) {
                 hop.getLlmStreamArea().copy(); // Assumes MarkdownOutputPanel has copy()
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getHistoryTable())) {
@@ -2725,7 +2733,11 @@ public class Chrome
                 || component == dependenciesPanel.getRemoveButton()
                 || component == tlp.getTaskInput()
                 || component == tlp.getGoStopButton()
+                || component == tlp.getRemoveButton()
+                || component == tlp.getToggleDoneButton()
+                || component == tlp.getClearCompletedButton()
                 || component == tlp.getTaskList()
+                || component == tlp.getTaskListScrollPane()
                 || component == hop.getHistoryTable()
                 || component == hop.getLlmStreamArea();
     }

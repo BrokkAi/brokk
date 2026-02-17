@@ -7,18 +7,73 @@ from typing import Any, Callable, Dict, List, Optional
 
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Header
+from textual.widgets import Footer, Header, ListItem, ListView, Static
+from textual.widgets._footer import FooterKey
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
-from brokk_code.widgets.chat_panel import ChatPanel
+from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
+from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
 logger = logging.getLogger(__name__)
+
+
+class OrderedFooter(Footer):
+    def compose(self) -> ComposeResult:
+        if not self._bindings_ready:
+            return
+
+        active_bindings = self.screen.active_bindings
+
+        def first_binding_for_action(action: str) -> tuple[Binding, bool, str] | None:
+            for _key, binding, enabled, tooltip in active_bindings.values():
+                if binding.action == action:
+                    return binding, enabled, tooltip
+            return None
+
+        order = [
+            ("toggle_mode", "Mode"),
+            ("select_model", "Model"),
+            ("select_reasoning", "Reasoning"),
+            ("toggle_context", "Context"),
+            ("toggle_tasklist", "Tasks"),
+            ("toggle_notifications", "Notifications"),
+            ("toggle_statusline", "Status"),
+        ]
+
+        for action, fallback_desc in order:
+            found = first_binding_for_action(action)
+            if not found:
+                continue
+            binding, enabled, tooltip = found
+            yield FooterKey(
+                binding.key,
+                self.app.get_key_display(binding),
+                binding.description or fallback_desc,
+                binding.action,
+                disabled=not enabled,
+                tooltip=tooltip or binding.description,
+            ).data_bind(compact=Footer.compact)
+
+        # Always render Ctrl+P as "Settings", regardless of Textual's internal "palette" label.
+        try:
+            _node, binding, enabled, tooltip = active_bindings[self.app.COMMAND_PALETTE_BINDING]
+        except KeyError:
+            return
+        yield FooterKey(
+            binding.key,
+            self.app.get_key_display(binding),
+            "Settings",
+            binding.action,
+            disabled=not enabled,
+            tooltip=tooltip or "Open settings",
+            classes="-command-palette",
+        ).data_bind(compact=Footer.compact)
 
 
 class ContextModalScreen(ModalScreen[None]):
@@ -45,18 +100,105 @@ class ContextModalScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class ModelSelectModal(ModalScreen[str]):
+    """A modal for selecting from available models."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, models: List[str]) -> None:
+        super().__init__()
+        self.models = models
+        self._item_id_to_model: Dict[str, str] = {
+            f"model-{idx}": model for idx, model in enumerate(models)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="model-select-container"):
+            yield Static("Select Model", id="model-select-title")
+            with VerticalScroll(id="model-select-list-wrap"):
+                yield ListView(
+                    *[
+                        ListItem(Static(model_name), id=item_id)
+                        for item_id, model_name in self._item_id_to_model.items()
+                    ],
+                    id="model-select-list",
+                )
+
+    def on_mount(self) -> None:
+        self.query_one("#model-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        model_name = self._item_id_to_model.get(message.item.id)
+        if model_name:
+            self.dismiss(model_name)
+
+
+class ReasoningSelectModal(ModalScreen[str]):
+    """A modal for selecting the reasoning level."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, levels: List[str], current: str) -> None:
+        super().__init__()
+        self.levels = levels
+        self.current = current
+        self._item_id_to_level: Dict[str, str] = {
+            f"level-{idx}": level for idx, level in enumerate(levels)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="reasoning-select-container"):
+            yield Static("Select Reasoning", id="reasoning-select-title")
+            with VerticalScroll(id="reasoning-select-list-wrap"):
+                yield ListView(
+                    *[
+                        ListItem(
+                            Static(f"{'[x]' if level == self.current else '[ ]'} {level}"),
+                            id=item_id,
+                        )
+                        for item_id, level in self._item_id_to_level.items()
+                    ],
+                    id="reasoning-select-list",
+                )
+
+    def on_mount(self) -> None:
+        self.query_one("#reasoning-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        level = self._item_id_to_level.get(message.item.id)
+        if level:
+            self.dismiss(level)
+
+
 class BrokkApp(App):
     """The main Brokk TUI application."""
 
     CSS_PATH = "styles/app.tcss"
+    COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
+        # Footer/help-bar ordering: Mode, Model, Reasoning, Context,
+        # Tasks, Notifications, Settings
+        Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
+        Binding("ctrl+u", "select_model", "Model", show=True),
+        Binding("ctrl+e", "select_reasoning", "Reasoning", show=True),
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
-        Binding("ctrl+g", "toggle_mode", "Mode", show=True),
-        Binding("f3", "toggle_mode", "Mode", show=True),
-        Binding("f2", "change_theme", "Theme Palette", show=True),
+        Binding("ctrl+s", "toggle_statusline", "Status", show=True),
+        Binding("ctrl+p", "command_palette", "Settings", show=True),
+        Binding("ctrl+j", "task_next", "Task Next", show=False),
+        Binding("ctrl+k", "task_prev", "Task Prev", show=False),
+        Binding("ctrl+space", "task_toggle", "Task Toggle", show=False),
+        Binding("f3", "toggle_mode", "Mode", show=False),
     ]
 
     def __init__(
@@ -68,18 +210,22 @@ class BrokkApp(App):
         executor: Optional[ExecutorManager] = None,
         session_id: Optional[str] = None,
         resume_session: bool = True,
+        vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
         if executor:
             self.executor = executor
             if workspace_dir:
                 self.executor.workspace_dir = workspace_dir.resolve()
+            if vendor is not None:
+                self.executor.vendor = vendor
         else:
             self.executor = ExecutorManager(
                 workspace_dir or Path.cwd(),
                 jar_path,
                 executor_version=executor_version,
                 executor_snapshot=executor_snapshot,
+                vendor=vendor,
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
@@ -87,10 +233,34 @@ class BrokkApp(App):
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.sub_title = f"Mode: {self.agent_mode}"
-        self.current_model = "gpt-5.2"
-        self.code_model: Optional[str] = "gemini-3-flash-preview"
-        self.reasoning_level: Optional[str] = "low"
-        self.reasoning_level_code: Optional[str] = "disable"
+
+        # Initialize model and reasoning settings from persisted Settings if present,
+        # otherwise fall back to safe defaults.
+        # We accept persisted values as-is at startup; validation against the
+        # executor model catalog can occur later if needed.
+        self.current_model = (
+            str(self.settings.last_model).strip() if self.settings.last_model else "gpt-5.2"
+        )
+        self.code_model = (
+            str(self.settings.last_code_model).strip()
+            if self.settings.last_code_model
+            else "gemini-3-flash-preview"
+        )
+        self.reasoning_level = (
+            str(self.settings.last_reasoning_level).strip()
+            if self.settings.last_reasoning_level
+            else "low"
+        )
+        self.reasoning_level_code = (
+            str(self.settings.last_code_reasoning_level).strip()
+            if self.settings.last_code_reasoning_level
+            else "disable"
+        )
+        self.auto_commit = (
+            bool(self.settings.last_auto_commit)
+            if isinstance(self.settings.last_auto_commit, bool)
+            else True
+        )
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
@@ -119,12 +289,44 @@ class BrokkApp(App):
         except (ScreenStackError, Exception):
             return None
 
+    def _maybe_statusline(self) -> Optional[StatusLine]:
+        """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
+        try:
+            return self.query_one(StatusLine)
+        except (ScreenStackError, Exception):
+            return None
+
+    def _update_statusline(self) -> None:
+        """Collect current state and update the mounted StatusLine (best-effort)."""
+        status = self._maybe_statusline()
+        if not status:
+            return
+        try:
+            workspace = None
+            try:
+                if getattr(self, "executor", None) is not None:
+                    ws = getattr(self.executor, "workspace_dir", None)
+                    if ws is not None:
+                        workspace = str(ws)
+            except Exception:
+                workspace = None
+
+            status.update_status(
+                mode=getattr(self, "current_mode", getattr(self, "agent_mode", "unknown")),
+                model=getattr(self, "current_model", None),
+                reasoning=getattr(self, "reasoning_level", None),
+                workspace=workspace,
+            )
+        except Exception:
+            # Swallow all errors when updating UI that's possibly not mounted in tests.
+            return
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
-        yield Footer()
+        yield OrderedFooter(show_command_palette=False)
 
     async def on_mount(self) -> None:
         chat = self._maybe_chat()
@@ -386,6 +588,131 @@ class BrokkApp(App):
             updates.append((fragment_id, not current))
         return updates
 
+    async def _ensure_tasklist_data(self) -> Optional[Dict[str, Any]]:
+        panel = self.query_one(TaskListPanel)
+        data = panel.tasklist_data_for_update()
+        if data is not None:
+            return data
+        data = await self.executor.get_tasklist()
+        panel.update_tasklist_details(data)
+        return panel.tasklist_data_for_update()
+
+    async def _persist_tasklist(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        saved = await self.executor.set_tasklist(data)
+        self.query_one(TaskListPanel).update_tasklist_details(saved)
+        return saved
+
+    async def _toggle_selected_task(self) -> None:
+        chat = self.query_one(ChatPanel)
+        panel = self.query_one(TaskListPanel)
+        selected = panel.selected_task()
+        if not selected:
+            chat.add_system_message("No task selected.")
+            return
+
+        task_id = str(selected.get("id", "")).strip()
+        if not task_id:
+            chat.add_system_message("Selected task has no ID and cannot be updated.", level="ERROR")
+            return
+
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                chat.add_system_message("No task list active.")
+                return
+            tasks = data.get("tasks", [])
+            for task in tasks:
+                if str(task.get("id", "")).strip() == task_id:
+                    task["done"] = not bool(task.get("done", False))
+                    break
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to toggle task: {e}", level="ERROR")
+
+    async def _delete_selected_task(self) -> None:
+        chat = self.query_one(ChatPanel)
+        panel = self.query_one(TaskListPanel)
+        selected = panel.selected_task()
+        if not selected:
+            chat.add_system_message("No task selected.")
+            return
+
+        task_id = str(selected.get("id", "")).strip()
+        if not task_id:
+            chat.add_system_message("Selected task has no ID and cannot be deleted.", level="ERROR")
+            return
+
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                chat.add_system_message("No task list active.")
+                return
+            before = len(data.get("tasks", []))
+            data["tasks"] = [
+                task for task in data.get("tasks", []) if str(task.get("id", "")).strip() != task_id
+            ]
+            if len(data["tasks"]) == before:
+                chat.add_system_message("Selected task no longer exists.")
+                return
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to delete task: {e}", level="ERROR")
+
+    async def _add_task(self, title: str) -> None:
+        chat = self.query_one(ChatPanel)
+        normalized_title = title.strip()
+        if not normalized_title:
+            chat.add_system_message("Task title cannot be blank.", level="ERROR")
+            return
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                data = {"bigPicture": None, "tasks": []}
+            tasks = data.get("tasks", [])
+            tasks.append({"title": normalized_title, "text": normalized_title, "done": False})
+            data["tasks"] = tasks
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to add task: {e}", level="ERROR")
+
+    async def _edit_selected_task(self, title: str) -> None:
+        chat = self.query_one(ChatPanel)
+        panel = self.query_one(TaskListPanel)
+        selected = panel.selected_task()
+        if not selected:
+            chat.add_system_message("No task selected.")
+            return
+
+        task_id = str(selected.get("id", "")).strip()
+        if not task_id:
+            chat.add_system_message("Selected task has no ID and cannot be updated.", level="ERROR")
+            return
+
+        normalized_title = title.strip()
+        if not normalized_title:
+            chat.add_system_message("Task title cannot be blank.", level="ERROR")
+            return
+
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                chat.add_system_message("No task list active.")
+                return
+            updated = False
+            for task in data.get("tasks", []):
+                if str(task.get("id", "")).strip() == task_id:
+                    task["title"] = normalized_title
+                    if not str(task.get("text", "")).strip():
+                        task["text"] = normalized_title
+                    updated = True
+                    break
+            if not updated:
+                chat.add_system_message("Selected task no longer exists.")
+                return
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to edit task: {e}", level="ERROR")
+
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
         Handles user input from the chat panel.
@@ -439,6 +766,7 @@ class BrokkApp(App):
                 reasoning_level=self.reasoning_level,
                 reasoning_level_code=self.reasoning_level_code,
                 mode=self.current_mode,
+                auto_commit=self.auto_commit,
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
@@ -523,6 +851,8 @@ class BrokkApp(App):
         """Sets the agent mode, updates the subtitle, and optionally announces to chat."""
         self.agent_mode = new_mode
         self.sub_title = f"Mode: {self.agent_mode}"
+        # Update statusline if present
+        self._update_statusline()
         if announce:
             msg_markup = f"Mode changed to: [bold]{self.agent_mode}[/]"
             chat = self._maybe_chat()
@@ -552,6 +882,7 @@ class BrokkApp(App):
             f"Workspace: [bold]{self.executor.workspace_dir}[/]\n"
             f"Executor JAR: [bold]{jar_path}[/]\n"
             f"Mode: [bold]{self.agent_mode}[/]\n"
+            f"Auto-commit: [bold]{'ON' if self.auto_commit else 'OFF'}[/]\n"
             f"{planner_info}\n"
             f"{code_info}"
         )
@@ -564,26 +895,98 @@ class BrokkApp(App):
 
         if base == "/model" and len(parts) > 1:
             self.current_model = parts[1]
+            # Persist the last-used planner model for subsequent runs
+            try:
+                self.settings.last_model = self.current_model
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_model setting")
             chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
+            self._update_statusline()
         elif base == "/model-code" and len(parts) > 1:
             self.code_model = parts[1]
+            # Persist the last-used code model
+            try:
+                self.settings.last_code_model = self.code_model
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_code_model setting")
             chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
         elif base == "/reasoning" and len(parts) > 1:
             self.reasoning_level = parts[1]
+            # Persist planner reasoning preference
+            try:
+                self.settings.last_reasoning_level = self.reasoning_level
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_reasoning_level setting")
             chat.add_system_message_markup(
                 f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
             )
+            self._update_statusline()
         elif base == "/reasoning-code" and len(parts) > 1:
             self.reasoning_level_code = parts[1]
+            # Persist code reasoning preference
+            try:
+                self.settings.last_code_reasoning_level = self.reasoning_level_code
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_code_reasoning_level setting")
             chat.add_system_message_markup(
                 f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
             )
-        elif base in ("/theme", "/palette"):
-            if len(parts) > 1:
-                chat.add_system_message(
-                    "Theme selection now uses the theme palette. Use /theme with no arguments."
+        elif base == "/autocommit":
+            if len(parts) == 1:
+                state = "ON" if self.auto_commit else "OFF"
+                chat.add_system_message_markup(
+                    "Auto-commit mode: "
+                    f"[bold]{state}[/]\n"
+                    "Usage: /autocommit on|off|toggle",
+                    level="WARNING",
                 )
-            self.action_change_theme()
+                return
+
+            if len(parts) != 2:
+                chat.add_system_message(
+                    "Usage: /autocommit on|off|toggle (or true/false/1/0/yes/no)",
+                    level="ERROR",
+                )
+                return
+
+            arg = parts[1].strip().lower()
+            truthy = {"on", "true", "1", "yes"}
+            falsy = {"off", "false", "0", "no"}
+            if arg in truthy:
+                new_value = True
+            elif arg in falsy:
+                new_value = False
+            elif arg == "toggle":
+                new_value = not self.auto_commit
+            else:
+                chat.add_system_message(
+                    "Usage: /autocommit on|off|toggle (or true/false/1/0/yes/no)",
+                    level="ERROR",
+                )
+                return
+
+            self.auto_commit = new_value
+            try:
+                self.settings.last_auto_commit = self.auto_commit
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_auto_commit setting")
+
+            if self.auto_commit:
+                chat.add_system_message_markup("Auto-commit mode: [bold]ON[/]")
+            else:
+                chat.add_system_message_markup(
+                    "Auto-commit mode: [bold]OFF[/] (changes will not be committed automatically)",
+                    level="WARNING",
+                )
+        elif base == "/settings":
+            if len(parts) > 1:
+                chat.add_system_message("Settings opens from /settings with no arguments.")
+            self.action_command_palette()
         elif base in ("/ask", "/search", "/lutz"):
             self._set_mode(base[1:].upper())
         elif base == "/info":
@@ -599,19 +1002,65 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+        elif base == "/task":
+            panel = self.query_one(TaskListPanel)
+            if len(parts) == 1:
+                selected = panel.selected_task()
+                if not selected:
+                    chat.add_system_message(
+                        "Task commands: /task next | prev | toggle | delete | "
+                        "add <title> | edit <title>"
+                    )
+                else:
+                    done = "[x]" if bool(selected.get("done", False)) else "[ ]"
+                    title = str(selected.get("title", "Task")).strip() or "Task"
+                    chat.add_system_message(f"Selected task: {done} {title}")
+            elif len(parts) >= 2:
+                action = parts[1].lower()
+                if action == "next":
+                    if not panel.move_selection(1):
+                        chat.add_system_message("No next task.")
+                elif action == "prev":
+                    if not panel.move_selection(-1):
+                        chat.add_system_message("No previous task.")
+                elif action == "toggle":
+                    self.run_worker(self._toggle_selected_task())
+                elif action == "delete":
+                    self.run_worker(self._delete_selected_task())
+                elif action == "add":
+                    if len(parts) < 3:
+                        chat.add_system_message("Usage: /task add <title>")
+                    else:
+                        self.run_worker(self._add_task(" ".join(parts[2:])))
+                elif action == "edit":
+                    if len(parts) < 3:
+                        chat.add_system_message("Usage: /task edit <title>")
+                    else:
+                        self.run_worker(self._edit_selected_task(" ".join(parts[2:])))
+                else:
+                    chat.add_system_message(
+                        "Unknown /task command. Use: next, prev, toggle, delete, add, edit."
+                    )
         elif base == "/help":
             help_text = (
                 "Available commands:\n"
                 "  /ask                  - Set mode to ASK (questions only)\n"
                 "  /search               - Set mode to SEARCH (read-only code search)\n"
                 "  /lutz                 - Set mode to LUTZ (default; full agent access)\n"
-                "  /model <name>         - Change the planner LLM model\n"
+                "  /model <name>         - Change the planner LLM model (Shortcut: Ctrl+U)\n"
                 "  /model-code <name>    - Change the code LLM model\n"
-                "  /reasoning <level>    - Set reasoning level for planner\n"
+                "  /reasoning <level>    - Set reasoning level for planner (Shortcut: Ctrl+E)\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
-                "  /theme, /palette      - Open the theme palette\n"
+                "  /autocommit [on|off|toggle] - Toggle auto-commit for submitted jobs\n"
+                "  /settings             - Open settings\n"
                 "  /history              - Show recent prompt history\n"
                 "  /history-clear        - Clear prompt history\n"
+                "  /task                 - Show selected task info / task command help\n"
+                "  /task next|prev       - Navigate selected task\n"
+                "  /task toggle          - Toggle selected task done state\n"
+                "  /task add <title>     - Add a task\n"
+                "  /task edit <title>    - Edit selected task title\n"
+                "  /task delete          - Delete selected task\n"
                 "  /info                 - Show current configuration and status\n"
                 "  /help                 - Show this help message\n"
                 "  /quit, /exit          - Exit the application"
@@ -621,6 +1070,83 @@ class BrokkApp(App):
             self.action_quit()
         else:
             chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
+
+    async def action_select_model(self) -> None:
+        chat = self._maybe_chat()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot select model.", level="ERROR"
+                )
+            return
+
+        try:
+            models_data = await self.executor.get_models()
+            raw_models = models_data.get("models", [])
+            if not isinstance(raw_models, list):
+                raw_models = []
+            available_models: List[str] = []
+            for model in raw_models:
+                if isinstance(model, str):
+                    name = model.strip()
+                elif isinstance(model, dict):
+                    name = str(model.get("name", "")).strip()
+                else:
+                    name = ""
+                if name:
+                    available_models.append(name)
+            if not available_models:
+                if chat:
+                    chat.add_system_message("No models available from executor.", level="ERROR")
+                return
+
+            def update_model(model_id: str | None) -> None:
+                if model_id:
+                    self.current_model = model_id
+                    # Persist choice so subsequent runs reuse it
+                    try:
+                        self.settings.last_model = model_id
+                        self.settings.save()
+                    except Exception:
+                        logger.exception("Failed to persist selected model")
+                    if chat:
+                        chat.add_system_message_markup(f"Model changed to: [bold]{model_id}[/]")
+                    # Update statusline (best-effort)
+                    try:
+                        self._update_statusline()
+                    except Exception:
+                        pass
+
+            self.push_screen(ModelSelectModal(available_models), update_model)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
+
+    async def action_select_reasoning(self) -> None:
+        chat = self._maybe_chat()
+        levels = ["disable", "low", "medium", "high"]
+        current = str(self.reasoning_level or "low").strip() or "low"
+        if current not in levels:
+            current = "low"
+
+        def update_level(level: str | None) -> None:
+            if level:
+                self.reasoning_level = level
+                # Persist the user's reasoning preference
+                try:
+                    self.settings.last_reasoning_level = level
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist reasoning level")
+                if chat:
+                    chat.add_system_message_markup(f"Reasoning level changed to: [bold]{level}[/]")
+                # Update statusline (best-effort)
+                try:
+                    self._update_statusline()
+                except Exception:
+                    pass
+
+        self.push_screen(ReasoningSelectModal(levels, current), update_level)
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):
@@ -645,6 +1171,29 @@ class BrokkApp(App):
     def action_toggle_tasklist(self) -> None:
         panel = self.query_one("#side-tasklist")
         panel.display = not panel.display
+        if panel.display:
+            try:
+                panel.focus()
+            except Exception:
+                pass
+        else:
+            chat = self._maybe_chat()
+            if chat:
+                try:
+                    chat.query_one("#chat-input").focus()
+                except Exception:
+                    pass
+
+    def action_task_next(self) -> None:
+        panel = self.query_one(TaskListPanel)
+        panel.move_selection(1)
+
+    def action_task_prev(self) -> None:
+        panel = self.query_one(TaskListPanel)
+        panel.move_selection(-1)
+
+    def action_task_toggle(self) -> None:
+        self.run_worker(self._toggle_selected_task())
 
     def action_toggle_mode(self) -> None:
         """Cycles through agent modes: LUTZ -> ASK -> SEARCH -> LUTZ."""
@@ -660,6 +1209,15 @@ class BrokkApp(App):
     def action_toggle_notifications(self) -> None:
         panel = self.query_one("#notification-panel")
         panel.toggle_class("hidden")
+
+    def action_toggle_statusline(self) -> None:
+        """Toggle visibility of the status line (best-effort)."""
+        try:
+            panel = self.query_one("#status-line")
+            panel.toggle_class("hidden")
+        except Exception:
+            # If not mounted, ignore
+            pass
 
     def _set_theme(self, theme_name: str) -> None:
         normalized_theme = normalize_theme_name(theme_name.lower())
@@ -682,7 +1240,15 @@ class BrokkApp(App):
         self.settings.save()
 
     async def action_handle_ctrl_c(self) -> None:
-        """Handles Ctrl+C: Cancel job first, then double-tap to quit."""
+        """Handles Ctrl+C: Clear input, cancel job, or double-tap to quit."""
+        chat_panel = self._maybe_chat()
+        if chat_panel:
+            chat_inputs = self.query("#chat-input").results(ChatInput)
+            chat_input = next(chat_inputs, None)
+            if chat_input and chat_input.text.strip():
+                chat_panel.clear_input()
+                return
+
         now = time.time()
 
         if self.job_in_progress and self.current_job_id:

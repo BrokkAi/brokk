@@ -411,8 +411,8 @@ class CodePromptsTest {
         var entryMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-A"));
         var entry = new TaskEntry(
                 0,
-                new ContextFragments.TaskFragment(cm, entryMessages, "test task"),
-                new ContextFragments.TaskFragment(cm, entryMessages, "test task"),
+                new ContextFragments.TaskFragment(entryMessages, "test task"),
+                new ContextFragments.TaskFragment(entryMessages, "test task"),
                 null,
                 entryMeta);
 
@@ -459,8 +459,8 @@ class CodePromptsTest {
         var entryMeta = new TaskResult.TaskMeta(TaskResult.Type.CODE, new AbstractService.ModelConfig("model-A"));
         var entry = new TaskEntry(
                 0,
-                new ContextFragments.TaskFragment(cm, entryMessages, "test task"),
-                new ContextFragments.TaskFragment(cm, entryMessages, "test task"),
+                new ContextFragments.TaskFragment(entryMessages, "test task"),
+                new ContextFragments.TaskFragment(entryMessages, "test task"),
                 null,
                 entryMeta);
 

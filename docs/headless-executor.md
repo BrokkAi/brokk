@@ -16,6 +16,7 @@ The executor requires the following configuration, provided via **environment va
 | Workspace Dir | `WORKSPACE_DIR` | `--workspace-dir` | Yes | Path to the project workspace |
 | Brokk API Key | `BROKK_API_KEY` | `--brokk-api-key` | No | Per-executor Brokk API key; overrides global config. If not provided, falls back to the globally configured key |
 | LLM Proxy Setting | `PROXY_SETTING` | `--proxy-setting` | No | LLM proxy target: `BROKK` (https://proxy.brokk.ai), `LOCALHOST` (http://localhost:4000), or `STAGING` (https://staging.brokk.ai). If not provided, uses global config |
+| Other-models Vendor | (n/a) | `--vendor` | No | Sets the "Other Models" vendor preference used for internal roles (scan/summarize/commit, etc.). Use `Default` to clear overrides. Applies to non-code roles; does not change `CODE`/`ARCHITECT` role selection |
 
 Notes:
 - Sessions are stored under `<workspace>/.brokk/sessions` and jobs under `<workspace>/.brokk/jobs`.
@@ -28,6 +29,8 @@ Run the headless executor with Gradle:
 ```bash
 ./gradlew :app:runHeadlessExecutor
 ```
+
+This task is primarily configured via environment variables. For optional CLI-only flags (like `--vendor`), see the Production Deployment example below.
 
 ### Examples
 
@@ -464,12 +467,19 @@ Build the shadow JAR:
 Run the JAR:
 
 ```bash
-java -cp app/build/libs/brokk-<version>.jar \
+java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
+  -cp app/build/libs/brokk-<version>.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \
   --auth-token my-secret-token \
-  --workspace-dir /path/to/workspace
+  --workspace-dir /path/to/workspace \
+  --vendor Anthropic
 ```
+
+Headless JVM flags:
+
+- `-Djava.awt.headless=true` — Recommended and safe on all platforms; forces the JVM into headless mode so no AWT native UI is initialized.
+- `-Dapple.awt.UIElement=true` — Hides the Java process from the Dock and app switcher on macOS. This flag is effectively ignored on non-macOS platforms, so it is safe to include cross-platform.
 
 **Note:** The JAR requires the fully-qualified main class (`ai.brokk.executor.HeadlessExecutorMain`) as the first argument.

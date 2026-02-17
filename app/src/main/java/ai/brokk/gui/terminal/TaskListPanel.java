@@ -7,6 +7,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
+import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.SwingUtil;
@@ -43,6 +44,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private final TaskListModel model;
     private final JList<TaskList.TaskItem> list;
+    private final JScrollPane listScrollPane;
     private final MarkdownOutputPanel bigPicturePanel;
     private final JScrollPane bigPictureScroll;
     private final JTextField input = new JTextField();
@@ -457,8 +459,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             add(topToolbar, BorderLayout.NORTH);
         }
 
-        var scroll =
+        this.listScrollPane =
                 new JScrollPane(list, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        BorderUtils.addFocusBorder(listScrollPane, list);
 
         JPanel centerPanel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -471,12 +474,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         gbc.gridy = 1;
         gbc.weighty = 1.0;
-        centerPanel.add(scroll, gbc);
+        centerPanel.add(listScrollPane, gbc);
 
         add(centerPanel, BorderLayout.CENTER);
 
         // Recompute wrapping and ellipsis when the viewport/list width changes
-        var vp = scroll.getViewport();
+        var vp = listScrollPane.getViewport();
         vp.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
@@ -1918,6 +1921,22 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     public MaterialButton getGoStopButton() {
         return goStopButton;
+    }
+
+    public JScrollPane getTaskListScrollPane() {
+        return listScrollPane;
+    }
+
+    public MaterialButton getRemoveButton() {
+        return removeBtn;
+    }
+
+    public MaterialButton getToggleDoneButton() {
+        return toggleDoneBtn;
+    }
+
+    public MaterialButton getClearCompletedButton() {
+        return clearCompletedBtn;
     }
 
     @Override

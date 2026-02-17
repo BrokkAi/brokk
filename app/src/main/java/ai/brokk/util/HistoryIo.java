@@ -13,7 +13,6 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
@@ -290,15 +289,11 @@ public final class HistoryIo {
     }
 
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
-        boolean isV3 = false;
         boolean isV4 = false;
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().equals(V3_FRAGMENTS_FILENAME)) {
-                    isV3 = true;
-                    break;
-                } else if (entry.getName().equals(V4_FRAGMENTS_FILENAME)) {
+                if (entry.getName().equals(V4_FRAGMENTS_FILENAME)) {
                     isV4 = true;
                     break;
                 }
@@ -307,8 +302,6 @@ public final class HistoryIo {
 
         if (isV4) {
             return readZipV4(zip, mgr);
-        } else if (isV3) {
-            return V3_HistoryIo.readZip(zip, mgr);
         }
         throw new InvalidObjectException("History zip file {} is not in a recognized format");
     }

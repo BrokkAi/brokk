@@ -246,8 +246,12 @@ public class SessionManagerTest {
                 actual.sources().join().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
                 "Fragment sources mismatch for ID " + expected.id());
         assertEquals(
-                expected.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
-                actual.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
+                expected.referencedFiles().join().stream()
+                        .map(ProjectFile::toString)
+                        .collect(Collectors.toSet()),
+                actual.referencedFiles().join().stream()
+                        .map(ProjectFile::toString)
+                        .collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
     }
 
@@ -440,7 +444,7 @@ public class SessionManagerTest {
         Context context = new Context(mockContextManager);
         for (int i = 0; i < 3; i++) {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
-            var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
+            var tf = new ContextFragments.TaskFragment(msgs, "Task " + i);
             var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, new AbstractService.ModelConfig("test-model"));
             context = context.addHistoryEntry(tf, meta);
             history.pushContext(context);
