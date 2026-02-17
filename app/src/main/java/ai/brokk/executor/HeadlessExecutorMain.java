@@ -513,6 +513,40 @@ public final class HeadlessExecutorMain {
                                 System.out.println("Executor stopped.");
                             },
                             "HeadlessExecutor-ShutdownHook"));
+
+            // Start a daemon thread that monitors stdin for EOF or unrecoverable IO errors.
+            // When stdin is closed (parent process died / pipe closed) we log and exit the JVM.
+            Thread parentDeathMonitor = new Thread(
+                    () -> {
+                        try {
+                            // Read until EOF (-1) or an IOException occurs.
+                            // We intentionally read one byte at a time to detect EOF promptly.
+                            int read;
+                            while (true) {
+                                read = System.in.read();
+                                if (read == -1) {
+                                    logger.warn(
+                                            "Parent stdin closed (EOF detected). Terminating executor to avoid leak.");
+                                    System.exit(0);
+                                    return;
+                                }
+                                // Otherwise continue reading; ignore the actual input bytes.
+                            }
+                        } catch (IOException ioEx) {
+                            logger.warn(
+                                    "I/O error while monitoring parent stdin (assuming parent died): {}",
+                                    ioEx.getMessage());
+                            System.exit(0);
+                        } catch (Throwable th) {
+                            // In case of any unexpected error, log and exit to avoid leaving orphaned processes.
+                            logger.warn("Unexpected error in stdin monitor thread; exiting: {}", th.toString());
+                            System.exit(0);
+                        }
+                    },
+                    "ParentDeathMonitor");
+            parentDeathMonitor.setDaemon(true);
+            parentDeathMonitor.start();
+
             logger.info("HeadlessExecutorMain is running");
             Thread.currentThread().join(); // Keep the main thread alive
         } catch (InterruptedException e) {
