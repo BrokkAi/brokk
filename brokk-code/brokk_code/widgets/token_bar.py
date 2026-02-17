@@ -1,6 +1,7 @@
 import math
 from typing import Any, Dict, List, Optional
 
+from rich.console import RenderableType
 from rich.text import Text
 from textual.geometry import Size
 from textual.widgets import Static
@@ -27,6 +28,7 @@ class TokenBar(Static):
         self._max_tokens = 200_000
         self._fragments: List[Dict[str, Any]] = []
         self._test_size: Optional[Size] = None
+        self._rendered_text: Text = Text()
 
     def update_tokens(
         self,
@@ -46,6 +48,9 @@ class TokenBar(Static):
     def on_resize(self) -> None:
         self._render_bar()
 
+    def render(self) -> RenderableType:
+        return self._rendered_text
+
     @staticmethod
     def format_tokens(tokens: int) -> str:
         """
@@ -58,50 +63,54 @@ class TokenBar(Static):
         return f"{tokens / 1_000_000.0:.1f}M"
 
     def _render_bar(self) -> None:
-        if self._used_tokens <= 0:
-            self.update(Text("No context yet", style="dim italic"))
-            return
-
         size = self._test_size or self.size
         width = size.width
-        if width <= 0:
-            return
 
-        if self._max_tokens > 0:
-            usage_str = f" {self._used_tokens:,} / {self._max_tokens:,} tokens"
+        if self._used_tokens <= 0:
+            self._rendered_text = Text("No context yet", style="dim italic")
+        elif width <= 0:
+            # We can't render anything if we have no width
+            self._rendered_text = Text("")
         else:
-            usage_str = f" {self._used_tokens:,} tokens"
+            if self._max_tokens > 0:
+                usage_str = f" {self._used_tokens:,} / {self._max_tokens:,} tokens"
+            else:
+                usage_str = f" {self._used_tokens:,} tokens"
 
-        # Reserve space for the text at the end
-        bar_width = width - len(usage_str)
-        if bar_width <= 0:
-            self.update(Text(usage_str.strip(), style="dim"))
-            return
+            # Reserve space for the text at the end
+            bar_width = width - len(usage_str)
+            if bar_width <= 0:
+                self._rendered_text = Text(usage_str.strip(), style="dim")
+            else:
+                segments = self.compute_segments(
+                    bar_width, self._used_tokens, self._max_tokens, self._fragments
+                )
 
-        segments = self.compute_segments(
-            bar_width, self._used_tokens, self._max_tokens, self._fragments
-        )
+                text = Text()
+                filled_width = 0
+                for i, (seg_width, kind) in enumerate(segments):
+                    if i > 0:
+                        text.append(" ")  # SEGMENT_GAP
+                        filled_width += 1
 
-        text = Text()
-        filled_width = 0
-        for i, (seg_width, kind) in enumerate(segments):
-            if i > 0:
-                text.append(" ")  # SEGMENT_GAP
-                filled_width += 1
+                    color = self._get_kind_color(kind)
+                    text.append("█" * seg_width, style=color)
+                    filled_width += seg_width
 
-            color = self._get_kind_color(kind)
-            text.append("█" * seg_width, style=color)
-            filled_width += seg_width
+                # Fill remaining track
+                remaining = bar_width - filled_width
+                if remaining > 0:
+                    text.append("█" * remaining, style="dim grey15")
 
-        # Fill remaining track
-        remaining = bar_width - filled_width
-        if remaining > 0:
-            text.append("█" * remaining, style="dim grey15")
+                # Append numerical usage text
+                text.append(usage_str, style="dim")
+                self._rendered_text = text
 
-        # Append numerical usage text
-        text.append(usage_str, style="dim")
-
-        self.update(text)
+        try:
+            self.refresh()
+        except Exception:
+            # No active app or display
+            pass
 
     @staticmethod
     def _get_kind_color(kind: str) -> str:
