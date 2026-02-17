@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -13,6 +13,7 @@ from textual.message import Message
 from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
+from brokk_code.widgets.token_bar import TokenBar
 
 
 class ChatInput(TextArea):
@@ -101,6 +102,7 @@ class ChatPanel(Vertical):
         with Horizontal(id="chat-spinner-area", classes="hidden"):
             yield LoadingIndicator(id="chat-spinner", classes="hidden")
             yield Static(id="chat-timer", classes="ml-1 hidden")
+            yield TokenBar(id="chat-token-bar", classes="hidden")
             yield Static(id="chat-token-usage", classes="token-usage hidden")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
@@ -426,6 +428,8 @@ class ChatPanel(Vertical):
         try:
             usage_label = self.query_one("#chat-token-usage", Static)
             usage_label.set_class(not visible, "hidden")
+            token_bar = self.query_one("#chat-token-bar", TokenBar)
+            token_bar.set_class(not visible, "hidden")
         except Exception:
             return
 
@@ -438,9 +442,18 @@ class ChatPanel(Vertical):
         self._history_index = -1
         self._draft_buffer = ""
 
-    def set_token_usage(self, used: int, max_tokens: Optional[int] = None) -> None:
+    def set_token_usage(
+        self,
+        used: int,
+        max_tokens: Optional[int] = None,
+        fragments: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
         """Updates the token usage display in the spinner area."""
         try:
+            token_bar = self.query_one("#chat-token-bar", TokenBar)
+            token_bar.update_tokens(used, max_tokens, fragments)
+
+            # Keep the old label updated for backward compatibility or simple fallback
             usage_label = self.query_one("#chat-token-usage", Static)
         except Exception:
             return

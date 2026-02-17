@@ -101,6 +101,7 @@ async def test_spinner_and_timer_lifecycle():
 async def test_token_usage_update():
     """Verify that updating token usage updates the widget text."""
     from textual.app import App, ComposeResult
+    from brokk_code.widgets.token_bar import TokenBar
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -110,9 +111,11 @@ async def test_token_usage_update():
     async with app.run_test():
         panel = app.query_one("#chat", ChatPanel)
         usage_label = panel.query_one("#chat-token-usage", Static)
+        token_bar = panel.query_one("#chat-token-bar", TokenBar)
 
         # Initial empty
         assert str(usage_label.render()) == ""
+        assert str(token_bar.render()) == ""
 
         # Update with used and max
         panel.set_token_usage(1500, 100000)
@@ -120,19 +123,24 @@ async def test_token_usage_update():
         # bar_width = 20, ratio = 0.015, filled_len = 0
         expected_bar = "░" * 20
         assert str(usage_label.render()) == f"[{expected_bar}] 1,500 / 100,000"
+        assert "1,500 / 100,000" in str(token_bar.render())
 
         # Update with half usage
         panel.set_token_usage(50000, 100000)
         expected_half_bar = "█" * 10 + "░" * 10
         assert str(usage_label.render()) == f"[{expected_half_bar}] 50,000 / 100,000"
+        assert "50,000 / 100,000" in str(token_bar.render())
 
         # Update with only used
         panel.set_token_usage(2500)
         assert str(usage_label.render()) == "Tokens: 2,500"
+        # TokenBar defaults max to 200,000 if not provided
+        assert "2,500 / 200,000" in str(token_bar.render())
 
         # Update with 0 clears it
         panel.set_token_usage(0)
         assert str(usage_label.render()) == ""
+        assert str(token_bar.render()) == ""
 
 
 @pytest.mark.asyncio
@@ -148,17 +156,21 @@ async def test_token_bar_visibility_control():
     async with app.run_test():
         panel = app.query_one("#chat", ChatPanel)
         usage_label = panel.query_one("#chat-token-usage", Static)
+        token_bar = panel.query_one("#chat-token-bar")
 
         # Initial state: hidden
         assert usage_label.has_class("hidden")
+        assert token_bar.has_class("hidden")
 
         # Set visible
         panel.set_token_bar_visible(True)
         assert not usage_label.has_class("hidden")
+        assert not token_bar.has_class("hidden")
 
         # Set hidden
         panel.set_token_bar_visible(False)
         assert usage_label.has_class("hidden")
+        assert token_bar.has_class("hidden")
 
 
 @pytest.mark.asyncio

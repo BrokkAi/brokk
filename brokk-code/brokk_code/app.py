@@ -488,7 +488,8 @@ class BrokkApp(App):
                 if chat:
                     used = context_data.get("usedTokens", 0)
                     max_tokens = context_data.get("maxTokens")
-                    chat.set_token_usage(used, max_tokens)
+                    fragments = context_data.get("fragments")
+                    chat.set_token_usage(used, max_tokens, fragments)
 
                 # Clear error tracking on success
                 self._reported_refresh_errors.clear()
