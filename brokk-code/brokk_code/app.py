@@ -15,11 +15,11 @@ from textual.widgets._footer import FooterKey
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
-from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
+from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
