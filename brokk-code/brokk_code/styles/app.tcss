@@ -310,3 +310,23 @@ ChatPanel {
 .ml-1 {
     margin-left: 1;
 }
+
+/* TokenBar: compact horizontal token usage indicator.
+   Aligns horizontally with #chat-input via matching margins.
+   Single-line height with a panel-like background. */
+#token-bar {
+    margin: 1 2 0 2;
+    width: 1fr;
+    height: 1;
+    min-height: 1;
+    max-height: 1;
+    padding: 0 1;
+    background: $panel;
+    color: $text-disabled;
+    content-align: left middle;
+}
+
+/* When the bar is hidden (e.g., context modal open), use standard hidden class. */
+#token-bar.hidden {
+    display: none;
+}
