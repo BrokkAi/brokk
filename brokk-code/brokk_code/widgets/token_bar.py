@@ -2,6 +2,7 @@ import math
 from typing import Any, Dict, List, Optional
 
 from rich.text import Text
+from textual.geometry import Size
 from textual.widgets import Static
 
 
@@ -25,6 +26,7 @@ class TokenBar(Static):
         self._used_tokens = 0
         self._max_tokens = 200_000
         self._fragments: List[Dict[str, Any]] = []
+        self._test_size: Optional[Size] = None
 
     def update_tokens(
         self,
@@ -60,7 +62,8 @@ class TokenBar(Static):
             self.update(Text("No context yet", style="dim italic"))
             return
 
-        width = self.size.width
+        size = self._test_size or self.size
+        width = size.width
         if width <= 0:
             return
 
