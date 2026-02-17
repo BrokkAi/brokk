@@ -802,8 +802,10 @@ public class CodeAgent {
                     if (metrics != null) {
                         metrics.internalStopReason = TaskResult.StopReason.LLM_ABORTED;
                     }
+                    var fileNames =
+                            notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
                     reportComplete(
-                            TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + notInContext);
+                            TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + fileNames);
                     return new Step.Fatal(
                             new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Build is failing"));
                 }
