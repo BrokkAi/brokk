@@ -135,3 +135,67 @@ def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
         main_module.main()
 
     assert exc.value.code == 1
+
+
+def test_main_uses_git_repo_root_for_nested_workspace(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    fake_app_module = ModuleType("brokk_code.app")
+    repo_root = tmp_path / "repo"
+    nested_workspace = repo_root / "src" / "feature"
+    nested_workspace.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+
+    class FakeApp:
+        def __init__(self, **kwargs: Any):
+            captured["kwargs"] = kwargs
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    fake_app_module.BrokkApp = FakeApp
+    monkeypatch.setitem(sys.modules, "brokk_code.app", fake_app_module)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk-code",
+            "--workspace",
+            str(nested_workspace),
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["workspace_dir"] == repo_root.resolve()
+
+
+def test_main_keeps_workspace_when_not_in_git_repo(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    fake_app_module = ModuleType("brokk_code.app")
+    nested_workspace = tmp_path / "workspace" / "src"
+    nested_workspace.mkdir(parents=True)
+
+    class FakeApp:
+        def __init__(self, **kwargs: Any):
+            captured["kwargs"] = kwargs
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    fake_app_module.BrokkApp = FakeApp
+    monkeypatch.setitem(sys.modules, "brokk_code.app", fake_app_module)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk-code",
+            "--workspace",
+            str(nested_workspace),
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["workspace_dir"] == nested_workspace.resolve()

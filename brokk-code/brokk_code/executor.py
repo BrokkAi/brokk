@@ -10,6 +10,8 @@ from urllib.parse import quote
 
 import httpx
 
+from brokk_code.workspace import resolve_workspace_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +30,7 @@ class ExecutorManager:
         executor_snapshot: bool = True,
         vendor: Optional[str] = None,
     ):
-        self.workspace_dir = (workspace_dir or Path.cwd()).resolve()
+        self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
         self.jar_override = jar_path
         self.executor_version = executor_version
         self.use_snapshot = executor_snapshot
