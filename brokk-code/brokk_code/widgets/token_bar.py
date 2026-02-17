@@ -90,7 +90,7 @@ class TokenBar(Static):
         # Fill remaining track
         remaining = bar_width - filled_width
         if remaining > 0:
-            text.append("█" * remaining, style="dim grey23")
+            text.append("█" * remaining, style="dim grey15")
 
         # Append numerical usage text
         text.append(usage_str, style="dim")

@@ -91,3 +91,47 @@ def test_compute_segments_accounts_for_gaps():
     total_w = sum(w for w, k in segments)
     assert total_w == 98
     assert len(segments) == 3
+
+
+def test_render_bar_with_track():
+    from textual.geometry import Size
+
+    bar = TokenBar()
+    bar.size = Size(20, 1)
+    # used=500, max=1000. usage_str=" 500" (4 chars). bar_width=16.
+    # fill=8. track=8.
+    bar.update_tokens(500, 1000)
+    rendered_text = bar.render()
+
+    # Verify we have colored blocks followed by dim grey15 track blocks
+    # "█" * 8 with style green/grey37, then "█" * 8 with grey15
+    plain = rendered_text.plain
+    assert plain.startswith("█" * 16)
+    assert plain.endswith(" 500")
+
+    # Check for the track style in the segments
+    has_track_style = False
+    for _text, style, _control in rendered_text.layers[0]:
+        if style and "grey15" in str(style):
+            has_track_style = True
+            break
+    assert has_track_style, "Rendered text should contain grey15 track"
+
+
+def test_render_bar_auto_rescale():
+    from textual.geometry import Size
+
+    bar = TokenBar()
+    bar.size = Size(20, 1)
+    # used=2000, max=1000. usage_str=" 2.0K" (5 chars). bar_width=15.
+    # used > max, so effective_max=2000. fill should be 100% of bar_width.
+    bar.update_tokens(2000, 1000)
+    rendered_text = bar.render()
+
+    plain = rendered_text.plain
+    assert plain.startswith("█" * 15)
+
+    # Check that there is NO track style because it's full
+    for _text, style, _control in rendered_text.layers[0]:
+        if style and "grey15" in str(style):
+            assert False, "Should not have track when tokens exceed max"
