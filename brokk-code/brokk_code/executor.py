@@ -41,6 +41,8 @@ class ExecutorManager:
         self.resolved_jar_path: Optional[Path] = None
 
         self._process: Optional[asyncio.subprocess.Process] = None
+        # The stdin stream for the subprocess (when created with PIPE). Stored so we can close it on shutdown.
+        self._stdin: Optional[asyncio.StreamWriter] = None
         self._http_client: Optional[httpx.AsyncClient] = None
 
     def _sanitize_tag_for_filename(self, tag: str) -> str:
@@ -315,9 +317,16 @@ class ExecutorManager:
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
         try:
+            # Create subprocess with a dedicated stdin pipe so the Java executor can detect parent death.
             self._process = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
             )
+            # Store the stdin stream for later closure in stop()
+            # Note: Process.stdin is a StreamWriter-like object when stdin=PIPE.
+            self._stdin = self._process.stdin  # type: ignore[attr-defined]
         except FileNotFoundError:
             raise ExecutorError(
                 "Java executable not found. "
@@ -762,6 +771,29 @@ class ExecutorManager:
 
         if self._process:
             logger.info("Stopping executor subprocess...")
+            # First, attempt to close stdin so that the child process can observe EOF and exit if it chooses.
+            if self._stdin is not None:
+                try:
+                    # StreamWriter.close() is synchronous; wait for wait_closed() if available.
+                    self._stdin.close()
+                    wait_closed = getattr(self._stdin, "wait_closed", None)
+                    if callable(wait_closed):
+                        try:
+                            await wait_closed()
+                        except (BrokenPipeError, ConnectionResetError):
+                            # Child already gone or closed the pipe; ignore these expected conditions.
+                            pass
+                        except Exception:
+                            logger.exception("Unexpected error while waiting for stdin to close")
+                    # Clear reference
+                except (BrokenPipeError, ConnectionResetError):
+                    # Expected if the child has already exited or closed the pipe.
+                    pass
+                except Exception:
+                    logger.exception("Unexpected error while closing subprocess stdin")
+                finally:
+                    self._stdin = None
+
             try:
                 self._process.terminate()
                 try:
