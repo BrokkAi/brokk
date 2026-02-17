@@ -135,11 +135,9 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             if (!response.isSuccessful()) {
                 var errorBody = response.body() != null ? response.body().string() : "(no body)";
                 if (response.code() == 401) {
-                    throw new IllegalArgumentException(
-                            "Invalid Brokk Key (Unauthorized from server): " + errorBody);
+                    throw new IllegalArgumentException("Invalid Brokk Key (Unauthorized from server): " + errorBody);
                 }
-                throw new ServiceHttpException(
-                        response.code(), errorBody, "Failed to fetch user balance");
+                throw new ServiceHttpException(response.code(), errorBody, "Failed to fetch user balance");
             }
 
             String responseBody = response.body() != null ? response.body().string() : "{}";
@@ -153,18 +151,15 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 balance = rootNode.floatValue();
             } else {
                 try {
-                    var balanceResponse =
-                            mapper.readValue(responseBody, BalanceResponse.class);
+                    var balanceResponse = mapper.readValue(responseBody, BalanceResponse.class);
                     balance = balanceResponse.availableBalance();
                 } catch (Exception e) {
-                    throw new IOException(
-                            "Unexpected balance response format: " + responseBody, e);
+                    throw new IOException("Unexpected balance response format: " + responseBody, e);
                 }
             }
 
             boolean isSubscribed = false;
-            if (rootNode.has("is_subscribed")
-                    && rootNode.get("is_subscribed").isBoolean()) {
+            if (rootNode.has("is_subscribed") && rootNode.get("is_subscribed").isBoolean()) {
                 isSubscribed = rootNode.get("is_subscribed").asBoolean();
             }
 
