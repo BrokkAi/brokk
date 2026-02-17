@@ -1524,9 +1524,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public interface TaskProgressListener {
         void onTaskStarting(int batchIndex, TaskList.TaskItem task);
 
-        default void onTaskFinished(int batchIndex, TaskList.TaskItem task, TaskResult result) {}
+        default void onTaskSuccess(int batchIndex, TaskList.TaskItem task, TaskResult result) {}
 
-        default void onTaskFailed(int batchIndex, TaskList.TaskItem task, Throwable error) {}
+        default void onTaskFailure(int batchIndex, TaskList.TaskItem task, Throwable error) {}
 
         default void onBatchFinished(int completed) {}
     }
@@ -1541,45 +1541,26 @@ public class ContextManager implements IContextManager, AutoCloseable {
             TaskProgressListener listener)
             throws InterruptedException {
         int completed = 0;
-        try {
-            for (int i = 0; i < tasks.size(); i++) {
-                TaskList.TaskItem task = tasks.get(i);
-                if (task.done()) {
-                    continue;
-                }
-                listener.onTaskStarting(i, task);
-                try {
-                    TaskResult result = executeTask(task, planningModel, codeModel);
-                    listener.onTaskFinished(i, task, result);
-                    if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                        logger.info(
-                                "Batch execution stopped early: task failed with reason {}",
-                                result.stopDetails().reason());
-                        break;
-                    }
-                    completed++;
-                } catch (InterruptedException e) {
-                    throw e;
-                } catch (Exception e) {
-                    listener.onTaskFailed(i, task, e);
-                    throw e;
-                }
+        for (int i = 0; i < tasks.size(); i++) {
+            TaskList.TaskItem task = tasks.get(i);
+            if (task.done()) {
+                continue;
             }
-        } finally {
-            listener.onBatchFinished(completed);
+            listener.onTaskStarting(i, task);
+            TaskResult result = executeTask(task, planningModel, codeModel);
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                listener.onTaskSuccess(i, task, result);
+            } else {
+                listener.onTaskFailure(i, task, result);
+                logger.debug(
+                        "Batch execution stopped early: task failed with reason {}",
+                        result.stopDetails().reason());
+                break;
+            }
+            completed++;
         }
-    }
 
-    /**
-     * Execute a single task using ArchitectAgent with explicit options.
-     *
-     * @param task Task to execute (non-blank text).
-     * @return TaskResult from ArchitectAgent execution.
-     */
-    public TaskResult executeTask(TaskList.TaskItem task) throws InterruptedException {
-        var planningModel = io.getInstructionsPanel().getSelectedModel();
-        var codeModel = getCodeModel();
-        return executeTask(task, planningModel, codeModel);
+        listener.onBatchFinished(completed);
     }
 
     public TaskResult executeTask(
