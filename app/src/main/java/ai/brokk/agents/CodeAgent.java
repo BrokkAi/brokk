@@ -84,6 +84,8 @@ public class CodeAgent {
     /** maximum consecutive build failures before giving up */
     final int MAX_BUILD_FAILURES;
 
+    private final boolean allowPromotion;
+
     final IContextManager contextManager;
     private final StreamingChatModel model;
     private final IConsoleIO io;
@@ -110,6 +112,8 @@ public class CodeAgent {
             }
         }
         this.MAX_BUILD_FAILURES = Math.max(1, attempts);
+
+        this.allowPromotion = !"false".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_PROMOTION"));
 
         // placeholder to make Null Away happy; initialized in runTaskInternal
         this.context = new Context(contextManager);
@@ -231,7 +235,7 @@ public class CodeAgent {
             }
 
             // Select the appropriate model for this turn
-            if (es.useArchitectModel()) {
+            if (allowPromotion && es.useArchitectModel()) {
                 var architectConfig = contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
                 coder.setModel(architectConfig);
             } else {
