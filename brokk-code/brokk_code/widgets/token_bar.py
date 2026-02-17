@@ -69,8 +69,12 @@ class TokenBar(Static):
         if self._used_tokens <= 0:
             self._rendered_text = Text("No context yet", style="dim italic")
         elif width <= 0:
-            # We can't render anything if we have no width
-            self._rendered_text = Text("")
+            # No layout yet — show numbers only, no bar
+            if self._max_tokens > 0:
+                usage_str = f"{self._used_tokens:,} / {self._max_tokens:,} tokens"
+            else:
+                usage_str = f"{self._used_tokens:,} tokens"
+            self._rendered_text = Text(usage_str, style="dim")
         else:
             if self._max_tokens > 0:
                 usage_str = f" {self._used_tokens:,} / {self._max_tokens:,} tokens"
