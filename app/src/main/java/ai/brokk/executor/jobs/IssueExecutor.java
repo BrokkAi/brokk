@@ -3,6 +3,7 @@ package ai.brokk.executor.jobs;
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.SearchAgent;
@@ -28,6 +29,7 @@ import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHRepository;
 
@@ -70,6 +72,34 @@ public final class IssueExecutor {
         this.jobId = jobId;
         this.isCancelled = isCancelled;
         this.console = console;
+    }
+
+    /**
+     * Run a caller-specified command (intended for ISSUE-mode gates, but reusable), stream output to the console, and
+     * update the session's Build Results fragment.
+     *
+     * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
+     * text.
+     */
+    @Blocking
+    public static String runBuildAndPushContext(
+            IContextManager cm, String command, @Nullable BuildAgent.BuildDetails override)
+            throws InterruptedException {
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
+            try {
+                return BuildAgent.runExplicitCommand(ctx, command, override);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        var ie = interrupted.get();
+        if (ie != null) {
+            throw ie;
+        }
+        return updated.getBuildError();
     }
 
     /**
@@ -485,7 +515,7 @@ public final class IssueExecutor {
         // Final verification pass
         Function<String, String> commandRunner = cmd -> {
             try {
-                return BuildAgent.runExplicitCommand(cm, cmd, buildDetailsOverride);
+                return runBuildAndPushContext(cm, cmd, buildDetailsOverride);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException(ie);

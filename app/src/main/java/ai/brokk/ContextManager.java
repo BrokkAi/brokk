@@ -1524,9 +1524,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public interface TaskProgressListener {
         void onTaskStarting(int batchIndex, TaskList.TaskItem task);
 
-        default void onTaskFinished(int batchIndex, TaskList.TaskItem task, TaskResult result) {}
+        default void onTaskSuccess(int batchIndex, TaskList.TaskItem task, TaskResult result) {}
 
-        default void onTaskFailed(int batchIndex, TaskList.TaskItem task, Throwable error) {}
+        default void onTaskFailure(int batchIndex, TaskList.TaskItem task, Throwable error) {}
 
         default void onBatchFinished(int completed) {}
     }
@@ -1540,46 +1540,47 @@ public class ContextManager implements IContextManager, AutoCloseable {
             StreamingChatModel codeModel,
             TaskProgressListener listener)
             throws InterruptedException {
+        List<TaskList.TaskItem> tasksToRun =
+                tasks.stream().filter(t -> !t.done()).toList();
         int completed = 0;
-        try {
-            for (int i = 0; i < tasks.size(); i++) {
-                TaskList.TaskItem task = tasks.get(i);
-                if (task.done()) {
-                    continue;
-                }
-                listener.onTaskStarting(i, task);
-                try {
-                    TaskResult result = executeTask(task, planningModel, codeModel);
-                    listener.onTaskFinished(i, task, result);
-                    if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                        logger.info(
-                                "Batch execution stopped early: task failed with reason {}",
-                                result.stopDetails().reason());
-                        break;
+        for (int i = 0; i < tasks.size(); i++) {
+            TaskList.TaskItem task = tasks.get(i);
+            if (task.done()) {
+                continue;
+            }
+            listener.onTaskStarting(i, task);
+            TaskResult result = executeTask(task, planningModel, codeModel);
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                listener.onTaskSuccess(i, task, result);
+                completed++;
+            } else {
+                listener.onTaskFailure(
+                        i, task, new RuntimeException(result.stopDetails().explanation()));
+                logger.debug(
+                        "Batch execution stopped early: task failed with reason {}",
+                        result.stopDetails().reason());
+                break;
+            }
+        }
+
+        if (completed == tasksToRun.size() && !tasksToRun.isEmpty()) {
+            BuildDetails details = project.awaitBuildDetails();
+            String afterCmd = details.afterTaskListCommand();
+            if (!afterCmd.isBlank()) {
+                var context = BuildAgent.runExplicitCommand(liveContext(), afterCmd, details);
+                if (!context.getBuildError().isBlank()) {
+                    pushContext(ctx -> context);
+                    String goal = "The post-task-list verification command failed. Fix the build errors.";
+                    try (var scope = beginTask(goal, true, "Post-task verification fix")) {
+                        ArchitectAgent agent = new ArchitectAgent(this, planningModel, codeModel, goal, scope);
+                        agent.setVerifyCommand(afterCmd);
+                        agent.executeWithScan();
                     }
-                    completed++;
-                } catch (InterruptedException e) {
-                    throw e;
-                } catch (Exception e) {
-                    listener.onTaskFailed(i, task, e);
-                    throw e;
                 }
             }
-        } finally {
-            listener.onBatchFinished(completed);
         }
-    }
 
-    /**
-     * Execute a single task using ArchitectAgent with explicit options.
-     *
-     * @param task Task to execute (non-blank text).
-     * @return TaskResult from ArchitectAgent execution.
-     */
-    public TaskResult executeTask(TaskList.TaskItem task) throws InterruptedException {
-        var planningModel = io.getInstructionsPanel().getSelectedModel();
-        var codeModel = getCodeModel();
-        return executeTask(task, planningModel, codeModel);
+        listener.onBatchFinished(completed);
     }
 
     public TaskResult executeTask(
