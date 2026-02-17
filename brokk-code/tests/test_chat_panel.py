@@ -165,10 +165,10 @@ async def test_token_bar_visibility_control():
 async def test_streaming_duplication_regression():
     """
     Verify that streaming tokens incrementally does not result in duplicated
-    content in the RichLog.
+    content in the chat output.
     """
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+    from textual.widgets import TextArea
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -177,7 +177,7 @@ async def test_streaming_duplication_regression():
     app = TestApp()
     async with app.run_test() as pilot:
         panel = app.query_one("#chat", ChatPanel)
-        log = panel.query_one("#chat-log", RichLog)
+        log = panel.query_one("#chat-log", TextArea)
 
         # Simulate a stream: "Hello" -> "Hello world" -> "Hello world!"
         # We use a short flush interval to ensure incremental flushes trigger.
@@ -196,22 +196,8 @@ async def test_streaming_duplication_regression():
         panel.append_token("!", "AI", is_new_message=False, is_reasoning=False, is_terminal=True)
         await pilot.pause()
 
-        # Check the rendered lines in the log.
-        # We expect "Hello world!" to appear exactly once.
-        # It should not appear as:
-        # Hello
-        # Hello world
-        # Hello world!
-
-        # log.lines contains the objects passed to write()
-        content_strings = [str(line) for line in log.lines]
-        combined_text = "".join(content_strings)
-
-        # Count occurrences of the final string
-        count = combined_text.count("Hello world!")
-        assert count == 1, (
-            f"Expected 'Hello world!' once, found {count}. Content: {content_strings}"
-        )
+        count = log.text.count("Hello world!")
+        assert count == 1, f"Expected 'Hello world!' once, found {count}. Content: {log.text!r}"
 
 
 @pytest.mark.asyncio
@@ -259,7 +245,7 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
     the panel must not remain in reasoning mode for the next non-reasoning message.
     """
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+    from textual.widgets import TextArea
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -268,21 +254,21 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
     app = TestApp()
     async with app.run_test() as pilot:
         panel = app.query_one("#chat", ChatPanel)
-        log = panel.query_one("#chat-log", RichLog)
+        log = panel.query_one("#chat-log", TextArea)
 
         # 1) Simulate a reasoning stream that only emits whitespace and is terminal.
         panel.append_token("   ", "AI", is_new_message=True, is_reasoning=True, is_terminal=True)
         await pilot.pause()
 
         # Ensure nothing meaningful was rendered as a Thinking panel
-        combined = "".join(str(line) for line in log.lines)
+        combined = log.text
         assert "Thinking" not in combined
 
         # 2) Now append a normal non-reasoning message and ensure it renders as Markdown
         panel.append_token("Hello", "AI", is_new_message=True, is_reasoning=False, is_terminal=True)
         await pilot.pause()
 
-        combined = "".join(str(line) for line in log.lines)
+        combined = log.text
         # Should contain the Markdown-rendered Hello, and still not contain a Thinking panel.
         assert "Hello" in combined
         assert "Thinking" not in combined
