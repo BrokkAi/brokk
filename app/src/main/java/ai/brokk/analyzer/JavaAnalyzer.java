@@ -1356,9 +1356,15 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             if (FORMAL_PARAMETER.equals(paramType)) {
                 typeNode = param.getChildByFieldName("type");
             } else if (SPREAD_PARAMETER.equals(paramType)) {
-                // In tree-sitter-java, spread_parameter doesn't have a 'type' field,
-                // the type node is usually the first named child.
-                typeNode = param.getNamedChild(0);
+                // In tree-sitter-java, spread_parameter doesn't have a 'type' field.
+                // The type node is the first named child that isn't 'modifiers'.
+                for (int j = 0; j < param.getNamedChildCount(); j++) {
+                    TSNode child = param.getNamedChild(j);
+                    if (child != null && !child.isNull() && !"modifiers".equals(child.getType())) {
+                        typeNode = child;
+                        break;
+                    }
+                }
             }
 
             if (typeNode != null && !typeNode.isNull()) {

@@ -238,6 +238,11 @@ public class JdtUsageAnalyzer {
                         if (target.hasSignature() && binding instanceof IMethodBinding mb) {
                             String foundSig = JdtUsageAnalyzer.extractMethodSignature(mb);
                             if (!Objects.equals(target.signature(), foundSig)) {
+                                log.debug(
+                                        "Signature Mismatch for {}: Target='{}' vs Found='{}'",
+                                        fqn,
+                                        target.signature(),
+                                        foundSig);
                                 return;
                             }
                         }

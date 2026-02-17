@@ -387,6 +387,114 @@ public class JdtUsageAnalyzerTest {
     }
 
     @Test
+    public void testFqnParameterMismatch() throws Exception {
+        // Definition uses FQN
+        String source =
+                """
+                package com.example;
+                public class FqnParams {
+                    public void method(java.util.Properties p) {}
+                }
+                """;
+
+        // Consumer uses simple name (via import)
+        String consumer =
+                """
+                package com.example;
+                import java.util.Properties;
+                public class Consumer {
+                    public void use() {
+                        new FqnParams().method(new Properties());
+                    }
+                }
+                """;
+
+        try (IProject project = InlineTestProjectCreator.code(source, "com/example/FqnParams.java")
+                .addFileContents(consumer, "com/example/Consumer.java")
+                .build()) {
+
+            ProjectFile targetFile = project.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().contains("FqnParams.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            // Simulating a CodeUnit from Tree-sitter which might capture "(java.util.Properties)"
+            // if it parses the definition "as written".
+            CodeUnit target = new CodeUnit(
+                    targetFile, CodeUnitType.FUNCTION, "com.example", "FqnParams.method", "(java.util.Properties)");
+
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, project.getAllFiles(), project);
+
+            // Currently fails to match because JDT produces "(Properties)" but target is "(java.util.Properties)"
+            // Asserting 0 confirms the false negative behavior we are investigating
+            assertEquals(
+                    0,
+                    hits.size(),
+                    "Expect 0 hits due to FQN mismatch (Target: (java.util.Properties) vs Found: (Properties))");
+        }
+    }
+
+    @Test
+    public void testSignatureExtractionComplex() throws Exception {
+        String source =
+                """
+                package com.example;
+                import java.util.List;
+                public class ComplexSignatures {
+                    public void simple(int a) {}
+                    public void withFinal(final int a) {}
+                    public void varargs(String... args) {}
+                    public void array(String[] args) {}
+                    public void generic(List<String> list) {}
+                    public void multiVarargs(String label, final Object... args) {}
+                }
+                """;
+
+        try (IProject project = InlineTestProjectCreator.code(source, "com/example/ComplexSignatures.java")
+                .build()) {
+
+            Set<String> signatures = JdtUsageAnalyzer.extractMethodSignatures(source, project);
+
+            // Verify JDT extraction behavior for edge cases:
+            // 1. Modifiers (final) should be ignored in the signature type
+            // 2. Varargs (...) should be treated as arrays ([]) by standard JDT behavior
+            // 3. Generics should be erased
+
+            // Expected: com.example.ComplexSignatures.simple(int)
+            assertTrue(
+                    signatures.contains("com.example.ComplexSignatures.simple(int)"),
+                    "Should extract simple signature");
+
+            // Expected: com.example.ComplexSignatures.withFinal(int)
+            // 'final' is a modifier, not part of the type signature
+            assertTrue(
+                    signatures.contains("com.example.ComplexSignatures.withFinal(int)"),
+                    "Should ignore final modifier on parameter");
+
+            // Expected: com.example.ComplexSignatures.varargs(String[])
+            // JDT bindings represent varargs as arrays
+            assertTrue(
+                    signatures.contains("com.example.ComplexSignatures.varargs(String[])"),
+                    "Should treat varargs as array type");
+
+            // Expected: com.example.ComplexSignatures.array(String[])
+            assertTrue(
+                    signatures.contains("com.example.ComplexSignatures.array(String[])"), "Should extract array type");
+
+            // Expected: com.example.ComplexSignatures.generic(List)
+            assertTrue(
+                    signatures.contains("com.example.ComplexSignatures.generic(List)"), "Should erase generic types");
+
+            // Expected: com.example.ComplexSignatures.multiVarargs(String, Object[])
+            // This matches the case reported: debug(final Object format, final Object... args)
+            // Target was reported as (Object, final[]) which is incorrect; JDT should produce (String, Object[]) here
+            assertTrue(
+                    signatures.contains("com.example.ComplexSignatures.multiVarargs(String, Object[])"),
+                    "Should handle mixed parameters with final varargs correctly");
+        }
+    }
+
+    @Test
     public void testSignatureConsistencyWithJavaAnalyzer() throws Exception {
         String source =
                 """
