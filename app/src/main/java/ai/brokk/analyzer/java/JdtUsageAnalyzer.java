@@ -133,8 +133,15 @@ public class JdtUsageAnalyzer {
 
         parser.setEnvironment(classpath, sourceRoots, null, true);
 
-        String[] sourceFiles =
-                candidateFiles.stream().map(pf -> pf.absPath().toString()).toArray(String[]::new);
+        // Filter candidate files to ensure only Java files are passed to JDT
+        String[] sourceFiles = candidateFiles.stream()
+                .filter(pf -> pf.getFileName().endsWith(".java"))
+                .map(pf -> pf.absPath().toString())
+                .toArray(String[]::new);
+
+        if (sourceFiles.length == 0) {
+            return Collections.emptySet();
+        }
 
         UsageCollector collector = new UsageCollector(target, candidateFiles);
 

@@ -536,4 +536,39 @@ public class JdtUsageAnalyzerTest {
                     "JDT and JavaAnalyzer should produce identical method FQ names with signatures");
         }
     }
+
+    @Test
+    public void testFindUsagesWithMixedFiles() throws Exception {
+        String targetSource =
+                """
+                package com.example;
+                public class Target {
+                    public void method() {}
+                }
+                """;
+        String consumerSource =
+                """
+                package com.example;
+                public class Consumer {
+                    void use() { new Target().method(); }
+                }
+                """;
+
+        try (IProject project = InlineTestProjectCreator.code(targetSource, "com/example/Target.java")
+                .addFileContents(consumerSource, "com/example/Consumer.java")
+                .addFileContents("some text", "notes.txt")
+                .build()) {
+
+            ProjectFile targetFile = project.getAllFiles().stream()
+                    .filter(f -> f.getFileName().equals("Target.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            CodeUnit target = new CodeUnit(targetFile, CodeUnitType.FUNCTION, "com.example", "Target.method");
+            // Pass all files including notes.txt. JdtUsageAnalyzer should filter it out and not crash.
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, project.getAllFiles(), project);
+
+            assertEquals(1, hits.size(), "Should find 1 usage despite presence of non-Java files");
+        }
+    }
 }
