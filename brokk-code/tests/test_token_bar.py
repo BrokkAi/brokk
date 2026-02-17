@@ -97,17 +97,17 @@ def test_render_bar_with_track():
     from textual.geometry import Size
 
     bar = TokenBar()
-    bar.size = Size(20, 1)
-    # used=500, max=1000. usage_str=" 500" (4 chars). bar_width=16.
-    # fill=8. track=8.
+    # " 500 / 1,000 tokens" is 18 chars. Need width for bar + text.
+    bar.size = Size(40, 1)
+    # used=500, max=1000. usage_str=" 500 / 1,000 tokens" (18 chars). bar_width=22.
+    # fill=11. track=11.
     bar.update_tokens(500, 1000)
     rendered_text = bar.render()
 
     # Verify we have colored blocks followed by dim grey15 track blocks
-    # "█" * 8 with style green/grey37, then "█" * 8 with grey15
     plain = rendered_text.plain
-    assert plain.startswith("█" * 16)
-    assert plain.endswith(" 500")
+    assert plain.startswith("█" * 22)
+    assert plain.endswith(" 500 / 1,000 tokens")
 
     # Check for the track style in the segments
     has_track_style = False
@@ -122,14 +122,16 @@ def test_render_bar_auto_rescale():
     from textual.geometry import Size
 
     bar = TokenBar()
-    bar.size = Size(20, 1)
-    # used=2000, max=1000. usage_str=" 2.0K" (5 chars). bar_width=15.
+    # " 2,000 / 1,000 tokens" is 20 chars.
+    bar.size = Size(40, 1)
+    # used=2000, max=1000. bar_width=20.
     # used > max, so effective_max=2000. fill should be 100% of bar_width.
     bar.update_tokens(2000, 1000)
     rendered_text = bar.render()
 
     plain = rendered_text.plain
-    assert plain.startswith("█" * 15)
+    assert plain.startswith("█" * 20)
+    assert plain.endswith(" 2,000 / 1,000 tokens")
 
     # Check that there is NO track style because it's full
     for _text, style, _control in rendered_text.layers[0]:

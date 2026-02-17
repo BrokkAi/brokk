@@ -226,7 +226,7 @@ async def test_context_polling_updates_ui(tmp_path):
             chat_panel = app.query_one(ChatPanel)
             usage_label = chat_panel.query_one("#chat-token-bar")
             # The UI renders a progress bar when max_tokens is present
-            assert "1,500 / 100,000" in str(usage_label.render())
+            assert "1,500 / 100,000 tokens" in str(usage_label.render())
 
             # Verify List Contents
             fragment_items = panel.query(ContextFragmentItem)
@@ -282,7 +282,7 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await app._refresh_context_panel()
             await pilot.pause()
             panel = app.screen.query_one(ContextPanel)
-            assert "100 /" in str(panel.query_one("#context-token-usage").render())
+            assert "100 / 200,000 tokens" in str(panel.query_one("#context-token-usage").render())
 
 
 @pytest.mark.asyncio

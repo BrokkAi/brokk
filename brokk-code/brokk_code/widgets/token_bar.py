@@ -64,7 +64,11 @@ class TokenBar(Static):
         if width <= 0:
             return
 
-        usage_str = f" {self.format_tokens(self._used_tokens)}"
+        if self._max_tokens > 0:
+            usage_str = f" {self._used_tokens:,} / {self._max_tokens:,} tokens"
+        else:
+            usage_str = f" {self._used_tokens:,} tokens"
+
         # Reserve space for the text at the end
         bar_width = width - len(usage_str)
         if bar_width <= 0:
