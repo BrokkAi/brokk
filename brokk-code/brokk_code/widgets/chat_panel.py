@@ -12,6 +12,8 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
 
+from brokk_code.widgets.status_line import StatusLine
+
 
 class ChatInput(TextArea):
     """A multiline text area for chat input that submits on Enter."""
@@ -102,6 +104,7 @@ class ChatPanel(Vertical):
             yield Static(id="chat-token-usage", classes="token-usage hidden")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
+        yield StatusLine(id="status-line")
 
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""

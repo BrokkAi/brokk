@@ -43,6 +43,7 @@ class OrderedFooter(Footer):
             ("toggle_context", "Context"),
             ("toggle_tasklist", "Tasks"),
             ("toggle_notifications", "Notifications"),
+            ("toggle_statusline", "Status"),
         ]
 
         for action, fallback_desc in order:
@@ -316,7 +317,6 @@ class BrokkApp(App):
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
-        yield StatusLine(id="status-line")
         yield OrderedFooter(show_command_palette=False)
 
     async def on_mount(self) -> None:
