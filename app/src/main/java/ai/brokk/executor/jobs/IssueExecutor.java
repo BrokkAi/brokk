@@ -82,7 +82,8 @@ public final class IssueExecutor {
      * text.
      */
     @Blocking
-    public static String runBuildAndPushContext(IContextManager cm, String command, @Nullable BuildAgent.BuildDetails override)
+    public static String runBuildAndPushContext(
+            IContextManager cm, String command, @Nullable BuildAgent.BuildDetails override)
             throws InterruptedException {
         var interrupted = new AtomicReference<InterruptedException>(null);
         var updated = cm.pushContext(ctx -> {

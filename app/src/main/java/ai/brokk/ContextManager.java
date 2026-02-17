@@ -26,7 +26,6 @@ import ai.brokk.context.ContextFragments.PathFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
 import ai.brokk.exception.GlobalExceptionHandler;
-import ai.brokk.executor.jobs.IssueExecutor;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;

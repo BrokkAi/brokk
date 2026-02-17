@@ -252,11 +252,13 @@ public class ArchitectAgent {
         var reason = stopDetails.reason();
 
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
-        context = result.context().withHistory(context.getTaskHistory());
+        var codeContext = result.context();
+        context = codeContext.withHistory(context.getTaskHistory());
         scope.append(context);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
-        // we're done with the original result now, make sure we don't reuse it by accident instead of the post-verifyCommand results
+        // we're done with the original result now, make sure we don't reuse it by accident instead of the
+        // post-verifyCommand results
         result = null;
 
         if (reason == StopReason.SUCCESS) {
@@ -265,7 +267,8 @@ public class ArchitectAgent {
                 codeAgentJustSucceeded = true;
 
                 if (verifyCommand != null) {
-                    context = BuildAgent.runExplicitCommand(context, verifyCommand, cm.getProject().awaitBuildDetails());
+                    context = BuildAgent.runExplicitCommand(
+                            context, verifyCommand, cm.getProject().awaitBuildDetails());
                     if (!context.getBuildError().isBlank()) {
                         codeAgentJustSucceeded = false;
                         reason = StopReason.BUILD_ERROR;
@@ -312,7 +315,7 @@ public class ArchitectAgent {
         }
 
         // Extract and compress reasoning
-        var lastEntry = result.context().getTaskHistory().getLast();
+        var lastEntry = codeContext.getTaskHistory().getLast();
         var messages = new ArrayList<>(lastEntry.mopMessages());
         var summary = cm.compressHistory(CodeAgent.ConversationState.extractReasoning(messages));
         var reasoningSummarySuffix = "\n\n# CodeAgent reasoning summary\n\n" + summary;
