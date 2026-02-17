@@ -561,6 +561,41 @@ public final class HeadlessExecutorMain {
             System.out.println("Try: curl http://" + boundHost + ":" + boundPort + "/health/live");
             System.out.println();
 
+            // Monitor stdin for EOF / parent-death signal.
+            // This thread blocks on System.in.read() and will initiate a controlled shutdown
+            // if EOF is observed or an IOException occurs. It is a daemon so it won't
+            // prevent JVM shutdown if other non-daemon threads remain.
+            Thread stdinMonitor = new Thread(
+                    () -> {
+                        try {
+                            // Read until EOF (-1) or exception. We don't process the bytes; we only
+                            // treat EOF as a signal that the parent has gone away.
+                            int read;
+                            while ((read = System.in.read()) != -1) {
+                                // Consume bytes without processing. If stdin is a terminal, this will
+                                // block until user input / EOF and thus not interfere with normal usage.
+                            }
+                            logger.info("System.in closed (EOF detected). Initiating controlled shutdown.");
+                        } catch (IOException e) {
+                            logger.info("IOException while monitoring System.in; initiating controlled shutdown.", e);
+                        } catch (Throwable t) {
+                            logger.warn("Unexpected error in System.in monitor; initiating controlled shutdown.", t);
+                        } finally {
+                            try {
+                                // Try to stop executor gracefully; use a short delay to speed shutdown.
+                                executor.stop(5);
+                            } catch (Exception e) {
+                                logger.warn("Error while stopping executor from stdin monitor", e);
+                            } finally {
+                                // Ensure process exits even if shutdown hook doesn't run immediately.
+                                System.exit(0);
+                            }
+                        }
+                    },
+                    "HeadlessExecutor-StdInMonitor");
+            stdinMonitor.setDaemon(true);
+            stdinMonitor.start();
+
             // Add shutdown hook
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
