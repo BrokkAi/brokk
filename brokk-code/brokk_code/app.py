@@ -293,6 +293,9 @@ class BrokkApp(App):
     def _maybe_statusline(self) -> Optional[StatusLine]:
         """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
         try:
+            chat = self._maybe_chat()
+            if chat:
+                return chat.query_one(StatusLine)
             return self.query_one(StatusLine)
         except (ScreenStackError, Exception):
             return None
@@ -764,7 +767,9 @@ class BrokkApp(App):
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
-        chat.set_job_running(True)
+        status = self._maybe_statusline()
+        if status and hasattr(status, "set_job_running"):
+            status.set_job_running(True)
         chat.set_response_pending()
         try:
             self.current_job_id = await self.executor.submit_job(
@@ -820,12 +825,16 @@ class BrokkApp(App):
                 else:
                     self.job_in_progress = False
                     self.current_job_id = None
-                    chat.set_job_running(False)
+                    status = self._maybe_statusline()
+                    if status and hasattr(status, "set_job_running"):
+                        status.set_job_running(False)
             else:
                 # Only mark idle once we are sure no more prompts are queued
                 self.job_in_progress = False
                 self.current_job_id = None
-                chat.set_job_running(False)
+                status = self._maybe_statusline()
+                if status and hasattr(status, "set_job_running"):
+                    status.set_job_running(False)
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
@@ -1263,7 +1272,8 @@ class BrokkApp(App):
             self._pending_updated_at = 0
             self._pending_generation = 0
             self._pending_min_wait_until = 0.0
-            self.query_one(ChatPanel).add_system_message("Cancelling job...")
+            if chat_panel:
+                chat_panel.add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)
             # Reset double-tap timer so they don't accidentally quit while cancelling
             self._last_ctrl_c_time = now

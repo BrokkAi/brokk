@@ -8,9 +8,9 @@ from rich.text import Text
 from textual import events, work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import RichLog, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
@@ -89,8 +89,6 @@ class ChatPanel(Vertical):
         self._last_token_time: float = 0
         self._inactivity_timeout: float = 10.0
         self._get_now = time.time
-        self._job_start_time: Optional[float] = None
-        self._timer_interval = None
 
         # History Navigation State
         self._history: list[str] = []
@@ -191,13 +189,6 @@ class ChatPanel(Vertical):
         self._history_index = -1
         self._draft_buffer = ""
 
-    def set_job_running(self, running: bool) -> None:
-        """Delegates job progress visibility to the StatusLine."""
-        try:
-            self.query_one("#status-line", StatusLine).set_job_running(running)
-        except Exception:
-            pass
-
     def set_response_pending(self) -> None:
         """Called when a job is submitted and we are waiting for the first token."""
         self.response_pending = True
@@ -215,24 +206,6 @@ class ChatPanel(Vertical):
         self.response_active = False
         self._flush_message()
 
-    @work(exclusive=True)
-    async def _monitor_inactivity(self) -> None:
-        """Re-shows spinner if no tokens arrive for a while during an active stream."""
-        while self.response_active:
-            await asyncio.sleep(1.0)
-            self._check_inactivity()
-
-    def _check_inactivity(self) -> None:
-        """Internal check to update spinner based on time since last token."""
-        if (
-            self.response_active
-            and (self._get_now() - self._last_token_time) > self._inactivity_timeout
-        ):
-            try:
-                self.query_one("#status-line", StatusLine).set_job_running(True)
-            except Exception:
-                pass
-
     def append_token(
         self,
         token: str,
@@ -248,7 +221,6 @@ class ChatPanel(Vertical):
         # Defensive: Ensure response is marked active if tokens are arriving
         if not self.response_active:
             self.set_response_active()
-            self._monitor_inactivity()
 
         # Handle transitions: new message flag or switching between reasoning/normal
         should_start_new = is_new_message or (

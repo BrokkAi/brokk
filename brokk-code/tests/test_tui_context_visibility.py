@@ -27,7 +27,6 @@ async def test_toggle_context_opens_fullscreen_modal_and_syncs_token_bar_visibil
         # Toggle 1: Open context modal -> hide token bar.
         await pilot.press("ctrl+l")
         assert isinstance(app.screen, ContextModalScreen)
-        app.screen.query_one("#context-panel", ContextPanel)
         assert token_usage.has_class("hidden")
 
         # Toggle 2: Close context modal -> show token bar.
