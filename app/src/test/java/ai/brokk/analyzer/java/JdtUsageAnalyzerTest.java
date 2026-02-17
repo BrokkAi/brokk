@@ -343,6 +343,50 @@ public class JdtUsageAnalyzerTest {
     }
 
     @Test
+    public void testOverloadedMethodUsages() throws Exception {
+        String source =
+                """
+                package com.example;
+                public class Overload {
+                    public void method(String s) {}
+                    public void method(String s, int i) {}
+                }
+                """;
+
+        String consumer =
+                """
+                package com.example;
+                public class Consumer {
+                    public void test() {
+                        Overload o = new Overload();
+                        o.method("one"); // Hit
+                        o.method("two", 2); // Miss
+                    }
+                }
+                """;
+
+        try (IProject project = InlineTestProjectCreator.code(source, "com/example/Overload.java")
+                .addFileContents(consumer, "com/example/Consumer.java")
+                .build()) {
+
+            ProjectFile overloadFile = project.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().contains("Overload.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            // We want to find usages of method(String s)
+            // Signature for (String) should be "(String)"
+            CodeUnit targetUnit =
+                    new CodeUnit(overloadFile, CodeUnitType.FUNCTION, "com.example", "Overload.method", "(String)");
+
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(targetUnit, project.getAllFiles(), project);
+
+            assertEquals(1, hits.size(), "Should find exactly 1 hit for method(String)");
+            assertTrue(hits.iterator().next().snippet().contains("o.method(\"one\")"));
+        }
+    }
+
+    @Test
     public void testSignatureConsistencyWithJavaAnalyzer() throws Exception {
         String source =
                 """

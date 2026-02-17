@@ -235,6 +235,12 @@ public class JdtUsageAnalyzer {
 
                     String fqn = JdtUsageAnalyzer.getFqn(binding);
                     if (target.fqName().equals(fqn)) {
+                        if (target.hasSignature() && binding instanceof IMethodBinding mb) {
+                            String foundSig = JdtUsageAnalyzer.extractMethodSignature(mb);
+                            if (!Objects.equals(target.signature(), foundSig)) {
+                                return;
+                            }
+                        }
                         recordHit(node);
                     }
                 }
