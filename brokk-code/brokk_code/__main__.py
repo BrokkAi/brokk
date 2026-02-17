@@ -19,8 +19,8 @@ def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
         choices=["Default", "Anthropic", "Gemini", "OpenAI", "OpenAI - Codex"],
         default=None,
         help=(
-            "Set 'Other Models' vendor preference (affects " + \
-                    "internal roles like summarize/scan/commit). "
+            "Set 'Other Models' vendor preference (affects "
+            + "internal roles like summarize/scan/commit). "
             "Use 'Default' to clear overrides."
         ),
     )

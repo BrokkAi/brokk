@@ -1,5 +1,7 @@
 package ai.brokk.executor;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
@@ -465,8 +467,9 @@ public final class HeadlessExecutorMain {
                         throw new IllegalArgumentException(
                                 "OpenAI - Codex selected but Codex OAuth is not connected; connect/login first.");
                     }
-                    var vendorModels = ModelProperties.getVendorModels(canonicalVendor);
-                    assert vendorModels != null : "Vendor models unexpectedly null for " + canonicalVendor;
+                    var vendorModels = requireNonNull(
+                            ModelProperties.getVendorModels(canonicalVendor),
+                            "Vendor models unexpectedly null for " + canonicalVendor);
                     vendorModels.forEach(project::setModelConfig);
                     MainProject.setOtherModelsVendorPreference(canonicalVendor);
                     logger.info("Applied other-models vendor preference: {}", canonicalVendor);
