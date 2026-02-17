@@ -124,6 +124,9 @@ public class ArchitectAgent {
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
 
+    @Nullable
+    private String verifyCommand;
+
     private static final ThreadLocal<SearchAgentOutput> threadlocalSearchResult = new ThreadLocal<>();
 
     private static SearchPrompts.Objective parseSearchObjective(String mode) {
@@ -180,6 +183,11 @@ public class ArchitectAgent {
         this.io = io;
         this.scope = scope;
         this.context = initialContext;
+        this.verifyCommand = null;
+    }
+
+    public void setVerifyCommand(@Nullable String verifyCommand) {
+        this.verifyCommand = verifyCommand;
     }
 
     /**
@@ -248,16 +256,33 @@ public class ArchitectAgent {
         scope.append(context);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
+        // we're done with the original result now, make sure we don't reuse it by accident instead of the post-verifyCommand results
+        result = null;
 
-        if (result.stopDetails().reason() == StopReason.SUCCESS) {
-            var fileList = changedFragments.stream()
-                    .map(cf -> cf.shortDescription().join())
-                    .sorted()
-                    .collect(Collectors.joining(", "));
-
+        if (reason == StopReason.SUCCESS) {
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
-            return """
+            if (!deferBuild && !changedFragments.isEmpty()) {
+                codeAgentJustSucceeded = true;
+
+                if (verifyCommand != null) {
+                    context = BuildAgent.runExplicitCommand(context, verifyCommand, cm.getProject().awaitBuildDetails());
+                    if (!context.getBuildError().isBlank()) {
+                        codeAgentJustSucceeded = false;
+                        reason = StopReason.BUILD_ERROR;
+                        stopDetails = new TaskResult.StopDetails(reason, "Broader verification step failed");
+                        // let the planning loop continue to fix it
+                    }
+                }
+            }
+
+            // re-check in case verifyCommand failed
+            if (reason == StopReason.SUCCESS) {
+                var fileList = changedFragments.stream()
+                        .map(cf -> cf.shortDescription().join())
+                        .sorted()
+                        .collect(Collectors.joining(", "));
+
+                return """
             # Status
             %s
 
@@ -265,12 +290,13 @@ public class ArchitectAgent {
             %s
             %s
             """
-                    .formatted(
-                            deferBuild
-                                    ? "CodeAgent finished with build deferred as requested."
-                                    : "CodeAgent finished with a successful build.",
-                            fileList.isEmpty() ? "None" : fileList,
-                            fileList.isEmpty() ? "" : "\nThe changes made are reflected in the Workspace.");
+                        .formatted(
+                                deferBuild
+                                        ? "CodeAgent finished with build deferred as requested."
+                                        : "CodeAgent finished with a successful build.",
+                                fileList.isEmpty() ? "None" : fileList,
+                                fileList.isEmpty() ? "" : "\nThe changes made are reflected in the Workspace.");
+            }
         }
 
         // For non-SUCCESS outcomes, format error feedback appropriately
@@ -656,7 +682,6 @@ public class ArchitectAgent {
             return resultWithMessages(fatalReason);
         }
 
-        // If CodeAgent succeeded, immediately finish without entering planning loop
         if (codeAgentJustSucceeded) {
             return codeAgentSuccessResult();
         }

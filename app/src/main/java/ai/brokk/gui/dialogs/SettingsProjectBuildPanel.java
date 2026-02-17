@@ -54,6 +54,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     private JTextField buildCleanCommandField = new JTextField();
     private JTextField allTestsCommandField = new JTextField();
     private JTextField someTestsCommandField = new JTextField();
+    private JTextField afterTaskListCommandField = new JTextField();
 
     private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
     private JRadioButton runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
@@ -236,6 +237,26 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.gridy = buildRow++;
         buildGbc.insets = new Insets(0, 2, 8, 2);
         buildConfigPanel.add(testSomeInfo, buildGbc);
+        buildGbc.insets = new Insets(2, 2, 2, 2); // Reset insets
+
+        // Post-Task List Command
+        buildGbc.gridx = 0;
+        buildGbc.gridy = buildRow;
+        buildGbc.weightx = 0.0;
+        buildConfigPanel.add(new JLabel("Post-Task List Command:"), buildGbc);
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.weightx = 1.0;
+        buildConfigPanel.add(afterTaskListCommandField, buildGbc);
+        var afterTaskListInfo = new JLabel(
+                "Command to run after all tasks in a task list complete successfully (e.g., full test suite)");
+        afterTaskListInfo.setFont(afterTaskListInfo
+                .getFont()
+                .deriveFont(Font.ITALIC, afterTaskListInfo.getFont().getSize() * 0.9f));
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.insets = new Insets(0, 2, 8, 2);
+        buildConfigPanel.add(afterTaskListInfo, buildGbc);
         buildGbc.insets = new Insets(2, 2, 2, 2); // Reset insets
 
         // Code Agent Tests
@@ -695,6 +716,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                         buildCleanCommandField,
                         allTestsCommandField,
                         someTestsCommandField,
+                        afterTaskListCommandField,
                         runAllTestsRadio,
                         runTestsInWorkspaceRadio,
                         // Parent dialog buttons
@@ -712,6 +734,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             buildCleanCommandField.setText(details.buildLintCommand());
             allTestsCommandField.setText(details.testAllCommand());
             someTestsCommandField.setText(details.testSomeCommand());
+            afterTaskListCommandField.setText(details.afterTaskListCommand());
 
             // Also refresh the CI exclusions list in the parent SettingsProjectPanel
             try {
@@ -738,6 +761,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildCleanCommandField.setText(details.buildLintCommand());
         allTestsCommandField.setText(details.testAllCommand());
         someTestsCommandField.setText(details.testSomeCommand());
+        afterTaskListCommandField.setText(details.afterTaskListCommand());
 
         if (project.getCodeAgentTestScope() == IProject.CodeAgentTestScope.ALL) {
             runAllTestsRadio.setSelected(true);
@@ -788,6 +812,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
         var newTestSome = someTestsCommandField.getText();
+        var newAfterTaskList = afterTaskListCommandField.getText();
 
         // Primary language
         var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
@@ -803,7 +828,13 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
+                newBuildLint,
+                newTestAll,
+                newTestSome,
+                diskDetails.exclusionPatterns(),
+                envVars,
+                diskDetails.maxBuildAttempts(),
+                newAfterTaskList);
 
         // Compare against what's currently saved on disk
         var currentDetails = project.awaitBuildDetails();

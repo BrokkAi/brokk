@@ -26,6 +26,7 @@ import ai.brokk.context.ContextFragments.PathFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
 import ai.brokk.exception.GlobalExceptionHandler;
+import ai.brokk.executor.jobs.IssueExecutor;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
@@ -1540,6 +1541,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             StreamingChatModel codeModel,
             TaskProgressListener listener)
             throws InterruptedException {
+        List<TaskList.TaskItem> tasksToRun =
+                tasks.stream().filter(t -> !t.done()).toList();
         int completed = 0;
         for (int i = 0; i < tasks.size(); i++) {
             TaskList.TaskItem task = tasks.get(i);
@@ -1551,13 +1554,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 listener.onTaskSuccess(i, task, result);
             } else {
-                listener.onTaskFailure(i, task, result);
+                listener.onTaskFailure(
+                        i, task, new RuntimeException(result.stopDetails().explanation()));
                 logger.debug(
                         "Batch execution stopped early: task failed with reason {}",
                         result.stopDetails().reason());
                 break;
             }
             completed++;
+        }
+
+        if (completed == tasksToRun.size() && !tasksToRun.isEmpty()) {
+            BuildDetails details = project.awaitBuildDetails();
+            String afterCmd = details.afterTaskListCommand();
+            if (!afterCmd.isBlank()) {
+                var context = BuildAgent.runExplicitCommand(liveContext(), afterCmd, details);
+                if (!context.getBuildError().isBlank()) {
+                    pushContext(ctx -> context);
+                    String goal = "The post-task-list verification command failed. Fix the build errors.";
+                    try (var scope = beginTask(goal, true, "Post-task verification fix")) {
+                        ArchitectAgent agent = new ArchitectAgent(this, planningModel, codeModel, goal, scope);
+                        agent.setVerifyCommand(afterCmd);
+                        agent.executeWithScan();
+                    }
+                }
+            }
         }
 
         listener.onBatchFinished(completed);
