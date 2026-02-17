@@ -318,6 +318,17 @@ class ExecutorManager:
 
         try:
             # Create subprocess with a dedicated stdin pipe so the Java executor can detect parent death.
+            #
+            # Implementation note / lifecycle guarantee:
+            # - We intentionally open the child's stdin as a PIPE and retain the StreamWriter
+            #   (self._stdin) reference. The Java HeadlessExecutorMain watches System.in for EOF
+            #   and treats that as a parent-death signal, initiating a controlled shutdown.
+            # - IDEs like IntelliJ will close the child's stdin when the run/debug profile is
+            #   terminated or the parent process is killed. Relying on stdin EOF allows the Java
+            #   executor to exit even when the Python process's 'finally' cleanup does not run,
+            #   preventing lingering brokk.jar/HeadlessExecutorMain processes.
+            #
+            # See HeadlessExecutorMain's stdin monitor for more details.
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
@@ -775,6 +786,12 @@ class ExecutorManager:
             if self._stdin is not None:
                 try:
                     # StreamWriter.close() is synchronous; wait for wait_closed() if available.
+                    #
+                    # Closing the child's stdin is the preferred first step for shutdown because
+                    # HeadlessExecutorMain treats stdin EOF as a signal to perform a controlled
+                    # shutdown. This helps ensure the Java process exits even if the Python
+                    # interpreter is killed abruptly by the IDE and its own cleanup handlers
+                    # do not run.
                     self._stdin.close()
                     wait_closed = getattr(self._stdin, "wait_closed", None)
                     if callable(wait_closed):
