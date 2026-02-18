@@ -50,6 +50,8 @@ async def test_action_select_model_updates_state():
     # We mock push_screen to capture the callback and invoke it immediately
     # as if the user selected a model in the modal.
     def mock_push_screen(screen, callback=None):
+        # Verify it uses the model-only modal
+        assert screen.__class__.__name__ == "ModelSelectModal"
         if callback:
             # ModelSelectModal returns a single string
             callback("claude-3")
@@ -92,47 +94,3 @@ async def test_action_select_model_handles_dotted_model_names():
             assert app.screen.__class__.__name__ == "ModelSelectModal"
 
 
-@pytest.mark.asyncio
-async def test_model_modal_keyboard_navigation_selects_model_and_reasoning():
-    executor = MagicMock()
-    executor.get_models = AsyncMock(
-        return_value={
-            "models": [
-                {"name": "alpha-model", "location": "x"},
-                {"name": "beta-model", "location": "y"},
-            ]
-        }
-    )
-    executor.stop = AsyncMock()
-    executor.session_id = None
-
-    app = BrokkApp(executor=executor)
-    app._executor_ready = True
-
-    from unittest.mock import patch
-
-    with (
-        patch.object(BrokkApp, "_start_executor", return_value=None),
-        patch.object(BrokkApp, "_monitor_executor", return_value=None),
-        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
-        patch.object(BrokkApp, "_poll_context", return_value=None),
-    ):
-        async with app.run_test() as pilot:
-            await app.action_select_model_and_reasoning()
-            await pilot.pause()
-
-            # Step 1: Select Model
-            # Move from first to second row (beta-model) and select.
-            # This will automatically move focus to the reasoning list.
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-
-            # Step 2: Select Reasoning
-            # Focus is now on reasoning list. Select "low" (second index).
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert app.current_model == "beta-model"
-            assert app.reasoning_level == "low"

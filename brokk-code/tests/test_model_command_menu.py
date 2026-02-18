@@ -49,6 +49,50 @@ async def test_model_command_no_arg_opens_modal():
 
 
 @pytest.mark.asyncio
+async def test_combined_modal_navigation_updates_both_settings():
+    executor = MagicMock()
+    executor.get_models = AsyncMock(
+        return_value={
+            "models": [
+                {"name": "alpha-model", "location": "x"},
+                {"name": "beta-model", "location": "y"},
+            ]
+        }
+    )
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Trigger combined modal
+            await app.action_select_model_and_reasoning()
+            await pilot.pause()
+
+            # 1. Selection Pane: Model (Focus is here by default)
+            # Move to 'beta-model' and confirm. This moves focus to Reasoning pane.
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # 2. Selection Pane: Reasoning (Focus should be here now)
+            # Reasoning list is: disable, low, medium, high.
+            # Default is low (idx 1). Move to medium (idx 2).
+            await pilot.press("down")
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.current_model == "beta-model"
+            assert app.reasoning_level == "medium"
+
+
+@pytest.mark.asyncio
 async def test_reasoning_command_with_arg_sets_directly():
     executor = MagicMock()
     executor.stop = AsyncMock()
