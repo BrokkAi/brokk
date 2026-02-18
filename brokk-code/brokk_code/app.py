@@ -1126,30 +1126,13 @@ class BrokkApp(App):
                         "Unknown /task command. Use: next, prev, toggle, delete, add, edit."
                     )
         elif base == "/help":
-            help_text = (
-                "Available commands:\n"
-                "  /ask                  - Set mode to ASK (questions only)\n"
-                "  /search               - Set mode to SEARCH (read-only code search)\n"
-                "  /lutz                 - Set mode to LUTZ (default; full agent access)\n"
-                "  /model <name>         - Change the planner LLM model\n"
-                "  /model-code <name>    - Change the code LLM model\n"
-                "  /reasoning <level>    - Set reasoning level for planner\n"
-                "  /reasoning-code <level> - Set reasoning level for code model\n"
-                "  /autocommit [on|off|toggle] - Toggle auto-commit for submitted jobs\n"
-                "  /settings             - Open settings\n"
-                "  /history              - Show recent prompt history\n"
-                "  /history-clear        - Clear prompt history\n"
-                "  /task                 - Show selected task info / task command help\n"
-                "  /task next|prev       - Navigate selected task\n"
-                "  /task toggle          - Toggle selected task done state\n"
-                "  /task add <title>     - Add a task\n"
-                "  /task edit <title>    - Edit selected task title\n"
-                "  /task delete          - Delete selected task\n"
-                "  /info                 - Show current configuration and status\n"
-                "  /help                 - Show this help message\n"
-                "  /quit, /exit          - Exit the application"
-            )
-            chat.append_message("System", help_text)
+            commands = self.get_slash_commands()
+            # Calculate padding based on longest command
+            max_cmd_len = max(len(c["command"]) for c in commands)
+            lines = ["Available commands:"]
+            for c in commands:
+                lines.append(f"  {c['command']: <{max_cmd_len}} - {c['description']}")
+            chat.append_message("System", "\n".join(lines))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:

@@ -112,6 +112,22 @@ def test_help_command_no_shortcuts_for_model_reasoning():
     assert "/reasoning" in help_text
 
 
+def test_help_output_matches_command_catalog():
+    """Ensure every command in the catalog is present in the /help output."""
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    app._handle_command("/help")
+
+    args, _ = mock_chat.append_message.call_args
+    help_text = args[1]
+
+    for cmd_entry in app.get_slash_commands():
+        cmd = cmd_entry["command"]
+        assert cmd in help_text, f"Command {cmd} missing from /help output"
+
+
 @pytest.mark.asyncio
 async def test_slash_autocomplete_filtering():
     """Verify slash suggestions filter correctly."""

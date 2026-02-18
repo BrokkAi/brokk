@@ -130,14 +130,17 @@ class ChatInput(TextArea):
 
     def _on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Triggered whenever text changes via typing or backspace."""
+        app = self.app
         try:
-            suggestions = self.app.query_one(SlashCommandSuggestions)
+            suggestions = app.query_one(SlashCommandSuggestions)
         except Exception:
             return
 
         if self.text.startswith("/") and "\n" not in self.text:
-            if hasattr(self.app, "get_slash_commands"):
-                suggestions.update_suggestions(self.text, self.app.get_slash_commands())
+            commands = []
+            if hasattr(app, "get_slash_commands"):
+                commands = app.get_slash_commands()
+            suggestions.update_suggestions(self.text, commands)
         else:
             suggestions.display = False
 
