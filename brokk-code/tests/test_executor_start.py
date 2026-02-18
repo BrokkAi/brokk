@@ -12,7 +12,7 @@ async def test_executor_start_includes_jvm_flags(monkeypatch, tmp_path):
     dummy_jar.write_text("dummy")
     captured_cmd = None
 
-    async def fake_create_subprocess_exec(*cmd, stdout=None, stderr=None):
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
         nonlocal captured_cmd
 
         # Capture the command that was passed in
@@ -37,9 +37,17 @@ async def test_executor_start_includes_jvm_flags(monkeypatch, tmp_path):
                     return ln
                 return b""
 
+        class FakeStdin:
+            def close(self):
+                pass
+
+            async def wait_closed(self):
+                pass
+
         class FakeProcess:
             def __init__(self):
                 self.stdout = FakeStdout()
+                self.stdin = FakeStdin() if stdin is not None else None
                 self.returncode = None
 
             async def wait(self):
@@ -98,7 +106,7 @@ async def test_executor_start_includes_vendor_flag(monkeypatch, tmp_path):
     dummy_jar.write_text("dummy")
     captured_cmd = None
 
-    async def fake_create_subprocess_exec(*cmd, stdout=None, stderr=None):
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
         nonlocal captured_cmd
         captured_cmd = list(cmd)
 
@@ -118,9 +126,17 @@ async def test_executor_start_includes_vendor_flag(monkeypatch, tmp_path):
                     return ln
                 return b""
 
+        class FakeStdin:
+            def close(self):
+                pass
+
+            async def wait_closed(self):
+                pass
+
         class FakeProcess:
             def __init__(self):
                 self.stdout = FakeStdout()
+                self.stdin = FakeStdin() if stdin is not None else None
                 self.returncode = None
 
             async def wait(self):

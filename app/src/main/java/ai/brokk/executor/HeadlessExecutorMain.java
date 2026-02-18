@@ -127,9 +127,9 @@ public final class HeadlessExecutorMain {
         return switch (normalized) {
             case "", "1", "true", "yes", "on" -> true;
             case "0", "false", "no", "off" -> false;
-            default -> throw new IllegalArgumentException(
-                    "Invalid boolean value for " + sourceName + ": '" + rawValue
-                            + "'. Expected one of true/false, 1/0, yes/no, on/off.");
+            default ->
+                throw new IllegalArgumentException("Invalid boolean value for " + sourceName + ": '" + rawValue
+                        + "'. Expected one of true/false, 1/0, yes/no, on/off.");
         };
     }
 
@@ -467,8 +467,7 @@ public final class HeadlessExecutorMain {
             }
             var workspaceDir = Path.of(workspaceDirStr);
 
-            var exitOnStdinEof =
-                    getBooleanConfigValue(parsedArgs, "exit-on-stdin-eof", "EXIT_ON_STDIN_EOF", false);
+            var exitOnStdinEof = getBooleanConfigValue(parsedArgs, "exit-on-stdin-eof", "EXIT_ON_STDIN_EOF", false);
 
             // Build ContextManager from workspace
             var project = new MainProject(workspaceDir);
@@ -612,9 +611,11 @@ public final class HeadlessExecutorMain {
                                 }
                                 logger.info("System.in closed (EOF detected). Initiating controlled shutdown.");
                             } catch (IOException e) {
-                                logger.info("IOException while monitoring System.in; initiating controlled shutdown.", e);
+                                logger.info(
+                                        "IOException while monitoring System.in; initiating controlled shutdown.", e);
                             } catch (Throwable t) {
-                                logger.warn("Unexpected error in System.in monitor; initiating controlled shutdown.", t);
+                                logger.warn(
+                                        "Unexpected error in System.in monitor; initiating controlled shutdown.", t);
                             } finally {
                                 try {
                                     // Try to stop executor gracefully; use a short delay to speed shutdown.
