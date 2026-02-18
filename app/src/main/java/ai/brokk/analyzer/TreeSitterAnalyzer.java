@@ -763,8 +763,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         Optional<String> content = file.read();
-        Set<String> identifiers;
-        identifiers = content.map(this::extractTypeIdentifiers).orElseGet(Set::of);
+        Set<String> identifiers =
+                content.map(this::extractTypeIdentifiers).map(Set::copyOf).orElseGet(Set::of);
         cache.typeIdentifiers().put(file, identifiers);
         return identifiers;
     }
