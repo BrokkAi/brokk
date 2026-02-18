@@ -417,6 +417,10 @@ public class ArchitectAgent {
                             Details are in the Workspace. The Code Agent applied changes but could not make them pass verification.
                             Since you are smarter than Code Agent, first think about what it did, then instruct it how to
                             proceed to solve the problems.
+                            
+                            If the verification is failing because of environmental issues that you cannot solve,
+                            e.g. permissions issues or system-level dependencies, you should abort with an explanation
+                            of the problem.
                             """
                                 .formatted(explanation);
                     case IO_ERROR ->
