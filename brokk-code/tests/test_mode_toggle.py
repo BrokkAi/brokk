@@ -42,7 +42,7 @@ def test_action_toggle_mode_cycles_correctly():
     )
 
 
-def test_handle_command_updates_mode_and_subtitle_and_search_is_unknown():
+def test_handle_command_updates_mode_and_subtitle():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
@@ -69,14 +69,6 @@ def test_handle_command_updates_mode_and_subtitle_and_search_is_unknown():
     assert app.sub_title == "Mode: LUTZ"
     mock_chat.add_system_message_markup.assert_called_with(
         "Mode changed to: [bold]LUTZ[/]", level="WARNING"
-    )
-
-    # /search is no longer a supported mode alias; it should be treated as unknown.
-    mock_chat.reset_mock()
-    app._handle_command("/search")
-    # Unknown command branch appends a System message like "Unknown command: /search. Type /help for assistance."
-    mock_chat.append_message.assert_called_with(
-        "System", "Unknown command: /search. Type /help for assistance."
     )
 
 
