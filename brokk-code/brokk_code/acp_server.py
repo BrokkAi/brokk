@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
-from brokk_code.token_format import format_token_count
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.token_format import format_token_count
 
 logger = logging.getLogger(__name__)
 

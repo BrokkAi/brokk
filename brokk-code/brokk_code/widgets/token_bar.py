@@ -1,14 +1,13 @@
 import math
 from typing import Any, Dict, List, Optional
 
+from brokk_code.token_format import format_token_count
 from rich.console import RenderableType
 from rich.text import Text
 from textual import events
 from textual.geometry import Size
 from textual.message import Message
 from textual.widgets import Static
-
-from brokk_code.token_format import format_token_count
 
 
 class TokenBar(Static):
@@ -186,9 +185,7 @@ class TokenBar(Static):
     def on_leave(self, event: events.Leave) -> None:
         self._emit_hover(None, None)
 
-    def _segment_payload(
-        self, column: int
-    ) -> tuple[Optional[str], Optional[int]] | None:
+    def _segment_payload(self, column: int) -> tuple[Optional[str], Optional[int]] | None:
         if not self._segment_layout or column < 0 or column >= self._bar_width:
             return None
         for segment_start, segment_end, _kind, segment_fragments in self._segment_layout:
@@ -211,9 +208,7 @@ class TokenBar(Static):
         descriptions = [str(fragment.get("shortDescription", "Unknown")) for fragment in fragments]
         if len(descriptions) > 3:
             descriptions = descriptions[:3] + [f"... +{len(descriptions) - 3} more"]
-        return ", ".join(descriptions), sum(
-            cls._fragment_size(fragment) for fragment in fragments
-        )
+        return ", ".join(descriptions), sum(cls._fragment_size(fragment) for fragment in fragments)
 
     @classmethod
     def _fragment_size(cls, fragment: Dict[str, Any]) -> int:
@@ -251,7 +246,8 @@ class TokenBar(Static):
         fragments: List[Dict[str, Any]],
     ) -> List[tuple[int, str]]:
         return [
-            (width, kind) for width, kind, _fragments in cls.compute_segment_details(
+            (width, kind)
+            for width, kind, _fragments in cls.compute_segment_details(
                 width=width,
                 used_tokens=used_tokens,
                 max_tokens=max_tokens,
@@ -283,9 +279,7 @@ class TokenBar(Static):
             f for f in fragments if f.get("chipKind", f.get("chip_kind", "OTHER")) == "SUMMARY"
         ]
         others = [
-            f
-            for f in fragments
-            if f.get("chipKind", f.get("chip_kind", "OTHER")) != "SUMMARY"
+            f for f in fragments if f.get("chipKind", f.get("chip_kind", "OTHER")) != "SUMMARY"
         ]
 
         tokens_summaries = sum(cls._safe_int(f.get("tokens", 0)) for f in summaries)
@@ -315,9 +309,7 @@ class TokenBar(Static):
             if raw_w < cls.MIN_SEGMENT_WIDTH and kind != "HISTORY":
                 small_fragments.append(f)
             else:
-                alloc_items.append(
-                    {"tokens": t, "kind": kind, "min_w": 0, "fragments": [f]}
-                )
+                alloc_items.append({"tokens": t, "kind": kind, "min_w": 0, "fragments": [f]})
 
         # Add "OTHER" group if needed
         if small_fragments:
@@ -382,7 +374,9 @@ class TokenBar(Static):
                     current_sum = sum(item["width"] for item in working_items)
                     deficit = total_fill_width - current_sum
                     if deficit > 0:
-                        for item in sorted(working_items, key=lambda x: x["rem"], reverse=True)[:deficit]:
+                        for item in sorted(working_items, key=lambda x: x["rem"], reverse=True)[
+                            :deficit
+                        ]:
                             item["width"] += 1
                     return [
                         (item["width"], item["kind"], list(item["fragments"]))
@@ -422,10 +416,13 @@ class TokenBar(Static):
                 continue
 
             if sum_w <= total_fill_width:
-                # Fill small positive remainder by giving extra cells to highest fractional remainders.
+                # Fill small positive remainder by giving extra cells to
+                # highest fractional remainders.
                 deficit = total_fill_width - sum_w
                 if deficit > 0:
-                    for item in sorted(working_items, key=lambda x: x["rem"], reverse=True)[:deficit]:
+                    for item in sorted(working_items, key=lambda x: x["rem"], reverse=True)[
+                        :deficit
+                    ]:
                         item["width"] += 1
 
                 return [

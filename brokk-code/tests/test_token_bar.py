@@ -91,24 +91,36 @@ def test_compute_segments_merge_other_stays_below_min_floor():
     # Without strict minima enforcement, summary + other can cause a width of 1.
     # With strict enforcement and merge-to-OTHER behavior, this should stay in the 2+ range
     # and still land on or near the filled width.
-    segments = TokenBar.compute_segments(3, 1_000, 1_000, [{"chipKind": "SUMMARY", "tokens": 500}, {"chipKind": "EDIT", "tokens": 500}])
+    segments = TokenBar.compute_segments(
+        3,
+        1_000,
+        1_000,
+        [{"chipKind": "SUMMARY", "tokens": 500}, {"chipKind": "EDIT", "tokens": 500}],
+    )
     assert segments == [(3, "OTHER")]
     assert all(width >= 2 for width, _ in segments)
 
 
 def test_compute_segments_merge_more_fragments_into_other():
     # OVERFLOW with MIN_SEGMENT_WIDTH groups should fold extra non-HISTORY groups into OTHER.
-    segments = TokenBar.compute_segments(5, 1_000, 1_000, [
-        {"chipKind": "EDIT", "tokens": 600},
-        {"chipKind": "EDIT", "tokens": 200},
-        {"chipKind": "SUMMARY", "tokens": 200},
-    ])
+    segments = TokenBar.compute_segments(
+        5,
+        1_000,
+        1_000,
+        [
+            {"chipKind": "EDIT", "tokens": 600},
+            {"chipKind": "EDIT", "tokens": 200},
+            {"chipKind": "SUMMARY", "tokens": 200},
+        ],
+    )
     assert sum(w for w, k in segments) == 5
     assert segments == [(3, "EDIT"), (2, "OTHER")]
 
 
 def test_compute_segments_cannot_fit_when_min_width_unavoidable():
     # Very narrow bar: even strict minima can force width overflow.
-    segments = TokenBar.compute_segments(1, 2, 2, [{"chipKind": "SUMMARY", "tokens": 1}, {"chipKind": "EDIT", "tokens": 1}])
+    segments = TokenBar.compute_segments(
+        1, 2, 2, [{"chipKind": "SUMMARY", "tokens": 1}, {"chipKind": "EDIT", "tokens": 1}]
+    )
     assert sum(w for w, k in segments) == 2
     assert all(w >= 2 for w, _ in segments)
