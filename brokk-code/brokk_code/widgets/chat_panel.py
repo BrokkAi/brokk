@@ -9,7 +9,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import RichLog, TextArea
+from textual.widgets import Label, RichLog, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
@@ -98,6 +98,10 @@ class ChatPanel(Vertical):
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
+        yield Label(
+            "Enter: Submit  Shift+Enter: Newline  Up/Down: History  /commands",
+            id="chat-help",
+        )
 
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""

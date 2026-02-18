@@ -271,6 +271,14 @@ ChatPanel {
     content-align: left middle;
 }
 
+#chat-help {
+    width: 100%;
+    color: $text-muted;
+    padding: 0 2;
+    margin-bottom: 1;
+    background: transparent;
+}
+
 .ml-1 {
     margin-left: 1;
 }
