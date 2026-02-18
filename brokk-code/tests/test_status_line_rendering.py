@@ -23,14 +23,14 @@ def test_status_line_rendering_compact_home_abbreviation(monkeypatch):
         workspace="/home/user",
         branch="main",
     )
-    expected_home = "main - LUTZ - gpt-4 (high) - ~"
+    expected_home = "LUTZ - gpt-4 (high) - ~ - main"
     mock_metadata.update.assert_called_with(expected_home)
 
     # Case 2: Under home
     status.update_status(
         workspace="/home/user/projects/brokk",
     )
-    expected_sub = "main - LUTZ - gpt-4 (high) - ~/projects/brokk"
+    expected_sub = "LUTZ - gpt-4 (high) - ~/projects/brokk - main"
     mock_metadata.update.assert_called_with(expected_sub)
 
 
@@ -51,7 +51,7 @@ def test_status_line_rendering_compact_no_abbreviation(monkeypatch):
         branch="main",
     )
 
-    expected = "main - LUTZ - gpt-4 (high) - /var/www/project"
+    expected = "LUTZ - gpt-4 (high) - /var/www/project - main"
     mock_metadata.update.assert_called_with(expected)
 
 

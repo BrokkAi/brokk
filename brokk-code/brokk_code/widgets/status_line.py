@@ -92,11 +92,11 @@ class StatusLine(Horizontal):
         return workspace
 
     def _render_status_text(self) -> None:
-        # Compact format: {branch} - {mode} - {model} ({reasoning}) - {workspace}
+        # Compact format: {mode} - {model} ({reasoning}) - {workspace} - {branch}
         workspace_display = self._get_display_workspace(self._workspace)
         text = (
-            f"{self._branch} - {self._mode} - {self._model} "
-            f"({self._reasoning}) - {workspace_display}"
+            f"{self._mode} - {self._model} ({self._reasoning}) - "
+            f"{workspace_display} - {self._branch}"
         )
         if self._fragment_description is not None and self._fragment_size is not None:
             size_text = format_token_count(self._fragment_size)
