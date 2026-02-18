@@ -278,9 +278,9 @@ ChatPanel {
 }
 
 #model-reasoning-combined-container {
-    width: 84;
+    width: 100;
     height: auto;
-    max-height: 85%;
+    max-height: 90%;
     border: thick $primary;
     background: $surface;
     padding: 1 2;
@@ -302,7 +302,7 @@ ChatPanel {
 
 #model-select-list-wrap, #reasoning-select-list-wrap {
     height: auto;
-    max-height: 22;
+    max-height: 30;
     border: tall $primary-darken-1;
 }
 
