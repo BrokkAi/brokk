@@ -29,6 +29,8 @@ This project acts as a client that communicates with the Java-based Brokk execut
 
 ## Testing
 
+ALWAYS RUN TESTS WHEN MAKING CHANGES!
+
 - **Framework**: Use `pytest` for all tests.
 - **Command**: Run tests with `uv run pytest` so the project-managed environment is always used.
 - **Location**: Place tests in the `tests/` directory.
@@ -37,7 +39,11 @@ This project acts as a client that communicates with the Java-based Brokk execut
 ## Project Structure
 
 - `brokk_code/`: Main package directory. (See [brokk_code/AGENTS.md](brokk_code/AGENTS.md) for subtree rules).
-  - `app.py`: Main Textual Application class.
-  - `executor.py`: Logic for managing the Java executor lifecycle and API calls.
-  - `widgets/`: Custom Textual widgets (Chat, Context, TaskList).
-  - `styles/`: TCSS files for application styling.
+- `app.py`: Main Textual Application class.
+- `executor.py`: Logic for managing the Java executor lifecycle and API calls.
+- `widgets/`: Custom Textual widgets (Chat, Context, TaskList).
+- `styles/`: TCSS files for application styling.
+
+## Utilities to use consistently
+
+- format_token_count for displaying token counts anywhere in the UI
