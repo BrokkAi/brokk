@@ -36,7 +36,10 @@ public final class HeadlessExecutorStdinShutdownIT {
     void tearDown() throws Exception {
         if (process != null && process.isAlive()) {
             process.destroy();
-            process.waitFor();
+            if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                process.waitFor(2, TimeUnit.SECONDS);
+            }
         }
         executor.shutdownNow();
     }
