@@ -47,3 +47,46 @@ async def test_status_line_timer_lifecycle():
         status.set_job_running(False)
         await pilot.pause()
         assert progress.has_class("hidden")
+
+@pytest.mark.asyncio
+async def test_chat_panel_status_integration():
+    """Test that ChatPanel correctly delegates job state to its StatusLine."""
+    from brokk_code.widgets.chat_panel import ChatPanel
+    
+    class ChatApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel()
+
+    app = ChatApp()
+    async with app.run_test() as pilot:
+        chat_panel = app.query_one(ChatPanel)
+        status_line = chat_panel.query_one(StatusLine)
+        progress = status_line.query_one("#status-progress")
+        timer_label = status_line.query_one("#status-timer")
+
+        # Setup deterministic clock
+        current_time = 2000.0
+        status_line._get_now = lambda: current_time
+
+        # Initial state: hidden
+        assert "hidden" in progress.classes
+
+        # Trigger via ChatPanel
+        chat_panel.set_job_running(True)
+        await pilot.pause()
+
+        # Verify visibility and timer initialization
+        assert "hidden" not in progress.classes
+        assert "Elapsed: 00:00" in str(timer_label.render())
+
+        # Advance time and verify update
+        current_time += 5.0
+        # The interval is 0.2s, so we wait briefly for the next tick
+        await asyncio.sleep(0.3)
+        await pilot.pause()
+        assert "Elapsed: 00:05" in str(timer_label.render())
+
+        # Stop via ChatPanel
+        chat_panel.set_job_running(False)
+        await pilot.pause()
+        assert "hidden" in progress.classes
