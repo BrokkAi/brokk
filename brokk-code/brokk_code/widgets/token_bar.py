@@ -21,6 +21,9 @@ class TokenBar(Static):
     """
 
     MIN_SEGMENT_WIDTH = 2
+    BRAILLE_OPEN = "\u28be"  # dots-234568
+    BRAILLE_CLOSE = "\u2877"  # dots-123567
+    BRAILLE_FILL = "\u28ff"  # dots-12345678
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -93,18 +96,21 @@ class TokenBar(Static):
                 text = Text()
                 filled_width = 0
                 for i, (seg_width, kind) in enumerate(segments):
-                    if i > 0:
-                        text.append(" ")  # SEGMENT_GAP
-                        filled_width += 1
-
                     color = self._get_kind_color(kind)
-                    text.append("█" * seg_width, style=color)
+                    if seg_width <= 1:
+                        text.append(self.BRAILLE_FILL * seg_width, style=color)
+                    else:
+                        interior = max(0, seg_width - 2)
+                        text.append(self.BRAILLE_OPEN, style=color)
+                        if interior:
+                            text.append(self.BRAILLE_FILL * interior, style=color)
+                        text.append(self.BRAILLE_CLOSE, style=color)
                     filled_width += seg_width
 
                 # Fill remaining track
                 remaining = bar_width - filled_width
                 if remaining > 0:
-                    text.append("█" * remaining, style="dim grey15")
+                    text.append(self.BRAILLE_FILL * remaining, style="dim grey15")
 
                 # Append numerical usage text
                 text.append(usage_str, style="dim")
@@ -199,8 +205,7 @@ class TokenBar(Static):
             )
 
         # 3. Allocation (Simplified largest-remainder)
-        total_gaps = len(alloc_items) - 1
-        effective_fill = max(0, total_fill_width - total_gaps)
+        effective_fill = total_fill_width
 
         # First pass: Floor and min-width clamping
         sum_w = 0

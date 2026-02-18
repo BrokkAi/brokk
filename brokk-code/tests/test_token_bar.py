@@ -19,13 +19,11 @@ def test_compute_segments_basic_proportions():
     ]
     # used_tokens 500 of max_tokens 1000 -> 50% usage.
     # In a 100-wide bar, total fill is 50.
-    # Total gaps: 1 (between EDIT and HISTORY).
-    # Effective fill: 50 - 1 = 49.
-    # Each gets 24.5 -> floor 24. Deficit 1. 1st gets 25, 2nd 24.
+    # Each gets 25.
     segments = TokenBar.compute_segments(100, 500, 1000, fragments)
-    assert sum(w for w, k in segments) == 49
+    assert sum(w for w, k in segments) == 50
     assert (25, "EDIT") in segments
-    assert (24, "HISTORY") in segments
+    assert (25, "HISTORY") in segments
 
 
 def test_compute_segments_summary_grouping():
@@ -35,13 +33,11 @@ def test_compute_segments_summary_grouping():
         {"chipKind": "EDIT", "tokens": 800},
     ]
     # Total 1000. 100% fill on width 100.
-    # Total gaps: 1. Effective fill: 99.
-    # 800/1000 * 99 = 79.2 -> 79
-    # 200/1000 * 99 = 19.8 -> 19
-    # Deficit 1. 19.8 has higher rem. 19 becomes 20.
+    # 800/1000 * 100 = 80
+    # 200/1000 * 100 = 20
     segments = TokenBar.compute_segments(100, 1000, 1000, fragments)
-    assert sum(w for w, k in segments) == 99
-    assert (79, "EDIT") in segments
+    assert sum(w for w, k in segments) == 100
+    assert (80, "EDIT") in segments
     assert (20, "SUMMARIES") in segments
     assert len(segments) == 2
 
@@ -54,13 +50,12 @@ def test_compute_segments_small_fragment_grouping():
     ]
     # Total 1000. On width 100, the 10-token ones would be 1.0 wide.
     # Min width is 2, so they should be grouped into OTHER.
-    # Total gaps: 1. Effective fill: 99.
-    # 980/1000 * 99 = 97.02 -> 97
-    # 20/1000 * 99 = 1.98 -> 2 (min_w)
-    # Sum: 99.
+    # 980/1000 * 100 = 98
+    # 20/1000 * 100 = 2 (min_w)
+    # Sum: 100.
     segments = TokenBar.compute_segments(100, 1000, 1000, fragments)
-    assert sum(w for w, k in segments) == 99
-    assert (97, "EDIT") in segments
+    assert sum(w for w, k in segments) == 100
+    assert (98, "EDIT") in segments
     assert (2, "OTHER") in segments
     assert len(segments) == 2
 
@@ -70,19 +65,17 @@ def test_compute_segments_history_not_grouped_even_if_small():
         {"chipKind": "EDIT", "tokens": 990},
         {"chipKind": "HISTORY", "tokens": 10},
     ]
-    # Total gaps: 1. Effective fill: 99.
-    # 990/1000 * 99 = 98.01 -> 98
-    # 10/1000 * 99 = 0.99 -> 0.
-    # HISTORY is not grouped. Deficit 1. 0.99 has high rem. 0 -> 1.
+    # 990/1000 * 100 = 99
+    # 10/1000 * 100 = 1
     segments = TokenBar.compute_segments(100, 1000, 1000, fragments)
-    assert sum(w for w, k in segments) == 99
-    assert (98, "EDIT") in segments
+    assert sum(w for w, k in segments) == 100
+    assert (99, "EDIT") in segments
     assert (1, "HISTORY") in segments
 
 
 def test_compute_segments_accounts_for_gaps():
     # Width 100, 100% fill. 3 segments.
-    # Total gaps: 2. Effective fill: 98.
+    # No gaps are reserved in the filled area.
     fragments = [
         {"chipKind": "EDIT", "tokens": 333},
         {"chipKind": "HISTORY", "tokens": 333},
@@ -90,5 +83,5 @@ def test_compute_segments_accounts_for_gaps():
     ]
     segments = TokenBar.compute_segments(100, 1000, 1000, fragments)
     total_w = sum(w for w, k in segments)
-    assert total_w == 98
+    assert total_w == 100
     assert len(segments) == 3
