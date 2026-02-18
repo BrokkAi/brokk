@@ -220,8 +220,8 @@ ChatPanel {
 }
 
 #chat-input-container.autocomplete-open {
-    /* Raise the prompt panel by ~2 rows (~16-24px depending on font) when autocomplete is open */
-    margin-bottom: 2;
+    /* Raise the prompt panel by ~60px (approx 5-6 rows) when autocomplete is open */
+    margin-bottom: 6;
 }
 
 #chat-input-container.autocomplete-open #chat-input {
