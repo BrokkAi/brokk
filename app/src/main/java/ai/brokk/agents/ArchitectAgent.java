@@ -1024,7 +1024,8 @@ public class ArchitectAgent {
 
                 allowed.add("callCodeAgent");
 
-                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
+                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()
+                        && !Objects.equals(System.getenv("BRK_ALLOW_SET_BUILD_DETAILS"), "false")) {
                     allowed.add("setBuildDetails");
                     allowed.add("verifyBuildCommand");
                 }
