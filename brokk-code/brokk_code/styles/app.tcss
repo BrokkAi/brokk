@@ -259,8 +259,6 @@ ChatPanel {
     color: $accent;
     background: transparent;
     margin-right: 1;
-    /* Ensure it doesn't push the help text off-screen if it expands */
-    flex-shrink: 0;
 }
 
 #chat-help {

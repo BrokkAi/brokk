@@ -240,6 +240,9 @@ def test_help_menu_layout_contract():
     assert "margin-right: 1;" in spinner_body, (
         "Spinner should have right margin to separate from text"
     )
+    assert "flex-shrink" not in spinner_body, (
+        "Textual TCSS does not support 'flex-shrink' property."
+    )
 
     # 5. Ensure legacy help labels are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)
