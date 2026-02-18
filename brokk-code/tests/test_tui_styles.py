@@ -240,8 +240,10 @@ def test_help_menu_layout_contract():
     assert "margin-right: 1;" in spinner_body, (
         "Spinner should have right margin to separate from text"
     )
+
+    # Negative regression: flex-shrink is invalid in TCSS and causes a crash.
     assert "flex-shrink" not in spinner_body, (
-        "Textual TCSS does not support 'flex-shrink' property."
+        "Textual TCSS does not support 'flex-shrink' property; using it causes a crash."
     )
 
     # 5. Ensure legacy help labels are not active/visible
