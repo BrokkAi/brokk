@@ -238,7 +238,13 @@ def test_help_menu_layout_contract():
         "Textual TCSS does not support 'flex-shrink' property; using it causes a crash."
     )
 
-    # 5. Ensure legacy help widgets are not active/visible
+    # 5. Ensure no invalid scrollbar properties exist (Textual uses scrollbar-x/y or show-scrollbar)
+    assert "show-vertical-scrollbar" not in css_content, (
+        "Textual TCSS does not support 'show-vertical-scrollbar'; use 'show-scrollbar' or 'scrollbar-y'."
+    )
+    assert "show-horizontal-scrollbar" not in css_content
+
+    # 6. Ensure legacy help widgets are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)
     for legacy_id in ["#tasklist-help", "#context-help", "#status-spinner"]:
         match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)

@@ -32,7 +32,6 @@ class SlashCommandSuggestions(ListView):
         margin: 0 2;
         layer: top;
         scrollbar-gutter: stable;
-        show-vertical-scrollbar: yes;
     }
     SlashCommandSuggestions ListItem {
         padding: 0 1;

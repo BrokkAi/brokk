@@ -72,7 +72,7 @@ async def test_autocomplete_selection_updates_input():
         await pilot.press(*list("/as"))
         # suggestions.display should be True here
         assert app.query_one(SlashCommandSuggestions).display is True
-        
+
         # In this test app context, /ask is the first suggestion.
         # Enter selects it and, because it's /ask, also submits (clearing input).
         await pilot.press("enter")
@@ -288,5 +288,5 @@ async def test_autocomplete_scrollbar_configuration():
     app = AutocompleteTestApp()
     async with app.run_test():
         suggestions = app.query_one(SlashCommandSuggestions)
-        # Verify vertical scrollbar is enabled (textual attribute check)
+        # Verify vertical scrollbar is enabled via the correct attribute
         assert suggestions.show_vertical_scrollbar is True

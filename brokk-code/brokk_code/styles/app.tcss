@@ -262,7 +262,6 @@ SlashCommandSuggestions {
     border-top: solid $primary-darken-1;
     color: $text;
     scrollbar-gutter: stable;
-    show-vertical-scrollbar: yes;
 }
 
 SlashCommandSuggestions > ListItem:focus {
