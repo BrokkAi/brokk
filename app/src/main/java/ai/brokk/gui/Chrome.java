@@ -896,18 +896,7 @@ public class Chrome
 
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
-        if (SwingUtilities.isEventDispatchThread()) {
-            rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history);
-        } else {
-            try {
-                SwingUtilities.invokeAndWait(
-                        () -> rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (InvocationTargetException e) {
-                logger.error("Error preparing output for next stream", e);
-            }
-        }
+        SwingUtil.runOnEdt(() -> rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history));
     }
 
     @Override

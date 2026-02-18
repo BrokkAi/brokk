@@ -1138,11 +1138,12 @@ public final class BprCli implements Callable<Integer> {
                                         cm, fqcn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
                                 .toList();
 
-                        return Optional.of(new ContextAgent.RecommendationResult(
-                                true,
-                                Streams.concat(fileFragments.stream(), classFragments.stream())
-                                        .toList(),
-                                null));
+                        var allFragments = Streams.concat(fileFragments.stream(), classFragments.stream())
+                                .toList();
+                        if (allFragments.isEmpty()) {
+                            return Optional.empty();
+                        }
+                        return Optional.of(new ContextAgent.RecommendationResult(true, allFragments, null));
                     }
                 } catch (IOException e) {
                     logger.warn("Failed to read properties cache from {}: {}", propsFile, e.getMessage());

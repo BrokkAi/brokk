@@ -54,6 +54,22 @@ brokk-code
 python -m brokk_code
 ```
 
+### Resuming Sessions
+
+Brokk automatically saves your session state (fragments, history, etc.) when you exit.
+
+**Resume the last session in the current workspace:**
+```bash
+brokk-code --resume
+```
+
+**Resume a specific session by ID:**
+```bash
+brokk-code resume <session_id>
+```
+*Note: When you exit `brokk-code`, it prints a convenient "resume hint" command for the session you just finished, for example:*
+`brokk-code resume <session_id>`
+
 ### ACP Mode
 
 Run the official ACP server mode over stdio:
@@ -67,6 +83,8 @@ This mode is headless and intended for ACP-compatible clients. The default `brok
 ### Options
 
 - `--workspace <path>`: Specify the workspace directory (defaults to current directory).
+- `--resume`: Resume the last used session in the current workspace.
+- `--session <id>`: Attempt to resume a specific session ID (similar to the `resume` command).
 - `--executor-version <tag>`: Specify a version/tag of the executor to download (e.g., `v0.1.0`).
 - `--executor-snapshot`: Download the latest snapshot release instead of the stable release (ignored if `--executor-version` is set).
 - `--jar <path>`: Specify a custom path to `brokk.jar`. This **overrides** all version/download logic.

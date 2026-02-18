@@ -136,6 +136,9 @@ public class BuildOutputProcessor {
             - IGNORE verbose progress messages, successful compilation output,
               general startup/shutdown logs
 
+            In frameworks that like to show both a progress indicator and a more detailed error
+            report at the end, WE ONLY CARE ABOUT THE DETAILED ERROR REPORT.
+
             Return the extracted errors in a clean, readable format.
 
             EXAMPLE showing trimming of framework (junit/jupiter) boilerplate and irrelevant log output, while

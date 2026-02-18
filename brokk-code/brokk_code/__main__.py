@@ -64,20 +64,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Attempt to resume a specific session by ID",
     )
     parser.add_argument(
-        "--no-resume",
-        action="store_false",
+        "--resume",
+        action="store_true",
         dest="resume_session",
-        default=True,
-        help="Always create a new session instead of resuming the last one",
-    )
-    parser.add_argument(
-        "--new-session",
-        action="store_false",
-        dest="resume_session",
-        help="Synonym for --no-resume",
+        default=False,
+        help="Resume the last used session instead of creating a new one",
     )
 
     subparsers = parser.add_subparsers(dest="command")
+
+    resume_parser = subparsers.add_parser("resume", help="Resume a specific session")
+    _add_common_runtime_args(resume_parser)
+    resume_parser.add_argument(
+        "session_id",
+        type=str,
+        help="The ID of the session to resume",
+    )
 
     acp_parser = subparsers.add_parser("acp", help="Run in ACP server mode")
     _add_common_runtime_args(acp_parser)
@@ -154,16 +156,36 @@ def main():
         print("Error: Could not import BrokkApp. Is app.py missing?")
         sys.exit(1)
 
+    session_id = getattr(args, "session", None)
+    resume_session = getattr(args, "resume_session", False)
+
+    if args.command == "resume":
+        session_id = args.session_id
+        resume_session = False  # Explicitly using the provided ID, not "last session" logic
+
     app = BrokkApp(
         workspace_dir=workspace_path,
         jar_path=jar_path,
         executor_version=args.executor_version,
         executor_snapshot=args.executor_snapshot,
-        session_id=args.session,
-        resume_session=args.resume_session,
+        session_id=session_id,
+        resume_session=resume_session,
         vendor=args.vendor,
     )
     app.run()
+
+    # Print resume hint on exit if the session has tasks
+    from brokk_code.session_persistence import (
+        get_session_zip_path,
+        has_tasks,
+        load_last_session_id,
+    )
+
+    last_id = load_last_session_id(workspace_path)
+    if last_id:
+        zip_path = get_session_zip_path(workspace_path, last_id)
+        if has_tasks(zip_path):
+            print(f"brokk-code resume {last_id}")
 
 
 if __name__ == "__main__":
