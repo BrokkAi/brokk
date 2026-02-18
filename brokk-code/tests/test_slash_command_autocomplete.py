@@ -70,9 +70,14 @@ async def test_autocomplete_selection_updates_input():
         chat_input = app.query_one(ChatInput)
 
         await pilot.press(*list("/as"))
+        # suggestions.display should be True here
+        assert app.query_one(SlashCommandSuggestions).display is True
+        
+        # In this test app context, /ask is the first suggestion.
+        # Enter selects it and, because it's /ask, also submits (clearing input).
         await pilot.press("enter")
 
-        assert chat_input.text == "/ask"
+        assert chat_input.text == ""
         assert app.query_one(SlashCommandSuggestions).display is False
 
 
@@ -94,17 +99,19 @@ async def test_autocomplete_navigates_with_arrows_bypassing_history():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         chat_panel = app.query_one(ChatPanel)
+        # Set some history to ensure we can distinguish between history and menu nav
         chat_panel.set_history(["previous message"])
         chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
 
         await pilot.press("/")
         # suggestions index defaults to 0
+        assert suggestions.display is True
         assert suggestions.index == 0
 
         await pilot.press("down")
         assert suggestions.index == 1
-        # Check that history didn't kick in
+        # Check that history didn't kick in (input stays at just the slash)
         assert chat_input.text == "/"
 
         await pilot.press("up")
