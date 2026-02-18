@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from textual.widgets import ListView, Static
 
 from brokk_code.app import BrokkApp
 
@@ -178,7 +179,9 @@ async def test_combined_modal_checked_marker_is_visible():
             reasoning_list = app.screen.query_one("#reasoning-select-list", ListView)
             selected_reasoning_item = reasoning_list.children[reasoning_list.index]
             reasoning_label = str(selected_reasoning_item.query_one(Static).renderable)
-            assert "[x]" in reasoning_label, f"Reasoning marker '[x]' missing from: {reasoning_label}"
+            assert "[x]" in reasoning_label, (
+                f"Reasoning marker '[x]' missing from: {reasoning_label}"
+            )
 
 
 @pytest.mark.asyncio
