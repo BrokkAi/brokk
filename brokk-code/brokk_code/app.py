@@ -798,6 +798,7 @@ class BrokkApp(App):
             chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
         finally:
             chat.set_response_finished()
+            chat.set_job_running(False)
 
             # Yield to the event loop to allow any rapid subsequent submissions
             # triggered by the cancellation to be processed before we check _pending_prompt.
@@ -836,20 +837,10 @@ class BrokkApp(App):
                 else:
                     self.job_in_progress = False
                     self.current_job_id = None
-                    chat = self._maybe_chat()
-                    if chat:
-                        chat.set_job_running(False)
             else:
                 # Only mark idle once we are sure no more prompts are queued
                 self.job_in_progress = False
                 self.current_job_id = None
-                chat = self._maybe_chat()
-                if chat:
-                    try:
-                        status = chat.query_one(StatusLine)
-                        status.set_job_running(False)
-                    except Exception:
-                        pass
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")

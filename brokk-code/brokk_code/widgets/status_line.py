@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 from textual.app import ComposeResult
