@@ -88,7 +88,8 @@ class StatusLine(Horizontal):
             if path == home:
                 return "~"
             if path.is_relative_to(home):
-                return f"~/{path.relative_to(home)}"
+                return f"~/{path.relative_to(home).as_posix()}"
+            return path.as_posix()
         except Exception:
             pass
         return workspace
