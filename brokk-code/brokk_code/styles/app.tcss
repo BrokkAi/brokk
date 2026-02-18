@@ -233,6 +233,10 @@ ChatPanel {
     height: 1;
 }
 
+#status-spinner {
+    display: none;
+}
+
 /* Ensure the Textual `.hidden` class continues to hide the status line cleanly. */
 .hidden {
     display: none;

@@ -240,7 +240,7 @@ def test_help_menu_layout_contract():
 
     # 5. Ensure legacy help widgets are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)
-    for legacy_id in ["#tasklist-help", "#context-help"]:
+    for legacy_id in ["#tasklist-help", "#context-help", "#status-spinner"]:
         match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
         if match:
             body = match.group(1)
