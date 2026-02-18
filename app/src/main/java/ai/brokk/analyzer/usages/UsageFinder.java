@@ -85,6 +85,10 @@ public final class UsageFinder {
         };
     }
 
+    /**
+     * @deprecated Use {@link #create(IContextManager)} or the full constructor.
+     */
+    @Deprecated
     public UsageFinder(IProject project, IAnalyzer analyzer, UsageAnalyzer llmAnalyzer) {
         this(project, analyzer, createDefaultProvider(), llmAnalyzer, null);
     }

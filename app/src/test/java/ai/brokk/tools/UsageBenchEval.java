@@ -294,7 +294,7 @@ public class UsageBenchEval implements Callable<Integer> {
                         false)
                 : null;
         UsageAnalyzer llmAnalyzer = new LlmUsageAnalyzer(project, analyzer, service, llm);
-        UsageFinder finder = new UsageFinder(project, analyzer, llmAnalyzer);
+        UsageFinder finder = new UsageFinder(project, analyzer, UsageFinder.createDefaultProvider(), llmAnalyzer, null);
 
         String projectName = project.getRoot().getFileName().toString();
         String projectPath = project.getRoot().toAbsolutePath().toString();

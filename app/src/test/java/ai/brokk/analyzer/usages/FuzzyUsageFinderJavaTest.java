@@ -1,11 +1,11 @@
 package ai.brokk.analyzer.usages;
 
-import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
-import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.*;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.FuzzyUsageFinderTestUtil;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
@@ -49,7 +49,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesMethodExistingTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "A.method2";
         var either = finder.findUsages(symbol).toEither();
 
@@ -67,7 +67,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesNestedClassConstructorTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "A$AInner$AInnerInner";
         var either = finder.findUsages(symbol).toEither();
 
@@ -83,7 +83,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesMethodNonexistentTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "A.noSuchMethod:java.lang.String()";
         var result = finder.findUsages(symbol);
 
@@ -92,7 +92,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesFieldExistingTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "D.field1";
         var either = finder.findUsages(symbol).toEither();
 
@@ -109,7 +109,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesFieldNonexistentTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "D.notAField";
         var result = finder.findUsages(symbol);
 
@@ -118,7 +118,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesFieldFromUseETest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "UseE.e";
         var either = finder.findUsages(symbol).toEither();
 
@@ -134,7 +134,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesClassBasicTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "A";
         var either = finder.findUsages(symbol).toEither();
 
@@ -154,7 +154,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesClassNonexistentTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "NoSuchClass";
         var result = finder.findUsages(symbol);
 
@@ -163,7 +163,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesNestedClassTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "A$AInner";
         var either = finder.findUsages(symbol).toEither();
 
@@ -179,7 +179,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesClassWithStaticMembersTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "E";
         var either = finder.findUsages(symbol).toEither();
 
@@ -195,7 +195,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesClassInheritanceTest() throws InterruptedException {
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();
 
@@ -214,7 +214,7 @@ public class FuzzyUsageFinderJavaTest {
     @Test
     public void getUsesFunctionNoPrefixMatchTest() throws InterruptedException {
         // Ensure that searching for A$AInner does NOT prefix-match A$AInner$AInnerInner
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "A$AInner";
         var either = finder.findUsages(symbol).toEither();
 
@@ -261,7 +261,7 @@ public class FuzzyUsageFinderJavaTest {
         try (IProject inlineProject =
                 InlineTestProjectCreator.code(serviceImpl, "ServiceImpl.java").build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
             var symbol = "ServiceImpl.foo";
             var either = finder.findUsages(symbol).toEither();
 
@@ -282,7 +282,7 @@ public class FuzzyUsageFinderJavaTest {
     @Test
     public void getUsesMethodReferenceTest() throws InterruptedException {
         // Test that method references (e.g., this::transform) are correctly identified
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "MethodReferenceUsage.transform";
         var either = finder.findUsages(symbol).toEither();
 
@@ -299,7 +299,7 @@ public class FuzzyUsageFinderJavaTest {
     @Test
     public void getUsesOverloadedMethodsAggregationTest() throws InterruptedException {
         // Test that findUsages aggregates usages from all overloaded methods
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "Overloads.process";
         var either = finder.findUsages(symbol).toEither();
 
@@ -328,7 +328,7 @@ public class FuzzyUsageFinderJavaTest {
         // - Generics (List<BaseClass>)
         // - Casts ((BaseClass) obj)
         // - Static access (BaseClass.staticMethod())
-        var finder = newFinder(testProject, analyzer);
+        var finder = FuzzyUsageFinderTestUtil.createForTest(testProject, analyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();
 
@@ -422,7 +422,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(callerContent, "MultipleHitsInSameMethod.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             // Search for Foo.process - the test file has two calls to foo.process() in the same method
             var symbol = "Foo.process";
@@ -484,7 +484,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(user, "User.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             // Search for usages of Outer1$Inner.
             // Under the current bug, identifier will be "Inner", but matchingCodeUnits filter uses
@@ -534,7 +534,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(barContent, "Bar.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             // Search for usages of the simple class Foo (no nesting, so identifier() returns "Foo")
             var result = finder.findUsages("Foo");
@@ -587,7 +587,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(userSource, "User.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             // Search for the deeply nested class
             var result = finder.findUsages("Outer$Middle$Inner");
@@ -681,7 +681,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(callerContent, "Caller.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             var symbol = "Animal.speak";
             var either = finder.findUsages(symbol).toEither();
@@ -736,7 +736,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(callerContent, "Caller.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             var symbol = "Animal.speak";
             var either = finder.findUsages(symbol).toEither();
@@ -799,7 +799,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(callerContent, "Caller.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             var symbol = "Animal.speak";
             var either = finder.findUsages(symbol).toEither();
@@ -859,7 +859,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(truePositiveSource, "TruePositive.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             var symbol = "ChannelHolder.channel";
             var either = finder.findUsages(symbol).toEither();
@@ -903,7 +903,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(callerContent, "Caller.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             // Search for the implicit constructor. JavaAnalyzer synthesizes Foo.Foo for Foo.
             var symbol = "Foo.Foo";
@@ -960,7 +960,7 @@ public class FuzzyUsageFinderJavaTest {
                 .addFileContents(consumerSource, "ai/brokk/TaskConsumer.java")
                 .build()) {
             JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
-            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var finder = FuzzyUsageFinderTestUtil.createForTest(inlineProject, inlineAnalyzer);
 
             // Search for usages of the record component 'log'
             var symbol = "ai.brokk.TaskEntry.log";

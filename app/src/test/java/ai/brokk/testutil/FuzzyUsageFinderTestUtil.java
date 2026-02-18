@@ -29,6 +29,17 @@ public final class FuzzyUsageFinderTestUtil {
      */
     public static UsageFinder newFinder(IProject project, IAnalyzer analyzer) {
         return new UsageFinder(
-                project, analyzer, new LlmUsageAnalyzer(project, analyzer, new TestService(project), null));
+                project,
+                analyzer,
+                UsageFinder.createDefaultProvider(),
+                new LlmUsageAnalyzer(project, analyzer, new TestService(project), null),
+                null);
+    }
+
+    /**
+     * Creates a UsageFinder for tests.
+     */
+    public static UsageFinder createForTest(IProject project, IAnalyzer analyzer) {
+        return newFinder(project, analyzer);
     }
 }

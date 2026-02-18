@@ -1412,6 +1412,7 @@ public class ContextFragments {
             Predicate<ProjectFile> fileFilter =
                     includeTestFiles ? null : file -> !ContextManager.isTestFile(file, analyzer);
 
+            // UsageFinder is the new name for the unified usage discovery service
             FuzzyResult usageResult =
                     UsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
             var either = usageResult.toEither();
