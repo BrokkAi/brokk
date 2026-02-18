@@ -33,10 +33,12 @@ class FakeExecutor:
         zip_bytes: Optional[bytes] = b"ZIP",
         alive: bool = True,
         workspace_dir: Optional[Path] = None,
+        fail_stop_attempts: int = 0,
     ):
         self._zip_bytes = zip_bytes
         self._alive = alive
         self._stopped = False
+        self._fail_stop_attempts = fail_stop_attempts
 
         # Tracking
         self.download_calls = 0
@@ -61,6 +63,9 @@ class FakeExecutor:
 
     async def stop(self) -> None:
         self.stop_calls += 1
+        if self._fail_stop_attempts > 0:
+            self._fail_stop_attempts -= 1
+            raise RuntimeError("simulated stop failure")
         # Mark stopped so subsequent download attempts will raise the "Executor not started" path
         self._stopped = True
         # Simulate async cleanup
@@ -217,3 +222,28 @@ async def test_export_skipped_when_no_session_id(caplog, tmp_path):
 
     # no warnings expected
     assert not any("Failed to export" in rec.getMessage() for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_retries_stop_after_failure(tmp_path):
+    """A failed stop attempt should not permanently block later shutdown retries."""
+    fake = FakeExecutor(
+        zip_bytes=b"retry-stop-zip",
+        alive=True,
+        workspace_dir=tmp_path,
+        fail_stop_attempts=1,
+    )
+    fake.session_id = "sess-retry"
+
+    app = BrokkApp(executor=fake)
+    app._executor_ready = True
+
+    # First attempt fails stop and should remain retryable.
+    await app._shutdown_once(show_message=False)
+    assert fake.stop_calls == 1
+    assert app._shutdown_completed is False
+
+    # Second attempt retries stop and completes shutdown.
+    await app._shutdown_once(show_message=False)
+    assert fake.stop_calls == 2
+    assert app._shutdown_completed is True

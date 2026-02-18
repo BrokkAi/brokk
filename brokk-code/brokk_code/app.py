@@ -276,6 +276,7 @@ class BrokkApp(App):
 
         # Shutdown coordination flags and lock
         self._shutting_down: bool = False
+        self._shutdown_completed: bool = False
         self._session_exported: bool = False
         self._shutdown_lock = asyncio.Lock()
 
@@ -1325,10 +1326,10 @@ class BrokkApp(App):
             logger.warning("Failed to export session zip on shutdown: %s", e)
 
     async def _shutdown_once(self, *, show_message: bool = True) -> None:
-        """Perform shutdown actions exactly once. Idempotent and concurrency-safe."""
+        """Perform shutdown actions once completed. Concurrency-safe with retry on stop failure."""
         # Fast path
         async with self._shutdown_lock:
-            if self._shutting_down:
+            if self._shutdown_completed or self._shutting_down:
                 return
             self._shutting_down = True
 
@@ -1367,6 +1368,10 @@ class BrokkApp(App):
                 await self.executor.stop()
             except Exception:
                 logger.debug("Executor.stop encountered an error during shutdown", exc_info=True)
+                self._shutting_down = False
+                return
+
+            self._shutdown_completed = True
 
     async def action_quit(self) -> None:
         # Centralized shutdown; show_message True to surface to user via chat/logs.
