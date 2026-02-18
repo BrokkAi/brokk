@@ -8,6 +8,8 @@ target/
 *.iws
 *.iml
 *.ipr
+# JFR IntelliJ plugin stuff
+*.profileconfig.json
 
 ### Gradle files
 build/
@@ -52,10 +54,10 @@ project/project/
 .DS_Store
 
 ### BROKK'S CONFIGURATION ###
-.brokk/**
-!.brokk/style.md
-!.brokk/review.md
-!.brokk/project.properties
+**/.brokk/**
+!**/.brokk/style.md
+!**/.brokk/review.md
+!**/.brokk/project.properties
 
 ### JDeploy CONFIGURATION ###
 .jdeploy/
