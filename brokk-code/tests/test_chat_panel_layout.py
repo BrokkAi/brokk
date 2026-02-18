@@ -18,17 +18,18 @@ async def test_status_line_above_chat_input():
         chat_panel = app.query_one(ChatPanel)
 
         status_line = chat_panel.query_one("#status-line", StatusLine)
-        chat_input = chat_panel.query_one("#chat-input")
+        input_container = chat_panel.query_one("#chat-input-container")
 
         # Get indices in the parent container's children list
-        # ChatPanel inherits from Vertical, so indices correspond to vertical order
+        # ChatPanel inherits from Vertical, so indices correspond to vertical order.
+        # #chat-input is nested inside #chat-input-container.
         children = chat_panel.children
         status_index = children.index(status_line)
-        input_index = children.index(chat_input)
+        container_index = children.index(input_container)
 
-        assert status_index < input_index, (
+        assert status_index < container_index, (
             f"Expected #status-line (index {status_index}) to be above "
-            f"#chat-input (index {input_index})"
+            f"#chat-input-container (index {container_index})"
         )
 
 
