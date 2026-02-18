@@ -38,7 +38,7 @@ import picocli.CommandLine;
 @CommandLine.Command(
         name = "UsageBenchEval",
         mixinStandardHelpOptions = true,
-        description = "Evaluates FuzzyUsageFinder against a labeled dataset")
+        description = "Evaluates UsageFinder against a labeled dataset")
 public class UsageBenchEval implements Callable<Integer> {
 
     @CommandLine.Option(
@@ -169,7 +169,7 @@ public class UsageBenchEval implements Callable<Integer> {
 
     private void printStartupBanner(int projectCount) {
         System.out.println("================================================================================");
-        System.out.println(" UsageBenchEval - FuzzyUsageFinder Benchmark");
+        System.out.println(" UsageBenchEval - UsageFinder Benchmark");
         System.out.println("================================================================================");
         System.out.printf(" Input Directory: %s%n", inputDir.toAbsolutePath());
         System.out.printf(" Language Filter: %s%n", language);

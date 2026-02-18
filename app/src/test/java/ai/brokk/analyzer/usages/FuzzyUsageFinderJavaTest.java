@@ -1,7 +1,7 @@
 package ai.brokk.analyzer.usages;
 
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
+import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.*;
@@ -34,7 +34,7 @@ public class FuzzyUsageFinderJavaTest {
         testProject = new TestProject(testDir);
         analyzer = new JavaAnalyzer(testProject);
         logger.debug(
-                "Setting up FuzzyUsageFinder tests with test code from {}",
+                "Setting up UsageFinder tests with test code from {}",
                 testProject.getRoot().toAbsolutePath().normalize());
     }
 
