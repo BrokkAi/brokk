@@ -274,9 +274,9 @@ def test_help_menu_layout_contract():
         r"#chat-input-container\.autocomplete-open\s*\{([^}]*)\}", css_content
     )
     assert container_open_match, "Could not find #chat-input-container.autocomplete-open rule"
-    # The container margin-bottom: 1 provides an offset to make room for the menu
+    # The container margin-bottom: 1 provides an offset to make room for the menu (~10px)
     assert "margin-bottom: 1;" in container_open_match.group(1), (
-        "Container should have margin-bottom: 1 to raise prompt when autocomplete is open"
+        "Container should have margin-bottom: 1 to raise prompt (~10px) when autocomplete is open"
     )
 
     # 7. Ensure legacy help widgets are not active/visible

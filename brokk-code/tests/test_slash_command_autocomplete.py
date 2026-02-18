@@ -325,7 +325,7 @@ async def test_autocomplete_ui_state_preserves_prompt_visibility():
         # In current design, height is preserved to keep UI stable
         assert chat_input.styles.height.value == 3
 
-        # Container margin-bottom should be 1 to raise the panel (approx 1 row)
+        # Container margin-bottom should be 1 to raise the panel (approx 1 row/10px)
         # when the menu is visible below it.
         assert container.styles.margin.bottom.value == 1
 
