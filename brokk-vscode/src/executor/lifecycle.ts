@@ -142,15 +142,28 @@ export function resolveJbangBinary(): string | null {
 export async function installJbang(): Promise<string> {
   const isWindows = process.platform === "win32";
 
+  const INSTALL_TIMEOUT_MS = 120_000; // 2 minutes
+
   const child = isWindows
     ? spawn("powershell", ["-Command", `iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"`], { stdio: "pipe" })
     : spawn("bash", ["-c", "curl -Ls https://sh.jbang.dev | bash -s - app setup"], { stdio: "pipe" });
 
   await new Promise<void>((resolve, reject) => {
     let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error("jbang installation timed out after 2 minutes"));
+    }, INSTALL_TIMEOUT_MS);
+
+    // Drain both stdout and stderr to prevent pipe buffer from filling
+    child.stdout?.on("data", () => {});
     child.stderr?.on("data", (data: Buffer) => { stderr += data.toString(); });
-    child.on("error", (err) => reject(new Error(`Failed to run jbang installer: ${err.message}`)));
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(new Error(`Failed to run jbang installer: ${err.message}`));
+    });
     child.on("exit", (code) => {
+      clearTimeout(timeout);
       if (code === 0) resolve();
       else reject(new Error(`jbang installer exited with code ${code}${stderr ? `: ${stderr.trim()}` : ""}`));
     });
