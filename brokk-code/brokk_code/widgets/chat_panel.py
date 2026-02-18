@@ -24,7 +24,7 @@ class SlashCommandSuggestions(ListView):
     SlashCommandSuggestions {
         display: none;
         height: auto;
-        max-height: 5;
+        max-height: 10;
         width: 1fr;
         margin: 0 2 0 2;
     }

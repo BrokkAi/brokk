@@ -268,7 +268,7 @@ SlashCommandSuggestions {
     scrollbar-gutter: stable;
     /* Overlay above the input: bottom margin matches input height (3) + help row height (1) + extra clearance (3) = 7 */
     margin: 0 2 7 2;
-    max-height: 5;
+    max-height: 10;
     dock: bottom;
     layer: top;
 }

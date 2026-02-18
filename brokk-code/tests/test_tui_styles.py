@@ -256,8 +256,8 @@ def test_help_menu_layout_contract():
         # Check max-height is reduced
         mh_match = re.search(r"max-height:\s*(\d+)\s*;", suggestions_body)
         if mh_match:
-            assert int(mh_match.group(1)) <= 5, (
-                "SlashCommandSuggestions max-height should be 5 or less"
+            assert int(mh_match.group(1)) <= 10, (
+                "SlashCommandSuggestions max-height should be 10 or less"
             )
 
         # Check margin: 0 2 5 2; (to match chat-input horizontal alignment and clear height 3 + help row 1 + 1 gap)
