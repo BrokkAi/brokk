@@ -8,7 +8,6 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.java.JdtUsageAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
 import java.util.List;
@@ -34,9 +33,11 @@ public final class FuzzyUsageFinder {
     private final IProject project;
     private final IAnalyzer analyzer;
     private final AbstractService service;
-    private final CandidateFileProvider candidateProvider;
-    private final UsageAnalyzer llmAnalyzer;
+    private final CandidateFileProvider fallbackCandidateProvider;
+    private final UsageAnalyzer fallbackUsageAnalyzer;
     private final @Nullable Predicate<ProjectFile> fileFilter;
+
+    private record Configuration(CandidateFileProvider candidateProvider, UsageAnalyzer usageAnalyzer) {}
 
     public static FuzzyUsageFinder create(IContextManager cm) {
         return create(cm, null);
@@ -62,6 +63,14 @@ public final class FuzzyUsageFinder {
         var llmAnalyzer = new LlmUsageAnalyzer(project, analyzer, service, llm, DEFAULT_MAX_USAGES);
 
         return new FuzzyUsageFinder(project, analyzer, service, createDefaultProvider(), llmAnalyzer, fileFilter);
+    }
+
+    private Configuration getConfiguration(CodeUnit target) {
+        Language lang = Languages.fromExtension(target.source().extension());
+        if (!FUZZY_USAGES_ONLY && lang.contains(Languages.JAVA)) {
+            return new Configuration(new TextSearchCandidateProvider(), new JdtUsageAnalyzerStrategy(project));
+        }
+        return new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
     }
 
     public static CandidateFileProvider createDefaultProvider() {
@@ -119,8 +128,8 @@ public final class FuzzyUsageFinder {
         this.project = project;
         this.analyzer = analyzer;
         this.service = service;
-        this.candidateProvider = candidateProvider;
-        this.llmAnalyzer = llmAnalyzer;
+        this.fallbackCandidateProvider = candidateProvider;
+        this.fallbackUsageAnalyzer = llmAnalyzer;
         this.fileFilter = fileFilter;
     }
 
@@ -133,11 +142,10 @@ public final class FuzzyUsageFinder {
         assert !overloads.isEmpty() : "overloads must not be empty";
         var target = overloads.getFirst();
 
-        // Determine language based on the target's source file extension
-        Language lang = Languages.fromExtension(target.source().extension());
+        Configuration config = getConfiguration(target);
 
-        // Identify candidate files using the injected provider
-        Set<ProjectFile> candidateFiles = candidateProvider.findCandidates(target, analyzer);
+        // Identify candidate files using the selected provider
+        Set<ProjectFile> candidateFiles = config.candidateProvider().findCandidates(target, analyzer);
 
         // Apply file filter if provided (e.g., to exclude test files)
         if (fileFilter != null) {
@@ -150,29 +158,8 @@ public final class FuzzyUsageFinder {
             return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
         }
 
-        // --- Precise Java Analysis Path ---
-        if (!FUZZY_USAGES_ONLY && lang.contains(Languages.JAVA)) {
-            // When in MultiLanguage mode, filter to only Java files for JDT analysis
-            Set<ProjectFile> javaCandidateFiles = candidateFiles;
-            if (lang instanceof Language.MultiLanguage) {
-                javaCandidateFiles = candidateFiles.stream()
-                        .filter(f -> Languages.JAVA.getExtensions().contains(f.extension()))
-                        .collect(Collectors.toSet());
-            }
-
-            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, javaCandidateFiles, project);
-
-            logger.debug(
-                    "Extracted {} precise JDT usage hits for {} from {} candidate files",
-                    hits.size(),
-                    target.fqName(),
-                    candidateFiles.size());
-
-            return new FuzzyResult.Success(Map.of(target, hits));
-        }
-
         // Delegate search and disambiguation to the UsageAnalyzer
-        return llmAnalyzer.findUsages(overloads, candidateFiles);
+        return config.usageAnalyzer().findUsages(overloads, candidateFiles);
     }
 
     /**
