@@ -1,15 +1,15 @@
 package ai.brokk.testutil;
 
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.LlmUsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Utility methods for FuzzyUsageFinder tests.
+ * Utility methods for UsageFinder tests.
  */
 public final class FuzzyUsageFinderTestUtil {
 
@@ -25,13 +25,10 @@ public final class FuzzyUsageFinderTestUtil {
     }
 
     /**
-     * Creates a FuzzyUsageFinder with a TestService and no LLM.
+     * Creates a UsageFinder with a TestService and no LLM.
      */
-    public static FuzzyUsageFinder newFinder(IProject project, IAnalyzer analyzer) {
-        return new FuzzyUsageFinder(
-                project,
-                analyzer,
-                new LlmUsageAnalyzer(
-                        project, analyzer, new TestService(project), null, FuzzyUsageFinder.DEFAULT_MAX_USAGES));
+    public static UsageFinder newFinder(IProject project, IAnalyzer analyzer) {
+        return new UsageFinder(
+                project, analyzer, new LlmUsageAnalyzer(project, analyzer, new TestService(project), null));
     }
 }

@@ -40,15 +40,12 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
     private final IAnalyzer analyzer;
     private final AbstractService service;
     private final @Nullable Llm llm;
-    private final int maxUsages;
 
-    public LlmUsageAnalyzer(
-            IProject project, IAnalyzer analyzer, AbstractService service, @Nullable Llm llm, int maxUsages) {
+    public LlmUsageAnalyzer(IProject project, IAnalyzer analyzer, AbstractService service, @Nullable Llm llm) {
         this.project = project;
         this.analyzer = analyzer;
         this.service = service;
         this.llm = llm;
-        this.maxUsages = maxUsages;
     }
 
     @Override
@@ -75,8 +72,6 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
 
         if (isUnique) {
             return new FuzzyResult.Success(Map.of(target, hits));
-        } else if (hits.size() > maxUsages) {
-            return new FuzzyResult.TooManyCallsites(target.shortName(), hits.size(), maxUsages);
         }
 
         if (llm != null && !hits.isEmpty()) {

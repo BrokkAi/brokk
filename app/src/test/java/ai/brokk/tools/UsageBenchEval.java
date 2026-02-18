@@ -6,9 +6,9 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.LlmUsageAnalyzer;
 import ai.brokk.analyzer.usages.UsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
@@ -293,9 +293,8 @@ public class UsageBenchEval implements Callable<Integer> {
                         false,
                         false)
                 : null;
-        UsageAnalyzer llmAnalyzer =
-                new LlmUsageAnalyzer(project, analyzer, service, llm, FuzzyUsageFinder.DEFAULT_MAX_USAGES);
-        FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, llmAnalyzer);
+        UsageAnalyzer llmAnalyzer = new LlmUsageAnalyzer(project, analyzer, service, llm);
+        UsageFinder finder = new UsageFinder(project, analyzer, llmAnalyzer);
 
         String projectName = project.getRoot().getFileName().toString();
         String projectPath = project.getRoot().toAbsolutePath().toString();

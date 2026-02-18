@@ -52,7 +52,7 @@ public class JavaUsagesTest {
                 .build()) {
 
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
-            FuzzyUsageFinder finder = FuzzyUsageFinderTestUtil.newFinder(project, analyzer);
+            UsageFinder finder = FuzzyUsageFinderTestUtil.newFinder(project, analyzer);
 
             // 1. Test usages of the class 'com.example.Target'
             FuzzyResult classResult = finder.findUsages("com.example.Target");

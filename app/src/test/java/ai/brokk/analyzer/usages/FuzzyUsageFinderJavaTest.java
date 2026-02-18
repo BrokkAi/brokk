@@ -1008,7 +1008,7 @@ public class FuzzyUsageFinderJavaTest {
         RecordingProvider graph = new RecordingProvider(Set.of(file));
         RecordingProvider text = new RecordingProvider(Set.of());
 
-        CandidateFileProvider fallback = FuzzyUsageFinder.createFallbackProvider(graph, text);
+        CandidateFileProvider fallback = UsageFinder.createFallbackProvider(graph, text);
         Set<ProjectFile> result = fallback.findCandidates(target, analyzer);
 
         assertEquals(Set.of(file), result);
@@ -1028,7 +1028,7 @@ public class FuzzyUsageFinderJavaTest {
         RecordingProvider graph = new RecordingProvider(Set.of());
         RecordingProvider text = new RecordingProvider(Set.of(file));
 
-        CandidateFileProvider fallback = FuzzyUsageFinder.createFallbackProvider(graph, text);
+        CandidateFileProvider fallback = UsageFinder.createFallbackProvider(graph, text);
         Set<ProjectFile> result = fallback.findCandidates(target, analyzer);
 
         assertEquals(Set.of(file), result);
@@ -1047,7 +1047,7 @@ public class FuzzyUsageFinderJavaTest {
         RecordingProvider graph = new RecordingProvider(Set.of());
         RecordingProvider text = new RecordingProvider(Set.of(file));
 
-        CandidateFileProvider fallback = FuzzyUsageFinder.createFallbackProvider(graph, text);
+        CandidateFileProvider fallback = UsageFinder.createFallbackProvider(graph, text);
         Set<ProjectFile> result = fallback.findCandidates(target, analyzer);
 
         assertTrue(result.isEmpty());
