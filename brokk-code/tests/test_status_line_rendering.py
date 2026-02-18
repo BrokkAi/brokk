@@ -1,25 +1,57 @@
+from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 from brokk_code.widgets.status_line import StatusLine
 
 
-def test_status_line_rendering_compact():
+def test_status_line_rendering_compact_home_abbreviation(monkeypatch):
+    # Mock home directory
+    fake_home = Path("/home/user")
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
     status = StatusLine()
-    # Mock _metadata widget
     mock_metadata = MagicMock()
     status._metadata = mock_metadata
 
+    # Case 1: Exactly home
     status.update_status(
         mode="LUTZ",
         model="gpt-4",
         reasoning="high",
-        workspace="/path/to/my-project",
+        workspace="/home/user",
+        branch="main",
+    )
+    expected_home = "main - LUTZ - gpt-4 (high) - ~"
+    mock_metadata.update.assert_called_with(expected_home)
+
+    # Case 2: Under home
+    status.update_status(
+        workspace="/home/user/projects/brokk",
+    )
+    expected_sub = "main - LUTZ - gpt-4 (high) - ~/projects/brokk"
+    mock_metadata.update.assert_called_with(expected_sub)
+
+
+def test_status_line_rendering_compact_no_abbreviation(monkeypatch):
+    fake_home = Path("/home/user")
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    status = StatusLine()
+    mock_metadata = MagicMock()
+    status._metadata = mock_metadata
+
+    # Workspace outside home should remain full path
+    status.update_status(
+        mode="LUTZ",
+        model="gpt-4",
+        reasoning="high",
+        workspace="/var/www/project",
         branch="main",
     )
 
-    # Expected: {branch} - {mode} - {model} ({reasoning}) - {workspace}
-    # Workspace should be the full path, not shortened.
-    expected = "main - LUTZ - gpt-4 (high) - /path/to/my-project"
+    expected = "main - LUTZ - gpt-4 (high) - /var/www/project"
     mock_metadata.update.assert_called_with(expected)
 
 

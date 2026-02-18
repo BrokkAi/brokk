@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 from typing import Optional
 
 from textual.app import ComposeResult
@@ -76,10 +77,26 @@ class StatusLine(Horizontal):
 
         self.update_status(mode, model, reasoning, workspace, branch)
 
+    def _get_display_workspace(self, workspace: str) -> str:
+        if workspace == "unknown":
+            return workspace
+        try:
+            path = Path(workspace).resolve()
+            home = Path.home().resolve()
+            if path == home:
+                return "~"
+            if path.is_relative_to(home):
+                return f"~/{path.relative_to(home)}"
+        except Exception:
+            pass
+        return workspace
+
     def _render_status_text(self) -> None:
         # Compact format: {branch} - {mode} - {model} ({reasoning}) - {workspace}
+        workspace_display = self._get_display_workspace(self._workspace)
         text = (
-            f"{self._branch} - {self._mode} - {self._model} ({self._reasoning}) - {self._workspace}"
+            f"{self._branch} - {self._mode} - {self._model} "
+            f"({self._reasoning}) - {workspace_display}"
         )
         if self._fragment_description is not None and self._fragment_size is not None:
             size_text = format_token_count(self._fragment_size)
