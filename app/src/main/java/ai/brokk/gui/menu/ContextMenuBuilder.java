@@ -208,8 +208,8 @@ public class ContextMenuBuilder {
                 .getTrackedFiles()
                 .containsAll(files);
 
-        // Edit
-        var editItem = new JMenuItem(files.size() == 1 ? "Edit" : "Edit All");
+        // Attach
+        var editItem = new JMenuItem(files.size() == 1 ? "Attach" : "Attach All");
         editItem.addActionListener(e -> editFiles(fileContext));
         editItem.setEnabled(allFilesTracked);
         menu.add(editItem);
@@ -330,8 +330,8 @@ public class ContextMenuBuilder {
 
         parent.add(new JPopupMenu.Separator());
 
-        // Edit
-        var editItem = new JMenuItem("Edit");
+        // Attach
+        var editItem = new JMenuItem("Attach");
         editItem.addActionListener(e -> editFiles(singleFileContext));
         editItem.setEnabled(isTracked);
         if (!isTracked) {
