@@ -106,3 +106,54 @@ async def test_autocomplete_navigates_with_arrows_bypassing_history():
         await pilot.press("up")
         assert suggestions.index == 0
         assert chat_input.text == "/"
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_accept_with_tab_appends_space_for_model():
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        chat_input = app.query_one(ChatInput)
+
+        await pilot.press("/", "m", "o")
+        await pilot.press("tab")
+
+        # /model needs args, so it should have a trailing space
+        assert chat_input.text == "/model "
+        assert app.query_one(SlashCommandSuggestions).display is False
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_accept_with_enter_does_not_submit():
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        chat_panel = app.query_one(ChatPanel)
+        chat_input = app.query_one(ChatInput)
+
+        # Track submissions
+        submissions = []
+        app.on_chat_panel_submitted = lambda msg: submissions.append(msg.text)
+
+        await pilot.press("/", "a", "s")
+        await pilot.press("enter")
+
+        assert chat_input.text == "/ask"
+        assert len(submissions) == 0
+
+        # Now press enter again to actually submit
+        await pilot.press("enter")
+        assert len(submissions) == 1
+        assert submissions[0] == "/ask"
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_task_next_does_not_double_space():
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        chat_input = app.query_one(ChatInput)
+
+        # User types /task n
+        await pilot.press(*list("/task n"))
+        await pilot.press("enter")
+
+        # "/task next" already has internal spaces/is complete, shouldn't get extra space
+        assert chat_input.text == "/task next"

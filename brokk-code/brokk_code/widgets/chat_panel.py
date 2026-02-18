@@ -62,7 +62,10 @@ class SlashCommandSuggestions(ListView):
             return False
 
         for m in matches:
-            self.append(ListItem(Static(f"{m['command']} - {m['description']}", markup=False)))
+            li = ListItem(Static(f"{m['command']} - {m['description']}", markup=False))
+            # Store the raw command on the ListItem for easier retrieval
+            li.command_name = m["command"]
+            self.append(li)
 
         self.index = 0
         self.display = True
@@ -70,8 +73,10 @@ class SlashCommandSuggestions(ListView):
 
     def on_list_view_selected(self, message: ListView.Selected) -> None:
         if message.item:
-            # Extract command part before the description separator
-            cmd_text = str(message.item.query_one(Static).renderable).split(" - ")[0]
+            cmd_text = getattr(message.item, "command_name", "")
+            if not cmd_text:
+                # Fallback to parsing if attribute missing
+                cmd_text = str(message.item.query_one(Static).renderable).split(" - ")[0]
             self.post_message(self.Selected(cmd_text))
             self.display = False
 
@@ -81,6 +86,7 @@ class ChatInput(TextArea):
 
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
+        Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
         Binding("escape", "hide_suggestions", "Hide Suggestions", show=False),
     ]
 
@@ -111,6 +117,14 @@ class ChatInput(TextArea):
             suggestions = self.app.query_one(SlashCommandSuggestions)
             if suggestions.display:
                 suggestions.display = False
+        except Exception:
+            pass
+
+    def action_accept_suggestion(self) -> None:
+        try:
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+            if suggestions.display:
+                suggestions.action_select_cursor()
         except Exception:
             pass
 
@@ -149,8 +163,8 @@ class ChatInput(TextArea):
                 event.stop()
                 event.prevent_default()
                 return
-            if event.key == "enter":
-                # Select the suggestion and stop propagation to prevent action_submit
+            if event.key in ("enter", "tab"):
+                # Select the suggestion and stop propagation to prevent action_submit or tab cycling
                 suggestions.action_select_cursor()
                 event.stop()
                 event.prevent_default()
@@ -316,7 +330,18 @@ class ChatPanel(Vertical):
         self, event: SlashCommandSuggestions.Selected
     ) -> None:
         chat_input = self.query_one("#chat-input", ChatInput)
-        chat_input.text = event.command
+        command = event.command
+
+        # Append a space for commands that typically require arguments
+        needs_arg = command in ("/model", "/model-code", "/reasoning", "/reasoning-code", "/task")
+        # Also check for command group prefixes like "/task "
+        if command.startswith(("/task ", "/autocommit ")):
+            needs_arg = False  # Already has a sub-command or space
+
+        if needs_arg:
+            command += " "
+
+        chat_input.text = command
         chat_input.move_cursor(chat_input.document.end)
         chat_input.focus()
 
