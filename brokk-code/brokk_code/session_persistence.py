@@ -61,7 +61,7 @@ def has_tasks(zip_path: Path) -> bool:
                             )
                             # Check for sequence
                             sequence = task.get("sequence")
-                            if has_meta and isinstance(sequence, int):
+                            if has_meta and isinstance(sequence, (int, float)):
                                 return True
 
                     except (json.JSONDecodeError, TypeError):

@@ -149,7 +149,7 @@ async def test_resume_command_launches_with_correct_id(tmp_path):
 def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
     """
     Verifies that main() prints the resume hint after the app finishes running,
-    if a last session ID exists AND has tasks.
+    if a last session ID exists AND has history tasks in contexts.jsonl.
     """
     import zipfile
     import json
@@ -159,10 +159,12 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
     session_id = "hint-session-789"
     save_last_session_id(workspace, session_id)
 
-    # Create a zip with tasks so the hint prints
+    # Create a zip with history tasks in contexts.jsonl so the hint prints
     zip_path = get_session_zip_path(workspace, session_id)
     with zipfile.ZipFile(zip_path, "w") as z:
-        z.writestr("contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}))
+        z.writestr(
+            "contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}) + "\n"
+        )
 
     # Patch BrokkApp.run so it doesn't actually start the TUI
     # and sys.argv so main() uses our temp workspace.
@@ -182,7 +184,7 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
 
 def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
     """
-    Verifies that main() does NOT print the resume hint if the session exists but has no tasks.
+    Verifies that main() does NOT print the resume hint if the session exists but has no qualifying history tasks.
     """
     import zipfile
     import json
@@ -192,10 +194,10 @@ def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
     session_id = "no-tasks-session"
     save_last_session_id(workspace, session_id)
 
-    # Create a zip with NO tasks
+    # Create a zip with contexts.jsonl but NO qualifying tasks (missing meta or sequence)
     zip_path = get_session_zip_path(workspace, session_id)
     with zipfile.ZipFile(zip_path, "w") as z:
-        z.writestr("contexts.jsonl", json.dumps({"tasks": []}))
+        z.writestr("contexts.jsonl", json.dumps({"tasks": [{"sequence": 1}]}) + "\n")
 
     with (
         patch("brokk_code.app.BrokkApp.run", return_value=None),
