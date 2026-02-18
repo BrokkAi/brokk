@@ -24,16 +24,17 @@ async def test_token_usage_update():
 
         # Update with used and max
         panel.set_token_usage(1500, 100000)
-        assert "1.5k / 100k tokens" in str(token_bar.render())
+        assert "98.5% context remaining" in str(token_bar.render())
 
         # Update with half usage
         panel.set_token_usage(50000, 100000)
-        assert "50k / 100k tokens" in str(token_bar.render())
+        assert "50.0% context remaining" in str(token_bar.render())
 
         # Update with only used
         panel.set_token_usage(2500)
         # TokenBar defaults max to 200,000 if not provided
-        assert "2.5k / 200k tokens" in str(token_bar.render())
+        # 1 - (2500/200000) = 0.9875 -> 98.8%
+        assert "98.8% context remaining" in str(token_bar.render())
 
         # Update with 0 clears it
         panel.set_token_usage(0)
@@ -43,9 +44,12 @@ async def test_token_usage_update():
 @pytest.mark.asyncio
 async def test_job_progress_in_chat_panel():
     """
-    Verify that job running state is reflected in ChatPanel's progress widget.
+    Verify that job running state is reflected in ChatPanel's status timer
+    and the help row spinner.
     """
     from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.status_line import StatusLine
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -54,18 +58,23 @@ async def test_job_progress_in_chat_panel():
     app = TestApp()
     async with app.run_test():
         chat = app.query_one(ChatPanel)
-        progress = chat.query_one("#status-progress")
+        status_line = chat.query_one(StatusLine)
+        timer_wrap = status_line.query_one("#status-timer-wrap")
+        help_spinner = chat.query_one("#help-spinner")
 
         # Initially hidden
-        assert progress.has_class("hidden")
+        assert timer_wrap.has_class("hidden")
+        assert help_spinner.has_class("hidden")
 
         # Start job
         chat.set_job_running(True)
-        assert not progress.has_class("hidden")
+        assert not timer_wrap.has_class("hidden")
+        assert not help_spinner.has_class("hidden")
 
         # Stop job
         chat.set_job_running(False)
-        assert progress.has_class("hidden")
+        assert timer_wrap.has_class("hidden")
+        assert help_spinner.has_class("hidden")
 
 
 @pytest.mark.asyncio
@@ -237,3 +246,27 @@ async def test_no_ctrl_u_e_bindings_in_chat_input():
     bindings = {b.key for b in ChatInput.BINDINGS}
     assert "ctrl+u" not in bindings
     assert "ctrl+e" not in bindings
+
+
+@pytest.mark.asyncio
+async def test_chat_panel_composition_success():
+    """
+    Verify that ChatPanel composes without NameError and contains expected widgets.
+    Regression test for missing Static import.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        # Verify ChatPanel exists
+        chat = app.query_one("#chat", ChatPanel)
+        assert chat is not None
+
+        # Verify #help-elapsed (Static) exists - this would have failed with NameError
+        help_elapsed = chat.query_one("#help-elapsed", Static)
+        assert help_elapsed is not None

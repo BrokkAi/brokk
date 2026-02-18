@@ -45,13 +45,6 @@ ContextModalScreen, ModelReasoningSelectModal {
     padding: 0 2;
 }
 
-#tasklist-help {
-    width: 100%;
-    color: $text-muted;
-    padding: 0 2;
-    margin-bottom: 1;
-}
-
 #tasklist-content {
     width: 100%;
 }
@@ -68,24 +61,13 @@ ChatPanel {
 }
 
 
-#status-progress {
+#help-elapsed {
     width: auto;
+    min-width: 17;
     height: 1;
-    layout: horizontal;
-}
-
-#status-spinner {
-    height: 1;
-    width: auto;
-    min-width: 4;
-    color: $accent;
+    color: $text-disabled;
     background: transparent;
     margin-right: 1;
-}
-
-#status-timer {
-    width: auto;
-    color: $text;
 }
 
 #chat-token-bar {
@@ -122,12 +104,6 @@ ChatPanel {
     width: 1fr;
     content-align: right middle;
     color: $text-disabled;
-}
-
-#context-help {
-    width: 100%;
-    color: $text-muted;
-    margin: 0 0 1 0;
 }
 
 #context-selection-status {
@@ -237,9 +213,12 @@ ChatPanel {
 }
 
 #chat-input {
-    margin: 1 2 0 2;
-    border: solid $primary;
-    height: 4;
+    margin: 0 2 1 2;
+    background: $panel;
+    padding: 0 1;
+    height: 3;
+    border: none;
+    content-align: left middle;
 }
 
 #notification-panel {
@@ -250,7 +229,7 @@ ChatPanel {
 }
 
 #status-line {
-    margin: 0 2 1 2;
+    margin: 1 2 0 2;
     height: 1;
 }
 
@@ -260,7 +239,33 @@ ChatPanel {
 }
 
 #chat-input:focus {
-    border: solid $accent;
+    background: $surface-lighten-1;
+    border: none;
+    content-align: left middle;
+}
+
+#chat-help-row {
+    height: 1;
+    margin: 0 2 0 2;
+}
+
+#help-spinner {
+    height: 1;
+    width: auto;
+    min-width: 4;
+    color: $accent;
+    background: transparent;
+    margin-right: 1;
+}
+
+#chat-help {
+    width: 1fr;
+    height: 1;
+    padding: 0 1;
+    color: $text-disabled;
+    background: transparent;
+    content-align: right middle;
+    text-align: right;
 }
 
 .ml-1 {

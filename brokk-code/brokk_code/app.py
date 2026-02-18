@@ -9,8 +9,7 @@ from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Footer, ListItem, ListView, Static
-from textual.widgets._footer import FooterKey
+from textual.widgets import ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
@@ -22,56 +21,6 @@ from brokk_code.widgets.tasklist_panel import TaskListPanel
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
-
-
-class OrderedFooter(Footer):
-    def compose(self) -> ComposeResult:
-        if not self._bindings_ready:
-            return
-
-        active_bindings = self.screen.active_bindings
-
-        def first_binding_for_action(action: str) -> tuple[Binding, bool, str] | None:
-            for _key, binding, enabled, tooltip in active_bindings.values():
-                if binding.action == action:
-                    return binding, enabled, tooltip
-            return None
-
-        order = [
-            ("toggle_mode", "Mode"),
-            ("toggle_context", "Context"),
-            ("toggle_tasklist", "Tasks"),
-            ("toggle_notifications", "Notifications"),
-        ]
-
-        for action, fallback_desc in order:
-            found = first_binding_for_action(action)
-            if not found:
-                continue
-            binding, enabled, tooltip = found
-            yield FooterKey(
-                binding.key,
-                self.app.get_key_display(binding),
-                binding.description or fallback_desc,
-                binding.action,
-                disabled=not enabled,
-                tooltip=tooltip or binding.description,
-            ).data_bind(compact=Footer.compact)
-
-        # Always render Ctrl+P as "Settings", regardless of Textual's internal "palette" label.
-        try:
-            _node, binding, enabled, tooltip = active_bindings[self.app.COMMAND_PALETTE_BINDING]
-        except KeyError:
-            return
-        yield FooterKey(
-            binding.key,
-            self.app.get_key_display(binding),
-            "Settings",
-            binding.action,
-            disabled=not enabled,
-            tooltip=tooltip or "Open settings",
-            classes="-command-palette",
-        ).data_bind(compact=Footer.compact)
 
 
 class ContextModalScreen(ModalScreen[None]):
@@ -427,7 +376,6 @@ class BrokkApp(App):
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
-        yield OrderedFooter(show_command_palette=False)
 
     async def on_mount(self) -> None:
         chat = self._maybe_chat()
@@ -862,11 +810,7 @@ class BrokkApp(App):
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
-        try:
-            status = chat.query_one(StatusLine)
-            status.set_job_running(True)
-        except Exception:
-            pass
+        chat.set_job_running(True)
         chat.set_response_pending()
         try:
             self.current_job_id = await self.executor.submit_job(
