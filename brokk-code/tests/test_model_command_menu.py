@@ -139,6 +139,49 @@ async def test_combined_modal_initial_highlight_syncs_with_current_values():
 
 
 @pytest.mark.asyncio
+async def test_combined_modal_checked_marker_is_visible():
+    """Regression test: Ensure the [x] marker is literally present and not swallowed by markup."""
+    executor = MagicMock()
+    executor.get_models = AsyncMock(
+        return_value={
+            "models": [
+                {"name": "alpha-model", "location": "x"},
+                {"name": "beta-model", "location": "y"},
+            ]
+        }
+    )
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    # Pre-set values
+    app.current_model = "beta-model"  # Index 1
+    app.reasoning_level = "medium"  # Index 2 in ["disable", "low", "medium", "high"]
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            await app.action_select_model_and_reasoning()
+            await pilot.pause()
+
+            # Verify Model list marker
+            model_list = app.screen.query_one("#model-select-list", ListView)
+            selected_model_item = model_list.children[model_list.index]
+            model_label = str(selected_model_item.query_one(Static).renderable)
+            assert "[x]" in model_label, f"Model marker '[x]' missing from: {model_label}"
+
+            # Verify Reasoning list marker
+            reasoning_list = app.screen.query_one("#reasoning-select-list", ListView)
+            selected_reasoning_item = reasoning_list.children[reasoning_list.index]
+            reasoning_label = str(selected_reasoning_item.query_one(Static).renderable)
+            assert "[x]" in reasoning_label, f"Reasoning marker '[x]' missing from: {reasoning_label}"
+
+
+@pytest.mark.asyncio
 async def test_reasoning_command_with_arg_sets_directly():
     executor = MagicMock()
     executor.stop = AsyncMock()
