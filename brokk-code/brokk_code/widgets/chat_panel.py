@@ -127,6 +127,8 @@ class SlashCommandSuggestions(ListView):
 class ChatInput(TextArea):
     """A multiline text area for chat input that submits on Enter."""
 
+    suppress_autocomplete_once: bool = False
+
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
         Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
@@ -200,15 +202,16 @@ class ChatInput(TextArea):
         except Exception:
             return
 
+        if self.suppress_autocomplete_once:
+            suggestions.display = False
+            hint.display = False
+            self.suppress_autocomplete_once = False
+            return
+
         # Always hide if text is empty or focus is lost (programmatic updates)
         if not self.text.strip() or not self.has_focus:
             suggestions.display = False
             hint.display = False
-            return
-        try:
-            suggestions = app.query_one(SlashCommandSuggestions)
-            hint = app.query_one(SlashCommandInlineHint)
-        except Exception:
             return
 
         if self.text.startswith("/") and "\n" not in self.text:
@@ -446,17 +449,8 @@ class ChatPanel(Vertical):
         if needs_arg:
             command += " "
 
-        # Defensively ensure autocomplete UI is hidden before programmatic update
-        try:
-            suggestions = self.query_one(SlashCommandSuggestions)
-            suggestions.display = False
-        except Exception:
-            pass
-        try:
-            hint = self.query_one(SlashCommandInlineHint)
-            hint.display = False
-        except Exception:
-            pass
+        # Suppress re-showing autocomplete when we programmatically update the text
+        chat_input.suppress_autocomplete_once = True
 
         chat_input.text = command
         chat_input.move_cursor(chat_input.document.end)

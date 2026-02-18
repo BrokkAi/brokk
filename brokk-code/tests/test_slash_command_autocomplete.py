@@ -315,3 +315,35 @@ async def test_inline_hint_multi_word_no_double_space():
         await pilot.press("tab")
         assert chat_input.text == "/task next"
         # Ensure no trailing space added because /task next is a complete multi-word command
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_ui_hidden_after_selection_even_if_prefix_matches_others():
+    """
+    Regression test: accepting /model should hide the UI even if /model-code exists.
+    Previously, the Change event would re-trigger suggestions because /model is a prefix of /model-code.
+    """
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        chat_input = app.query_one(ChatInput)
+        suggestions = app.query_one(SlashCommandSuggestions)
+        hint = app.query_one(SlashCommandInlineHint)
+
+        # 1. Type to match both /model and /model-code
+        await pilot.press(*list("/mode"))
+        assert suggestions.display is True
+        assert len(suggestions.children) == 2
+
+        # 2. Select /model (index 0) and press enter (which selects but doesn't submit here because we don't call action_submit in this test context)
+        # Actually in ChatInput._on_key 'enter' selects AND submits.
+        # But ChatPanel.on_slash_command_suggestions_command_selected is what updates the text.
+
+        # Let's use Tab to accept the hint for /model
+        await pilot.press("l")  # text is now /model
+        assert hint.display is True
+
+        await pilot.press("tab")
+
+        assert chat_input.text == "/model "
+        assert suggestions.display is False
+        assert hint.display is False
