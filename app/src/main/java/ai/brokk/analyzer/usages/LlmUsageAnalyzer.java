@@ -49,7 +49,7 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
     }
 
     @Override
-    public FuzzyResult findUsages(List<CodeUnit> overloads, Set<ProjectFile> candidateFiles)
+    public FuzzyResult findUsages(List<CodeUnit> overloads, Set<ProjectFile> candidateFiles, int maxUsages)
             throws InterruptedException {
         var target = overloads.getFirst();
         final String identifier = target.identifier();
@@ -69,6 +69,11 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
         var hits = extractUsageHits(candidateFiles, searchPatterns).stream()
                 .filter(h -> !h.enclosing().equals(target))
                 .collect(Collectors.toSet());
+
+        if (hits.size() > maxUsages) {
+            logger.debug("Too many usage hits for {}: {} > {}", target.fqName(), hits.size(), maxUsages);
+            return new FuzzyResult.TooManyCallsites(target.shortName(), hits.size(), maxUsages);
+        }
 
         if (isUnique) {
             return new FuzzyResult.Success(Map.of(target, hits));

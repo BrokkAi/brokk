@@ -26,6 +26,7 @@ public final class UsageFinder {
 
     private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
     public static final int DEFAULT_MAX_FILES = 1000;
+    public static final int DEFAULT_MAX_USAGES = 1000;
 
     private final IProject project;
     private final IAnalyzer analyzer;
@@ -99,7 +100,7 @@ public final class UsageFinder {
         this.fileFilter = fileFilter;
     }
 
-    private FuzzyResult findUsages(List<CodeUnit> overloads, int maxFiles) throws InterruptedException {
+    private FuzzyResult findUsages(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {
         assert !overloads.isEmpty() : "overloads must not be empty";
         var target = overloads.getFirst();
 
@@ -114,10 +115,10 @@ public final class UsageFinder {
             return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
         }
 
-        return config.usageAnalyzer().findUsages(overloads, candidateFiles);
+        return config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
     }
 
-    public FuzzyResult findUsages(String fqName, int maxFiles) throws InterruptedException {
+    public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) throws InterruptedException {
         if (isEffectivelyEmpty()) {
             return new FuzzyResult.Success(Map.of());
         }
@@ -127,7 +128,7 @@ public final class UsageFinder {
         }
 
         var overloads = List.copyOf(definitions);
-        var result = findUsages(overloads, maxFiles);
+        var result = findUsages(overloads, maxFiles, maxUsages);
 
         Map<CodeUnit, Set<UsageHit>> allHitsByOverload =
                 switch (result) {
@@ -142,7 +143,7 @@ public final class UsageFinder {
     }
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {
-        return findUsages(fqName, DEFAULT_MAX_FILES);
+        return findUsages(fqName, DEFAULT_MAX_FILES, DEFAULT_MAX_USAGES);
     }
 
     private boolean isEffectivelyEmpty() {

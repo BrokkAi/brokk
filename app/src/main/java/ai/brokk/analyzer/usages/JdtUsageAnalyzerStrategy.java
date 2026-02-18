@@ -20,7 +20,7 @@ public final class JdtUsageAnalyzerStrategy implements UsageAnalyzer {
     }
 
     @Override
-    public FuzzyResult findUsages(List<CodeUnit> overloads, Set<ProjectFile> candidateFiles) {
+    public FuzzyResult findUsages(List<CodeUnit> overloads, Set<ProjectFile> candidateFiles, int maxUsages) {
         if (overloads.isEmpty()) {
             return new FuzzyResult.Success(Map.of());
         }

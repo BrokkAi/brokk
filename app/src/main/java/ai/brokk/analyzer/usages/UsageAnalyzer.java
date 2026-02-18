@@ -11,5 +11,6 @@ public interface UsageAnalyzer {
     /**
      * Finds usages for a set of overloads within the provided candidate files.
      */
-    FuzzyResult findUsages(List<CodeUnit> overloads, Set<ProjectFile> candidateFiles) throws InterruptedException;
+    FuzzyResult findUsages(List<CodeUnit> overloads, Set<ProjectFile> candidateFiles, int maxUsages)
+            throws InterruptedException;
 }
