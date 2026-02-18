@@ -220,7 +220,6 @@ ChatPanel {
 }
 
 #chat-input-container.autocomplete-open #chat-input {
-    height: 2;
     margin-bottom: 0;
 }
 
@@ -263,11 +262,11 @@ ChatPanel {
 }
 
 SlashCommandSuggestions {
-    background: $surface;
+    background: $panel;
     border-top: solid $primary-darken-1;
     color: $text;
     scrollbar-gutter: stable;
-    margin: 0 2 0 2;
+    margin: 0 2 1 2;
     max-height: 5;
 }
 

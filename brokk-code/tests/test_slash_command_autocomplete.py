@@ -317,9 +317,8 @@ async def test_autocomplete_ui_state_shrinks_prompt():
         # Trigger autocomplete
         await pilot.press("/")
         assert container.has_class("autocomplete-open")
-        # In Textual, styles are updated after a refresh.
-        # We check the class is there; height check confirms the CSS rule intent.
-        assert chat_input.styles.height.value == 2
+        # Ensure height is maintained at 3
+        assert chat_input.styles.height.value == 3
 
         # Hide autocomplete
         await pilot.press("escape")
