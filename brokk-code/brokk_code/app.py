@@ -977,16 +977,19 @@ class BrokkApp(App):
         parts = cmd.split()
         base = parts[0].lower()
 
-        if base == "/model" and len(parts) > 1:
-            self.current_model = parts[1]
-            # Persist the last-used planner model for subsequent runs
-            try:
-                self.settings.last_model = self.current_model
-                self.settings.save()
-            except Exception:
-                logger.exception("Failed to persist last_model setting")
-            chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
-            self._update_statusline()
+        if base == "/model":
+            if len(parts) > 1:
+                self.current_model = parts[1]
+                # Persist the last-used planner model for subsequent runs
+                try:
+                    self.settings.last_model = self.current_model
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_model setting")
+                chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
+                self._update_statusline()
+            else:
+                self.run_worker(self.action_select_model())
         elif base == "/model-code" and len(parts) > 1:
             self.code_model = parts[1]
             # Persist the last-used code model
@@ -996,18 +999,21 @@ class BrokkApp(App):
             except Exception:
                 logger.exception("Failed to persist last_code_model setting")
             chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
-        elif base == "/reasoning" and len(parts) > 1:
-            self.reasoning_level = parts[1]
-            # Persist planner reasoning preference
-            try:
-                self.settings.last_reasoning_level = self.reasoning_level
-                self.settings.save()
-            except Exception:
-                logger.exception("Failed to persist last_reasoning_level setting")
-            chat.add_system_message_markup(
-                f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
-            )
-            self._update_statusline()
+        elif base == "/reasoning":
+            if len(parts) > 1:
+                self.reasoning_level = parts[1]
+                # Persist planner reasoning preference
+                try:
+                    self.settings.last_reasoning_level = self.reasoning_level
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_reasoning_level setting")
+                chat.add_system_message_markup(
+                    f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
+                )
+                self._update_statusline()
+            else:
+                self.run_worker(self.action_select_reasoning())
         elif base == "/reasoning-code" and len(parts) > 1:
             self.reasoning_level_code = parts[1]
             # Persist code reasoning preference
