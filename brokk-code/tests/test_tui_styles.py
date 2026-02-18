@@ -268,8 +268,8 @@ def test_help_menu_layout_contract():
                 assert margins[1] == "2" and margins[3] == "2", (
                     "Suggestions should match input horizontal margins"
                 )
-                assert margins[2] == "5", (
-                    "Suggestions should have bottom margin 5 to overlay above the 3-high prompt + 1-high help row"
+                assert margins[2] == "7", (
+                    "Suggestions should have bottom margin 7 to overlay above the 3-high prompt + 1-high help row + extra clearance"
                 )
 
     # Ensure container does NOT raise up when autocomplete is open

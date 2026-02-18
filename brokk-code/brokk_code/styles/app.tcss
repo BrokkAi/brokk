@@ -266,8 +266,8 @@ SlashCommandSuggestions {
     border: solid $primary-darken-1;
     color: $text;
     scrollbar-gutter: stable;
-    /* Overlay above the input: bottom margin matches input height (3) + help row height (1) + gap (1) */
-    margin: 0 2 5 2;
+    /* Overlay above the input: bottom margin matches input height (3) + help row height (1) + extra clearance (3) = 7 */
+    margin: 0 2 7 2;
     max-height: 5;
     dock: bottom;
     layer: top;
