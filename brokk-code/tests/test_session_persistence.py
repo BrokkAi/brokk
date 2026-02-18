@@ -121,8 +121,8 @@ def test_has_tasks_respects_bounds(tmp_path, monkeypatch):
     from brokk_code import session_persistence
 
     # Set very low bounds for testing
-    monkeypatch.setattr(session_persistence, "MAX_CONTEXTS_JSONL_BYTES", 50)
-    monkeypatch.setattr(session_persistence, "MAX_CONTEXTS_JSONL_LINES", 2)
+    monkeypatch.setattr(session_persistence, "MAX_CONTEXTS_JSONL_BYTES", 100)
+    monkeypatch.setattr(session_persistence, "MAX_CONTEXTS_JSONL_LINES", 3)
 
     zip_path = tmp_path / "bounded.zip"
 
@@ -130,26 +130,35 @@ def test_has_tasks_respects_bounds(tmp_path, monkeypatch):
         with zipfile.ZipFile(zip_path, "w") as z:
             z.writestr("contexts.jsonl", "\n".join(lines))
 
-    # Case 1: Task is in the 3rd line (exceeds line limit)
+    # Case 1: Qualifying task only after the line cap
     create_zip(
         [
             json.dumps({"msg": "line1"}),
             json.dumps({"msg": "line2"}),
+            json.dumps({"msg": "line3"}),
             json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}),
         ]
     )
     assert has_tasks(zip_path) is False
 
-    # Case 2: Task is within line limit but exceeds byte limit
-    # First line is ~30 bytes, second line is ~30 bytes. Total > 50.
+    # Case 2: Qualifying task only after the byte cap
+    # Create a first line that is 110 bytes long (exceeding 100 limit)
+    filler = "x" * 100
     create_zip(
         [
-            json.dumps({"padding": "x" * 20}),
+            json.dumps({"filler": filler}),
             json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}),
         ]
     )
     assert has_tasks(zip_path) is False
 
-    # Case 3: Task is within both limits
-    create_zip([json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]})])
+    # Case 3: Qualifying task early (within limits) followed by lots of filler
+    create_zip(
+        [
+            json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}),
+            json.dumps({"msg": "lots of filler"}),
+            json.dumps({"msg": "exceeding caps now..."}),
+            json.dumps({"msg": "and more..."}),
+        ]
+    )
     assert has_tasks(zip_path) is True
