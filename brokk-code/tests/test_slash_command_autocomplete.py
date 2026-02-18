@@ -303,8 +303,8 @@ async def test_autocomplete_scrollbar_configuration():
 
 
 @pytest.mark.asyncio
-async def test_autocomplete_ui_state_shrinks_prompt():
-    """Verify that the autocomplete-open class is applied and reduces prompt height."""
+async def test_autocomplete_ui_state_preserves_prompt_visibility():
+    """Verify that the autocomplete-open class is applied and prompt remains visible/sized correctly."""
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         container = app.query_one("#chat-input-container")
@@ -313,14 +313,18 @@ async def test_autocomplete_ui_state_shrinks_prompt():
         # Initial state
         assert not container.has_class("autocomplete-open")
         assert chat_input.styles.height.value == 3
+        assert chat_input.styles.margin.bottom.value == 1
 
         # Trigger autocomplete
         await pilot.press("/")
         assert container.has_class("autocomplete-open")
-        # Ensure height is maintained at 3
+        # In current design, height is preserved (no shrinking) to keep UI stable
         assert chat_input.styles.height.value == 3
+        # Margin is removed to dock suggestions directly under input
+        assert chat_input.styles.margin.bottom.value == 0
 
         # Hide autocomplete
         await pilot.press("escape")
         assert not container.has_class("autocomplete-open")
         assert chat_input.styles.height.value == 3
+        assert chat_input.styles.margin.bottom.value == 1
