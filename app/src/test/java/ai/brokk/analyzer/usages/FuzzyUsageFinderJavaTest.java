@@ -370,7 +370,7 @@ public class FuzzyUsageFinderJavaTest {
         allHitsByOverload.put(enclosingIncluded, new HashSet<>(Set.of(hitIncluded, hitExcluded)));
         allHitsByOverload.put(enclosingHigh, new HashSet<>(Set.of(hitHigh)));
 
-        var filtered = FuzzyUsageFinder.filterByConfidence(allHitsByOverload);
+        var filtered = LlmUsageAnalyzer.filterByConfidence(allHitsByOverload);
 
         assertEquals(2, filtered.size());
         assertEquals(Set.of(hitIncluded), filtered.get(enclosingIncluded));
@@ -396,7 +396,7 @@ public class FuzzyUsageFinderJavaTest {
         allHitsByOverload.put(enclosingLow, new HashSet<>(Set.of(hitLow1, hitLow2)));
         allHitsByOverload.put(enclosingHigh, new HashSet<>(Set.of(hitHigh)));
 
-        var filtered = FuzzyUsageFinder.filterByConfidence(allHitsByOverload);
+        var filtered = LlmUsageAnalyzer.filterByConfidence(allHitsByOverload);
 
         // LowConf should be absent because all its hits were filtered out
         assertEquals(1, filtered.size());
