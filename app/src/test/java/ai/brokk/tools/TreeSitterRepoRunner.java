@@ -149,12 +149,13 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     }
 
     // Default glob patterns per language, used when stressing an arbitrary directory
-    private static final Map<Language, List<String>> DEFAULT_LANGUAGE_PATTERNS = Map.of(
-            Languages.JAVA, List.of("**/*.java"),
-            Languages.C_CPP, List.of("**/*.c", "**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp"),
-            Languages.TYPESCRIPT, List.of("**/*.ts"),
-            Languages.JAVASCRIPT, List.of("**/*.js"),
-            Languages.PYTHON, List.of("*.py", "**/*.py"));
+    private static final Map<Language, List<String>> DEFAULT_LANGUAGE_PATTERNS = Map.ofEntries(
+            Map.entry(Languages.JAVA, List.of("**/*.java")),
+            Map.entry(Languages.C_CPP, List.of("**/*.c", "**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp")),
+            Map.entry(Languages.TYPESCRIPT, List.of("**/*.ts")),
+            Map.entry(Languages.JAVASCRIPT, List.of("**/*.js")),
+            Map.entry(Languages.PYTHON, List.of("*.py", "**/*.py")),
+            Map.entry(Languages.RUST, List.of("**/*.rs")));
 
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();

@@ -72,6 +72,189 @@ public class RustAnalyzerTest {
     }
 
     @Test
+    void testImplForReferenceType() throws Exception {
+        String rustCode =
+                """
+            pub struct MyStruct;
+
+            pub trait MyTrait {
+                fn do_something(&self);
+            }
+
+            impl MyTrait for MyStruct {
+                fn do_something(&self) {}
+            }
+
+            impl<T> MyTrait for &T {
+                fn do_something(&self) {}
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // The impl block for MyStruct should work normally
+            assertCodeUnitType(analyzer, "MyStruct", CodeUnitType.CLASS);
+            assertCodeUnitType(analyzer, "MyStruct.do_something", CodeUnitType.FUNCTION);
+
+            // The impl block for &T extracts "T" as the type name - verify the method exists
+            // Note: T is a generic parameter, so it creates a CodeUnit for the impl's methods
+            assertCodeUnitType(analyzer, "T.do_something", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
+    void testImplForScopedGenericType() throws Exception {
+        String rustCode =
+                """
+            mod ast {
+                pub struct StringLike<'a> {
+                    value: &'a str,
+                }
+            }
+
+            pub trait StringLikeExtensions {
+                fn is_empty(&self) -> bool;
+            }
+
+            impl<'a> StringLikeExtensions for ast::StringLike<'a> {
+                fn is_empty(&self) -> bool {
+                    false
+                }
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // The impl block for ast::StringLike<'a> should extract "StringLike" as the name
+            assertCodeUnitType(analyzer, "StringLike", CodeUnitType.CLASS);
+            assertCodeUnitType(analyzer, "StringLike.is_empty", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
+    void testImplForDeeplyNestedType() throws Exception {
+        String rustCode =
+                """
+            pub struct Inner;
+            pub trait MyTrait { fn method(&self); }
+            impl<T> MyTrait for &Vec<Box<T>> {
+                fn method(&self) {}
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // The impl block for &Vec<Box<T>> extracts "Vec" as the type name
+            // &Vec<Box<T>> -> Vec<Box<T>> (GENERIC_TYPE) -> Vec (TYPE_IDENTIFIER)
+            // We extract the outermost named type, not the innermost generic parameter
+            assertCodeUnitType(analyzer, "Vec.method", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
+    void testImplForRawPointerType() throws Exception {
+        String rustCode =
+                """
+            pub trait Deref {
+                fn deref(&self);
+            }
+
+            impl<T> Deref for *const T {
+                fn deref(&self) {}
+            }
+
+            impl<T> Deref for *mut T {
+                fn deref(&self) {}
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // Raw pointer types *const T and *mut T should extract "T"
+            assertCodeUnitType(analyzer, "T.deref", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
+    void testImplForSliceType() throws Exception {
+        String rustCode =
+                """
+            pub trait SliceTrait {
+                fn len(&self) -> usize;
+            }
+
+            impl<T> SliceTrait for [T] {
+                fn len(&self) -> usize { 0 }
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // Slice type [T] should extract "T"
+            assertCodeUnitType(analyzer, "T.len", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
+    void testImplForSelfType() throws Exception {
+        String rustCode =
+                """
+            pub struct Counter {
+                value: i32,
+            }
+
+            impl Counter {
+                pub fn new() -> Self {
+                    Self { value: 0 }
+                }
+
+                pub fn increment(&mut self) -> &mut Self {
+                    self.value += 1;
+                    self
+                }
+            }
+
+            pub trait Builder {
+                fn build(self) -> Self;
+            }
+
+            impl Builder for Counter {
+                fn build(self) -> Self {
+                    self
+                }
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // Self in return types and method bodies doesn't affect type extraction
+            // The impl target type is "Counter" (TYPE_IDENTIFIER), not "Self"
+            assertCodeUnitType(analyzer, "Counter", CodeUnitType.CLASS);
+            assertCodeUnitType(analyzer, "Counter.new", CodeUnitType.FUNCTION);
+            assertCodeUnitType(analyzer, "Counter.increment", CodeUnitType.FUNCTION);
+            assertCodeUnitType(analyzer, "Counter.build", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
     void testNestedModulesWithTestFunction() throws Exception {
         String rustCode =
                 """
