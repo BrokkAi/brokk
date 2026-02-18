@@ -69,10 +69,9 @@ ChatPanel {
 
 
 #status-progress {
-    width: 1fr;
+    width: auto;
     height: 1;
     layout: horizontal;
-    margin: 0 2;
 }
 
 #status-spinner {

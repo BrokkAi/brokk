@@ -776,7 +776,11 @@ class BrokkApp(App):
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
-        chat.set_job_running(True)
+        try:
+            status = chat.query_one(StatusLine)
+            status.set_job_running(True)
+        except Exception:
+            pass
         chat.set_response_pending()
         try:
             self.current_job_id = await self.executor.submit_job(
@@ -841,7 +845,11 @@ class BrokkApp(App):
                 self.current_job_id = None
                 chat = self._maybe_chat()
                 if chat:
-                    chat.set_job_running(False)
+                    try:
+                        status = chat.query_one(StatusLine)
+                        status.set_job_running(False)
+                    except Exception:
+                        pass
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
