@@ -266,8 +266,8 @@ SlashCommandSuggestions {
     border: solid $primary-darken-1;
     color: $text;
     scrollbar-gutter: stable;
-    /* Overlay above the input: bottom margin reduced to 5 to cover status line and clear prompt */
-    margin: 0 2 5 2;
+    /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
+    margin: 0 2 6 2;
     max-height: 20;
     dock: bottom;
     layer: top;
