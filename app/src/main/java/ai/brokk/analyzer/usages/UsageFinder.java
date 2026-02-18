@@ -97,12 +97,13 @@ public final class UsageFinder {
             IProject project,
             IAnalyzer analyzer,
             CandidateFileProvider candidateProvider,
-            UsageAnalyzer usageAnalyzer,
+            @Nullable UsageAnalyzer usageAnalyzer,
             @Nullable Predicate<ProjectFile> fileFilter) {
         this.project = project;
         this.analyzer = analyzer;
         this.fallbackCandidateProvider = candidateProvider;
-        this.fallbackUsageAnalyzer = usageAnalyzer;
+        this.fallbackUsageAnalyzer =
+                usageAnalyzer != null ? usageAnalyzer : new LlmUsageAnalyzer(project, analyzer, null, null);
         this.fileFilter = fileFilter;
     }
 
