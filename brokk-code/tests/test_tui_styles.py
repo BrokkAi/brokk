@@ -13,8 +13,8 @@ def test_chat_input_no_border():
     assert chat_input_match, "Could not find #chat-input rule in app.tcss"
     chat_input_body = chat_input_match.group(1)
 
-    assert "border: none;" in chat_input_body, (
-        f"#chat-input should explicitly set border: none. Found: {chat_input_body.strip()}"
+    assert "border: none;" in chat_input_body or "border: none !important;" in chat_input_body, (
+        f"#chat-input should explicitly set border: none to override defaults. Found: {chat_input_body.strip()}"
     )
     assert "background:" in chat_input_body, "#chat-input should have a background."
     assert "padding:" in chat_input_body, "#chat-input should have padding for spacing."
@@ -23,7 +23,7 @@ def test_chat_input_no_border():
     assert focus_match, "Could not find #chat-input:focus rule in app.tcss"
     focus_body = focus_match.group(1)
 
-    assert "border: none;" in focus_body, (
+    assert "border: none;" in focus_body or "border: none !important;" in focus_body, (
         f"#chat-input:focus should explicitly set border: none. Found: {focus_body.strip()}"
     )
 
