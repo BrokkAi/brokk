@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -7,9 +7,9 @@ from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import RichLog, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
@@ -91,16 +91,13 @@ class ChatPanel(Vertical):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self._get_now: Callable[[], float] = time.monotonic
         self._current_message_buffer: str = ""
         self._current_message_type: Optional[str] = None
         self._is_reasoning: bool = False
         self.response_pending: bool = False
         self.response_active: bool = False
-        self._last_token_time: float = 0
-        self._inactivity_timeout: float = 10.0
-        self._get_now = time.time
-        self._job_start_time: Optional[float] = None
-        self._timer_interval = None
+        self._last_token_time: float = 0.0
 
         # History Navigation State
         self._history: list[str] = []
@@ -110,9 +107,6 @@ class ChatPanel(Vertical):
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
-        with Horizontal(id="status-progress", classes="hidden"):
-            yield LoadingIndicator(id="status-spinner")
-            yield Static(id="status-timer")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield StatusLine(id="status-line")
@@ -230,9 +224,6 @@ class ChatPanel(Vertical):
         is_terminal: bool,
     ) -> None:
         """Appends a token to the current buffer and handles rendering transitions."""
-        now = self._get_now()
-        self._last_token_time = now
-
         # Defensive: Ensure response is marked active if tokens are arriving
         if not self.response_active:
             self.set_response_active()
@@ -370,41 +361,10 @@ class ChatPanel(Vertical):
             pass
 
     def set_job_running(self, running: bool) -> None:
-        """Start or stop the job progress indicator and timer."""
+        """Delegate job progress state to the StatusLine widget."""
         try:
-            progress = self.query_one("#status-progress", Horizontal)
-        except Exception:
-            return
-
-        if running:
-            if self._job_start_time is None:
-                self._job_start_time = self._get_now()
-                self._update_timer()
-                if self._timer_interval is None:
-                    self._timer_interval = self.set_interval(0.2, self._update_timer)
-            progress.remove_class("hidden")
-        else:
-            self._job_start_time = None
-            if self._timer_interval is not None:
-                self._timer_interval.stop()
-                self._timer_interval = None
-            progress.add_class("hidden")
-            try:
-                self.query_one("#status-timer", Static).update("")
-            except Exception:
-                pass
-
-    def _update_timer(self) -> None:
-        if self._job_start_time is None:
-            return
-        elapsed = max(0, int(self._get_now() - self._job_start_time))
-        hours, remainder = divmod(elapsed, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        time_str = (
-            f"{hours:02}:{minutes:02}:{seconds:02}" if hours > 0 else f"{minutes:02}:{seconds:02}"
-        )
-        try:
-            self.query_one("#status-timer", Static).update(f"Elapsed: {time_str}")
+            status_line = self.query_one("#status-line", StatusLine)
+            status_line.set_job_running(running)
         except Exception:
             pass
 

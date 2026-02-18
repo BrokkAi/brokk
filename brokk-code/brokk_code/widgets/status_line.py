@@ -1,8 +1,11 @@
+import pathlib
+import time
+from pathlib import Path
 from typing import Optional
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import Static
+from textual.widgets import LoadingIndicator, Static
 
 from brokk_code.token_format import format_token_count
 
@@ -14,6 +17,8 @@ class StatusLine(Horizontal):
       - mode, model, reasoning, workspace (via MetadataLabel)
       - spinner and elapsed timer (via JobProgress)
     """
+
+    SEPARATOR = " • "
 
     DEFAULT_CSS = """
     StatusLine {
@@ -34,12 +39,20 @@ class StatusLine(Horizontal):
         self._model = "unknown"
         self._reasoning = "unknown"
         self._workspace = "unknown"
+        self._branch = "unknown"
         self._fragment_description: Optional[str] = None
         self._fragment_size: Optional[int] = None
         self._metadata: Optional[Static] = None
 
+        self._get_now = time.time
+        self._job_start_time: Optional[float] = None
+        self._timer_interval = None
+
     def compose(self) -> ComposeResult:
         yield Static(id="status-metadata")
+        with Horizontal(id="status-progress", classes="hidden"):
+            yield LoadingIndicator(id="status-spinner")
+            yield Static(id="status-timer")
 
     def on_mount(self) -> None:
         try:
@@ -54,6 +67,7 @@ class StatusLine(Horizontal):
         mode = getattr(app, "current_mode", getattr(app, "agent_mode", "unknown"))
         model = getattr(app, "current_model", "unknown")
         reasoning = getattr(app, "reasoning_level", "unknown")
+        branch = getattr(app, "current_branch", "unknown")
         workspace = "unknown"
         try:
             executor = getattr(app, "executor", None)
@@ -64,32 +78,53 @@ class StatusLine(Horizontal):
         except Exception:
             pass
 
-        self.update_status(mode, model, reasoning, workspace)
+        self.update_status(mode, model, reasoning, workspace, branch)
+
+    def _get_display_workspace(self, workspace: str) -> str:
+        if workspace == "unknown":
+            return workspace
+        try:
+            # Normalize backslashes immediately for consistent behavior across platforms
+            norm_workspace = workspace.replace("\\", "/")
+            # Use module-level Path for construction so it can be monkeypatched by tests
+            path = Path(norm_workspace)
+            # Use pathlib.Path.home() for home detection so it works even if Path
+            # is patched to a non-class
+            home = pathlib.Path.home()
+
+            if str(path) == str(home) or path == home:
+                return "~"
+
+            try:
+                # is_relative_to handles path comparison without filesystem access
+                if path.is_relative_to(home):
+                    rel = path.relative_to(home).as_posix()
+                    return f"~/{rel}"
+            except (ValueError, TypeError):
+                pass
+
+            return path.as_posix()
+        except Exception:
+            pass
+        return workspace.replace("\\", "/")
 
     def _render_status_text(self) -> None:
-        workspace_label = self._workspace_label(self._workspace)
-        text = (
-            f"Mode: {self._mode} - "
-            f"Model: {self._model} (reasoning: {self._reasoning}) - "
-            f"Workspace: {workspace_label}"
+        # Compact format: {mode} • {model} ({reasoning}) • {workspace} • {branch}
+        workspace_display = self._get_display_workspace(self._workspace)
+        text = self.SEPARATOR.join(
+            [
+                self._mode,
+                f"{self._model} ({self._reasoning})",
+                workspace_display,
+                self._branch,
+            ]
         )
         if self._fragment_description is not None and self._fragment_size is not None:
             size_text = format_token_count(self._fragment_size)
-            text = f"Fragment: {self._fragment_description} ({size_text} tokens)"
+            # Label-free fragment: {description} ({tokens} tokens)
+            text = f"{self._fragment_description} ({size_text} tokens)"
 
         self._set_status_metadata(text)
-
-    @staticmethod
-    def _workspace_label(workspace: str) -> str:
-        trimmed = workspace.strip()
-        if not trimmed:
-            return "unknown"
-        normalized = trimmed.rstrip("/\\")
-        for sep in ("/", "\\"):
-            if sep in normalized:
-                tail = normalized.rsplit(sep, 1)[-1]
-                return tail or normalized
-        return normalized
 
     def _set_status_metadata(self, text: str) -> None:
         metadata = self._metadata
@@ -106,12 +141,19 @@ class StatusLine(Horizontal):
         model: Optional[str] = None,
         reasoning: Optional[str] = None,
         workspace: Optional[str] = None,
+        branch: Optional[str] = None,
     ) -> None:
-        """Update the metadata text segment."""
-        self._mode = str(mode or "unknown")
-        self._model = str(model or "unknown")
-        self._reasoning = str(reasoning or "unknown")
-        self._workspace = str(workspace or "unknown")
+        """Update the metadata text segment. Only non-None values are updated."""
+        if mode is not None:
+            self._mode = str(mode)
+        if model is not None:
+            self._model = str(model)
+        if reasoning is not None:
+            self._reasoning = str(reasoning)
+        if workspace is not None:
+            self._workspace = str(workspace)
+        if branch is not None:
+            self._branch = str(branch)
         self._render_status_text()
 
     def set_fragment_info(self, description: Optional[str], size: Optional[int]) -> None:
@@ -124,3 +166,42 @@ class StatusLine(Horizontal):
         self._fragment_description = None
         self._fragment_size = None
         self._render_status_text()
+
+    def set_job_running(self, running: bool) -> None:
+        """Start or stop the job progress indicator and timer."""
+        try:
+            progress = self.query_one("#status-progress", Horizontal)
+        except Exception:
+            return
+
+        if running:
+            if self._job_start_time is None:
+                self._job_start_time = self._get_now()
+                self._update_timer()
+                if self._timer_interval is None:
+                    self._timer_interval = self.set_interval(0.2, self._update_timer)
+            progress.remove_class("hidden")
+        else:
+            self._job_start_time = None
+            if self._timer_interval is not None:
+                self._timer_interval.stop()
+                self._timer_interval = None
+            progress.add_class("hidden")
+            try:
+                self.query_one("#status-timer", Static).update("")
+            except Exception:
+                pass
+
+    def _update_timer(self) -> None:
+        if self._job_start_time is None:
+            return
+        elapsed = max(0, int(self._get_now() - self._job_start_time))
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        time_str = (
+            f"{hours:02}:{minutes:02}:{seconds:02}" if hours > 0 else f"{minutes:02}:{seconds:02}"
+        )
+        try:
+            self.query_one("#status-timer", Static).update(f"Elapsed: {time_str}")
+        except Exception:
+            pass

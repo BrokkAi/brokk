@@ -144,3 +144,4 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     )
     kwargs = mock_status.update_status.call_args.kwargs
     assert kwargs["mode"] == "ASK", "Status line should reflect the new mode 'ASK'"
+    assert "branch" in kwargs, "Status line update should include branch"

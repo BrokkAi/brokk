@@ -69,10 +69,9 @@ ChatPanel {
 
 
 #status-progress {
-    width: 1fr;
+    width: auto;
     height: 1;
     layout: horizontal;
-    margin: 0 2;
 }
 
 #status-spinner {
@@ -252,6 +251,7 @@ ChatPanel {
 
 #status-line {
     margin: 0 2 1 2;
+    height: 1;
 }
 
 /* Ensure the Textual `.hidden` class continues to hide the status line cleanly. */

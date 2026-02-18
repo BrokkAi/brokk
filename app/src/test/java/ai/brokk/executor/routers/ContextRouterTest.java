@@ -188,8 +188,10 @@ class ContextRouterTest {
         assertTrue(body.containsKey("usedTokens"), "Should contain usedTokens key");
         assertTrue(body.containsKey("maxTokens"), "Should contain maxTokens key");
         assertTrue(body.containsKey("tokensEstimated"), "Should contain tokensEstimated key");
+        assertTrue(body.containsKey("branch"), "Should contain branch key");
 
         assertEquals(Boolean.TRUE, body.get("tokensEstimated"));
+        assertTrue(body.get("branch") instanceof String, "branch should be a String");
         assertTrue(body.get("fragments") instanceof List, "fragments should be a List");
         assertTrue(body.get("usedTokens") instanceof Number, "usedTokens should be a Number");
         assertTrue(body.get("maxTokens") instanceof Number, "maxTokens should be a Number");

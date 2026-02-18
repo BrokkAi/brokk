@@ -44,7 +44,6 @@ class OrderedFooter(Footer):
             ("toggle_context", "Context"),
             ("toggle_tasklist", "Tasks"),
             ("toggle_notifications", "Notifications"),
-            ("toggle_statusline", "Status"),
         ]
 
         for action, fallback_desc in order:
@@ -194,7 +193,6 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
-        Binding("ctrl+s", "toggle_statusline", "Status", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
@@ -264,6 +262,7 @@ class BrokkApp(App):
             if isinstance(self.settings.last_auto_commit, bool)
             else True
         )
+        self.current_branch = "unknown"
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
@@ -334,6 +333,7 @@ class BrokkApp(App):
                 model=getattr(self, "current_model", None),
                 reasoning=getattr(self, "reasoning_level", None),
                 workspace=workspace,
+                branch=getattr(self, "current_branch", "unknown"),
             )
         except Exception:
             # Swallow all errors when updating UI that's possibly not mounted in tests.
@@ -484,6 +484,7 @@ class BrokkApp(App):
         async with self._refresh_context_lock:
             try:
                 context_data = await self.executor.get_context()
+                self.current_branch = context_data.get("branch", "unknown")
 
                 # UI updates are best-effort if screen is not on stack
                 try:
@@ -507,6 +508,8 @@ class BrokkApp(App):
                     max_tokens = context_data.get("maxTokens")
                     fragments = context_data.get("fragments")
                     chat.set_token_usage(used, max_tokens, fragments)
+
+                self._update_statusline()
 
                 # Clear error tracking on success
                 self._reported_refresh_errors.clear()
@@ -775,7 +778,11 @@ class BrokkApp(App):
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
-        chat.set_job_running(True)
+        try:
+            status = chat.query_one(StatusLine)
+            status.set_job_running(True)
+        except Exception:
+            pass
         chat.set_response_pending()
         try:
             self.current_job_id = await self.executor.submit_job(
@@ -793,6 +800,7 @@ class BrokkApp(App):
             chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
         finally:
             chat.set_response_finished()
+            chat.set_job_running(False)
 
             # Yield to the event loop to allow any rapid subsequent submissions
             # triggered by the cancellation to be processed before we check _pending_prompt.
@@ -831,16 +839,10 @@ class BrokkApp(App):
                 else:
                     self.job_in_progress = False
                     self.current_job_id = None
-                    chat = self._maybe_chat()
-                    if chat:
-                        chat.set_job_running(False)
             else:
                 # Only mark idle once we are sure no more prompts are queued
                 self.job_in_progress = False
                 self.current_job_id = None
-                chat = self._maybe_chat()
-                if chat:
-                    chat.set_job_running(False)
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
@@ -1229,16 +1231,6 @@ class BrokkApp(App):
     def action_toggle_notifications(self) -> None:
         panel = self.query_one("#notification-panel")
         panel.toggle_class("hidden")
-
-    def action_toggle_statusline(self) -> None:
-        """Toggle visibility of the status line (best-effort)."""
-        try:
-            # Look in ChatPanel since it's nested there
-            panel = self.query_one(ChatPanel).query_one("#status-line")
-            panel.toggle_class("hidden")
-        except Exception:
-            # If not mounted, ignore
-            pass
 
     def _set_theme(self, theme_name: str) -> None:
         normalized_theme = normalize_theme_name(theme_name.lower())
