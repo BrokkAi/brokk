@@ -144,3 +144,29 @@ async def test_resume_command_launches_with_correct_id(tmp_path):
 
     assert len(stub.import_calls) == 1
     assert stub.import_calls[0][1] == session_id
+
+
+def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
+    """
+    Verifies that main() prints the resume hint after the app finishes running,
+    if a last session ID exists.
+    """
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "hint-session-789"
+    save_last_session_id(workspace, session_id)
+
+    # Patch BrokkApp.run so it doesn't actually start the TUI
+    # and sys.argv so main() uses our temp workspace.
+    with (
+        patch("brokk_code.app.BrokkApp.run", return_value=None),
+        patch(
+            "sys.argv",
+            ["brokk-code", "--workspace", str(workspace)],
+        ),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    assert f"brokk-code resume {session_id}" in captured.out

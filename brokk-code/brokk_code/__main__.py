@@ -174,6 +174,13 @@ def main():
     )
     app.run()
 
+    # Print resume hint on exit
+    from brokk_code.session_persistence import load_last_session_id
+
+    last_id = load_last_session_id(workspace_path)
+    if last_id:
+        print(f"brokk-code resume {last_id}")
+
 
 if __name__ == "__main__":
     main()
