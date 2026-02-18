@@ -38,7 +38,7 @@ def test_action_toggle_mode_cycles_correctly():
     )
 
 
-def test_handle_command_updates_mode():
+def test_handle_command_updates_agent_mode():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
@@ -119,12 +119,13 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     so we don't require a full Textual runtime or active app context.
     """
     app = BrokkApp(executor=MagicMock())
+    assert app.agent_mode == "LUTZ"
 
     # Replace the status widget with a mock that records updates.
     mock_status = MagicMock(spec=StatusLine)
     app.query_one = MagicMock(return_value=mock_status)
 
-    # Change mode and ensure the status line receive an update containing the new mode.
+    # Change mode and ensure the status line receives an update containing the new mode.
     app._set_mode("ASK", announce=False)
 
     # Since StatusLine is nested in ChatPanel, we need to ensure the query works.
@@ -133,8 +134,9 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     app._maybe_chat = MagicMock(return_value=mock_chat)
     mock_chat.query_one.return_value = mock_status
 
-    # Change mode and ensure the status line receive an update containing the new mode.
+    # Change mode and ensure the status line receives an update containing the new mode.
     app._set_mode("ASK", announce=False)
+    assert app.agent_mode == "ASK"
 
     # Ensure _update_statusline triggered update_status with correct keyword arguments.
     assert mock_status.update_status.called, (
