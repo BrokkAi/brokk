@@ -149,13 +149,20 @@ async def test_resume_command_launches_with_correct_id(tmp_path):
 def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
     """
     Verifies that main() prints the resume hint after the app finishes running,
-    if a last session ID exists.
+    if a last session ID exists AND has tasks.
     """
+    import zipfile
+    import json
     from brokk_code.__main__ import main
 
     workspace = tmp_path
     session_id = "hint-session-789"
     save_last_session_id(workspace, session_id)
+
+    # Create a zip with tasks so the hint prints
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("tasklist.json", json.dumps({"tasks": [{"id": "1", "title": "test"}]}))
 
     # Patch BrokkApp.run so it doesn't actually start the TUI
     # and sys.argv so main() uses our temp workspace.
@@ -171,3 +178,33 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
     captured = capsys.readouterr()
     expected_hint = f"brokk-code resume {session_id}"
     assert expected_hint in captured.out
+
+
+def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
+    """
+    Verifies that main() does NOT print the resume hint if the session exists but has no tasks.
+    """
+    import zipfile
+    import json
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "no-tasks-session"
+    save_last_session_id(workspace, session_id)
+
+    # Create a zip with NO tasks
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("tasklist.json", json.dumps({"tasks": []}))
+
+    with (
+        patch("brokk_code.app.BrokkApp.run", return_value=None),
+        patch(
+            "sys.argv",
+            ["brokk-code", "--workspace", str(workspace)],
+        ),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    assert "brokk-code resume" not in captured.out
