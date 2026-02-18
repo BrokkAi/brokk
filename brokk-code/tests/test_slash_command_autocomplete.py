@@ -303,6 +303,32 @@ async def test_autocomplete_scrollbar_configuration():
 
 
 @pytest.mark.asyncio
+async def test_slash_triggers_menu_from_app_commands():
+    """
+    Regression test: Typing '/' should trigger the autocomplete menu
+    and populate it using the app's get_slash_commands() hook.
+    """
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        suggestions = app.query_one(SlashCommandSuggestions)
+        chat_input = app.query_one(ChatInput)
+
+        # Ensure menu is hidden initially
+        assert suggestions.display is False
+
+        # Type '/'
+        await pilot.press("/")
+
+        # Assert menu is now visible and populated
+        assert suggestions.display is True
+        assert len(suggestions.children) > 0
+
+        # Verify the first command matches the app's mock data
+        first_cmd = app.get_slash_commands()[0]["command"]
+        assert first_cmd in str(suggestions.children[0].query_one(Static).renderable)
+
+
+@pytest.mark.asyncio
 async def test_autocomplete_ui_state_preserves_prompt_visibility():
     """Verify that the autocomplete-open class is applied and prompt remains visible/sized correctly."""
     app = AutocompleteTestApp()
