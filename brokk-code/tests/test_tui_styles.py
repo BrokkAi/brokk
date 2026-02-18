@@ -122,6 +122,7 @@ def test_status_progress_overflow_valid():
     """
     Regression test to ensure #status-progress does not use 'overflow: visible'.
     Textual does not support 'visible' for overflow; it must be auto, hidden, or scroll.
+    Also guard against 'overflow_x: visible' / 'overflow_y: visible' and hyphenated variants.
     """
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
 
@@ -129,6 +130,11 @@ def test_status_progress_overflow_valid():
     assert progress_match, "Could not find #status-progress rule in app.tcss"
 
     progress_body = progress_match.group(1)
-    assert "overflow: visible" not in progress_body, (
-        "#status-progress uses 'overflow: visible' which is invalid in Textual TCSS."
-    )
+
+    # Check for 'overflow', 'overflow-x', 'overflow_x', 'overflow-y', and 'overflow_y'
+    # being set to 'visible' anywhere in the rule block.
+    for prop in ["overflow", "overflow-x", "overflow_x", "overflow-y", "overflow_y"]:
+        pattern = rf"{prop}\s*:\s*visible"
+        assert not re.search(pattern, progress_body), (
+            f"#status-progress uses '{prop}: visible' which is invalid in Textual TCSS."
+        )
