@@ -232,9 +232,18 @@ def test_help_menu_layout_contract():
         "#chat-help should use 'text-align: right;' for the label content."
     )
 
-    # 4. Ensure legacy help labels are not active/visible
+    # 4. Ensure help spinner is styled correctly on the left
+    spinner_match = re.search(r"#help-spinner\s*\{([^}]*)\}", css_content)
+    assert spinner_match, "Could not find #help-spinner rule in app.tcss"
+    spinner_body = spinner_match.group(1)
+    assert "height: 1;" in spinner_body
+    assert "margin-right: 1;" in spinner_body, (
+        "Spinner should have right margin to separate from text"
+    )
+
+    # 5. Ensure legacy help labels are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)
-    for legacy_id in ["#tasklist-help", "#context-help"]:
+    for legacy_id in ["#tasklist-help", "#context-help", "#status-spinner"]:
         match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
         if match:
             body = match.group(1)
