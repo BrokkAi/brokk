@@ -23,17 +23,10 @@ class SlashCommandSuggestions(ListView):
     DEFAULT_CSS = """
     SlashCommandSuggestions {
         display: none;
-        background: $surface;
-        border-top: solid $primary-darken-1;
-        border-bottom: none;
-        border-left: none;
-        border-right: none;
         height: auto;
-        max-height: 10;
+        max-height: 6;
         width: 1fr;
-        margin: -1 2 1 2;
-        layer: top;
-        scrollbar-gutter: stable;
+        margin: 0 2 1 2;
     }
     SlashCommandSuggestions ListItem {
         padding: 0 1;

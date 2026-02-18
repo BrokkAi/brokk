@@ -267,7 +267,7 @@ SlashCommandSuggestions {
     border-top: solid $primary-darken-1;
     color: $text;
     scrollbar-gutter: stable;
-    margin: -1 2 1 2;
+    margin: 0 2 1 2;
 }
 
 SlashCommandSuggestions > ListItem:focus {
