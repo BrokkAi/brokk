@@ -151,8 +151,9 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
     Verifies that main() prints the resume hint after the app finishes running,
     if a last session ID exists AND has history tasks in contexts.jsonl.
     """
-    import zipfile
     import json
+    import zipfile
+
     from brokk_code.__main__ import main
 
     workspace = tmp_path
@@ -184,10 +185,12 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
 
 def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
     """
-    Verifies that main() does NOT print the resume hint if the session exists but has no qualifying history tasks.
+    Verifies that main() does NOT print the resume hint if the session exists
+    but has no qualifying history tasks.
     """
-    import zipfile
     import json
+    import zipfile
+
     from brokk_code.__main__ import main
 
     workspace = tmp_path

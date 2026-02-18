@@ -1,7 +1,7 @@
 import json
+import zipfile
 from pathlib import Path
 
-import zipfile
 from brokk_code.session_persistence import (
     get_session_zip_path,
     get_state_dir,
