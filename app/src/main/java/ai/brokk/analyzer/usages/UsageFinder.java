@@ -4,6 +4,7 @@ import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.OfflineService;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
@@ -46,7 +47,7 @@ public final class UsageFinder {
                 : new Llm(
                         model,
                         "Disambiguate Code Unit Usages",
-                        ai.brokk.TaskResult.Type.CLASSIFY,
+                        TaskResult.Type.CLASSIFY,
                         cm,
                         false,
                         false,
