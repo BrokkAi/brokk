@@ -3,6 +3,7 @@ package ai.brokk.analyzer.usages;
 import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.OfflineService;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
@@ -15,8 +16,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -24,7 +23,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class UsageFinder {
 
-    private static final Logger logger = LogManager.getLogger(UsageFinder.class);
     private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
     public static final int DEFAULT_MAX_FILES = 1000;
 
@@ -85,14 +83,6 @@ public final class UsageFinder {
         };
     }
 
-    /**
-     * @deprecated Use {@link #create(IContextManager)} or the full constructor.
-     */
-    @Deprecated
-    public UsageFinder(IProject project, IAnalyzer analyzer, UsageAnalyzer usageAnalyzer) {
-        this(project, analyzer, createDefaultProvider(), usageAnalyzer, null);
-    }
-
     public UsageFinder(
             IProject project,
             IAnalyzer analyzer,
@@ -102,8 +92,9 @@ public final class UsageFinder {
         this.project = project;
         this.analyzer = analyzer;
         this.fallbackCandidateProvider = candidateProvider;
-        this.fallbackUsageAnalyzer =
-                usageAnalyzer != null ? usageAnalyzer : new LlmUsageAnalyzer(project, analyzer, null, null);
+        this.fallbackUsageAnalyzer = usageAnalyzer != null
+                ? usageAnalyzer
+                : new LlmUsageAnalyzer(project, analyzer, new OfflineService(project), null);
         this.fileFilter = fileFilter;
     }
 

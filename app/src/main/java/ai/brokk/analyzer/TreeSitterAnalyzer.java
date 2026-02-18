@@ -80,7 +80,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * only forward mappings are transferred; reverse mappings are cleared and repopulated lazily
      * to ensure correctness after incremental changes.
      */
-    protected final AnalyzerCache cache;
+    private final AnalyzerCache cache;
 
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
