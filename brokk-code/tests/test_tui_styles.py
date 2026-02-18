@@ -246,7 +246,25 @@ def test_help_menu_layout_contract():
     )
     assert "show-horizontal-scrollbar" not in css_content
 
-    # 6. Ensure legacy help widgets are not active/visible
+    # 6. Ensure autocomplete footprint is constrained
+    suggestions_match = re.search(r"SlashCommandSuggestions\s*\{([^}]*)\}", css_content)
+    if suggestions_match:
+        suggestions_body = suggestions_match.group(1)
+        # Check max-height is reduced
+        mh_match = re.search(r"max-height:\s*(\d+)\s*;", suggestions_body)
+        if mh_match:
+            assert int(mh_match.group(1)) <= 5, (
+                "SlashCommandSuggestions max-height should be 5 or less"
+            )
+
+        # Check margin bottom is 0
+        m_match = re.search(r"margin:\s*([^;]+);", suggestions_body)
+        if m_match:
+            margins = m_match.group(1).strip().split()
+            if len(margins) == 4:
+                assert margins[2] == "0", "SlashCommandSuggestions should have 0 bottom margin"
+
+    # 7. Ensure legacy help widgets are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)
     for legacy_id in ["#tasklist-help", "#context-help", "#status-spinner"]:
         match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
