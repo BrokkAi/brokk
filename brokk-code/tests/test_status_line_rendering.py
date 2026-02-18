@@ -14,8 +14,8 @@ def test_status_line_rendering_compact():
     )
 
     # Expected: {branch} - {mode} - {model} ({reasoning}) - {workspace}
-    # _workspace_label("/path/to/my-project") should be "my-project"
-    expected = "main - LUTZ - gpt-4 (high) - my-project"
+    # Workspace should be the full path, not shortened.
+    expected = "main - LUTZ - gpt-4 (high) - /path/to/my-project"
     mock_metadata.update.assert_called_with(expected)
 
 
