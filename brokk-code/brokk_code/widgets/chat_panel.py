@@ -42,10 +42,22 @@ class SlashCommandSuggestions(ListView):
     def update_suggestions(self, query: str, commands: List[Dict[str, str]]) -> bool:
         """Filters suggestions based on query. Returns True if there are matches."""
         self.clear()
-        query = query.lower()
-        matches = [c for c in commands if c["command"].lower().startswith(query)]
+        query_stripped = query.strip().lower()
+        if not query_stripped.startswith("/") or "\n" in query:
+            self.display = False
+            return False
 
-        if not matches or query == "":
+        matches = []
+        for c in commands:
+            cmd_name = c["command"].lower()
+            # Direct prefix match for the command
+            if cmd_name.startswith(query_stripped):
+                matches.append(c)
+            # For multi-word commands like /task next, if user typed "/task n"
+            elif query_stripped.startswith("/task ") and cmd_name.startswith(query_stripped):
+                matches.append(c)
+
+        if not matches:
             self.display = False
             return False
 
@@ -102,6 +114,19 @@ class ChatInput(TextArea):
         except Exception:
             pass
 
+    def _on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """Triggered whenever text changes via typing or backspace."""
+        try:
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+        except Exception:
+            return
+
+        if self.text.startswith("/") and "\n" not in self.text:
+            if hasattr(self.app, "get_slash_commands"):
+                suggestions.update_suggestions(self.text, self.app.get_slash_commands())
+        else:
+            suggestions.display = False
+
     async def _on_key(self, event: events.Key) -> None:
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
         # Enter submits and Shift+Enter inserts a newline.
@@ -125,7 +150,13 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
             if event.key == "enter":
+                # Select the suggestion and stop propagation to prevent action_submit
                 suggestions.action_select_cursor()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "escape":
+                suggestions.display = False
                 event.stop()
                 event.prevent_default()
                 return
@@ -140,13 +171,8 @@ class ChatInput(TextArea):
             event.prevent_default()
             self.action_insert_newline()
             return
-        await super()._on_key(event)
 
-        if self.text.startswith("/") and not "\n" in self.text:
-            if suggestions and hasattr(self.app, "get_slash_commands"):
-                suggestions.update_suggestions(self.text, self.app.get_slash_commands())
-        elif suggestions:
-            suggestions.display = False
+        await super()._on_key(event)
 
 
 class ChatPanel(Vertical):
@@ -200,6 +226,14 @@ class ChatPanel(Vertical):
         chat_input = self.query_one("#chat-input", ChatInput)
         if not chat_input.has_focus:
             return
+
+        # Bypass history navigation if suggestions are visible
+        try:
+            suggestions = self.query_one(SlashCommandSuggestions)
+            if suggestions.display:
+                return
+        except Exception:
+            pass
 
         # Only trigger history navigation if there is no selection
         if not chat_input.selection.is_empty:
