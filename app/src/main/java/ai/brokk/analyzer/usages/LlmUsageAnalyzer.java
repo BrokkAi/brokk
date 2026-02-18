@@ -51,6 +51,7 @@ public final class LlmUsageAnalyzer implements UsageAnalyzer {
     @Override
     public FuzzyResult findUsages(List<CodeUnit> overloads, Set<ProjectFile> candidateFiles, int maxUsages)
             throws InterruptedException {
+        if (overloads.isEmpty()) return new FuzzyResult.Success(Map.of());
         var target = overloads.getFirst();
         final String identifier = target.identifier();
         Language lang = Languages.fromExtension(target.source().extension());
