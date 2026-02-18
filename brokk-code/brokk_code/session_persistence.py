@@ -59,7 +59,8 @@ def has_tasks(zip_path: Path) -> bool:
                     bytes_read += len(chunk)
 
                     lines = (remainder + chunk).splitlines(keepends=True)
-                    # If the chunk didn't end with a newline, keep the last partial line for next chunk
+                    # If the chunk didn't end with a newline, keep the last partial line
+                    # for next chunk
                     if not lines[-1].endswith((b"\r", b"\n")):
                         remainder = lines.pop()
                     else:
