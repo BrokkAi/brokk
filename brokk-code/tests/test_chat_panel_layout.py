@@ -65,3 +65,7 @@ async def test_suggestions_overlay_chat_input():
         assert suggestions in container.children, (
             "Suggestions should be a child of #chat-input-container for overlay positioning"
         )
+        # Check for layer and docking setup for overlay
+        assert container.styles.layers == ("base", "top")
+        assert suggestions.styles.dock == "bottom"
+        assert suggestions.styles.layer == "top"
