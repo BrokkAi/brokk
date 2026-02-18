@@ -219,6 +219,11 @@ ChatPanel {
     layout: vertical;
 }
 
+#chat-input-container.autocomplete-open {
+    /* Raise the prompt panel by ~2 rows (~16-24px depending on font) when autocomplete is open */
+    margin-bottom: 2;
+}
+
 #chat-input-container.autocomplete-open #chat-input {
     margin-bottom: 0;
 }

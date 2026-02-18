@@ -314,6 +314,7 @@ async def test_autocomplete_ui_state_preserves_prompt_visibility():
         assert not container.has_class("autocomplete-open")
         assert chat_input.styles.height.value == 3
         assert chat_input.styles.margin.bottom.value == 1
+        assert container.styles.margin.bottom.value == 0
 
         # Trigger autocomplete
         await pilot.press("/")
@@ -322,9 +323,12 @@ async def test_autocomplete_ui_state_preserves_prompt_visibility():
         assert chat_input.styles.height.value == 3
         # Margin is removed to dock suggestions directly under input
         assert chat_input.styles.margin.bottom.value == 0
+        # Container margin-bottom should be 2 to raise the panel
+        assert container.styles.margin.bottom.value == 2
 
         # Hide autocomplete
         await pilot.press("escape")
         assert not container.has_class("autocomplete-open")
         assert chat_input.styles.height.value == 3
         assert chat_input.styles.margin.bottom.value == 1
+        assert container.styles.margin.bottom.value == 0
