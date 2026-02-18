@@ -9,7 +9,7 @@ from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Header, ListItem, ListView, Static
+from textual.widgets import Footer, ListItem, ListView, Static
 from textual.widgets._footer import FooterKey
 
 from brokk_code.executor import ExecutorError, ExecutorManager
@@ -233,7 +233,6 @@ class BrokkApp(App):
         self.settings = Settings.load()
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
-        self.sub_title = f"Mode: {self.agent_mode}"
 
         # Initialize model and reasoning settings from persisted Settings if present,
         # otherwise fall back to safe defaults.
@@ -338,7 +337,6 @@ class BrokkApp(App):
             return
 
     def compose(self) -> ComposeResult:
-        yield Header()
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
@@ -869,9 +867,8 @@ class BrokkApp(App):
                 self.run_worker(self._refresh_context_panel())
 
     def _set_mode(self, new_mode: str, *, announce: bool = True) -> None:
-        """Sets the agent mode, updates the subtitle, and optionally announces to chat."""
+        """Sets the agent mode, updates the status line, and optionally announces to chat."""
         self.agent_mode = new_mode
-        self.sub_title = f"Mode: {self.agent_mode}"
         # Update statusline if present
         self._update_statusline()
         if announce:
