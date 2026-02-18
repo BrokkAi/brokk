@@ -96,8 +96,8 @@ class ChatPanel(Vertical):
         yield RichLog(highlight=True, markup=True, id="chat-log")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield TokenBar(id="chat-token-bar", classes="hidden")
-        yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield StatusLine(id="status-line")
+        yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
 
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
