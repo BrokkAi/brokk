@@ -139,12 +139,26 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 fragmentList.add(map);
             }
 
+            var project = contextManager.getProject();
+            String branch;
+            if (project.hasGit()) {
+                try {
+                    branch = project.getRepo().getCurrentBranch();
+                } catch (Exception e) {
+                    logger.debug("Failed to get current branch", e);
+                    branch = "unknown";
+                }
+            } else {
+                branch = "(no git)";
+            }
+
             int maxTokens = 200_000;
             var response = Map.of(
                     "fragments", fragmentList,
                     "usedTokens", totalUsedTokens,
                     "maxTokens", maxTokens,
-                    "tokensEstimated", includeTokens);
+                    "tokensEstimated", includeTokens,
+                    "branch", branch);
 
             SimpleHttpServer.sendJsonResponse(exchange, response);
         } catch (Exception e) {
