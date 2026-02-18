@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import Any
 
 from brokk_code.zed_config import (
     ExistingBrokkCodeEntryError,

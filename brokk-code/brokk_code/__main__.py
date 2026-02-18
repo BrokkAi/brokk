@@ -3,9 +3,9 @@ import asyncio
 import sys
 from pathlib import Path
 
+from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
-from brokk_code.intellij_config import configure_intellij_acp_settings
 
 
 def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
