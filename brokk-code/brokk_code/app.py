@@ -157,7 +157,10 @@ class ReasoningSelectModal(ModalScreen[str]):
                 yield ListView(
                     *[
                         ListItem(
-                            Static(f"{'[x]' if level == self.current else '[ ]'} {level}"),
+                            Static(
+                                f"{'[x]' if level == self.current else '[ ]'} {level}",
+                                markup=False,
+                            ),
                             id=item_id,
                         )
                         for item_id, level in self._item_id_to_level.items()
@@ -198,7 +201,7 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
                     items = []
                     for idx, m in enumerate(self.models):
                         label = f"{'[x]' if m == self.selected_model else '[ ]'} {m}"
-                        items.append(ListItem(Static(label), id=f"m-{idx}"))
+                        items.append(ListItem(Static(label, markup=False), id=f"m-{idx}"))
                     yield ListView(*items, id="model-select-list")
 
             with Vertical(classes="selection-pane"):
@@ -207,7 +210,7 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
                     items = []
                     for idx, r in enumerate(self.reasoning_levels):
                         label = f"{'[x]' if r == self.selected_reasoning else '[ ]'} {r}"
-                        items.append(ListItem(Static(label), id=f"r-{idx}"))
+                        items.append(ListItem(Static(label, markup=False), id=f"r-{idx}"))
                     yield ListView(*items, id="reasoning-select-list")
 
     def on_mount(self) -> None:
@@ -241,6 +244,7 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
                 # Update markers in model list
                 for i, item in enumerate(message.list_view.query(ListItem)):
                     marker = "[x]" if i == idx else "[ ]"
+                    # The Static widget was created with markup=False in compose()
                     item.query_one(Static).update(f"{marker} {self.models[i]}")
 
                 # Sync and focus reasoning list
