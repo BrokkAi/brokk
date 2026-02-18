@@ -51,6 +51,7 @@ async def test_action_select_model_updates_state():
     # as if the user selected a model in the modal.
     def mock_push_screen(screen, callback=None):
         if callback:
+            # ModelSelectModal returns a single string
             callback("claude-3")
 
     app.push_screen = MagicMock(side_effect=mock_push_screen)
@@ -88,7 +89,7 @@ async def test_action_select_model_handles_dotted_model_names():
         async with app.run_test() as pilot:
             await app.action_select_model()
             await pilot.pause()
-            assert app.screen.__class__.__name__ == "ModelReasoningSelectModal"
+            assert app.screen.__class__.__name__ == "ModelSelectModal"
 
 
 @pytest.mark.asyncio
@@ -117,7 +118,7 @@ async def test_model_modal_keyboard_navigation_selects_model_and_reasoning():
         patch.object(BrokkApp, "_poll_context", return_value=None),
     ):
         async with app.run_test() as pilot:
-            await app.action_select_model()
+            await app.action_select_model_and_reasoning()
             await pilot.pause()
 
             # Step 1: Select Model

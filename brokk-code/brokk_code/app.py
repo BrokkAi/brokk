@@ -988,7 +988,7 @@ class BrokkApp(App):
                 chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
                 self._update_statusline()
             else:
-                self.run_worker(self.action_select_model())
+                self.run_worker(self.action_select_model_and_reasoning())
         elif base == "/model-code" and len(parts) > 1:
             self.code_model = parts[1]
             # Persist the last-used code model
@@ -1159,6 +1159,59 @@ class BrokkApp(App):
             chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
 
     async def action_select_model(self) -> None:
+        chat = self._maybe_chat()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot select model.", level="ERROR"
+                )
+            return
+
+        try:
+            models_data = await self.executor.get_models()
+            raw_models = models_data.get("models", [])
+            if not isinstance(raw_models, list):
+                raw_models = []
+            available_models: List[str] = []
+            for model in raw_models:
+                if isinstance(model, str):
+                    name = model.strip()
+                elif isinstance(model, dict):
+                    name = str(model.get("name", "")).strip()
+                else:
+                    name = ""
+                if name:
+                    available_models.append(name)
+            if not available_models:
+                if chat:
+                    chat.add_system_message("No models available from executor.", level="ERROR")
+                return
+
+            def update_selection(model_id: str | None) -> None:
+                if model_id:
+                    self.current_model = model_id
+                    # Persist choice
+                    try:
+                        self.settings.last_model = model_id
+                        self.settings.save()
+                    except Exception:
+                        logger.exception("Failed to persist model setting")
+
+                    if chat:
+                        chat.add_system_message_markup(f"Model changed to: [bold]{model_id}[/]")
+
+                    # Update statusline (best-effort)
+                    try:
+                        self._update_statusline()
+                    except Exception:
+                        pass
+
+            self.push_screen(ModelSelectModal(available_models), update_selection)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
+
+    async def action_select_model_and_reasoning(self) -> None:
         chat = self._maybe_chat()
         if not self._executor_ready:
             if chat:
