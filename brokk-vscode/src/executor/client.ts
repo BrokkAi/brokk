@@ -18,6 +18,7 @@ import type {
   ExecutionMode,
   TaskListData,
   ModelsResponse,
+  CompletionsResponse,
 } from "../types";
 
 export class ApiError extends Error {
@@ -280,6 +281,14 @@ export class BrokkClient {
       method: "POST",
       body: JSON.stringify({ text }),
     });
+  }
+
+  // ── Completions ────────────────────────────────────────
+
+  async getCompletions(query: string, limit = 20): Promise<CompletionsResponse> {
+    return this.request<CompletionsResponse>(
+      `/v1/completions?query=${encodeURIComponent(query)}&limit=${limit}`
+    );
   }
 
   // ── Models ──────────────────────────────────────────

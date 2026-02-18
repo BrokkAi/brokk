@@ -4,6 +4,7 @@ import { initCustomSelect, closeAllDropdowns, populateModelSelects } from "./cus
 import { initContext, renderContext, renderTaskList } from "./context.js";
 import { initActivity, renderActivity } from "./activity.js";
 import { initSettings } from "./settings.js";
+import { initAutocomplete } from "./autocomplete.js";
 
 // ── VS Code API ──────────────────────────────────────
 
@@ -16,6 +17,7 @@ initChat(document.body.dataset.workerUrl);
 initContext(vscode);
 initActivity(vscode);
 const { onSettingsLoaded, onSettingsSaved, onBalanceResult, onSettingsError } = initSettings(vscode);
+const { handleResults: handleAutocompleteResults } = initAutocomplete(vscode);
 
 // ── Custom Selects ───────────────────────────────────
 
@@ -227,6 +229,11 @@ window.addEventListener("message", (event) => {
       break;
     case "settingsError":
       onSettingsError(msg);
+      break;
+
+    // Autocomplete
+    case "autocompleteResults":
+      handleAutocompleteResults(msg);
       break;
   }
 });

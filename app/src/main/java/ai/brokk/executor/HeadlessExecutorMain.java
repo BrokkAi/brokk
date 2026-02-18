@@ -11,6 +11,7 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.routers.ActivityRouter;
+import ai.brokk.executor.routers.CompletionsRouter;
 import ai.brokk.executor.routers.ContextRouter;
 import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelsRouter;
@@ -251,6 +252,9 @@ public final class HeadlessExecutorMain {
 
         var activityRouter = new ActivityRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/activity", activityRouter);
+
+        var completionsRouter = new CompletionsRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/completions", completionsRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -547,6 +551,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/context/text             - add pasted text to context");
             System.out.println("    GET  /v1/tasklist                 - get current task list content");
             System.out.println("    POST /v1/tasklist                 - replace current task list content");
+            System.out.println("    GET  /v1/completions              - file and symbol completions");
             System.out.println();
 
             // Create and start executor

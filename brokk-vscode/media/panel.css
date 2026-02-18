@@ -1597,3 +1597,84 @@ a.file-link:hover {
 .settings-save:hover {
   background: var(--vscode-button-hoverBackground, #1177bb);
 }
+
+/* ── Autocomplete Dropdown ───────────────────────── */
+
+.autocomplete-dropdown {
+  position: absolute;
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--vscode-menu-background, #252526);
+  border: 1px solid var(--vscode-menu-border, #454545);
+  border-radius: 4px;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.4);
+  z-index: 1001;
+  padding: 4px 0;
+}
+
+.autocomplete-dropdown.hidden {
+  display: none;
+}
+
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--vscode-menu-foreground, #ccc);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.autocomplete-item.selected {
+  background: var(--vscode-menu-selectionBackground, #094771);
+  color: var(--vscode-menu-selectionForeground, #fff);
+}
+
+.autocomplete-item:hover {
+  background: var(--vscode-menu-selectionBackground, #094771);
+  color: var(--vscode-menu-selectionForeground, #fff);
+}
+
+.autocomplete-icon {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.autocomplete-name {
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.autocomplete-detail {
+  color: var(--vscode-descriptionForeground, #888);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.autocomplete-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  color: var(--vscode-descriptionForeground, #888);
+}
+
+.autocomplete-hint-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--vscode-foreground, #ccc);
+}
+
+.autocomplete-hint-example {
+  font-size: 11px;
+}

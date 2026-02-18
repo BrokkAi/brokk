@@ -266,6 +266,18 @@ export interface ModelsResponse {
   models: (ModelInfo | string)[];
 }
 
+// ── Completions ───────────────────────────────────────────
+
+export interface CompletionItem {
+  type: "file" | "class" | "function" | "field" | "module";
+  name: string;
+  detail: string;
+}
+
+export interface CompletionsResponse {
+  completions: CompletionItem[];
+}
+
 // ── Errors ─────────────────────────────────────────────
 
 export interface ApiErrorBody {
