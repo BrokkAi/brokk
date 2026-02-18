@@ -49,3 +49,22 @@ async def test_help_row_spinner_order():
             f"Expected #help-spinner (index {spinner_index}) to be before "
             f"#chat-help (index {label_index}) in horizontal row"
         )
+
+
+@pytest.mark.asyncio
+async def test_suggestions_below_chat_input():
+    """Verify that slash suggestions are positioned below the chat input in the DOM."""
+    app = ChatPanelLayoutApp()
+    async with app.run_test():
+        container = app.query_one("#chat-input-container")
+        chat_input = container.query_one("#chat-input")
+        suggestions = container.query_one("#slash-suggestions")
+
+        children = list(container.children)
+        input_index = children.index(chat_input)
+        suggestions_index = children.index(suggestions)
+
+        assert input_index < suggestions_index, (
+            f"Expected #chat-input (index {input_index}) to be above "
+            f"#slash-suggestions (index {suggestions_index})"
+        )

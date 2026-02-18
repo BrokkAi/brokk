@@ -31,7 +31,7 @@ class SlashCommandSuggestions(ListView):
         height: auto;
         max-height: 10;
         width: 1fr;
-        margin: 0 2;
+        margin: -1 2 1 2;
         layer: top;
         scrollbar-gutter: stable;
     }
@@ -256,8 +256,8 @@ class ChatPanel(Vertical):
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
-            yield SlashCommandSuggestions(id="slash-suggestions")
             yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
+            yield SlashCommandSuggestions(id="slash-suggestions")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
