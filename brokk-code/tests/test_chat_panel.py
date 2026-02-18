@@ -148,44 +148,6 @@ async def test_streaming_duplication_regression():
 
 
 @pytest.mark.asyncio
-async def test_chat_input_focus_does_not_block_ctrl_u_model_select():
-    """
-    Verify model selection action still works when ChatInput has focus.
-    """
-    from unittest.mock import AsyncMock, MagicMock, patch
-
-    from brokk_code.app import BrokkApp
-
-    # Setup app with ready executor to avoid early return in action_select_model
-    executor = MagicMock()
-    executor.get_models = AsyncMock(return_value={"models": ["model1"]})
-    executor.stop = AsyncMock()
-    executor.session_id = None
-    app = BrokkApp(executor=executor)
-    app._executor_ready = True
-
-    with (
-        patch.object(BrokkApp, "_start_executor", return_value=None),
-        patch.object(BrokkApp, "_monitor_executor", return_value=None),
-        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
-        patch.object(BrokkApp, "_poll_context", return_value=None),
-    ):
-        async with app.run_test() as pilot:
-            chat_input = app.query_one("#chat-input")
-            assert chat_input.has_focus
-
-            # We mock push_screen to see if the action was triggered
-            app.push_screen = MagicMock()
-
-            # Trigger model selection action while input remains focused
-            await app.action_select_model()
-            await pilot.pause()
-
-            # Verify push_screen was called, indicating the action triggered
-            assert app.push_screen.called
-
-
-@pytest.mark.asyncio
 async def test_whitespace_reasoning_terminal_does_not_stick():
     """
     Regression test: If a reasoning token that is only whitespace is flushed as terminal,
@@ -265,3 +227,13 @@ async def test_action_handle_ctrl_c_no_input_widget():
 
             # Verify it fell through to job cancellation
             app.executor.cancel_job.assert_called_once_with("test-job-id")
+
+
+@pytest.mark.asyncio
+async def test_no_ctrl_u_e_bindings_in_chat_input():
+    """Verify that ChatInput does not have ctrl+u or ctrl+e bindings."""
+    from brokk_code.widgets.chat_panel import ChatInput
+
+    bindings = {b.key for b in ChatInput.BINDINGS}
+    assert "ctrl+u" not in bindings
+    assert "ctrl+e" not in bindings

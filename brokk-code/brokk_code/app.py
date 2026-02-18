@@ -39,8 +39,6 @@ class OrderedFooter(Footer):
 
         order = [
             ("toggle_mode", "Mode"),
-            ("select_model", "Model"),
-            ("select_reasoning", "Reasoning"),
             ("toggle_context", "Context"),
             ("toggle_tasklist", "Tasks"),
             ("toggle_notifications", "Notifications"),
@@ -159,7 +157,10 @@ class ReasoningSelectModal(ModalScreen[str]):
                 yield ListView(
                     *[
                         ListItem(
-                            Static(f"{'[x]' if level == self.current else '[ ]'} {level}"),
+                            Static(
+                                f"{'[x]' if level == self.current else '[ ]'} {level}",
+                                markup=False,
+                            ),
                             id=item_id,
                         )
                         for item_id, level in self._item_id_to_level.items()
@@ -178,18 +179,101 @@ class ReasoningSelectModal(ModalScreen[str]):
             self.dismiss(level)
 
 
+class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
+    """A combined modal for selecting both model and reasoning level side-by-side."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, models: List[str], current_model: str, current_reasoning: str) -> None:
+        super().__init__()
+        self.models = models
+        self.selected_model = current_model
+        self.selected_reasoning = current_reasoning
+        self.reasoning_levels = ["disable", "low", "medium", "high"]
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="model-reasoning-combined-container"):
+            with Vertical(classes="selection-pane"):
+                yield Static("Model", id="model-select-title")
+                with VerticalScroll(id="model-select-list-wrap"):
+                    items = []
+                    for idx, m in enumerate(self.models):
+                        label = f"{'[x]' if m == self.selected_model else '[ ]'} {m}"
+                        items.append(ListItem(Static(label, markup=False), id=f"m-{idx}"))
+                    yield ListView(*items, id="model-select-list")
+
+            with Vertical(classes="selection-pane"):
+                yield Static("Reasoning", id="reasoning-select-title")
+                with VerticalScroll(id="reasoning-select-list-wrap"):
+                    items = []
+                    for idx, r in enumerate(self.reasoning_levels):
+                        label = f"{'[x]' if r == self.selected_reasoning else '[ ]'} {r}"
+                        items.append(ListItem(Static(label, markup=False), id=f"r-{idx}"))
+                    yield ListView(*items, id="reasoning-select-list")
+
+    def on_mount(self) -> None:
+        # Sync model list highlight
+        try:
+            m_list = self.query_one("#model-select-list", ListView)
+            m_idx = self.models.index(self.selected_model)
+            m_list.index = m_idx
+        except (ValueError, Exception):
+            pass
+
+        # Sync reasoning list highlight
+        try:
+            r_list = self.query_one("#reasoning-select-list", ListView)
+            r_idx = self.reasoning_levels.index(self.selected_reasoning)
+            r_list.index = r_idx
+        except (ValueError, Exception):
+            pass
+
+        # Focus the model list by default
+        self.query_one("#model-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+
+        try:
+            if message.list_view.id == "model-select-list":
+                idx = int(message.item.id.split("-")[1])
+                self.selected_model = self.models[idx]
+                # Update markers in model list
+                for i, item in enumerate(message.list_view.query(ListItem)):
+                    marker = "[x]" if i == idx else "[ ]"
+                    # The Static widget was created with markup=False in compose()
+                    item.query_one(Static).update(f"{marker} {self.models[i]}")
+
+                # Sync and focus reasoning list
+                r_list = self.query_one("#reasoning-select-list", ListView)
+                try:
+                    r_idx = self.reasoning_levels.index(self.selected_reasoning)
+                    r_list.index = r_idx
+                except (ValueError, Exception):
+                    pass
+                r_list.focus()
+
+            elif message.list_view.id == "reasoning-select-list":
+                idx = int(message.item.id.split("-")[1])
+                self.selected_reasoning = self.reasoning_levels[idx]
+                # Dismiss immediately upon reasoning selection
+                self.dismiss((self.selected_model, self.selected_reasoning))
+        except (ValueError, IndexError):
+            logger.error("Failed to parse index from ListItem id: %s", message.item.id)
+
+
 class BrokkApp(App):
     """The main Brokk TUI application."""
 
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
-        # Footer/help-bar ordering: Mode, Model, Reasoning, Context,
-        # Tasks, Notifications, Settings
+        # Footer/help-bar ordering: Mode, Context, Tasks, Notifications, Settings
         Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
-        Binding("ctrl+u", "select_model", "Model", show=True),
-        Binding("ctrl+e", "select_reasoning", "Reasoning", show=True),
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
@@ -917,16 +1001,19 @@ class BrokkApp(App):
         parts = cmd.split()
         base = parts[0].lower()
 
-        if base == "/model" and len(parts) > 1:
-            self.current_model = parts[1]
-            # Persist the last-used planner model for subsequent runs
-            try:
-                self.settings.last_model = self.current_model
-                self.settings.save()
-            except Exception:
-                logger.exception("Failed to persist last_model setting")
-            chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
-            self._update_statusline()
+        if base == "/model":
+            if len(parts) > 1:
+                self.current_model = parts[1]
+                # Persist the last-used planner model for subsequent runs
+                try:
+                    self.settings.last_model = self.current_model
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_model setting")
+                chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
+                self._update_statusline()
+            else:
+                self.run_worker(self.action_select_model_and_reasoning())
         elif base == "/model-code" and len(parts) > 1:
             self.code_model = parts[1]
             # Persist the last-used code model
@@ -936,18 +1023,21 @@ class BrokkApp(App):
             except Exception:
                 logger.exception("Failed to persist last_code_model setting")
             chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
-        elif base == "/reasoning" and len(parts) > 1:
-            self.reasoning_level = parts[1]
-            # Persist planner reasoning preference
-            try:
-                self.settings.last_reasoning_level = self.reasoning_level
-                self.settings.save()
-            except Exception:
-                logger.exception("Failed to persist last_reasoning_level setting")
-            chat.add_system_message_markup(
-                f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
-            )
-            self._update_statusline()
+        elif base == "/reasoning":
+            if len(parts) > 1:
+                self.reasoning_level = parts[1]
+                # Persist planner reasoning preference
+                try:
+                    self.settings.last_reasoning_level = self.reasoning_level
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_reasoning_level setting")
+                chat.add_system_message_markup(
+                    f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
+                )
+                self._update_statusline()
+            else:
+                self.run_worker(self.action_select_reasoning())
         elif base == "/reasoning-code" and len(parts) > 1:
             self.reasoning_level_code = parts[1]
             # Persist code reasoning preference
@@ -1069,9 +1159,9 @@ class BrokkApp(App):
                 "  /ask                  - Set mode to ASK (questions only)\n"
                 "  /search               - Set mode to SEARCH (read-only code search)\n"
                 "  /lutz                 - Set mode to LUTZ (default; full agent access)\n"
-                "  /model <name>         - Change the planner LLM model (Shortcut: Ctrl+U)\n"
+                "  /model <name>         - Change the planner LLM model\n"
                 "  /model-code <name>    - Change the code LLM model\n"
-                "  /reasoning <level>    - Set reasoning level for planner (Shortcut: Ctrl+E)\n"
+                "  /reasoning <level>    - Set reasoning level for planner\n"
                 "  /reasoning-code <level> - Set reasoning level for code model\n"
                 "  /autocommit [on|off|toggle] - Toggle auto-commit for submitted jobs\n"
                 "  /settings             - Open settings\n"
@@ -1122,24 +1212,88 @@ class BrokkApp(App):
                     chat.add_system_message("No models available from executor.", level="ERROR")
                 return
 
-            def update_model(model_id: str | None) -> None:
+            def update_selection(model_id: str | None) -> None:
                 if model_id:
                     self.current_model = model_id
-                    # Persist choice so subsequent runs reuse it
+                    # Persist choice
                     try:
                         self.settings.last_model = model_id
                         self.settings.save()
                     except Exception:
-                        logger.exception("Failed to persist selected model")
+                        logger.exception("Failed to persist model setting")
+
                     if chat:
                         chat.add_system_message_markup(f"Model changed to: [bold]{model_id}[/]")
+
                     # Update statusline (best-effort)
                     try:
                         self._update_statusline()
                     except Exception:
                         pass
 
-            self.push_screen(ModelSelectModal(available_models), update_model)
+            self.push_screen(ModelSelectModal(available_models), update_selection)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
+
+    async def action_select_model_and_reasoning(self) -> None:
+        chat = self._maybe_chat()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot select model.", level="ERROR"
+                )
+            return
+
+        try:
+            models_data = await self.executor.get_models()
+            raw_models = models_data.get("models", [])
+            if not isinstance(raw_models, list):
+                raw_models = []
+            available_models: List[str] = []
+            for model in raw_models:
+                if isinstance(model, str):
+                    name = model.strip()
+                elif isinstance(model, dict):
+                    name = str(model.get("name", "")).strip()
+                else:
+                    name = ""
+                if name:
+                    available_models.append(name)
+            if not available_models:
+                if chat:
+                    chat.add_system_message("No models available from executor.", level="ERROR")
+                return
+
+            def update_selection(result: tuple[str, str] | None) -> None:
+                if result:
+                    model_id, reasoning = result
+                    self.current_model = model_id
+                    self.reasoning_level = reasoning
+                    # Persist choices
+                    try:
+                        self.settings.last_model = model_id
+                        self.settings.last_reasoning_level = reasoning
+                        self.settings.save()
+                    except Exception:
+                        logger.exception("Failed to persist model/reasoning settings")
+
+                    if chat:
+                        msg = f"Model: [bold]{model_id}[/] (Reasoning: [bold]{reasoning}[/])"
+                        chat.add_system_message_markup(f"Settings updated: {msg}")
+
+                    # Update statusline (best-effort)
+                    try:
+                        self._update_statusline()
+                    except Exception:
+                        pass
+
+            self.push_screen(
+                ModelReasoningSelectModal(
+                    available_models, self.current_model, self.reasoning_level
+                ),
+                update_selection,
+            )
         except Exception as e:
             if chat:
                 chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")

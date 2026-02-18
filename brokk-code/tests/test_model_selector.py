@@ -6,12 +6,10 @@ from brokk_code.app import BrokkApp
 from brokk_code.widgets.chat_panel import ChatPanel
 
 
-def test_model_selector_binding_exists():
+def test_model_selector_bindings_absent():
     app = BrokkApp(executor=MagicMock())
-    bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
-    # Verify Ctrl+U shortcut exists and is visible.
-    assert "ctrl+u" in bindings
-    assert bindings["ctrl+u"] == ("select_model", "Model", True)
+    bindings = {b.key for b in app.BINDINGS}
+    assert "ctrl+u" not in bindings
 
 
 @pytest.mark.asyncio
@@ -50,7 +48,10 @@ async def test_action_select_model_updates_state():
     # We mock push_screen to capture the callback and invoke it immediately
     # as if the user selected a model in the modal.
     def mock_push_screen(screen, callback=None):
+        # Verify it uses the model-only modal
+        assert screen.__class__.__name__ == "ModelSelectModal"
         if callback:
+            # ModelSelectModal returns a single string
             callback("claude-3")
 
     app.push_screen = MagicMock(side_effect=mock_push_screen)
@@ -91,38 +92,21 @@ async def test_action_select_model_handles_dotted_model_names():
             assert app.screen.__class__.__name__ == "ModelSelectModal"
 
 
-@pytest.mark.asyncio
-async def test_model_modal_keyboard_navigation_selects_model():
-    executor = MagicMock()
-    executor.get_models = AsyncMock(
-        return_value={
-            "models": [
-                {"name": "alpha-model", "location": "x"},
-                {"name": "beta-model", "location": "y"},
-            ]
-        }
-    )
-    executor.stop = AsyncMock()
-    executor.session_id = None
+def test_help_command_no_shortcuts_for_model_reasoning():
+    """Verify /help output does not mention Ctrl+U or Ctrl+E."""
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
 
-    app = BrokkApp(executor=executor)
-    app._executor_ready = True
+    app._handle_command("/help")
 
-    from unittest.mock import patch
+    # Capture the help text passed to append_message
+    args, _ = mock_chat.append_message.call_args
+    help_text = args[1]
 
-    with (
-        patch.object(BrokkApp, "_start_executor", return_value=None),
-        patch.object(BrokkApp, "_monitor_executor", return_value=None),
-        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
-        patch.object(BrokkApp, "_poll_context", return_value=None),
-    ):
-        async with app.run_test() as pilot:
-            await app.action_select_model()
-            await pilot.pause()
-
-            # Move from first to second row and select.
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-
-            assert app.current_model == "beta-model"
+    assert "Ctrl+U" not in help_text
+    assert "Ctrl+E" not in help_text
+    assert "Shortcut:" not in help_text
+    # Verify the commands themselves are still documented
+    assert "/model" in help_text
+    assert "/reasoning" in help_text

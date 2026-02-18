@@ -90,10 +90,18 @@ def test_ctrl_p_binding_is_settings():
     assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
 
 
-def test_ctrl_e_binding_is_reasoning():
+def test_model_and_reasoning_bindings_do_not_exist():
     app = BrokkApp(executor=MagicMock())
-    bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
-    assert bindings["ctrl+e"] == ("select_reasoning", "Reasoning", True)
+    # Verify shortcuts no longer exist in app bindings.
+    bindings = {b.key for b in app.BINDINGS}
+    assert "ctrl+u" not in bindings
+    assert "ctrl+e" not in bindings
+
+    from brokk_code.widgets.chat_panel import ChatInput
+
+    chat_input_bindings = {b.key for b in ChatInput.BINDINGS}
+    assert "ctrl+u" not in chat_input_bindings
+    assert "ctrl+e" not in chat_input_bindings
 
 
 def test_textual_command_palette_is_enabled():

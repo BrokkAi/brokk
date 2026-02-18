@@ -2,7 +2,7 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen {
+ContextModalScreen, ModelReasoningSelectModal {
     align: center middle;
 }
 
@@ -265,4 +265,58 @@ ChatPanel {
 
 .ml-1 {
     margin-left: 1;
+}
+
+#model-select-container, #reasoning-select-container {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#model-reasoning-combined-container {
+    width: 100;
+    height: auto;
+    max-height: 90%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+.selection-pane {
+    width: 1fr;
+    height: auto;
+    padding: 0 1;
+}
+
+#model-select-title, #reasoning-select-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+#model-select-list-wrap, #reasoning-select-list-wrap {
+    height: auto;
+    max-height: 30;
+    border: tall $primary-darken-1;
+}
+
+#model-select-list, #reasoning-select-list {
+    background: transparent;
+    height: auto;
+}
+
+#model-select-list > ListItem:focus, #reasoning-select-list > ListItem:focus {
+    background: $accent 20%;
+    color: $text;
+    text-style: bold;
+}
+
+#model-select-list > ListItem, #reasoning-select-list > ListItem {
+    padding: 0 1;
 }
