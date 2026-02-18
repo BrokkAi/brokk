@@ -41,11 +41,11 @@ class SlashCommandSuggestions(ListView):
     def update_suggestions(self, query: str, commands: List[Dict[str, str]]) -> bool:
         """Filters suggestions based on query. Returns True if there are matches."""
         self.clear()
-        query_stripped = query.strip().lower()
-        if not query_stripped.startswith("/") or "\n" in query:
-            self.display = False
+        # Ensure we don't show for multi-line or non-slash inputs
+        if not query.startswith("/") or "\n" in query:
             return False
 
+        query_stripped = query.strip().lower()
         matches = []
         for c in commands:
             cmd_name = c["command"].lower()
@@ -148,34 +148,40 @@ class ChatInput(TextArea):
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Triggered whenever text changes via typing or backspace."""
+        # Note: self.text is already updated when this event fires
         self._sync_autocomplete(self.text)
+
+    def on_focus(self, event: events.Focus) -> None:
+        """Re-check autocomplete when input gains focus."""
+        self._sync_autocomplete(self.text)
+
+    def on_blur(self, event: events.Blur) -> None:
+        """Hide autocomplete when input loses focus."""
+        self._set_autocomplete_open(False)
 
     def _sync_autocomplete(self, text: str) -> None:
         """Drives autocomplete visibility based on current text and focus state."""
-        app = self.app
-
         if self.suppress_autocomplete_once:
             self._set_autocomplete_open(False)
             self.suppress_autocomplete_once = False
             return
 
-        # Always hide if text is empty or focus is lost
-        if not text.strip() or not self.has_focus:
+        # Always hide if text is empty, contains newlines, or focus is lost
+        if not text or not self.has_focus or "\n" in text or not text.startswith("/"):
             self._set_autocomplete_open(False)
             return
 
-        if text.startswith("/") and "\n" not in text:
-            commands = []
-            if hasattr(app, "get_slash_commands"):
-                commands = app.get_slash_commands()
-            try:
-                suggestions = self.app.query_one(SlashCommandSuggestions)
-                is_any = suggestions.update_suggestions(text, commands)
-                self._set_autocomplete_open(is_any)
-            except Exception:
-                pass
-        else:
-            self._set_autocomplete_open(False)
+        app = self.app
+        commands = []
+        if hasattr(app, "get_slash_commands"):
+            commands = app.get_slash_commands()
+
+        try:
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+            is_any = suggestions.update_suggestions(text, commands)
+            self._set_autocomplete_open(is_any)
+        except Exception:
+            pass
 
     async def _on_key(self, event: events.Key) -> None:
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
