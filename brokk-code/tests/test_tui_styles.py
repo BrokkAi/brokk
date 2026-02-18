@@ -133,3 +133,25 @@ def test_status_progress_overflow_valid():
         assert not re.search(pattern, progress_body), (
             f"#status-progress uses '{prop}: visible' which is invalid in Textual TCSS."
         )
+
+
+def test_status_timer_width_regression():
+    """
+    Ensure #status-timer has sufficient width/min-width to avoid truncating
+    the elapsed timer text (e.g., 'Elapsed: 00:00' which is ~14 chars).
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    timer_match = re.search(r"#status-timer\s*\{([^}]*)\}", css_content)
+    assert timer_match, "Could not find #status-timer rule in app.tcss"
+    timer_body = timer_match.group(1)
+
+    # Check for width or min-width >= 14
+    width_match = re.search(r"(?:min-)?width\s*:\s*(\d+)\s*;", timer_body)
+    assert width_match, f"#status-timer should have a numeric width or min-width. Found: {timer_body.strip()}"
+
+    width_val = int(width_match.group(1))
+    assert width_val >= 14, (
+        f"#status-timer width/min-width ({width_val}) is too small to prevent truncation. "
+        "It should be at least 14 for 'Elapsed: 00:00'."
+    )
