@@ -157,3 +157,29 @@ async def test_autocomplete_task_next_does_not_double_space():
 
         # "/task next" already has internal spaces/is complete, shouldn't get extra space
         assert chat_input.text == "/task next"
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_tab_regression_no_crash():
+    """
+    Regression test for TypeError when pressing Tab with suggestions open.
+    This ensures that ChatInput._on_key correctly calls suggestions.action_select_cursor()
+    and that it doesn't collide with any internal message naming.
+    """
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        chat_input = app.query_one(ChatInput)
+        suggestions = app.query_one(SlashCommandSuggestions)
+
+        # 1. Type to show suggestions
+        await pilot.press("/", "m", "o")
+        assert suggestions.display is True
+
+        # 2. Press Tab. This triggers ChatInput._on_key logic for 'tab'
+        # which calls suggestions.action_select_cursor().
+        await pilot.press("tab")
+
+        # 3. Assertions
+        assert suggestions.display is False
+        # /model is the first match and requires args, so expect trailing space
+        assert chat_input.text == "/model "
