@@ -491,28 +491,55 @@ public interface IAnalyzer {
     }
 
     default String summarizeSymbols(Collection<CodeUnit> units, Set<CodeUnitType> types, int indent) {
-        var prefix = "  ".repeat(Math.max(0, indent));
+        var indentStr = "  ".repeat(Math.max(0, indent));
         var sb = new StringBuilder();
-        for (var cu : units) {
-            // Skip anonymous/lambda artifacts
-            if (cu.isAnonymous()) {
-                continue;
-            }
 
-            // Use FQN for top-level entries, simple identifier for nested entries
-            String name = indent == 0 ? cu.fqName() : cu.identifier();
-            sb.append(prefix).append("- ").append(name);
+        if (indent == 0 && !units.isEmpty()) {
+            // Group by common prefix (package/module)
+            Map<String, List<CodeUnit>> grouped = units.stream()
+                    .filter(cu -> !cu.isAnonymous())
+                    .collect(Collectors.groupingBy(
+                            cu -> {
+                                String fqn = cu.fqName();
+                                int lastDot = fqn.lastIndexOf('.');
+                                return lastDot > 0 ? fqn.substring(0, lastDot) : "";
+                            },
+                            LinkedHashMap::new,
+                            Collectors.toList()));
 
-            var children = getDirectChildren(cu).stream()
-                    .filter(child -> types.contains(child.kind()))
-                    .toList();
-            if (!children.isEmpty()) {
-                sb.append("\n");
-                sb.append(this.summarizeSymbols(children, types, indent + 1));
+            for (var entry : grouped.entrySet()) {
+                String groupPrefix = entry.getKey();
+                List<CodeUnit> groupUnits = entry.getValue();
+
+                if (!groupPrefix.isEmpty()) {
+                    sb.append("# ").append(groupPrefix).append("\n");
+                }
+
+                for (var cu : groupUnits) {
+                    renderSymbol(sb, cu, types, indent, indentStr);
+                }
             }
-            sb.append("\n");
+        } else {
+            for (var cu : units) {
+                if (cu.isAnonymous()) continue;
+                renderSymbol(sb, cu, types, indent, indentStr);
+            }
         }
         return sb.toString().stripTrailing();
+    }
+
+    private void renderSymbol(StringBuilder sb, CodeUnit cu, Set<CodeUnitType> types, int indent, String indentStr) {
+        // Use identifier for entries since the group header (if any) or nesting provides context
+        sb.append(indentStr).append("- ").append(cu.identifier());
+
+        var children = getDirectChildren(cu).stream()
+                .filter(child -> types.contains(child.kind()))
+                .toList();
+        if (!children.isEmpty()) {
+            sb.append("\n");
+            sb.append(this.summarizeSymbols(children, types, indent + 1));
+        }
+        sb.append("\n");
     }
 
     /**

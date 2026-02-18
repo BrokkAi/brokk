@@ -444,15 +444,16 @@ public class ArchitectAgent {
         if (changesFragment.isPresent()) {
             String diffText = changesFragment.get().text().join();
             assert !diffText.isBlank();
-            postscript = """
+            postscript =
+                    """
                     **Code Agent changes (unified diff)**
-                    
+
                     A unified diff of the Code Agent's changes is available in the Workspace under 'Last Code Agent Changes'.
-                    
+
                     If this is going in the wrong direction entirely, call `undoLastChanges` to revert and start over.
                     """
-                    .stripIndent()
-                    .stripTrailing();
+                            .stripIndent()
+                            .stripTrailing();
         }
 
         if (postscript.isBlank()) {
