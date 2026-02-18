@@ -263,7 +263,7 @@ ChatPanel {
 
 SlashCommandSuggestions {
     background: $panel;
-    border: solid $primary-darken-1;
+    border: none;
     color: $text;
     scrollbar-gutter: stable;
     /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
