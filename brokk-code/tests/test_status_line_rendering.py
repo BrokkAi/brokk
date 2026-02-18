@@ -1,8 +1,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 from brokk_code.widgets.status_line import StatusLine
 
 
