@@ -15,12 +15,10 @@ def test_action_toggle_mode_cycles_correctly():
 
     # Initial state
     assert app.agent_mode == "LUTZ"
-    assert app.sub_title == "Mode: LUTZ"
 
     # Cycle 1: LUTZ -> ASK
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
-    assert app.sub_title == "Mode: ASK"
     mock_chat.add_system_message_markup.assert_called_with(
         "Mode changed to: [bold]ASK[/]", level="WARNING"
     )
@@ -28,7 +26,6 @@ def test_action_toggle_mode_cycles_correctly():
     # Cycle 2: ASK -> SEARCH
     app.action_toggle_mode()
     assert app.agent_mode == "SEARCH"
-    assert app.sub_title == "Mode: SEARCH"
     mock_chat.add_system_message_markup.assert_called_with(
         "Mode changed to: [bold]SEARCH[/]", level="WARNING"
     )
@@ -36,13 +33,12 @@ def test_action_toggle_mode_cycles_correctly():
     # Cycle 3: SEARCH -> LUTZ
     app.action_toggle_mode()
     assert app.agent_mode == "LUTZ"
-    assert app.sub_title == "Mode: LUTZ"
     mock_chat.add_system_message_markup.assert_called_with(
         "Mode changed to: [bold]LUTZ[/]", level="WARNING"
     )
 
 
-def test_handle_command_updates_mode_and_subtitle():
+def test_handle_command_updates_agent_mode():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
@@ -50,7 +46,6 @@ def test_handle_command_updates_mode_and_subtitle():
     # Test /ask
     app._handle_command("/ask")
     assert app.agent_mode == "ASK"
-    assert app.sub_title == "Mode: ASK"
     mock_chat.add_system_message_markup.assert_called_with(
         "Mode changed to: [bold]ASK[/]", level="WARNING"
     )
@@ -58,7 +53,6 @@ def test_handle_command_updates_mode_and_subtitle():
     # Test /search
     app._handle_command("/search")
     assert app.agent_mode == "SEARCH"
-    assert app.sub_title == "Mode: SEARCH"
     mock_chat.add_system_message_markup.assert_called_with(
         "Mode changed to: [bold]SEARCH[/]", level="WARNING"
     )
@@ -66,7 +60,6 @@ def test_handle_command_updates_mode_and_subtitle():
     # Test /lutz
     app._handle_command("/lutz")
     assert app.agent_mode == "LUTZ"
-    assert app.sub_title == "Mode: LUTZ"
     mock_chat.add_system_message_markup.assert_called_with(
         "Mode changed to: [bold]LUTZ[/]", level="WARNING"
     )
@@ -117,7 +110,6 @@ def test_action_toggle_mode_handles_unknown_mode():
     # Should default to first mode in cycle after first (index 0 + 1)
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
-    assert app.sub_title == "Mode: ASK"
 
 
 def test_status_line_is_composed_and_updates_on_mode_change():
@@ -127,12 +119,13 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     so we don't require a full Textual runtime or active app context.
     """
     app = BrokkApp(executor=MagicMock())
+    assert app.agent_mode == "LUTZ"
 
     # Replace the status widget with a mock that records updates.
     mock_status = MagicMock(spec=StatusLine)
     app.query_one = MagicMock(return_value=mock_status)
 
-    # Change mode and ensure the status line receive an update containing the new mode.
+    # Change mode and ensure the status line receives an update containing the new mode.
     app._set_mode("ASK", announce=False)
 
     # Since StatusLine is nested in ChatPanel, we need to ensure the query works.
@@ -141,8 +134,9 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     app._maybe_chat = MagicMock(return_value=mock_chat)
     mock_chat.query_one.return_value = mock_status
 
-    # Change mode and ensure the status line receive an update containing the new mode.
+    # Change mode and ensure the status line receives an update containing the new mode.
     app._set_mode("ASK", announce=False)
+    assert app.agent_mode == "ASK"
 
     # Ensure _update_statusline triggered update_status with correct keyword arguments.
     assert mock_status.update_status.called, (
