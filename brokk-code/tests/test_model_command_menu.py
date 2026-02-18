@@ -171,13 +171,14 @@ async def test_combined_modal_checked_marker_is_visible():
             # Verify Model list marker
             model_list = app.screen.query_one("#model-select-list", ListView)
             selected_model_item = model_list.children[model_list.index]
-            model_label = str(selected_model_item.query_one(Static).renderable)
+            # render_line returns a Strip; converting to str gives the plain text
+            model_label = str(selected_model_item.query_one(Static).render_line(0).text)
             assert "[x]" in model_label, f"Model marker '[x]' missing from: {model_label}"
 
             # Verify Reasoning list marker
             reasoning_list = app.screen.query_one("#reasoning-select-list", ListView)
             selected_reasoning_item = reasoning_list.children[reasoning_list.index]
-            reasoning_label = str(selected_reasoning_item.query_one(Static).renderable)
+            reasoning_label = str(selected_reasoning_item.query_one(Static).render_line(0).text)
             assert "[x]" in reasoning_label, (
                 f"Reasoning marker '[x]' missing from: {reasoning_label}"
             )
