@@ -87,9 +87,7 @@ def test_context_panel_height_regression():
     scroll_match = re.search(r"#context-chip-scroll\s*\{([^}]*)\}", css_content)
     assert scroll_match, "Could not find #context-chip-scroll rule in app.tcss"
     scroll_body = scroll_match.group(1)
-    assert "height: 1fr" in scroll_body, (
-        "#context-chip-scroll should use 1fr to fill panel space"
-    )
+    assert "height: 1fr" in scroll_body, "#context-chip-scroll should use 1fr to fill panel space"
 
 
 def test_combined_selector_modal_dimensions():
@@ -103,9 +101,7 @@ def test_combined_selector_modal_dimensions():
     assert combined_match, "Could not find #model-reasoning-combined-container rule in app.tcss"
 
     body = combined_match.group(1)
-    assert "width: 100;" in body, (
-        "Combined modal should have a width of 100 for side-by-side lists"
-    )
+    assert "width: 100;" in body, "Combined modal should have a width of 100 for side-by-side lists"
     assert "max-height: 90%;" in body, "Combined modal should allow up to 90% screen height"
 
     # Verify centering rule exists
@@ -207,8 +203,7 @@ def test_help_menu_layout_contract():
     help_row_margins = help_row_margin_match.group(1).strip().split()
 
     same_margins = (
-        input_margins[1] == help_row_margins[1]
-        and input_margins[3] == help_row_margins[3]
+        input_margins[1] == help_row_margins[1] and input_margins[3] == help_row_margins[3]
     )
     assert same_margins, (
         f"#chat-help-row horizontal margins ({help_row_margins[1]}, {help_row_margins[3]}) "

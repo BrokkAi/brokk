@@ -270,3 +270,65 @@ async def test_chat_panel_composition_success():
         # Verify #help-elapsed (Static) exists - this would have failed with NameError
         help_elapsed = chat.query_one("#help-elapsed", Static)
         assert help_elapsed is not None
+
+
+@pytest.mark.asyncio
+async def test_slash_command_catalog_stability():
+    """Verify the slash command catalog is stable and follows rules."""
+    from brokk_code.app import BrokkApp
+    from unittest.mock import MagicMock
+
+    app = BrokkApp(executor=MagicMock())
+    commands = app.get_slash_commands()
+
+    assert len(commands) > 0
+    seen = set()
+    for cmd_entry in commands:
+        cmd = cmd_entry["command"]
+        assert cmd.startswith("/"), f"Command {cmd} must start with /"
+        assert cmd not in seen, f"Duplicate command found: {cmd}"
+        assert "description" in cmd_entry
+        seen.add(cmd)
+
+    # Verify key commands exist
+    cmds_only = {c["command"] for c in commands}
+    assert "/ask" in cmds_only
+    assert "/task next" in cmds_only
+    assert "/help" in cmds_only
+
+
+@pytest.mark.asyncio
+async def test_slash_autocomplete_filtering():
+    """Verify slash suggestions filter correctly."""
+    from textual.app import App, ComposeResult
+    from brokk_code.widgets.chat_panel import ChatPanel, SlashCommandSuggestions, ChatInput
+
+    class TestApp(App):
+        def get_slash_commands(self):
+            return [
+                {"command": "/ask", "description": "d"},
+                {"command": "/ask-more", "description": "d"},
+                {"command": "/help", "description": "d"},
+            ]
+
+        def compose(self) -> ComposeResult:
+            yield ChatPanel()
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat_input = app.query_one(ChatInput)
+        suggestions = app.query_one(SlashCommandSuggestions)
+
+        # Type /a
+        await pilot.press(*list("/a"))
+        assert suggestions.display is True
+        assert len(suggestions.children) == 2
+
+        # Type sk-
+        await pilot.press(*list("sk-"))
+        assert len(suggestions.children) == 1
+        assert "/ask-more" in str(suggestions.children[0].query_one(Static).renderable)
+
+        # Esc hides
+        await pilot.press("escape")
+        assert suggestions.display is False

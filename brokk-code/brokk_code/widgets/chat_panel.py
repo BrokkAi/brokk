@@ -9,10 +9,58 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
+
+
+class SlashCommandSuggestions(ListView):
+    """A popup list for slash command autocomplete."""
+
+    DEFAULT_CSS = """
+    SlashCommandSuggestions {
+        display: none;
+        background: $panel;
+        border: tall $primary;
+        height: auto;
+        max-height: 10;
+        width: 1fr;
+        margin: 0 2;
+        layer: top;
+    }
+    SlashCommandSuggestions ListItem {
+        padding: 0 1;
+    }
+    """
+
+    class Selected(Message):
+        def __init__(self, command: str) -> None:
+            self.command = command
+            super().__init__()
+
+    def update_suggestions(self, query: str, commands: List[Dict[str, str]]) -> bool:
+        """Filters suggestions based on query. Returns True if there are matches."""
+        self.clear()
+        query = query.lower()
+        matches = [c for c in commands if c["command"].lower().startswith(query)]
+
+        if not matches or query == "":
+            self.display = False
+            return False
+
+        for m in matches:
+            self.append(ListItem(Static(f"{m['command']} - {m['description']}", markup=False)))
+
+        self.index = 0
+        self.display = True
+        return True
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if message.item:
+            cmd_text = str(message.item.query_one(Static).renderable).split(" - ")[0]
+            self.post_message(self.Selected(cmd_text))
+            self.display = False
 
 
 class ChatInput(TextArea):
@@ -20,6 +68,7 @@ class ChatInput(TextArea):
 
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
+        Binding("escape", "hide_suggestions", "Hide Suggestions", show=False),
     ]
 
     class Submitted(Message):
@@ -44,6 +93,14 @@ class ChatInput(TextArea):
     def action_insert_newline(self) -> None:
         self.insert("\n")
 
+    def action_hide_suggestions(self) -> None:
+        try:
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+            if suggestions.display:
+                suggestions.display = False
+        except Exception:
+            pass
+
     async def _on_key(self, event: events.Key) -> None:
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
         # Enter submits and Shift+Enter inserts a newline.
@@ -54,6 +111,23 @@ class ChatInput(TextArea):
             event.prevent_default()
             self.action_quit()
             return
+        try:
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+        except Exception:
+            suggestions = None
+
+        if suggestions and suggestions.display:
+            if event.key in ("up", "down"):
+                suggestions._on_key(event)
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "enter":
+                suggestions.action_select_cursor()
+                event.stop()
+                event.prevent_default()
+                return
+
         if event.key == "enter":
             event.stop()
             event.prevent_default()
@@ -65,6 +139,12 @@ class ChatInput(TextArea):
             self.action_insert_newline()
             return
         await super()._on_key(event)
+
+        if self.text.startswith("/") and not "\n" in self.text:
+            if suggestions and hasattr(self.app, "get_slash_commands"):
+                suggestions.update_suggestions(self.text, self.app.get_slash_commands())
+        elif suggestions:
+            suggestions.display = False
 
 
 class ChatPanel(Vertical):
@@ -98,6 +178,7 @@ class ChatPanel(Vertical):
         yield RichLog(highlight=True, markup=True, id="chat-log")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield TokenBar(id="chat-token-bar", classes="hidden")
+        yield SlashCommandSuggestions(id="slash-suggestions")
         yield StatusLine(id="status-line")
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         with Horizontal(id="chat-help-row"):
@@ -194,6 +275,14 @@ class ChatPanel(Vertical):
         self.post_message(self.Submitted(event.text))
         self._history_index = -1
         self._draft_buffer = ""
+
+    def on_slash_command_suggestions_selected(
+        self, event: SlashCommandSuggestions.Selected
+    ) -> None:
+        chat_input = self.query_one("#chat-input", ChatInput)
+        chat_input.text = event.command
+        chat_input.move_cursor(chat_input.document.end)
+        chat_input.focus()
 
     def set_response_pending(self) -> None:
         """Called when a job is submitted and we are waiting for the first token."""
