@@ -24,7 +24,6 @@ class StatusLine(Horizontal):
     StatusLine {
         height: 1;
         padding: 0 1;
-        background: $panel;
         color: $text-disabled;
         layout: horizontal;
     }
