@@ -29,6 +29,10 @@ class StatusLine(Horizontal):
     }
     #status-metadata {
         width: 1fr;
+        min-width: 10;
+    }
+    #status-progress {
+        width: auto;
     }
     """
 
@@ -187,7 +191,8 @@ class StatusLine(Horizontal):
                 self._timer_interval = None
             progress.add_class("hidden")
             try:
-                self.query_one("#status-timer", Static).update("")
+                timer = self.query_one("#status-timer", Static)
+                timer.update("")
             except Exception:
                 pass
 
