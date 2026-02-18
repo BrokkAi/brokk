@@ -129,6 +129,7 @@ def test_settings_load_from_older_json_without_new_keys(tmp_path, monkeypatch):
 def test_app_initializes_with_defaults_when_settings_empty(tmp_path, monkeypatch):
     """Verify BrokkApp uses hardcoded fallbacks when settings fields are None or blank."""
     from unittest.mock import MagicMock
+
     from brokk_code.app import BrokkApp
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
