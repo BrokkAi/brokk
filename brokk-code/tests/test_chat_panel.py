@@ -1,4 +1,5 @@
 import pytest
+from textual.widgets import Static
 
 from brokk_code.widgets.chat_panel import ChatPanel
 
@@ -275,8 +276,9 @@ async def test_chat_panel_composition_success():
 @pytest.mark.asyncio
 async def test_slash_command_catalog_stability():
     """Verify the slash command catalog is stable and follows rules."""
-    from brokk_code.app import BrokkApp
     from unittest.mock import MagicMock
+
+    from brokk_code.app import BrokkApp
 
     app = BrokkApp(executor=MagicMock())
     commands = app.get_slash_commands()
@@ -301,7 +303,8 @@ async def test_slash_command_catalog_stability():
 async def test_slash_autocomplete_filtering():
     """Verify slash suggestions filter correctly."""
     from textual.app import App, ComposeResult
-    from brokk_code.widgets.chat_panel import ChatPanel, SlashCommandSuggestions, ChatInput
+
+    from brokk_code.widgets.chat_panel import ChatPanel, SlashCommandSuggestions
 
     class TestApp(App):
         def get_slash_commands(self):
@@ -316,7 +319,6 @@ async def test_slash_autocomplete_filtering():
 
     app = TestApp()
     async with app.run_test() as pilot:
-        chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
 
         # Type /a

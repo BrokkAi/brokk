@@ -1,9 +1,10 @@
 import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Static
+
 from brokk_code.widgets.chat_panel import (
-    ChatPanel,
     ChatInput,
+    ChatPanel,
     SlashCommandSuggestions,
 )
 
@@ -251,7 +252,8 @@ async def test_autocomplete_history_interaction():
 async def test_autocomplete_ui_hidden_after_selection_even_if_prefix_matches_others():
     """
     Regression test: accepting /model should hide the UI even if /model-code exists.
-    Previously, the Change event would re-trigger suggestions because /model is a prefix of /model-code.
+    Previously, the Change event would re-trigger suggestions because
+    /model is a prefix of /model-code.
     """
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
@@ -343,7 +345,8 @@ async def test_slash_triggers_menu_from_app_commands():
 
 @pytest.mark.asyncio
 async def test_autocomplete_ui_state_preserves_prompt_visibility():
-    """Verify that the autocomplete-open class is applied and prompt remains visible/sized correctly."""
+    """Verify that the autocomplete-open class is applied and prompt
+    remains visible/sized correctly."""
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         container = app.query_one("#chat-input-container")

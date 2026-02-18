@@ -243,9 +243,11 @@ def test_help_menu_layout_contract():
     )
 
     # 5. Ensure no invalid scrollbar properties exist (Textual uses scrollbar-x/y or show-scrollbar)
-    # We allow the substring in comments or documentation, but check for the pattern in property definitions.
+    # We allow the substring in comments or documentation, but check for
+    # the pattern in property definitions.
     assert not re.search(r"show-vertical-scrollbar\s*:", css_content), (
-        "Textual TCSS does not support 'show-vertical-scrollbar'; use 'show-scrollbar' or 'scrollbar-y'."
+        "Textual TCSS does not support 'show-vertical-scrollbar'; "
+        + "use 'show-scrollbar' or 'scrollbar-y'."
     )
     assert "show-horizontal-scrollbar" not in css_content
 
@@ -269,7 +271,8 @@ def test_help_menu_layout_contract():
                     "Suggestions should match input horizontal margins"
                 )
                 assert margins[2] == "6", (
-                    "Suggestions should have bottom margin 6 to overlay above the 3-high prompt + 1-high help row"
+                    "Suggestions should have bottom margin 6 to overlay "
+                    + "above the 3-high prompt + 1-high help row"
                 )
 
     # Ensure container does NOT raise up when autocomplete is open
@@ -278,7 +281,8 @@ def test_help_menu_layout_contract():
     )
     assert container_open_match, "Could not find #chat-input-container.autocomplete-open rule"
     assert "margin-bottom: 0;" in container_open_match.group(1), (
-        "Container should have margin-bottom: 0 as the prompt should not move when autocomplete is open"
+        "Container should have margin-bottom: 0 as the prompt "
+        + "should not move when autocomplete is open"
     )
 
     # 7. Ensure legacy help widgets are not active/visible

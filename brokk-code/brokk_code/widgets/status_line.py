@@ -1,11 +1,10 @@
 import pathlib
-import time
 from pathlib import Path
 from typing import Optional
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import LoadingIndicator, Static
+from textual.widgets import Static
 
 from brokk_code.token_format import format_token_count
 

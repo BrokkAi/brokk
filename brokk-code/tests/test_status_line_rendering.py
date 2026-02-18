@@ -1,6 +1,9 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+from textual.app import App, ComposeResult
+
 from brokk_code.widgets.status_line import StatusLine
 
 
@@ -123,10 +126,6 @@ def test_status_line_rendering_windows_path_normalization(monkeypatch):
     # Expected: Home abbreviation + forward slashes
     expected_home_sub = "LUTZ • gpt-4 (high) • ~/projects/brokk • main"
     mock_metadata.update.assert_called_with(expected_home_sub)
-
-
-import pytest
-from textual.app import App, ComposeResult
 
 
 class StatusLineTestApp(App):
