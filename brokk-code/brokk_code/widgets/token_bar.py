@@ -81,13 +81,15 @@ class TokenBar(Static):
         self._segment_layout = []
         self._bar_width = 0
 
-        if self._used_tokens <= 0:
+        if self._used_tokens == 0:
             self._rendered_text = Text("No context yet", style="dim italic")
             self._emit_hover(None, None)
         elif width <= 0:
             # No layout yet — show numbers only, no bar
             if self._max_tokens > 0:
-                pct = max(0.0, min(100.0, 100 * (1 - self._used_tokens / self._max_tokens)))
+                # Clamp used_tokens to 0 for percentage display if negative
+                display_used = max(0, self._used_tokens)
+                pct = max(0.0, min(100.0, 100 * (1 - display_used / self._max_tokens)))
                 usage_str = f"{pct:.1f}% context remaining"
             else:
                 usage_str = f"{format_token_count(self._used_tokens)} tokens"
@@ -95,7 +97,9 @@ class TokenBar(Static):
             self._emit_hover(None, None)
         else:
             if self._max_tokens > 0:
-                pct = max(0.0, min(100.0, 100 * (1 - self._used_tokens / self._max_tokens)))
+                # Clamp used_tokens to 0 for percentage display if negative
+                display_used = max(0, self._used_tokens)
+                pct = max(0.0, min(100.0, 100 * (1 - display_used / self._max_tokens)))
                 usage_str = f" {pct:.1f}% context remaining"
             else:
                 usage_str = f" {format_token_count(self._used_tokens)} tokens"
@@ -266,10 +270,12 @@ class TokenBar(Static):
         """
         if not fragments or used_tokens <= 0:
             # Fallback to single "OTHER" block if no breakdown
-            effective_max = max(max_tokens, used_tokens)
+            # For bar filling, we clamp negative tokens to 0
+            display_used = max(0, used_tokens)
+            effective_max = max(max_tokens, display_used)
             if effective_max <= 0:
                 return []
-            fill_width = int(math.floor(width * (used_tokens / effective_max)))
+            fill_width = int(math.floor(width * (display_used / effective_max)))
             if fill_width > 0:
                 return [(fill_width, "OTHER", [])]
             return []
