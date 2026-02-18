@@ -90,10 +90,10 @@ def test_ctrl_p_binding_is_settings():
     assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
 
 
-def test_ctrl_e_binding_is_reasoning():
+def test_ctrl_e_binding_does_not_exist():
     app = BrokkApp(executor=MagicMock())
     bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
-    assert bindings["ctrl+e"] == ("select_reasoning", "Reasoning", True)
+    assert "ctrl+e" not in bindings
 
 
 def test_textual_command_palette_is_enabled():

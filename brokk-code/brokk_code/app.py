@@ -39,8 +39,6 @@ class OrderedFooter(Footer):
 
         order = [
             ("toggle_mode", "Mode"),
-            ("select_model", "Model"),
-            ("select_reasoning", "Reasoning"),
             ("toggle_context", "Context"),
             ("toggle_tasklist", "Tasks"),
             ("toggle_notifications", "Notifications"),
@@ -246,12 +244,9 @@ class BrokkApp(App):
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
-        # Footer/help-bar ordering: Mode, Model, Reasoning, Context,
-        # Tasks, Notifications, Settings
+        # Footer/help-bar ordering: Mode, Context, Tasks, Notifications, Settings
         Binding("ctrl+g", "toggle_mode", "Mode", show=True),
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
-        Binding("ctrl+u", "select_model", "Model", show=True),
-        Binding("ctrl+e", "select_reasoning", "Reasoning", show=True),
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),

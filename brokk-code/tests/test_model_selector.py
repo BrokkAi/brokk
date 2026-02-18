@@ -6,12 +6,11 @@ from brokk_code.app import BrokkApp
 from brokk_code.widgets.chat_panel import ChatPanel
 
 
-def test_model_selector_binding_exists():
+def test_model_selector_binding_does_not_exist():
     app = BrokkApp(executor=MagicMock())
     bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
-    # Verify Ctrl+U shortcut exists and is visible.
-    assert "ctrl+u" in bindings
-    assert bindings["ctrl+u"] == ("select_model", "Model", True)
+    # Verify Ctrl+U shortcut no longer exists.
+    assert "ctrl+u" not in bindings
 
 
 @pytest.mark.asyncio

@@ -20,8 +20,6 @@ class ChatInput(TextArea):
 
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
-        Binding("ctrl+u", "select_model", "Model", show=True),
-        Binding("ctrl+e", "select_reasoning", "Reasoning", show=True),
     ]
 
     class Submitted(Message):
