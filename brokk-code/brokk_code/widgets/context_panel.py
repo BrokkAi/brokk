@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Set
 
-from brokk_code.token_format import format_token_count
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
@@ -8,6 +7,8 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import Label, Static
+
+from brokk_code.token_format import format_token_count
 
 
 class ContextFragmentItem(Static):

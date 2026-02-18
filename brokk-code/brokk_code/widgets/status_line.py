@@ -1,9 +1,10 @@
 from typing import Optional
 
-from brokk_code.token_format import format_token_count
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Static
+
+from brokk_code.token_format import format_token_count
 
 
 class StatusLine(Horizontal):

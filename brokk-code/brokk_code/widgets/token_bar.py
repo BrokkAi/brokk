@@ -1,13 +1,14 @@
 import math
 from typing import Any, Dict, List, Optional
 
-from brokk_code.token_format import format_token_count
 from rich.console import RenderableType
 from rich.text import Text
 from textual import events
 from textual.geometry import Size
 from textual.message import Message
 from textual.widgets import Static
+
+from brokk_code.token_format import format_token_count
 
 
 class TokenBar(Static):
