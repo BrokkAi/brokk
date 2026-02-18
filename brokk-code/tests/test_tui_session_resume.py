@@ -105,3 +105,42 @@ async def test_shutdown_exports_session(tmp_path):
     zip_path = get_session_zip_path(workspace, "active-789")
     assert zip_path.exists()
     assert zip_path.read_bytes() == b"fake-zip-data"
+
+
+@pytest.mark.asyncio
+async def test_resume_command_launches_with_correct_id(tmp_path):
+    """
+    Verifies that the 'resume <id>' command correctly initializes BrokkApp
+    with the specified session_id.
+    """
+    from brokk_code.__main__ import _build_parser
+
+    workspace = tmp_path
+    session_id = "manual-resume-id"
+
+    # Simulate: brokk-code resume manual-resume-id --workspace <tmp_path>
+    parser = _build_parser()
+    args = parser.parse_args(["resume", session_id, "--workspace", str(workspace)])
+
+    assert args.command == "resume"
+    assert args.session_id == session_id
+
+    stub = SessionStubExecutor()
+    # We simulate what main() does
+    app = BrokkApp(
+        executor=stub,
+        workspace_dir=workspace,
+        session_id=args.session_id,
+        resume_session=False,
+    )
+
+    assert app.requested_session_id == session_id
+    assert app.resume_session is False
+
+    with patch("brokk_code.app.ChatPanel"):
+        # We need to set a valid zip for the stub to "resume" it
+        get_session_zip_path(workspace, session_id).write_bytes(b"resumed-zip")
+        await asyncio.wait_for(app._start_executor(), timeout=3.0)
+
+    assert len(stub.import_calls) == 1
+    assert stub.import_calls[0][1] == session_id
