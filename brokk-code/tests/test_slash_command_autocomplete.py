@@ -290,3 +290,28 @@ async def test_autocomplete_scrollbar_configuration():
         suggestions = app.query_one(SlashCommandSuggestions)
         # Verify vertical scrollbar is enabled via the correct attribute
         assert suggestions.show_vertical_scrollbar is True
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_ui_state_shrinks_prompt():
+    """Verify that the autocomplete-open class is applied and reduces prompt height."""
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        container = app.query_one("#chat-input-container")
+        chat_input = app.query_one(ChatInput)
+
+        # Initial state
+        assert not container.has_class("autocomplete-open")
+        assert chat_input.styles.height.value == 3
+
+        # Trigger autocomplete
+        await pilot.press("/")
+        assert container.has_class("autocomplete-open")
+        # In Textual, styles are updated after a refresh.
+        # We check the class is there; height check confirms the CSS rule intent.
+        assert chat_input.styles.height.value == 1
+
+        # Hide autocomplete
+        await pilot.press("escape")
+        assert not container.has_class("autocomplete-open")
+        assert chat_input.styles.height.value == 3

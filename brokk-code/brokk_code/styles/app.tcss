@@ -219,6 +219,11 @@ ChatPanel {
     layout: vertical;
 }
 
+#chat-input-container.autocomplete-open #chat-input {
+    height: 1;
+    margin-bottom: 0;
+}
+
 #chat-input {
     margin: 0 2 1 2;
     background: $panel;

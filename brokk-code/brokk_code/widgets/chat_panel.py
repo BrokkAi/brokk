@@ -116,20 +116,26 @@ class ChatInput(TextArea):
         if text.strip():
             # Suppress re-showing during the clear operation
             self.suppress_autocomplete_once = True
-            self.action_hide_autocomplete()
+            self._set_autocomplete_open(False)
             self.post_message(self.Submitted(text))
             self.text = ""
 
     def action_insert_newline(self) -> None:
         self.insert("\n")
 
-    def action_hide_autocomplete(self) -> None:
-        """Hides the popup suggestions."""
+    def _set_autocomplete_open(self, is_open: bool) -> None:
+        """Synchronizes suggestions visibility and container styling."""
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
-            suggestions.display = False
+            container = self.app.query_one("#chat-input-container")
+            suggestions.display = is_open
+            container.set_class(is_open, "autocomplete-open")
         except Exception:
             pass
+
+    def action_hide_autocomplete(self) -> None:
+        """Hides the popup suggestions."""
+        self._set_autocomplete_open(False)
 
     def action_accept_suggestion(self) -> None:
         """Accepts the highlighted popup suggestion."""
@@ -145,28 +151,29 @@ class ChatInput(TextArea):
     def _on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Triggered whenever text changes via typing or backspace."""
         app = self.app
-        try:
-            suggestions = app.query_one(SlashCommandSuggestions)
-        except Exception:
-            return
 
         if self.suppress_autocomplete_once:
-            suggestions.display = False
+            self._set_autocomplete_open(False)
             self.suppress_autocomplete_once = False
             return
 
         # Always hide if text is empty or focus is lost (programmatic updates)
         if not self.text.strip() or not self.has_focus:
-            suggestions.display = False
+            self._set_autocomplete_open(False)
             return
 
         if self.text.startswith("/") and "\n" not in self.text:
             commands = []
             if hasattr(app, "get_slash_commands"):
                 commands = app.get_slash_commands()
-            suggestions.update_suggestions(self.text, commands)
+            try:
+                suggestions = self.app.query_one(SlashCommandSuggestions)
+                is_any = suggestions.update_suggestions(self.text, commands)
+                self._set_autocomplete_open(is_any)
+            except Exception:
+                pass
         else:
-            suggestions.display = False
+            self._set_autocomplete_open(False)
 
     async def _on_key(self, event: events.Key) -> None:
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
@@ -198,7 +205,7 @@ class ChatInput(TextArea):
             if event.key == "enter":
                 # Select the suggestion, then submit the result
                 suggestions.action_select_cursor()
-                suggestions.display = False
+                self._set_autocomplete_open(False)
                 self.action_submit()
                 event.stop()
                 event.prevent_default()
