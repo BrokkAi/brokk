@@ -28,7 +28,6 @@ class SlashCommandInlineHint(Static):
         height: 3;
         content-align: left middle;
         layer: top;
-        pointer-events: none;
     }
     """
 
