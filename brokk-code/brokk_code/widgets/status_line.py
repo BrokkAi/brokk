@@ -17,6 +17,8 @@ class StatusLine(Horizontal):
       - spinner and elapsed timer (via JobProgress)
     """
 
+    SEPARATOR = " • "
+
     DEFAULT_CSS = """
     StatusLine {
         height: 1;
@@ -92,10 +94,9 @@ class StatusLine(Horizontal):
         return workspace
 
     def _render_status_text(self) -> None:
-        # Compact format: {mode} | {model} ({reasoning}) | {workspace} | {branch}
-        sep = " | "
+        # Compact format: {mode} • {model} ({reasoning}) • {workspace} • {branch}
         workspace_display = self._get_display_workspace(self._workspace)
-        text = sep.join(
+        text = self.SEPARATOR.join(
             [
                 self._mode,
                 f"{self._model} ({self._reasoning})",
