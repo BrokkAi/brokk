@@ -143,9 +143,10 @@ def test_help_elapsed_width_regression():
     )
 
 
-def test_help_labels_transparent_background():
+def test_help_labels_style_parity():
     """
-    Ensure the chat help static has a transparent background to avoid inconsistent fill patterns.
+    Ensure the chat help static has a transparent background, disabled text color,
+    and appropriate dimensions to maintain style parity.
     """
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
 
@@ -161,6 +162,19 @@ def test_help_labels_transparent_background():
     assert "background: transparent;" in body, (
         f"{selector} should have 'background: transparent;' to avoid filled label background. "
         f"Found: {body.strip()}"
+    )
+
+    # Assert color parity
+    assert "color: $text-disabled;" in body, (
+        f"{selector} should use '$text-disabled' color. Found: {body.strip()}"
+    )
+
+    # Assert height and padding for layout parity
+    assert "height: 1;" in body, (
+        f"{selector} should have 'height: 1;'. Found: {body.strip()}"
+    )
+    assert "padding: 0 1;" in body, (
+        f"{selector} should have 'padding: 0 1;'. Found: {body.strip()}"
     )
 
 
