@@ -202,23 +202,27 @@ def test_help_menu_layout_contract():
     assert input_margin_match, "#chat-input must have a margin defined"
     input_margin = input_margin_match.group(1).strip()
 
-    # 2. Check #chat-help matches
+    # 2. Check #chat-help-row matches margins of #chat-input
+    help_row_match = re.search(r"#chat-help-row\s*\{([^}]*)\}", css_content)
+    assert help_row_match, "Could not find #chat-help-row rule in app.tcss"
+    help_row_body = help_row_match.group(1)
+
+    # Horizontal alignment check: Extract lateral margins from input (2nd and 4th components)
+    input_margins = input_margin.split()
+    help_row_margin_match = re.search(r"margin:\s*([^;]+);", help_row_body)
+    assert help_row_margin_match, "#chat-help-row must have a margin defined"
+    help_row_margins = help_row_margin_match.group(1).strip().split()
+
+    assert input_margins[1] == help_row_margins[1] and input_margins[3] == help_row_margins[3], (
+        f"#chat-help-row horizontal margins ({help_row_margins[1]}, {help_row_margins[3]}) "
+        f"should match #chat-input ({input_margins[1]}, {input_margins[3]}) for alignment."
+    )
+    assert help_row_margins[2] == "0", "#chat-help-row should have 0 bottom margin."
+
     help_match = re.search(r"#chat-help\s*\{([^}]*)\}", css_content)
     assert help_match, "Could not find #chat-help rule in app.tcss"
     help_body = help_match.group(1)
-
     assert "width: 1fr;" in help_body, "#chat-help should use 1fr width"
-    # Horizontal alignment check: Extract lateral margins from input (2nd and 4th components)
-    input_margins = input_margin.split()
-    help_margin_match = re.search(r"margin:\s*([^;]+);", help_body)
-    assert help_margin_match, "#chat-help must have a margin defined"
-    help_margins = help_margin_match.group(1).strip().split()
-
-    assert input_margins[1] == help_margins[1] and input_margins[3] == help_margins[3], (
-        f"#chat-help horizontal margins ({help_margins[1]}, {help_margins[3]}) "
-        f"should match #chat-input ({input_margins[1]}, {input_margins[3]}) for alignment."
-    )
-    assert help_margins[2] == "0", "#chat-help should have 0 bottom margin to sit at the bottom."
 
     # 3. Verify right-alignment
     assert "content-align: right middle;" in help_body, (

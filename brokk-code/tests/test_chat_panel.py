@@ -43,7 +43,8 @@ async def test_token_usage_update():
 @pytest.mark.asyncio
 async def test_job_progress_in_chat_panel():
     """
-    Verify that job running state is reflected in ChatPanel's progress widget.
+    Verify that job running state is reflected in ChatPanel's progress widget
+    and the new help row spinner.
     """
     from textual.app import App, ComposeResult
 
@@ -55,17 +56,21 @@ async def test_job_progress_in_chat_panel():
     async with app.run_test():
         chat = app.query_one(ChatPanel)
         progress = chat.query_one("#status-progress")
+        help_spinner = chat.query_one("#help-spinner")
 
         # Initially hidden
         assert progress.has_class("hidden")
+        assert help_spinner.has_class("hidden")
 
         # Start job
         chat.set_job_running(True)
         assert not progress.has_class("hidden")
+        assert not help_spinner.has_class("hidden")
 
         # Stop job
         chat.set_job_running(False)
         assert progress.has_class("hidden")
+        assert help_spinner.has_class("hidden")
 
 
 @pytest.mark.asyncio

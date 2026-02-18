@@ -256,9 +256,22 @@ ChatPanel {
     content-align: left middle;
 }
 
+#chat-help-row {
+    height: 1;
+    margin: 0 2 0 2;
+}
+
+#help-spinner {
+    height: 1;
+    width: auto;
+    min-width: 4;
+    color: $accent;
+    background: transparent;
+    margin-right: 1;
+}
+
 #chat-help {
     width: 1fr;
-    margin: 0 2 0 2;
     color: $text-muted;
     background: transparent;
     content-align: right middle;
