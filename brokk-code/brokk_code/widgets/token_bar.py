@@ -204,35 +204,75 @@ class TokenBar(Static):
                 {"tokens": tokens_summaries, "kind": "SUMMARIES", "min_w": cls.MIN_SEGMENT_WIDTH}
             )
 
-        # 3. Allocation (Simplified largest-remainder)
-        effective_fill = total_fill_width
+        # 3. Allocate widths with strict minima and no shrinking below them.
+        while True:
+            working_items: List[Dict[str, Any]] = []
+            sum_w = 0
+            for item in alloc_items:
+                raw_w = (item["tokens"] / proportion_base) * total_fill_width
+                floor_w = int(math.floor(raw_w))
+                width = max(floor_w, item["min_w"])
+                working_items.append(
+                    {
+                        "item": item,
+                        "kind": item["kind"],
+                        "width": width,
+                        "rem": raw_w - floor_w,
+                        "tokens": item["tokens"],
+                    }
+                )
+                sum_w += width
 
-        # First pass: Floor and min-width clamping
-        sum_w = 0
-        working_items: List[Dict[str, Any]] = []
-        for item in alloc_items:
-            raw_w = (item["tokens"] / proportion_base) * effective_fill
-            w = max(int(math.floor(raw_w)), item["min_w"])
-            working_items.append(
-                {"kind": item["kind"], "width": w, "rem": raw_w - math.floor(raw_w)}
-            )
-            sum_w += w
+            if sum_w > total_fill_width:
+                # First, shrink items that are above their minima.
+                need = sum_w - total_fill_width
+                for item in sorted(working_items, key=lambda x: x["rem"]):
+                    if need <= 0:
+                        break
+                    min_w = item["item"]["min_w"]
+                    if item["kind"] != "HISTORY":
+                        min_w = max(min_w, cls.MIN_SEGMENT_WIDTH)
+                    available = item["width"] - min_w
+                    if available <= 0:
+                        continue
+                    delta = min(available, need)
+                    item["width"] -= delta
+                    need -= delta
 
-        # Distribute deficit/excess
-        deficit = effective_fill - sum_w
-        if deficit > 0:
-            # Sort by remainder descending
-            for item in sorted(working_items, key=lambda x: x["rem"], reverse=True)[:deficit]:
-                item["width"] += 1
-        elif deficit < 0:
-            # Shrink items that are above their minimums
-            need = -deficit
-            for item in sorted(working_items, key=lambda x: x["rem"]):
                 if need <= 0:
-                    break
-                # We don't have explicit min_w in working_items here, but we can check if > 1
-                if item["width"] > 1:
-                    item["width"] -= 1
-                    need -= 1
+                    current_sum = sum(item["width"] for item in working_items)
+                    deficit = total_fill_width - current_sum
+                    if deficit > 0:
+                        for item in sorted(working_items, key=lambda x: x["rem"], reverse=True)[:deficit]:
+                            item["width"] += 1
+                    return [(item["width"], item["kind"]) for item in working_items if item["width"] > 0]
 
-        return [(item["width"], item["kind"]) for item in working_items if item["width"] > 0]
+                # If still over, merge the smallest non-HISTORY fragment into OTHER.
+                # This intentionally preserves minimum widths rather than violating them.
+                candidates = [
+                    it
+                    for it in working_items
+                    if it["kind"] not in {"HISTORY", "OTHER"} and it["width"] > 0
+                ]
+                if not candidates:
+                    return [(it["width"], it["kind"]) for it in working_items if it["width"] > 0]
+
+                victim = sorted(candidates, key=lambda x: (x["width"], x["tokens"]))[0]
+                other_item = next((i for i in alloc_items if i["kind"] == "OTHER"), None)
+                if other_item is None:
+                    other_item = {"kind": "OTHER", "tokens": 0, "min_w": cls.MIN_SEGMENT_WIDTH}
+                    alloc_items.append(other_item)
+                other_item["tokens"] += victim["item"]["tokens"]
+                alloc_items.remove(victim["item"])
+
+                # Re-run with the merged bucket.
+                continue
+
+            if sum_w <= total_fill_width:
+                # Fill small positive remainder by giving extra cells to highest fractional remainders.
+                deficit = total_fill_width - sum_w
+                if deficit > 0:
+                    for item in sorted(working_items, key=lambda x: x["rem"], reverse=True)[:deficit]:
+                        item["width"] += 1
+
+                return [(item["width"], item["kind"]) for item in working_items if item["width"] > 0]
