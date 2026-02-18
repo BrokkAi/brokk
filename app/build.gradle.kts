@@ -676,7 +676,7 @@ tasks.register<JavaExec>("runPageRankBenchmark") {
 
 tasks.register<JavaExec>("runUsageBenchEval") {
     group = "application"
-    description = "Runs the UsageBenchEval tool for FuzzyUsageFinder evaluation"
+    description = "Runs the UsageBenchEval tool for UsageFinder evaluation"
     mainClass.set("ai.brokk.tools.UsageBenchEval")
     classpath = sourceSets.test.get().runtimeClasspath
     jvmArgumentProviders.add(object : CommandLineArgumentProvider {

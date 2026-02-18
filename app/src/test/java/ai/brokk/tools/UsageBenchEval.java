@@ -285,7 +285,7 @@ public class UsageBenchEval implements Callable<Integer> {
         var llm = online
                 ? new Llm(
                         model,
-                        "Disambiguate Code Unit Usages",
+                        "Disambiguate UsageFinder Results",
                         TaskResult.Type.CLASSIFY,
                         cm,
                         false,
