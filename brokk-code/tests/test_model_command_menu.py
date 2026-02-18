@@ -93,6 +93,52 @@ async def test_combined_modal_navigation_updates_both_settings():
 
 
 @pytest.mark.asyncio
+async def test_combined_modal_initial_highlight_syncs_with_current_values():
+    """Regression test: Ensure Enter immediately selects the already-active model/reasoning."""
+    executor = MagicMock()
+    executor.get_models = AsyncMock(
+        return_value={
+            "models": [
+                {"name": "alpha-model", "location": "x"},
+                {"name": "beta-model", "location": "y"},
+            ]
+        }
+    )
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    # Pre-set values to something other than the first index (0)
+    app.current_model = "beta-model"
+    app.reasoning_level = "high"  # High is usually the last index
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Trigger combined modal
+            await app.action_select_model_and_reasoning()
+            await pilot.pause()
+
+            # 1. Selection Pane: Model
+            # Press Enter immediately. If highlight is synced, it should stay 'beta-model'.
+            # If highlight was stuck at index 0, it would change to 'alpha-model'.
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # 2. Selection Pane: Reasoning
+            # Press Enter immediately. If highlight is synced, it should stay 'high'.
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.current_model == "beta-model"
+            assert app.reasoning_level == "high"
+
+
+@pytest.mark.asyncio
 async def test_reasoning_command_with_arg_sets_directly():
     executor = MagicMock()
     executor.stop = AsyncMock()
