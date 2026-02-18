@@ -41,7 +41,8 @@ class ExecutorManager:
         self.resolved_jar_path: Optional[Path] = None
 
         self._process: Optional[asyncio.subprocess.Process] = None
-        # The stdin stream for the subprocess (when created with PIPE). Stored so we can close it on shutdown.
+        # The stdin stream for the subprocess (when created with PIPE).
+        # Stored so we can close it on shutdown.
         self._stdin: Optional[asyncio.StreamWriter] = None
         self._http_client: Optional[httpx.AsyncClient] = None
 
@@ -317,7 +318,8 @@ class ExecutorManager:
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
         try:
-            # Create subprocess with a dedicated stdin pipe so the Java executor can detect parent death.
+            # Create subprocess with a dedicated stdin pipe so the Java
+            # executor can detect parent death.
             #
             # Implementation note / lifecycle guarantee:
             # - We intentionally open the child's stdin as a PIPE and retain the StreamWriter
@@ -782,7 +784,8 @@ class ExecutorManager:
 
         if self._process:
             logger.info("Stopping executor subprocess...")
-            # First, attempt to close stdin so that the child process can observe EOF and exit if it chooses.
+            # First, attempt to close stdin so the child process can
+            # observe EOF and exit if it chooses.
             if self._stdin is not None:
                 try:
                     # StreamWriter.close() is synchronous; wait for wait_closed() if available.
@@ -798,7 +801,8 @@ class ExecutorManager:
                         try:
                             await wait_closed()
                         except (BrokenPipeError, ConnectionResetError):
-                            # Child already gone or closed the pipe; ignore these expected conditions.
+                            # Child already gone or closed the pipe;
+                            # ignore these expected conditions.
                             pass
                         except Exception:
                             logger.exception("Unexpected error while waiting for stdin to close")
