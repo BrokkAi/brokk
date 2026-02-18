@@ -1,5 +1,6 @@
 from typing import Optional
 
+from brokk_code.token_format import format_token_count
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Static
@@ -28,14 +29,25 @@ class StatusLine(Horizontal):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self._mode = "unknown"
+        self._model = "unknown"
+        self._reasoning = "unknown"
+        self._workspace = "unknown"
+        self._fragment_description: Optional[str] = None
+        self._fragment_size: Optional[int] = None
+        self._metadata: Optional[Static] = None
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-metadata")
 
     def on_mount(self) -> None:
+        try:
+            self._metadata = self.query_one("#status-metadata", Static)
+        except Exception:
+            self._metadata = None
         app = self.app
         if app is None:
-            self.update_status()
+            self._render_status_text()
             return
 
         mode = getattr(app, "current_mode", getattr(app, "agent_mode", "unknown"))
@@ -53,6 +65,40 @@ class StatusLine(Horizontal):
 
         self.update_status(mode, model, reasoning, workspace)
 
+    def _render_status_text(self) -> None:
+        workspace_label = self._workspace_label(self._workspace)
+        text = (
+            f"Mode: {self._mode} - "
+            f"Model: {self._model} (reasoning: {self._reasoning}) - "
+            f"Workspace: {workspace_label}"
+        )
+        if self._fragment_description is not None and self._fragment_size is not None:
+            size_text = format_token_count(self._fragment_size)
+            text = f"Fragment: {self._fragment_description} ({size_text} tokens)"
+
+        self._set_status_metadata(text)
+
+    @staticmethod
+    def _workspace_label(workspace: str) -> str:
+        trimmed = workspace.strip()
+        if not trimmed:
+            return "unknown"
+        normalized = trimmed.rstrip("/\\")
+        for sep in ("/", "\\"):
+            if sep in normalized:
+                tail = normalized.rsplit(sep, 1)[-1]
+                return tail or normalized
+        return normalized
+
+    def _set_status_metadata(self, text: str) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            return
+        try:
+            metadata.update(text)
+        except Exception:
+            pass
+
     def update_status(
         self,
         mode: Optional[str] = None,
@@ -61,16 +107,19 @@ class StatusLine(Horizontal):
         workspace: Optional[str] = None,
     ) -> None:
         """Update the metadata text segment."""
-        mode_s = str(mode or "unknown")
-        model_s = str(model or "unknown")
-        reasoning_s = str(reasoning or "unknown")
-        workspace_s = str(workspace or "unknown")
-        text = (
-            f"Mode: {mode_s} - "
-            f"Model: {model_s} (reasoning: {reasoning_s}) - "
-            f"Workspace: {workspace_s}"
-        )
-        try:
-            self.query_one("#status-metadata", Static).update(text)
-        except Exception:
-            pass
+        self._mode = str(mode or "unknown")
+        self._model = str(model or "unknown")
+        self._reasoning = str(reasoning or "unknown")
+        self._workspace = str(workspace or "unknown")
+        self._render_status_text()
+
+    def set_fragment_info(self, description: Optional[str], size: Optional[int]) -> None:
+        description = (description or "").strip()
+        self._fragment_description = description or None
+        self._fragment_size = size if size is not None and size >= 0 else None
+        self._render_status_text()
+
+    def clear_fragment_info(self) -> None:
+        self._fragment_description = None
+        self._fragment_size = None
+        self._render_status_text()

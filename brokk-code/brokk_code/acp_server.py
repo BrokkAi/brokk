@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.token_format import format_token_count
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +375,7 @@ def _format_chip(fragment: dict[str, Any]) -> str:
 
     tokens = fragment.get("tokens", 0)
     if isinstance(tokens, int) and tokens > 0:
-        text += f" {tokens:,}t"
+        text += f" {format_token_count(tokens)}t"
     if fragment.get("pinned"):
         text += " [PIN]"
     return text
@@ -594,7 +595,9 @@ class BrokkAcpBridge:
                         session_id,
                         update_agent_message_text(
                             "\n\n### Context Snapshot\n"
-                            f"{len(blocks)} resources | {used_tokens:,}/{max_tokens:,} tokens\n"
+                            f"{len(blocks)} resources | "
+                            f"{format_token_count(used_tokens)}/"
+                            f"{format_token_count(max_tokens)} tokens\n"
                         ),
                     )
                 current_kind: Optional[str] = None

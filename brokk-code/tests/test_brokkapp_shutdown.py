@@ -6,6 +6,7 @@ These tests verify:
 2. Fallback on_unmount path also attempts export and stops correctly.
 3. No misleading 'Executor not started' warnings during intentional shutdown.
 """
+
 import asyncio
 import logging
 from pathlib import Path

@@ -31,6 +31,12 @@ class ChatInput(TextArea):
             self.text = text
             super().__init__()
 
+    def action_quit(self) -> None:
+        """Exit immediately from the chat input widget."""
+        app = self.app
+        if app is not None:
+            app.run_worker(app.action_quit())
+
     def action_submit(self) -> None:
         text = self.text
         if text.strip():
@@ -54,6 +60,11 @@ class ChatInput(TextArea):
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
         # Enter submits and Shift+Enter inserts a newline.
         if self.read_only:
+            return
+        if event.key == "ctrl+d":
+            event.stop()
+            event.prevent_default()
+            self.action_quit()
             return
         if event.key == "enter":
             event.stop()
@@ -396,3 +407,14 @@ class ChatPanel(Vertical):
             self.query_one("#status-timer", Static).update(f"Elapsed: {time_str}")
         except Exception:
             pass
+
+    def on_token_bar_fragment_hovered(self, message: TokenBar.FragmentHovered) -> None:
+        try:
+            status_line = self.query_one("#status-line", StatusLine)
+        except Exception:
+            return
+
+        if message.description is None or message.size is None:
+            status_line.clear_fragment_info()
+            return
+        status_line.set_fragment_info(description=message.description, size=message.size)
