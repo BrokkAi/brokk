@@ -59,22 +59,21 @@ async def test_job_progress_in_chat_panel():
     app = TestApp()
     async with app.run_test():
         chat = app.query_one(ChatPanel)
-        status_line = chat.query_one(StatusLine)
-        timer_wrap = status_line.query_one("#status-timer-wrap")
+        help_elapsed = chat.query_one("#help-elapsed")
         help_spinner = chat.query_one("#help-spinner")
 
         # Initially hidden
-        assert timer_wrap.has_class("hidden")
+        assert help_elapsed.has_class("hidden")
         assert help_spinner.has_class("hidden")
 
         # Start job
         chat.set_job_running(True)
-        assert not timer_wrap.has_class("hidden")
+        assert not help_elapsed.has_class("hidden")
         assert not help_spinner.has_class("hidden")
 
         # Stop job
         chat.set_job_running(False)
-        assert timer_wrap.has_class("hidden")
+        assert help_elapsed.has_class("hidden")
         assert help_spinner.has_class("hidden")
 
 
