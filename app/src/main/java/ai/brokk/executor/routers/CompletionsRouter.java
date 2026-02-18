@@ -2,9 +2,7 @@ package ai.brokk.executor.routers;
 
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
