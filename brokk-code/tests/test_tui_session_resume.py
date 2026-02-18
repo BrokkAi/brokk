@@ -169,4 +169,5 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
         main()
 
     captured = capsys.readouterr()
-    assert f"brokk-code resume {session_id}" in captured.out
+    expected_hint = f"brokk-code resume {session_id} --workspace {workspace.resolve()}"
+    assert expected_hint in captured.out

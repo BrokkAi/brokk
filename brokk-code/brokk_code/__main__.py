@@ -179,7 +179,7 @@ def main():
 
     last_id = load_last_session_id(workspace_path)
     if last_id:
-        print(f"brokk-code resume {last_id}")
+        print(f"brokk-code resume {last_id} --workspace {workspace_path}")
 
 
 if __name__ == "__main__":
