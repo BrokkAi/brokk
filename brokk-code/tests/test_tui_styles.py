@@ -208,9 +208,17 @@ def test_help_menu_layout_contract():
     help_body = help_match.group(1)
 
     assert "width: 1fr;" in help_body, "#chat-help should use 1fr width"
-    assert f"margin: {input_margin};" in help_body, (
-        f"#chat-help margin should match #chat-input ({input_margin}) for alignment."
+    # Horizontal alignment check: Extract lateral margins from input (2nd and 4th components)
+    input_margins = input_margin.split()
+    help_margin_match = re.search(r"margin:\s*([^;]+);", help_body)
+    assert help_margin_match, "#chat-help must have a margin defined"
+    help_margins = help_margin_match.group(1).strip().split()
+
+    assert input_margins[1] == help_margins[1] and input_margins[3] == help_margins[3], (
+        f"#chat-help horizontal margins ({help_margins[1]}, {help_margins[3]}) "
+        f"should match #chat-input ({input_margins[1]}, {input_margins[3]}) for alignment."
     )
+    assert help_margins[2] == "0", "#chat-help should have 0 bottom margin to sit at the bottom."
 
     # 3. Ensure legacy help labels are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)

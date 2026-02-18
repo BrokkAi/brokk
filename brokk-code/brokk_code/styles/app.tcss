@@ -258,9 +258,11 @@ ChatPanel {
 
 #chat-help {
     width: 1fr;
-    margin: 0 2 1 2;
+    margin: 0 2 0 2;
     color: $text-muted;
     background: transparent;
+    content-align: right middle;
+    text-align: right;
 }
 
 .ml-1 {
