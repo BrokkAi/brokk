@@ -33,6 +33,7 @@ async def test_token_usage_update():
         # Update with only used
         panel.set_token_usage(2500)
         # TokenBar defaults max to 200,000 if not provided
+        # 1 - (2500/200000) = 0.9875 -> 98.8%
         assert "98.8% context remaining" in str(token_bar.render())
 
         # Update with 0 clears it

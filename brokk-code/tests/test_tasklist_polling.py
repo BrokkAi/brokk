@@ -215,6 +215,7 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await pilot.pause()
             panel = app.screen.query_one(ContextPanel)
             # The token bar now renders percentage remaining for max_tokens > 0
+            # With usedTokens=100 and default max=200,000, it should show context remaining
             assert "context remaining" in str(panel.query_one("#context-token-usage").render())
 
 
