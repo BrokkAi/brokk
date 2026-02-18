@@ -9,6 +9,14 @@ def test_status_line_rendering_compact_home_abbreviation(monkeypatch):
     fake_home = Path("/home/user")
     monkeypatch.setattr(Path, "home", lambda: fake_home)
 
+    # Mock Path to return our controlled paths so is_relative_to works without resolve()
+    original_path = Path
+
+    def mock_path(p):
+        return original_path(p)
+
+    monkeypatch.setattr("brokk_code.widgets.status_line.Path", mock_path)
+
     status = StatusLine()
     mock_metadata = MagicMock()
     status._metadata = mock_metadata

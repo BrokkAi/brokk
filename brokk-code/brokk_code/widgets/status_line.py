@@ -83,8 +83,8 @@ class StatusLine(Horizontal):
         if workspace == "unknown":
             return workspace
         try:
-            path = Path(workspace).resolve()
-            home = Path.home().resolve()
+            path = Path(workspace)
+            home = Path.home()
             if path == home:
                 return "~"
             if path.is_relative_to(home):
@@ -92,7 +92,7 @@ class StatusLine(Horizontal):
             return path.as_posix()
         except Exception:
             pass
-        return workspace
+        return workspace.replace("\\", "/")
 
     def _render_status_text(self) -> None:
         # Compact format: {mode} • {model} ({reasoning}) • {workspace} • {branch}
