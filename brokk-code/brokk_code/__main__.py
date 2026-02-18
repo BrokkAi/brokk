@@ -5,6 +5,7 @@ from pathlib import Path
 
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
+from brokk_code.intellij_config import configure_intellij_acp_settings
 
 
 def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
@@ -92,7 +93,7 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed"],
+        choices=["zed", "intellij"],
         help="Install target for integration settings",
     )
     install_parser.add_argument(
@@ -111,7 +112,15 @@ def main():
 
     if args.command == "install":
         try:
-            settings_path = configure_zed_acp_settings(force=args.force)
+            if args.target == "zed":
+                settings_path = configure_zed_acp_settings(force=args.force)
+                target_name = "Zed"
+            elif args.target == "intellij":
+                settings_path = configure_intellij_acp_settings(force=args.force)
+                target_name = "IntelliJ"
+            else:
+                # Should not happen due to argparse choices
+                raise ValueError(f"Unknown target: {args.target}")
         except ExistingBrokkCodeEntryError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -119,7 +128,7 @@ def main():
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
 
-        print(f"Configured Zed ACP integration in {settings_path}")
+        print(f"Configured {target_name} ACP integration in {settings_path}")
         return
 
     workspace_path = Path(args.workspace).resolve()
