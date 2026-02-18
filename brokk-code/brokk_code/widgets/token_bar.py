@@ -56,8 +56,9 @@ class TokenBar(Static):
         Update the displayed token counts and store fragment metadata.
         """
         self._used_tokens = used_tokens
-        # Reset to default if not provided, matching expected test behavior
-        self._max_tokens = max_tokens if max_tokens is not None and max_tokens > 0 else 200_000
+        # Default to 200k ONLY if None. If 0 or negative is passed explicitly, preserve it
+        # to signal absolute token count rendering.
+        self._max_tokens = max_tokens if max_tokens is not None else 200_000
         self._fragments = fragments if fragments is not None else []
         self._render_bar()
 
@@ -266,6 +267,8 @@ class TokenBar(Static):
         if not fragments or used_tokens <= 0:
             # Fallback to single "OTHER" block if no breakdown
             effective_max = max(max_tokens, used_tokens)
+            if effective_max <= 0:
+                return []
             fill_width = int(math.floor(width * (used_tokens / effective_max)))
             if fill_width > 0:
                 return [(fill_width, "OTHER", [])]

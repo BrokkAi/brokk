@@ -170,12 +170,8 @@ def test_help_labels_style_parity():
     )
 
     # Assert height and padding for layout parity
-    assert "height: 1;" in body, (
-        f"{selector} should have 'height: 1;'. Found: {body.strip()}"
-    )
-    assert "padding: 0 1;" in body, (
-        f"{selector} should have 'padding: 0 1;'. Found: {body.strip()}"
-    )
+    assert "height: 1;" in body, f"{selector} should have 'height: 1;'. Found: {body.strip()}"
+    assert "padding: 0 1;" in body, f"{selector} should have 'padding: 0 1;'. Found: {body.strip()}"
 
 
 def test_help_menu_layout_contract():

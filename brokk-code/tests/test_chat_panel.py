@@ -24,16 +24,16 @@ async def test_token_usage_update():
 
         # Update with used and max
         panel.set_token_usage(1500, 100000)
-        assert "1.5k / 100k tokens" in str(token_bar.render())
+        assert "98.5% context remaining" in str(token_bar.render())
 
         # Update with half usage
         panel.set_token_usage(50000, 100000)
-        assert "50k / 100k tokens" in str(token_bar.render())
+        assert "50.0% context remaining" in str(token_bar.render())
 
         # Update with only used
         panel.set_token_usage(2500)
         # TokenBar defaults max to 200,000 if not provided
-        assert "2.5k / 200k tokens" in str(token_bar.render())
+        assert "98.8% context remaining" in str(token_bar.render())
 
         # Update with 0 clears it
         panel.set_token_usage(0)

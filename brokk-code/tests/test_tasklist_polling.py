@@ -214,7 +214,8 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await app._refresh_context_panel()
             await pilot.pause()
             panel = app.screen.query_one(ContextPanel)
-            assert "100 / 200k tokens" in str(panel.query_one("#context-token-usage").render())
+            # The token bar now renders percentage remaining for max_tokens > 0
+            assert "context remaining" in str(panel.query_one("#context-token-usage").render())
 
 
 @pytest.mark.asyncio
