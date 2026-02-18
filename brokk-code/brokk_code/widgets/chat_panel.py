@@ -324,7 +324,7 @@ class ChatPanel(Vertical):
     def _navigate_history(self, delta: int) -> None:
         """
         Logic for cycling through history:
-        - Up (delta -1): Moves towards older entries.
+        - Up (delta -1): Moves towards older entries (towards index 0).
         - Down (delta 1): Moves towards newer entries and eventually the draft.
         - Commands (/) are not in the history.
         - Restores draft_buffer when moving past the newest entry.
@@ -334,31 +334,28 @@ class ChatPanel(Vertical):
 
         chat_input = self.query_one("#chat-input", ChatInput)
 
-        # If starting navigation, save the current text
+        # If starting navigation, save the current text and start at the end of history
         if self._history_index == -1:
+            if delta == 1:
+                return  # Down from draft does nothing
             self._draft_buffer = chat_input.text
+            new_index = len(self._history) - 1
+        else:
+            new_index = self._history_index + delta
 
-        new_index = self._history_index + delta
-
-        # Boundaries
-        if delta == -1:  # Up
-            if self._history_index == -1:
-                new_index = len(self._history) - 1
-            else:
-                new_index = max(0, self._history_index - 1)
-        else:  # Down
-            if self._history_index == -1:
-                return  # Already at draft
-            new_index = self._history_index + 1
-
-        if new_index >= len(self._history):
+        if new_index < 0:
+            # Stay at the oldest entry
+            new_index = 0
+        elif new_index >= len(self._history):
             # Move back to draft
             chat_input.text = self._draft_buffer
             self._history_index = -1
-        else:
-            # Load from history
-            self._history_index = new_index
-            chat_input.text = self._history[self._history_index]
+            chat_input.move_cursor(chat_input.document.end)
+            return
+
+        # Load from history
+        self._history_index = new_index
+        chat_input.text = self._history[self._history_index]
 
         # Keep cursor at end so subsequent Up/Down gating checks behave correctly.
         chat_input.move_cursor(chat_input.document.end)
