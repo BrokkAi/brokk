@@ -44,16 +44,6 @@ class ChatInput(TextArea):
     def action_insert_newline(self) -> None:
         self.insert("\n")
 
-    def action_select_model(self) -> None:
-        app = self.app
-        if app is not None:
-            app.run_worker(app.action_select_model())
-
-    def action_select_reasoning(self) -> None:
-        app = self.app
-        if app is not None:
-            app.run_worker(app.action_select_reasoning())
-
     async def _on_key(self, event: events.Key) -> None:
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
         # Enter submits and Shift+Enter inserts a newline.
