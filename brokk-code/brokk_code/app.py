@@ -1000,7 +1000,7 @@ class BrokkApp(App):
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
             self.action_command_palette()
-        elif base in ("/ask", "/search", "/lutz"):
+        elif base in ("/ask", "/code", "/lutz"):
             self._set_mode(base[1:].upper())
         elif base == "/info":
             self._render_info()
@@ -1058,7 +1058,7 @@ class BrokkApp(App):
             help_text = (
                 "Available commands:\n"
                 "  /ask                  - Set mode to ASK (questions only)\n"
-                "  /search               - Set mode to SEARCH (read-only code search)\n"
+                "  /code                 - Set mode to CODE (code-focused mode)\n"
                 "  /lutz                 - Set mode to LUTZ (default; full agent access)\n"
                 "  /model <name>         - Change the planner LLM model (Shortcut: Ctrl+U)\n"
                 "  /model-code <name>    - Change the code LLM model\n"
@@ -1209,8 +1209,8 @@ class BrokkApp(App):
         self.run_worker(self._toggle_selected_task())
 
     def action_toggle_mode(self) -> None:
-        """Cycles through agent modes: LUTZ -> ASK -> SEARCH -> LUTZ."""
-        modes = ["LUTZ", "ASK", "SEARCH"]
+        """Cycles through agent modes: LUTZ -> ASK -> CODE -> LUTZ."""
+        modes = ["LUTZ", "ASK", "CODE"]
         try:
             current_index = modes.index(self.agent_mode)
         except ValueError:
