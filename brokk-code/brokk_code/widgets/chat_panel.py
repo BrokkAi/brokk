@@ -62,8 +62,11 @@ class SlashCommandSuggestions(ListView):
     DEFAULT_CSS = """
     SlashCommandSuggestions {
         display: none;
-        background: $panel;
-        border: tall $primary;
+        background: $surface;
+        border-top: solid $primary-darken-1;
+        border-bottom: none;
+        border-left: none;
+        border-right: none;
         height: auto;
         max-height: 10;
         width: 1fr;
@@ -147,6 +150,7 @@ class ChatInput(TextArea):
     def action_submit(self) -> None:
         text = self.text
         if text.strip():
+            self.action_hide_autocomplete()
             self.post_message(self.Submitted(text))
             self.text = ""
 
@@ -190,11 +194,18 @@ class ChatInput(TextArea):
 
     def _on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Triggered whenever text changes via typing or backspace."""
-        # Avoid showing suggestions if the text was changed programmatically (no focus)
-        if not self.has_focus:
+        app = self.app
+        try:
+            suggestions = app.query_one(SlashCommandSuggestions)
+            hint = app.query_one(SlashCommandInlineHint)
+        except Exception:
             return
 
-        app = self.app
+        # Always hide if text is empty or focus is lost (programmatic updates)
+        if not self.text.strip() or not self.has_focus:
+            suggestions.display = False
+            hint.display = False
+            return
         try:
             suggestions = app.query_one(SlashCommandSuggestions)
             hint = app.query_one(SlashCommandInlineHint)
@@ -312,9 +323,9 @@ class ChatPanel(Vertical):
         yield RichLog(highlight=True, markup=True, id="chat-log")
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield TokenBar(id="chat-token-bar", classes="hidden")
-        yield SlashCommandSuggestions(id="slash-suggestions")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
+            yield SlashCommandSuggestions(id="slash-suggestions")
             yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
             yield SlashCommandInlineHint(id="slash-hint")
         with Horizontal(id="chat-help-row"):

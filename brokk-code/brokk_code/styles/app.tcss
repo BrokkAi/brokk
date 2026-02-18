@@ -216,6 +216,7 @@ ChatPanel {
     height: auto;
     width: 100%;
     layers: base top;
+    layout: vertical;
 }
 
 #chat-input {
@@ -262,15 +263,14 @@ ChatPanel {
 }
 
 SlashCommandSuggestions {
-    background: $panel;
-    border: tall $primary;
+    background: $surface;
+    border-top: solid $primary-darken-1;
     color: $text;
 }
 
 SlashCommandSuggestions > ListItem:focus {
-    background: $accent 20%;
-    color: $text;
-    text-style: bold;
+    background: $surface-lighten-1;
+    color: $accent;
 }
 
 #chat-help-row {
