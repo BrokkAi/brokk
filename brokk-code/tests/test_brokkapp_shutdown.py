@@ -27,7 +27,13 @@ class FakeExecutor:
     - session_id: simple attribute.
     """
 
-    def __init__(self, *, zip_bytes: Optional[bytes] = b"ZIP", alive: bool = True):
+    def __init__(
+        self,
+        *,
+        zip_bytes: Optional[bytes] = b"ZIP",
+        alive: bool = True,
+        workspace_dir: Optional[Path] = None,
+    ):
         self._zip_bytes = zip_bytes
         self._alive = alive
         self._stopped = False
@@ -40,7 +46,7 @@ class FakeExecutor:
         self.session_id: Optional[str] = None
 
         # workspace_dir needed for some code paths
-        self.workspace_dir = Path.cwd()
+        self.workspace_dir = workspace_dir or Path.cwd()
 
     async def download_session_zip(self, session_id: str) -> bytes:
         self.download_calls += 1
@@ -78,13 +84,13 @@ class FakeExecutor:
 
 
 @pytest.mark.asyncio
-async def test_action_quit_exports_once_and_stops(caplog):
+async def test_action_quit_exports_once_and_stops(caplog, tmp_path):
     """
     Normal quit path should attempt export at most once and call stop exactly once.
     It must not emit the misleading warning about 'Executor not started' during normal shutdown.
     """
     caplog.set_level(logging.WARNING)
-    fake = FakeExecutor(zip_bytes=b"dummy-zip", alive=True)
+    fake = FakeExecutor(zip_bytes=b"dummy-zip", alive=True, workspace_dir=tmp_path)
     fake.session_id = "sess-123"
 
     app = BrokkApp(executor=fake)
@@ -107,14 +113,14 @@ async def test_action_quit_exports_once_and_stops(caplog):
 
 
 @pytest.mark.asyncio
-async def test_on_unmount_attempts_export_and_stops_without_misleading_warnings(caplog):
+async def test_on_unmount_attempts_export_and_stops_without_misleading_warnings(caplog, tmp_path):
     """
     Fallback on_unmount should still try a best-effort export if the executor process
     is alive (even if _executor_ready is false), and must call stop exactly once.
     It should not emit the misleading warning when shutdown is intentional.
     """
     caplog.set_level(logging.WARNING)
-    fake = FakeExecutor(zip_bytes=b"onunmount-zip", alive=True)
+    fake = FakeExecutor(zip_bytes=b"onunmount-zip", alive=True, workspace_dir=tmp_path)
     fake.session_id = "sess-456"
 
     app = BrokkApp(executor=fake)
@@ -135,13 +141,13 @@ async def test_on_unmount_attempts_export_and_stops_without_misleading_warnings(
 
 
 @pytest.mark.asyncio
-async def test_export_skipped_if_executor_not_available(caplog):
+async def test_export_skipped_if_executor_not_available(caplog, tmp_path):
     """
     If the executor is not alive and not ready, export should be skipped and stop still called.
     Also no misleading warning should be emitted.
     """
     caplog.set_level(logging.WARNING)
-    fake = FakeExecutor(zip_bytes=b"will-not-be-used", alive=False)
+    fake = FakeExecutor(zip_bytes=b"will-not-be-used", alive=False, workspace_dir=tmp_path)
     fake.session_id = "sess-789"
 
     app = BrokkApp(executor=fake)
@@ -161,14 +167,14 @@ async def test_export_skipped_if_executor_not_available(caplog):
 
 
 @pytest.mark.asyncio
-async def test_idempotent_shutdown_via_quit_then_unmount(caplog):
+async def test_idempotent_shutdown_via_quit_then_unmount(caplog, tmp_path):
     """
     If action_quit is called first, then on_unmount is called (as might happen
     during normal Textual teardown), stop should still only be called once total,
     and no duplicate export attempts or warnings should occur.
     """
     caplog.set_level(logging.WARNING)
-    fake = FakeExecutor(zip_bytes=b"idempotent-zip", alive=True)
+    fake = FakeExecutor(zip_bytes=b"idempotent-zip", alive=True, workspace_dir=tmp_path)
     fake.session_id = "sess-idem"
 
     app = BrokkApp(executor=fake)
@@ -190,12 +196,12 @@ async def test_idempotent_shutdown_via_quit_then_unmount(caplog):
 
 
 @pytest.mark.asyncio
-async def test_export_skipped_when_no_session_id(caplog):
+async def test_export_skipped_when_no_session_id(caplog, tmp_path):
     """
     If there is no session_id set, export should be skipped entirely (no download call).
     """
     caplog.set_level(logging.WARNING)
-    fake = FakeExecutor(zip_bytes=b"unused", alive=True)
+    fake = FakeExecutor(zip_bytes=b"unused", alive=True, workspace_dir=tmp_path)
     fake.session_id = None  # no session
 
     app = BrokkApp(executor=fake)
