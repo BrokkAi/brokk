@@ -18,6 +18,8 @@ from brokk_code.widgets.token_bar import TokenBar
 class SlashCommandSuggestions(ListView):
     """A popup list for slash command autocomplete."""
 
+    show_vertical_scrollbar = True
+
     DEFAULT_CSS = """
     SlashCommandSuggestions {
         display: none;

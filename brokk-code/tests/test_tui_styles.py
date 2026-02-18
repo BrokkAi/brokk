@@ -239,7 +239,8 @@ def test_help_menu_layout_contract():
     )
 
     # 5. Ensure no invalid scrollbar properties exist (Textual uses scrollbar-x/y or show-scrollbar)
-    assert "show-vertical-scrollbar" not in css_content, (
+    # We allow the substring in comments or documentation, but check for the pattern in property definitions.
+    assert not re.search(r"show-vertical-scrollbar\s*:", css_content), (
         "Textual TCSS does not support 'show-vertical-scrollbar'; use 'show-scrollbar' or 'scrollbar-y'."
     )
     assert "show-horizontal-scrollbar" not in css_content
