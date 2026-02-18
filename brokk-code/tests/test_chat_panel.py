@@ -43,10 +43,12 @@ async def test_token_usage_update():
 @pytest.mark.asyncio
 async def test_job_progress_in_chat_panel():
     """
-    Verify that job running state is reflected in ChatPanel's timer wrap
+    Verify that job running state is reflected in ChatPanel's status timer
     and the help row spinner.
     """
     from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.status_line import StatusLine
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -55,7 +57,8 @@ async def test_job_progress_in_chat_panel():
     app = TestApp()
     async with app.run_test():
         chat = app.query_one(ChatPanel)
-        timer_wrap = chat.query_one("#status-timer-wrap")
+        status_line = chat.query_one(StatusLine)
+        timer_wrap = status_line.query_one("#status-timer-wrap")
         help_spinner = chat.query_one("#help-spinner")
 
         # Initially hidden

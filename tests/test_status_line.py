@@ -10,6 +10,7 @@ class StatusApp(App):
 
 @pytest.mark.asyncio
 async def test_status_line_timer_lifecycle():
+    """Verify that the timer in StatusLine updates correctly when job is running."""
     app = StatusApp()
     async with app.run_test() as pilot:
         status = app.query_one(StatusLine)
@@ -78,6 +79,10 @@ async def test_chat_panel_status_integration():
         # Verify visibility and timer initialization
         assert "hidden" not in timer_wrap.classes
         assert "Elapsed: 00:00" in str(timer_label.render())
+
+        # Verify help spinner is also visible
+        help_spinner = chat_panel.query_one("#help-spinner")
+        assert not help_spinner.has_class("hidden")
 
         # Advance time and verify update
         current_time += 5.0

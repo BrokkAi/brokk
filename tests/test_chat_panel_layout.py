@@ -27,3 +27,21 @@ async def test_status_line_above_chat_input():
             f"Expected #status-line (index {status_index}) to be above "
             f"#chat-input (index {input_index})"
         )
+
+@pytest.mark.asyncio
+async def test_help_row_spinner_order():
+    """Verify that the spinner is to the left of the help text in the help row."""
+    app = ChatPanelLayoutApp()
+    async with app.run_test() as pilot:
+        help_row = app.query_one("#chat-help-row")
+        spinner = help_row.query_one("#help-spinner")
+        help_label = help_row.query_one("#chat-help")
+        
+        children = list(help_row.children)
+        spinner_index = children.index(spinner)
+        label_index = children.index(help_label)
+        
+        assert spinner_index < label_index, (
+            f"Expected #help-spinner (index {spinner_index}) to be before "
+            f"#chat-help (index {label_index}) in horizontal row"
+        )
