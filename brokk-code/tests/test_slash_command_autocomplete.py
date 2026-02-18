@@ -273,3 +273,13 @@ async def test_autocomplete_ui_hidden_invariant_after_submit():
         # 3. Verify UI is hidden and text is cleared
         assert chat_input.text == ""
         assert suggestions.display is False
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_scrollbar_configuration():
+    """Verify that the suggestions list is configured to show scrollbars."""
+    app = AutocompleteTestApp()
+    async with app.run_test():
+        suggestions = app.query_one(SlashCommandSuggestions)
+        # Verify vertical scrollbar is enabled (textual attribute check)
+        assert suggestions.show_vertical_scrollbar is True
