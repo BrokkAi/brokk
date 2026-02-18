@@ -73,42 +73,45 @@ def test_has_tasks_missing_or_invalid(tmp_path):
     assert has_tasks(corrupt) is False
 
 
-def test_has_tasks_legacy_format(tmp_path):
-    zip_path = tmp_path / "legacy.zip"
+def test_has_tasks_history_definition(tmp_path):
+    zip_path = tmp_path / "session.zip"
 
-    # Case: Legacy with tasks
-    with zipfile.ZipFile(zip_path, "w") as z:
-        z.writestr("tasklist.json", json.dumps({"tasks": [{"id": "1", "title": "test"}]}))
-    assert has_tasks(zip_path) is True
-
-    # Case: Legacy empty
-    with zipfile.ZipFile(zip_path, "w") as z:
-        z.writestr("tasklist.json", json.dumps({"tasks": []}))
-    assert has_tasks(zip_path) is False
-
-
-def test_has_tasks_current_format(tmp_path):
-    zip_path = tmp_path / "current.zip"
-
-    def create_zip(context_virtuals, fragment_desc, tasks):
+    def create_zip(lines: list[str] | None):
         with zipfile.ZipFile(zip_path, "w") as z:
-            z.writestr("contexts.jsonl", json.dumps({"virtuals": context_virtuals}))
-            fragments = {"virtual": {"v1": {"description": fragment_desc, "contentId": "c1"}}}
-            z.writestr("fragments-v4.json", json.dumps(fragments))
-            z.writestr("content/c1.txt", json.dumps({"tasks": tasks}))
+            if lines is not None:
+                z.writestr("contexts.jsonl", "\n".join(lines))
 
-    # Case: Success
-    create_zip(["v1"], "Task List", [{"id": "1"}])
+    # Missing contexts.jsonl
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("something_else.txt", "data")
+    assert has_tasks(zip_path) is False
+
+    # Empty contexts.jsonl
+    create_zip([])
+    assert has_tasks(zip_path) is False
+
+    # contexts.jsonl but no tasks array
+    create_zip([json.dumps({"id": "ctx1"})])
+    assert has_tasks(zip_path) is False
+
+    # tasks array but missing meta
+    create_zip([json.dumps({"tasks": [{"sequence": 1}]})])
+    assert has_tasks(zip_path) is False
+
+    # tasks array with meta but missing/invalid sequence
+    create_zip([json.dumps({"tasks": [{"taskType": "LUTZ"}]})])
+    assert has_tasks(zip_path) is False
+
+    # Success: meta and sequence
+    create_zip([json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]})])
     assert has_tasks(zip_path) is True
 
-    # Case: Empty task list
-    create_zip(["v1"], "Task List", [])
-    assert has_tasks(zip_path) is False
+    # Tolerant parsing: malformed line then valid line
+    create_zip(
+        ["{ invalid json", json.dumps({"tasks": [{"sequence": 1, "primaryModelName": "gpt-4o"}]})]
+    )
+    assert has_tasks(zip_path) is True
 
-    # Case: Fragment not in current context
-    create_zip(["other"], "Task List", [{"id": "1"}])
-    assert has_tasks(zip_path) is False
-
-    # Case: Fragment is not "Task List"
-    create_zip(["v1"], "Notes", [{"id": "1"}])
-    assert has_tasks(zip_path) is False
+    # Check other meta fields
+    create_zip([json.dumps({"tasks": [{"sequence": 2, "primaryModelReasoning": "logic"}]})])
+    assert has_tasks(zip_path) is True

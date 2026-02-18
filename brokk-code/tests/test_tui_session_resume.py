@@ -162,7 +162,7 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
     # Create a zip with tasks so the hint prints
     zip_path = get_session_zip_path(workspace, session_id)
     with zipfile.ZipFile(zip_path, "w") as z:
-        z.writestr("tasklist.json", json.dumps({"tasks": [{"id": "1", "title": "test"}]}))
+        z.writestr("contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}))
 
     # Patch BrokkApp.run so it doesn't actually start the TUI
     # and sys.argv so main() uses our temp workspace.
@@ -195,7 +195,7 @@ def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
     # Create a zip with NO tasks
     zip_path = get_session_zip_path(workspace, session_id)
     with zipfile.ZipFile(zip_path, "w") as z:
-        z.writestr("tasklist.json", json.dumps({"tasks": []}))
+        z.writestr("contexts.jsonl", json.dumps({"tasks": []}))
 
     with (
         patch("brokk_code.app.BrokkApp.run", return_value=None),
