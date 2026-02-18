@@ -1,5 +1,6 @@
 import pathlib
 import time
+from pathlib import Path
 from typing import Optional
 
 from textual.app import ComposeResult
@@ -85,11 +86,12 @@ class StatusLine(Horizontal):
         try:
             # Normalize backslashes immediately for consistent behavior across platforms
             norm_workspace = workspace.replace("\\", "/")
-            path = pathlib.Path(norm_workspace)
-            # Use pathlib.Path.home() to respect test mocks while avoiding module-level symbol issues
+            # Use module-level Path for construction so it can be monkeypatched by tests
+            path = Path(norm_workspace)
+            # Use pathlib.Path.home() for home detection so it works even if Path is patched to a non-class
             home = pathlib.Path.home()
 
-            if path == home:
+            if str(path) == str(home) or path == home:
                 return "~"
 
             try:
