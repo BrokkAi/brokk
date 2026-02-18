@@ -58,7 +58,7 @@ python -m brokk_code
 
 Brokk automatically saves your session state (fragments, history, etc.) when you exit.
 
-**Resume the last session:**
+**Resume the last session in the current workspace:**
 ```bash
 brokk-code --resume
 ```
@@ -67,7 +67,8 @@ brokk-code --resume
 ```bash
 brokk-code resume <session_id>
 ```
-*Note: When you exit `brokk-code`, it prints a convenient "resume hint" command for the session you just finished.*
+*Note: When you exit `brokk-code`, it prints a convenient "resume hint" command for the session you just finished, for example:*
+`brokk-code resume <session_id>`
 
 ### ACP Mode
 
