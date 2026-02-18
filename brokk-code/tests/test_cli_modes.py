@@ -140,7 +140,7 @@ def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
 def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_configure_intellij_acp_settings(*, force: bool = False):
+    def fake_configure_intellij_acp_settings(*, force: bool = False, settings_path=None):
         captured["force"] = force
         return tmp_path / "intellij-config"
 
@@ -157,7 +157,7 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
 
 
 def test_main_install_intellij_conflict_exits_nonzero(monkeypatch) -> None:
-    def fake_configure_intellij_acp_settings(*, force: bool = False):
+    def fake_configure_intellij_acp_settings(*, force: bool = False, settings_path=None):
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
     monkeypatch.setattr(

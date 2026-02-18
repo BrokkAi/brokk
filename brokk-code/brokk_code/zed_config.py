@@ -5,7 +5,7 @@ from typing import Any
 
 
 class ExistingBrokkCodeEntryError(Exception):
-    """Raised when Zed already has a Brokk Code agent server entry."""
+    """Raised when an IDE configuration already has a Brokk Code agent server entry."""
 
 
 def _split_leading_json_prefix(text: str) -> tuple[str, str]:
