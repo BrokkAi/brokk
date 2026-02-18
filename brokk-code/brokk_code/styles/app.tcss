@@ -85,7 +85,7 @@ ChatPanel {
 
 #status-timer {
     width: auto;
-    min-width: 12;
+    min-width: 17;
     color: $text;
 }
 
