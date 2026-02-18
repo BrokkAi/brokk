@@ -72,7 +72,6 @@ ChatPanel {
     width: auto;
     height: 1;
     layout: horizontal;
-    overflow: visible;
 }
 
 #status-spinner {
