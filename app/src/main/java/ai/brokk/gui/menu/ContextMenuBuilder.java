@@ -156,10 +156,10 @@ public class ContextMenuBuilder {
         parent.add(new JPopupMenu.Separator());
 
         // Attach File
-        var editFileItem = new JMenuItem("Attach File");
-        editFileItem.setEnabled(analyzerReady);
-        editFileItem.addActionListener(e -> editFiles(context));
-        parent.add(editFileItem);
+        var attachFileItem = new JMenuItem("Attach File");
+        attachFileItem.setEnabled(analyzerReady);
+        attachFileItem.addActionListener(e -> editFiles(context));
+        parent.add(attachFileItem);
 
         // Summarize File
         var summarizeFileItem = new JMenuItem("Summarize File");
