@@ -167,21 +167,20 @@ def test_status_timer_width_regression():
 
 def test_help_labels_transparent_background():
     """
-    Ensure help labels in context, task, and chat panels have transparent backgrounds
-    to avoid inconsistent fill patterns.
+    Ensure the chat help label has a transparent background to avoid inconsistent fill patterns.
     """
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
 
-    for selector in ["#context-help", "#tasklist-help", "#chat-help"]:
-        # Match the selector and its block; keep consistent with other regex-based checks.
-        pattern = rf"{re.escape(selector)}\s*\{{([^}}]*)\}}"
-        match = re.search(pattern, css_content)
-        assert match, f"Could not find {selector} rule in app.tcss"
+    selector = "#chat-help"
+    # Match the selector and its block; keep consistent with other regex-based checks.
+    pattern = rf"{re.escape(selector)}\s*\{{([^}}]*)\}}"
+    match = re.search(pattern, css_content)
+    assert match, f"Could not find {selector} rule in app.tcss"
 
-        body = match.group(1)
+    body = match.group(1)
 
-        # Explicitly require transparent background; fail if changed to any non-transparent value.
-        assert "background: transparent;" in body, (
-            f"{selector} should have 'background: transparent;' to avoid filled label background. "
-            f"Found: {body.strip()}"
-        )
+    # Explicitly require transparent background; fail if changed to any non-transparent value.
+    assert "background: transparent;" in body, (
+        f"{selector} should have 'background: transparent;' to avoid filled label background. "
+        f"Found: {body.strip()}"
+    )

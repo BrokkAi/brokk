@@ -45,14 +45,6 @@ ContextModalScreen, ModelReasoningSelectModal {
     padding: 0 2;
 }
 
-#tasklist-help {
-    width: 1fr;
-    color: $text-muted;
-    padding: 0 2;
-    margin-bottom: 1;
-    background: transparent;
-}
-
 #tasklist-content {
     width: 100%;
 }
@@ -124,13 +116,6 @@ ChatPanel {
     width: 1fr;
     content-align: right middle;
     color: $text-disabled;
-}
-
-#context-help {
-    width: 1fr;
-    color: $text-muted;
-    margin: 0 0 1 0;
-    background: transparent;
 }
 
 #context-selection-status {

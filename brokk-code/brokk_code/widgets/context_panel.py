@@ -129,11 +129,6 @@ class ContextPanel(Vertical):
             yield Label("100.0% context remaining", id="context-token-usage")
         yield Label("Selected: 0", id="context-selection-status")
         yield Label("Active: none", id="context-active-status")
-        yield Label(
-            "Arrows: Move  Enter: Select  Space: Toggle  D: Drop  Shift+D: Drop All  "
-            "P: Pin  R: Readonly  H: Compress History  X: Clear History",
-            id="context-help",
-        )
         with VerticalScroll(id="context-chip-scroll"):
             yield Vertical(id="context-chip-wrap")
 
