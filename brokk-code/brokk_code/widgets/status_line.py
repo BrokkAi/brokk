@@ -88,7 +88,8 @@ class StatusLine(Horizontal):
             norm_workspace = workspace.replace("\\", "/")
             # Use module-level Path for construction so it can be monkeypatched by tests
             path = Path(norm_workspace)
-            # Use pathlib.Path.home() for home detection so it works even if Path is patched to a non-class
+            # Use pathlib.Path.home() for home detection so it works even if Path
+            # is patched to a non-class
             home = pathlib.Path.home()
 
             if str(path) == str(home) or path == home:
