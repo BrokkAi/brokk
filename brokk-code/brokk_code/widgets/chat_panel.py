@@ -257,7 +257,7 @@ class ChatPanel(Vertical):
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
             yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
-            yield SlashCommandSuggestions(id="slash-suggestions")
+        yield SlashCommandSuggestions(id="slash-suggestions")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")

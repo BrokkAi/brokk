@@ -224,10 +224,6 @@ ChatPanel {
     margin-bottom: 6;
 }
 
-#chat-input-container.autocomplete-open #chat-input {
-    margin-bottom: 0;
-}
-
 #chat-input {
     margin: 0 2 1 2;
     background: $panel;

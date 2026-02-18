@@ -321,8 +321,8 @@ async def test_autocomplete_ui_state_preserves_prompt_visibility():
         assert container.has_class("autocomplete-open")
         # In current design, height is preserved (no shrinking) to keep UI stable
         assert chat_input.styles.height.value == 3
-        # Margin is removed to dock suggestions directly under input
-        assert chat_input.styles.margin.bottom.value == 0
+        # Margin is preserved on the input itself now that suggestions are siblings
+        assert chat_input.styles.margin.bottom.value == 1
         # Container margin-bottom should be 6 to raise the panel (approx 60px/6 rows)
         # In Textual, styles.margin.bottom.value refers to the CSS integer value.
         assert container.styles.margin.bottom.value == 6

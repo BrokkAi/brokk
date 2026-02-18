@@ -59,19 +59,16 @@ async def test_suggestions_below_chat_input():
     """
     app = ChatPanelLayoutApp()
     async with app.run_test():
+        chat_panel = app.query_one(ChatPanel)
         container = app.query_one("#chat-input-container")
-        chat_input = container.query_one("#chat-input")
-        suggestions = container.query_one("#slash-suggestions")
+        suggestions = app.query_one("#slash-suggestions")
 
-        # Verify parent-child relationship
-        assert chat_input in container.children
-        assert suggestions in container.children
-
-        children = list(container.children)
-        input_index = children.index(chat_input)
+        # Verify siblings in ChatPanel
+        children = list(chat_panel.children)
+        container_index = children.index(container)
         suggestions_index = children.index(suggestions)
 
-        assert input_index < suggestions_index, (
-            f"Expected #chat-input (index {input_index}) to be above "
-            f"#slash-suggestions (index {suggestions_index}) in #chat-input-container"
+        assert container_index < suggestions_index, (
+            f"Expected #chat-input-container (index {container_index}) to be above "
+            f"#slash-suggestions (index {suggestions_index}) in ChatPanel"
         )
