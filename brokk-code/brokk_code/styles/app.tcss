@@ -212,6 +212,12 @@ ChatPanel {
     text-style: bold;
 }
 
+#chat-input-container {
+    height: auto;
+    width: 100%;
+    layers: base top;
+}
+
 #chat-input {
     margin: 0 2 1 2;
     background: $panel;
@@ -219,6 +225,13 @@ ChatPanel {
     height: 3;
     border: none;
     content-align: left middle;
+    layer: base;
+}
+
+#slash-hint {
+    /* Positioned absolutely within the container relative to #chat-input */
+    offset-y: -4; /* Height of input + margin/padding adjustment */
+    margin-top: 0;
 }
 
 #notification-panel {

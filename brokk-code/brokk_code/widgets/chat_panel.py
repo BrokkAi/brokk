@@ -15,6 +15,47 @@ from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 
 
+class SlashCommandInlineHint(Static):
+    """A low-contrast overlay for the best slash command completion."""
+
+    DEFAULT_CSS = """
+    SlashCommandInlineHint {
+        display: none;
+        color: $text-disabled;
+        background: transparent;
+        padding: 0 1;
+        margin: 0 2 1 2;
+        height: 3;
+        content-align: left middle;
+        layer: top;
+        pointer-events: none;
+    }
+    """
+
+    def update_hint(self, current_text: str, commands: List[Dict[str, str]]) -> None:
+        """Updates the hint text based on current input."""
+        query = current_text.strip().lower()
+        if not query.startswith("/") or "\n" in current_text or not query:
+            self.display = False
+            return
+
+        best_match = None
+        for c in commands:
+            cmd = c["command"].lower()
+            if cmd.startswith(query) and cmd != query:
+                best_match = c["command"]
+                break
+
+        if best_match:
+            # We show the full command but padded to align with typed text.
+            # Since the hint is exactly over the input, we can just show the whole string
+            # and it will look like a completion.
+            self.update(best_match)
+            self.display = True
+        else:
+            self.display = False
+
+
 class SlashCommandSuggestions(ListView):
     """A popup list for slash command autocomplete."""
 
@@ -137,6 +178,7 @@ class ChatInput(TextArea):
         app = self.app
         try:
             suggestions = app.query_one(SlashCommandSuggestions)
+            hint = app.query_one(SlashCommandInlineHint)
         except Exception:
             return
 
@@ -145,8 +187,10 @@ class ChatInput(TextArea):
             if hasattr(app, "get_slash_commands"):
                 commands = app.get_slash_commands()
             suggestions.update_suggestions(self.text, commands)
+            hint.update_hint(self.text, commands)
         else:
             suggestions.display = False
+            hint.display = False
 
     async def _on_key(self, event: events.Key) -> None:
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
@@ -238,7 +282,9 @@ class ChatPanel(Vertical):
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield SlashCommandSuggestions(id="slash-suggestions")
         yield StatusLine(id="status-line")
-        yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
+        with Vertical(id="chat-input-container"):
+            yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
+            yield SlashCommandInlineHint(id="slash-hint")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")

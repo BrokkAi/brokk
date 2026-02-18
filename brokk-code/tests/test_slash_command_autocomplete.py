@@ -1,7 +1,12 @@
 import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Static
-from brokk_code.widgets.chat_panel import ChatPanel, ChatInput, SlashCommandSuggestions
+from brokk_code.widgets.chat_panel import (
+    ChatPanel,
+    ChatInput,
+    SlashCommandSuggestions,
+    SlashCommandInlineHint,
+)
 
 
 class AutocompleteTestApp(App):
@@ -189,3 +194,48 @@ async def test_autocomplete_tab_regression_no_crash():
         assert suggestions.display is False
         # /model is the first match and requires args, so expect trailing space
         assert chat_input.text == "/model "
+
+
+@pytest.mark.asyncio
+async def test_inline_hint_visibility_and_content():
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        hint = app.query_one(SlashCommandInlineHint)
+        assert hint.display is False
+
+        # Start typing a command
+        await pilot.press("/")
+        # Best match for "/" is "/ask" based on order in AutocompleteTestApp
+        assert hint.display is True
+        assert str(hint.renderable) == "/ask"
+
+        # Type more to change best match
+        await pilot.press("m")
+        assert hint.display is True
+        assert str(hint.renderable) == "/model"
+
+        # Type enough to match exactly - hint should disappear
+        await pilot.press("o", "d", "e", "l")
+        assert hint.display is False
+
+        # Backspace should bring it back
+        await pilot.press("backspace")
+        assert hint.display is True
+        assert str(hint.renderable) == "/model"
+
+        # Clear input
+        await pilot.press("ctrl+u")
+        assert hint.display is False
+
+
+@pytest.mark.asyncio
+async def test_inline_hint_hidden_on_newline():
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        hint = app.query_one(SlashCommandInlineHint)
+
+        await pilot.press("/")
+        assert hint.display is True
+
+        await pilot.press("shift+enter")
+        assert hint.display is False
