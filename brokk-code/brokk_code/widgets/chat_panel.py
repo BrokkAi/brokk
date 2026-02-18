@@ -9,7 +9,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import Label, LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
@@ -103,7 +103,7 @@ class ChatPanel(Vertical):
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
-            yield Label(
+            yield Static(
                 "Enter: Submit  Shift+Enter: Newline  Up/Down: History  /commands",
                 id="chat-help",
             )

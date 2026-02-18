@@ -145,7 +145,7 @@ def test_help_elapsed_width_regression():
 
 def test_help_labels_transparent_background():
     """
-    Ensure the chat help label has a transparent background to avoid inconsistent fill patterns.
+    Ensure the chat help static has a transparent background to avoid inconsistent fill patterns.
     """
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
 
@@ -224,7 +224,7 @@ def test_help_menu_layout_contract():
         "Textual TCSS does not support 'flex-shrink' property; using it causes a crash."
     )
 
-    # 5. Ensure legacy help labels are not active/visible
+    # 5. Ensure legacy help widgets are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)
     for legacy_id in ["#tasklist-help", "#context-help", "#status-spinner"]:
         match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
