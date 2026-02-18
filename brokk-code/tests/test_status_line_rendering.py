@@ -10,7 +10,11 @@ def test_status_line_rendering_compact():
     status._metadata = mock_metadata
 
     status.update_status(
-        mode="LUTZ", model="gpt-4", reasoning="high", workspace="/path/to/my-project", branch="main"
+        mode="LUTZ",
+        model="gpt-4",
+        reasoning="high",
+        workspace="/path/to/my-project",
+        branch="main",
     )
 
     # Expected: {branch} - {mode} - {model} ({reasoning}) - {workspace}
@@ -32,11 +36,3 @@ def test_status_line_fragment_rendering():
     size_text = format_token_count(1234)
     expected = f"my-file.py ({size_text} tokens)"
     mock_metadata.update.assert_called_with(expected)
-
-
-def test_workspace_label_logic():
-    assert StatusLine._workspace_label("/usr/local/bin") == "bin"
-    assert StatusLine._workspace_label("C:\\Users\\Brokk\\project") == "project"
-    assert StatusLine._workspace_label("root") == "root"
-    assert StatusLine._workspace_label("") == "unknown"
-    assert StatusLine._workspace_label("  ") == "unknown"

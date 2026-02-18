@@ -88,18 +88,6 @@ class StatusLine(Horizontal):
 
         self._set_status_metadata(text)
 
-    @staticmethod
-    def _workspace_label(workspace: str) -> str:
-        trimmed = workspace.strip()
-        if not trimmed:
-            return "unknown"
-        normalized = trimmed.rstrip("/\\")
-        for sep in ("/", "\\"):
-            if sep in normalized:
-                tail = normalized.rsplit(sep, 1)[-1]
-                return tail or normalized
-        return normalized
-
     def _set_status_metadata(self, text: str) -> None:
         metadata = self._metadata
         if metadata is None:
