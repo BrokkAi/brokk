@@ -116,6 +116,12 @@ def test_has_tasks_history_definition(tmp_path):
     create_zip([json.dumps({"tasks": [{"sequence": 2, "primaryModelReasoning": "logic"}]})])
     assert has_tasks(zip_path) is True
 
+    # Success: single line without trailing newline
+    with zipfile.ZipFile(zip_path, "w") as z:
+        data = json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}).encode("utf-8")
+        z.writestr("contexts.jsonl", data)
+    assert has_tasks(zip_path) is True
+
 
 def test_has_tasks_respects_bounds(tmp_path, monkeypatch):
     from brokk_code import session_persistence

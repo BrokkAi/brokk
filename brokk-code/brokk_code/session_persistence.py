@@ -47,6 +47,7 @@ def has_tasks(zip_path: Path) -> bool:
             bytes_read = 0
             lines_read = 0
             remainder = b""
+            eof_reached = False
 
             with z.open(info) as f:
                 while (
@@ -55,10 +56,15 @@ def has_tasks(zip_path: Path) -> bool:
                     chunk_size = min(4096, MAX_CONTEXTS_JSONL_BYTES - bytes_read)
                     chunk = f.read(chunk_size)
                     if not chunk:
+                        eof_reached = True
                         break
                     bytes_read += len(chunk)
 
                     lines = (remainder + chunk).splitlines(keepends=True)
+                    if not lines:
+                        remainder = b""
+                        continue
+
                     # If the chunk didn't end with a newline, keep the last partial line
                     # for next chunk
                     if not lines[-1].endswith((b"\r", b"\n")):
@@ -70,38 +76,50 @@ def has_tasks(zip_path: Path) -> bool:
                         if lines_read >= MAX_CONTEXTS_JSONL_LINES:
                             break
                         lines_read += 1
-                        line = line_bytes.strip()
-                        if not line:
-                            continue
-                        try:
-                            context_data = json.loads(line)
-                            tasks = context_data.get("tasks")
-                            if not isinstance(tasks, list):
-                                continue
+                        if _process_line(line_bytes):
+                            return True
 
-                            for task in tasks:
-                                if not isinstance(task, dict):
-                                    continue
-
-                                # Check for meta fields (align with HistoryIo.java)
-                                has_meta = any(
-                                    task.get(k) is not None
-                                    for k in [
-                                        "taskType",
-                                        "primaryModelName",
-                                        "primaryModelReasoning",
-                                    ]
-                                )
-                                # Check for sequence
-                                sequence = task.get("sequence")
-                                if has_meta and isinstance(sequence, (int, float)):
-                                    return True
-
-                        except (json.JSONDecodeError, TypeError):
-                            continue
+                # Process final partial line if we reached EOF without hitting line/byte caps
+                if (
+                    eof_reached
+                    and remainder
+                    and lines_read < MAX_CONTEXTS_JSONL_LINES
+                    and bytes_read <= MAX_CONTEXTS_JSONL_BYTES
+                ):
+                    if _process_line(remainder):
+                        return True
     except (zipfile.BadZipFile, OSError) as e:
         logger.debug("Failed to inspect session zip %s: %s", zip_path, e)
 
+    return False
+
+
+def _process_line(line_bytes: bytes) -> bool:
+    """Parses a single line from contexts.jsonl and returns True if it contains a valid task."""
+    line = line_bytes.strip()
+    if not line:
+        return False
+    try:
+        context_data = json.loads(line)
+        tasks = context_data.get("tasks")
+        if not isinstance(tasks, list):
+            return False
+
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+
+            # Check for meta fields (align with HistoryIo.java)
+            has_meta = any(
+                task.get(k) is not None
+                for k in ["taskType", "primaryModelName", "primaryModelReasoning"]
+            )
+            # Check for sequence
+            sequence = task.get("sequence")
+            if has_meta and isinstance(sequence, (int, float)):
+                return True
+    except (json.JSONDecodeError, TypeError):
+        pass
     return False
 
 
