@@ -321,13 +321,13 @@ async def test_autocomplete_ui_state_preserves_prompt_visibility():
         await pilot.press("/")
         assert container.has_class("autocomplete-open")
         assert suggestions.display is True
-        
+
         # In current design, height is preserved to keep UI stable
         assert chat_input.styles.height.value == 3
-        
-        # Container margin-bottom should be 6 to raise the panel (approx 6 rows)
+
+        # Container margin-bottom should be 1 to raise the panel (approx 1 row)
         # when the menu is visible below it.
-        assert container.styles.margin.bottom.value == 6
+        assert container.styles.margin.bottom.value == 1
 
         # Hide autocomplete
         await pilot.press("escape")
