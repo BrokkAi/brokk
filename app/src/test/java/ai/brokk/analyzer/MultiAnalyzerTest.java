@@ -80,9 +80,9 @@ public class MultiAnalyzerTest {
 
     @Test
     public void testDelegateRouting_JavaFile_getSkeleton() {
-        // Create a CodeUnit for the TestClass
-        var javaFile = new ProjectFile(tempDir, "TestClass.java");
-        var classUnit = CodeUnit.cls(javaFile, "", "TestClass");
+        // Get the correct CodeUnit from analyzer
+        var classUnit =
+                multiAnalyzer.getDefinitions("TestClass").stream().findFirst().orElseThrow();
 
         // Get skeleton through MultiAnalyzer - should route to Java delegate
         Optional<String> skeleton = multiAnalyzer.getSkeleton(classUnit);
@@ -95,8 +95,9 @@ public class MultiAnalyzerTest {
     @Test
     public void testDelegateRouting_JavaFile_getSources() {
         // Create a CodeUnit for the testMethod
-        var javaFile = new ProjectFile(tempDir, "TestClass.java");
-        var methodUnit = CodeUnit.fn(javaFile, "", "TestClass.testMethod");
+        var methodUnit = multiAnalyzer.getDefinitions("TestClass.testMethod").stream()
+                .findAny()
+                .get();
 
         // Get method sources through MultiAnalyzer - should route to Java delegate via getSources
         Set<String> sources = multiAnalyzer.getSources(methodUnit, true);
@@ -108,9 +109,9 @@ public class MultiAnalyzerTest {
 
     @Test
     public void testDelegateRouting_JavaFile_getSource() {
-        // Create a CodeUnit for the TestClass
-        var javaFile = new ProjectFile(tempDir, "TestClass.java");
-        var classUnit = CodeUnit.cls(javaFile, "", "TestClass");
+        // Get the correct CodeUnit from analyzer
+        var classUnit =
+                multiAnalyzer.getDefinitions("TestClass").stream().findFirst().orElseThrow();
 
         // Get class source through MultiAnalyzer - should route to Java delegate via getSource
         Optional<String> classSource = multiAnalyzer.getSource(classUnit, true);

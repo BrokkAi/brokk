@@ -10,6 +10,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -25,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -60,6 +62,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             } else if (normalizedPath.equals("/v1/tasklist")) {
                 handleGetTaskList(exchange);
                 return;
+            } else if (normalizedPath.equals("/v1/context/conversation")) {
+                handleGetConversation(exchange);
+                return;
             }
         }
 
@@ -79,6 +84,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             case "/v1/context/classes" -> handlePostContextClasses(exchange);
             case "/v1/context/methods" -> handlePostContextMethods(exchange);
             case "/v1/context/text" -> handlePostContextText(exchange);
+            case "/v1/tasklist" -> handlePostTaskList(exchange);
             default ->
                 SimpleHttpServer.sendJsonResponse(
                         exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
@@ -528,6 +534,29 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         SimpleHttpServer.sendJsonResponse(exchange, Map.of("id", id, "chars", text.length()));
     }
 
+    private void handlePostTaskList(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        var request = RouterUtil.parseJsonOr400(exchange, ReplaceTaskListRequest.class, "/v1/tasklist");
+        if (request == null) return;
+
+        var tasks = request.tasks();
+        if (tasks == null) {
+            RouterUtil.sendValidationError(exchange, "tasks must not be null");
+            return;
+        }
+
+        // Reject lists that contain explicit null elements to avoid server-side NPEs.
+        if (tasks.stream().anyMatch(Objects::isNull)) {
+            RouterUtil.sendValidationError(exchange, "tasks must not contain null elements");
+            return;
+        }
+
+        var nonNullTasks = Objects.requireNonNull(tasks);
+        var updated = new TaskList.TaskListData(request.bigPicture(), List.copyOf(nonNullTasks));
+        contextManager.pushContext(ctx -> ctx.withTaskList(updated));
+        SimpleHttpServer.sendJsonResponse(exchange, contextManager.getTaskList());
+    }
+
     private String classifyChipKind(ContextFragment fragment) {
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) return "SUMMARY";
         if (!fragment.isValid()) return "INVALID";
@@ -577,4 +606,61 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     private record AddContextMethodsResponse(List<AddedContextMethod> added) {}
 
     private record AddContextTextRequest(String text) {}
+
+    private record ReplaceTaskListRequest(
+            @org.jetbrains.annotations.Nullable String bigPicture,
+            @org.jetbrains.annotations.Nullable List<TaskList.TaskItem> tasks) {}
+
+    // ── GET /v1/context/conversation ──────────────────────
+
+    /**
+     * Returns the current live context's task history as displayable conversation messages.
+     */
+    private void handleGetConversation(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) return;
+
+        try {
+            var taskHistory = contextManager.liveContext().getTaskHistory();
+            var entries = new ArrayList<Map<String, Object>>();
+
+            for (var task : taskHistory) {
+                var entryMap = new HashMap<String, Object>();
+                entryMap.put("sequence", task.sequence());
+                entryMap.put("isCompressed", task.isCompressed());
+
+                if (task.meta() != null) {
+                    entryMap.put("taskType", task.meta().type().displayName());
+                }
+
+                var log = task.mopLog();
+                if (log != null) {
+                    var msgList = new ArrayList<Map<String, Object>>();
+                    for (var msg : log.messages()) {
+                        var msgMap = new HashMap<String, Object>();
+                        msgMap.put("role", msg.type().name().toLowerCase(java.util.Locale.ROOT));
+                        msgMap.put("text", Messages.getText(msg));
+
+                        if (msg instanceof dev.langchain4j.data.message.AiMessage ai
+                                && ai.reasoningContent() != null
+                                && !ai.reasoningContent().isBlank()) {
+                            msgMap.put("reasoning", ai.reasoningContent());
+                        }
+
+                        msgList.add(msgMap);
+                    }
+                    entryMap.put("messages", msgList);
+                } else if (task.summary() != null) {
+                    entryMap.put("summary", task.summary());
+                }
+
+                entries.add(entryMap);
+            }
+
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("entries", entries));
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/context/conversation", e);
+            var error = ErrorPayload.internalError("Failed to retrieve conversation", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 }

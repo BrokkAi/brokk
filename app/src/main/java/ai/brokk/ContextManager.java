@@ -8,7 +8,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
-import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -1259,7 +1258,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return false;
         }
 
-        List<ContextFragments.SummaryFragment> marshalledSummaries = new ArrayList<>();
+        List<ContextFragments.SummaryFragment> marshalledSummaries = toSummaries(files, classes);
+
+        if (marshalledSummaries.isEmpty()) {
+            io.toolError("No files or classes provided to summarize.");
+            return false;
+        }
+
+        // Atomic update to context
+        addFragments(marshalledSummaries);
+
+        // Notifications
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + marshalledSummaries.size() + " entities");
+
+        return true;
+    }
+
+    public List<ContextFragments.SummaryFragment> toSummaries(Set<ProjectFile> files, Set<CodeUnit> classes) {
+        var marshalledSummaries = new ArrayList<ContextFragments.SummaryFragment>();
 
         // Marshall SummaryFragments for files
         if (!files.isEmpty()) {
@@ -1278,31 +1294,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
 
-        if (marshalledSummaries.isEmpty()) {
-            io.toolError("No files or classes provided to summarize.");
-            return false;
-        }
-
-        // Atomic update to context
-        addFragments(marshalledSummaries);
-
-        // Notifications
-        if (!files.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinFilesForOutput(files));
-        }
-        if (!classFqns.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinClassesForOutput(classFqns));
-        }
-
-        return true;
-    }
-
-    private static String joinClassesForOutput(List<String> classFqns) {
-        var toJoin = classFqns.stream().sorted().toList();
-        if (toJoin.size() <= 2) {
-            return String.join(", ", toJoin);
-        }
-        return "%d classes".formatted(toJoin.size());
+        return marshalledSummaries;
     }
 
     /**
@@ -1324,14 +1316,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .collect(Collectors.joining(", "));
         }
         return count + " fragments";
-    }
-
-    private static String joinFilesForOutput(Collection<? extends BrokkFile> files) {
-        var toJoin = files.stream().map(BrokkFile::getFileName).sorted().toList();
-        if (files.size() <= 2) {
-            return joinClassesForOutput(toJoin);
-        }
-        return "%d files".formatted(files.size());
     }
 
     public List<ChatMessage> getHistoryMessagesForCopy() {
@@ -1521,16 +1505,66 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
+    public interface TaskProgressListener {
+        void onTaskStarting(int batchIndex, TaskList.TaskItem task);
+
+        default void onTaskSuccess(int batchIndex, TaskList.TaskItem task, TaskResult result) {}
+
+        default void onTaskFailure(int batchIndex, TaskList.TaskItem task, Throwable error) {}
+
+        default void onBatchFinished(int completed) {}
+    }
+
     /**
-     * Execute a single task using ArchitectAgent with explicit options.
-     *
-     * @param task Task to execute (non-blank text).
-     * @return TaskResult from ArchitectAgent execution.
+     * Executes a batch of tasks sequentially.
      */
-    public TaskResult executeTask(TaskList.TaskItem task) throws InterruptedException {
-        var planningModel = io.getInstructionsPanel().getSelectedModel();
-        var codeModel = getCodeModel();
-        return executeTask(task, planningModel, codeModel);
+    public void executeTasks(
+            List<TaskList.TaskItem> tasks,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            TaskProgressListener listener)
+            throws InterruptedException {
+        List<TaskList.TaskItem> tasksToRun =
+                tasks.stream().filter(t -> !t.done()).toList();
+        int completed = 0;
+        for (int i = 0; i < tasks.size(); i++) {
+            TaskList.TaskItem task = tasks.get(i);
+            if (task.done()) {
+                continue;
+            }
+            listener.onTaskStarting(i, task);
+            TaskResult result = executeTask(task, planningModel, codeModel);
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                listener.onTaskSuccess(i, task, result);
+                completed++;
+            } else {
+                listener.onTaskFailure(
+                        i, task, new RuntimeException(result.stopDetails().explanation()));
+                logger.debug(
+                        "Batch execution stopped early: task failed with reason {}",
+                        result.stopDetails().reason());
+                break;
+            }
+        }
+
+        if (completed == tasksToRun.size() && !tasksToRun.isEmpty()) {
+            BuildDetails details = project.awaitBuildDetails();
+            String afterCmd = details.afterTaskListCommand();
+            if (!afterCmd.isBlank()) {
+                var context = BuildAgent.runExplicitCommand(liveContext(), afterCmd, details);
+                if (!context.getBuildError().isBlank()) {
+                    pushContext(ctx -> context);
+                    String goal = "The post-task-list verification command failed. Fix the build errors.";
+                    try (var scope = beginTask(goal, true, "Post-task verification fix")) {
+                        ArchitectAgent agent = new ArchitectAgent(this, planningModel, codeModel, goal, scope);
+                        agent.setVerifyCommand(afterCmd);
+                        agent.executeWithScan();
+                    }
+                }
+            }
+        }
+
+        listener.onBatchFinished(completed);
     }
 
     public TaskResult executeTask(

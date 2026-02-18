@@ -724,15 +724,18 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     private @Nullable ProjectFile resolveModuleFile(String modulePath) {
         var basePath = modulePath.replace('.', '/');
 
-        // Try module.py first
-        var moduleFilePath = basePath + ".py";
-        var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
-        if (Files.exists(moduleFile.absPath())) {
-            return moduleFile;
+        // Try module.py first (only if modulePath is not empty, e.g. "pkg.mod")
+        if (!basePath.isEmpty()) {
+            var moduleFilePath = basePath + ".py";
+            var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
+            if (Files.exists(moduleFile.absPath())) {
+                return moduleFile;
+            }
         }
 
         // Fall back to package __init__.py
-        var initFilePath = basePath + "/__init__.py";
+        // If basePath is empty, result is "__init__.py". If not, "path/to/__init__.py"
+        var initFilePath = basePath.isEmpty() ? "__init__.py" : basePath + "/__init__.py";
         var initFile = new ProjectFile(getProject().getRoot(), initFilePath);
         if (Files.exists(initFile.absPath())) {
             return initFile;

@@ -67,6 +67,19 @@ public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
     private static final int MAX_TURNS = 10;
 
+    /**
+     * Listener for ArchitectAgent events.
+     */
+    @FunctionalInterface
+    public interface ArchitectListener {
+        /**
+         * Invoked when a CodeAgent call completes.
+         *
+         * @param context the resulting context from the CodeAgent run
+         */
+        void onCodeAgentResult(Context context);
+    }
+
     private final IConsoleIO io;
 
     // Lock to ensure only one SearchAgent streams output at a time during parallel execution
@@ -111,6 +124,9 @@ public class ArchitectAgent {
     // Tracks if we have ever entered emergency mode (restricted tools due to context size)
     private boolean hasEnteredEmergencyMode = false;
 
+    @Nullable
+    private ArchitectListener listener;
+
     private final Set<ProjectFile> presentedRelatedFiles = new HashSet<>();
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
@@ -123,6 +139,9 @@ public class ArchitectAgent {
 
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
+
+    @Nullable
+    private String verifyCommand;
 
     private static final ThreadLocal<SearchAgentOutput> threadlocalSearchResult = new ThreadLocal<>();
 
@@ -180,6 +199,15 @@ public class ArchitectAgent {
         this.io = io;
         this.scope = scope;
         this.context = initialContext;
+        this.verifyCommand = null;
+    }
+
+    public void setVerifyCommand(@Nullable String verifyCommand) {
+        this.verifyCommand = verifyCommand;
+    }
+
+    public void setListener(@Nullable ArchitectListener listener) {
+        this.listener = listener;
     }
 
     /**
@@ -244,20 +272,44 @@ public class ArchitectAgent {
         var reason = stopDetails.reason();
 
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
-        context = result.context().withHistory(context.getTaskHistory());
+        var codeContext = result.context();
+        context = codeContext.withHistory(context.getTaskHistory());
         scope.append(context);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
+        // we're done with the original result now, make sure we don't reuse it by accident instead of the
+        // post-verifyCommand results
+        result = null;
 
-        if (result.stopDetails().reason() == StopReason.SUCCESS) {
-            var fileList = changedFragments.stream()
-                    .map(cf -> cf.shortDescription().join())
-                    .sorted()
-                    .collect(Collectors.joining(", "));
-
+        if (reason == StopReason.SUCCESS) {
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
-            return """
+            if (!deferBuild && !changedFragments.isEmpty()) {
+                codeAgentJustSucceeded = true;
+
+                if (verifyCommand != null) {
+                    context = BuildAgent.runExplicitCommand(
+                            context, verifyCommand, cm.getProject().awaitBuildDetails());
+                    if (!context.getBuildError().isBlank()) {
+                        codeAgentJustSucceeded = false;
+                        reason = StopReason.BUILD_ERROR;
+                        stopDetails = new TaskResult.StopDetails(reason, "Broader verification step failed");
+                        // let the planning loop continue to fix it
+                    }
+                }
+            }
+
+            // re-check in case verifyCommand failed
+            if (reason == StopReason.SUCCESS) {
+                if (listener != null) {
+                    listener.onCodeAgentResult(context);
+                }
+
+                var fileList = changedFragments.stream()
+                        .map(cf -> cf.shortDescription().join())
+                        .sorted()
+                        .collect(Collectors.joining(", "));
+
+                return """
             # Status
             %s
 
@@ -265,12 +317,13 @@ public class ArchitectAgent {
             %s
             %s
             """
-                    .formatted(
-                            deferBuild
-                                    ? "CodeAgent finished with build deferred as requested."
-                                    : "CodeAgent finished with a successful build.",
-                            fileList.isEmpty() ? "None" : fileList,
-                            fileList.isEmpty() ? "" : "\nThe changes made are reflected in the Workspace.");
+                        .formatted(
+                                deferBuild
+                                        ? "CodeAgent finished with build deferred as requested."
+                                        : "CodeAgent finished with a successful build.",
+                                fileList.isEmpty() ? "None" : fileList,
+                                fileList.isEmpty() ? "" : "\nThe changes made are reflected in the Workspace.");
+            }
         }
 
         // For non-SUCCESS outcomes, format error feedback appropriately
@@ -285,8 +338,12 @@ public class ArchitectAgent {
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
+        if (listener != null) {
+            listener.onCodeAgentResult(context);
+        }
+
         // Extract and compress reasoning
-        var lastEntry = result.context().getTaskHistory().getLast();
+        var lastEntry = codeContext.getTaskHistory().getLast();
         var messages = new ArrayList<>(lastEntry.mopMessages());
         var summary = cm.compressHistory(CodeAgent.ConversationState.extractReasoning(messages));
         var reasoningSummarySuffix = "\n\n# CodeAgent reasoning summary\n\n" + summary;
@@ -656,7 +713,6 @@ public class ArchitectAgent {
             return resultWithMessages(fatalReason);
         }
 
-        // If CodeAgent succeeded, immediately finish without entering planning loop
         if (codeAgentJustSucceeded) {
             return codeAgentSuccessResult();
         }
@@ -996,7 +1052,8 @@ public class ArchitectAgent {
 
                 allowed.add("callCodeAgent");
 
-                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
+                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()
+                        && !Objects.equals(System.getenv("BRK_ALLOW_SET_BUILD_DETAILS"), "false")) {
                     allowed.add("setBuildDetails");
                     allowed.add("verifyBuildCommand");
                 }

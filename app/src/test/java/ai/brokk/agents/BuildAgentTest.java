@@ -329,6 +329,7 @@ class BuildAgentTest {
         // Verify existing patterns are preserved AND new patterns are added
         var reportedDetails = agent.getReportedDetails();
         assert reportedDetails != null;
+        assertEquals("", reportedDetails.afterTaskListCommand());
         var finalPatterns = reportedDetails.exclusionPatterns();
 
         // Existing patterns should be preserved
@@ -434,7 +435,7 @@ class BuildAgentTest {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
             project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of(), null, ""));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -464,7 +465,7 @@ class BuildAgentTest {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
             project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of(), null, ""));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -521,7 +522,7 @@ class BuildAgentTest {
         Files.writeString(tempDir.resolve("README.md"), "x");
         var project = new TestProject(tempDir);
         project.setBuildDetails(
-                new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+                new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of(), null, ""));
 
         var io = new TestConsoleIO();
         var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());

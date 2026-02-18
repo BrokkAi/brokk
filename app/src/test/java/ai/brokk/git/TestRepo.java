@@ -63,7 +63,7 @@ public class TestRepo implements IGitRepo {
     }
 
     @Override
-    public String diff() throws GitAPIException {
+    public synchronized String diff() throws GitAPIException {
         // Basic diff representation for testing if needed
         var sb = new StringBuilder();
         for (ProjectFile file : addedFiles) {
@@ -76,12 +76,18 @@ public class TestRepo implements IGitRepo {
     }
 
     @Override
-    public void invalidateCaches() {
-        // No-op for this simple implementation
+    public synchronized void invalidateCaches() {
+        // No-op for this simple in-memory implementation.
+        //
+        // IMPORTANT: Do not clear addedFiles/removedFiles here. Those represent staged overrides that some
+        // tests may expect to persist until explicitly reset() or further add/remove calls.
+        //
+        // Tests that need "stale cache" behavior should model it explicitly (e.g., via a caching wrapper
+        // that returns a stale getTrackedFiles() snapshot until invalidateCaches() is called).
     }
 
     @Override
-    public String diffFiles(Collection<ProjectFile> files) {
+    public synchronized String diffFiles(Collection<ProjectFile> files) {
         var selectedPaths = files.stream().map(ProjectFile::toString).collect(Collectors.toSet());
         var sb = new StringBuilder();
         for (ProjectFile file : addedFiles) {
@@ -125,12 +131,12 @@ public class TestRepo implements IGitRepo {
     }
 
     /** Gets the set of files explicitly marked as 'added'. For test verification. */
-    public Set<ProjectFile> getAddedFilesSnapshot() {
+    public synchronized Set<ProjectFile> getAddedFilesSnapshot() {
         return Collections.unmodifiableSet(new HashSet<>(addedFiles));
     }
 
     /** Gets the set of files explicitly marked as 'removed'. For test verification. */
-    public Set<ProjectFile> getRemovedFilesSnapshot() {
+    public synchronized Set<ProjectFile> getRemovedFilesSnapshot() {
         return Collections.unmodifiableSet(new HashSet<>(removedFiles));
     }
 

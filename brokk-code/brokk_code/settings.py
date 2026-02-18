@@ -2,6 +2,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +35,20 @@ class Settings:
     theme: str = DEFAULT_THEME
     prompt_history_size: int = DEFAULT_PROMPT_HISTORY_SIZE
 
+    # New optional fields for remembering last used models and reasoning settings.
+    last_model: Optional[str] = None
+    last_code_model: Optional[str] = None
+    last_reasoning_level: Optional[str] = None
+    last_code_reasoning_level: Optional[str] = None
+    last_auto_commit: Optional[bool] = None
+
     @classmethod
     def load(cls) -> "Settings":
-        """Loads settings from disk, returning defaults if file is missing or corrupt."""
+        """Loads settings from disk, returning defaults if file is missing or corrupt.
+
+        This is backward-compatible with older settings.json files that omit the new
+        model/reasoning keys: the dataclass defaults (None) are used in that case.
+        """
         settings_path = settings_file()
         if not settings_path.exists():
             return cls()
@@ -44,7 +56,12 @@ class Settings:
         try:
             with settings_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
-                settings = cls(**data)
+                # Only pass known fields to the dataclass to avoid issues if the file
+                # contains unexpected keys. Build kwargs from fields present in data.
+                # We rely on dataclass defaults for any missing new fields.
+                valid_keys = {field.name for field in cls.__dataclass_fields__.values()}
+                filtered = {k: v for k, v in (data or {}).items() if k in valid_keys}
+                settings = cls(**filtered)
                 settings.theme = normalize_theme_name(settings.theme)
                 return settings
         except Exception as e:

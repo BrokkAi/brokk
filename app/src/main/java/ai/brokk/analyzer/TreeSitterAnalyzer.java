@@ -1640,6 +1640,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return false;
     }
 
+    private static boolean sameLogicalIdentity(CodeUnit left, CodeUnit right) {
+        return left.kind() == right.kind()
+                && Objects.equals(left.fqName(), right.fqName())
+                && Objects.equals(left.signature(), right.signature());
+    }
+
     /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
      * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
@@ -1676,11 +1682,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, CodeUnit> localCuByFqName,
             ProjectFile file) {
 
-        // Find existing CodeUnit with same fqName
+        // Find existing CodeUnit with the same logical identity.
+        // For functions, signature is part of identity, so overloads with different signatures are distinct.
+        // For classes, signature (e.g., C++ templates) is also included when present.
         CodeUnit existingDuplicate = localTopLevelCUs.stream()
-                .filter(existing -> existing.fqName().equals(cu.fqName()))
+                .filter(existing -> sameLogicalIdentity(existing, cu))
                 .findFirst()
                 .orElse(null);
+
+        // For cross-kind declaration merging (e.g., TS function + namespace),
+        // also look for any existing CodeUnit with the same fqName but different kind
+        CodeUnit crossKindDuplicate = null;
+        if (existingDuplicate == null) {
+            crossKindDuplicate = localTopLevelCUs.stream()
+                    .filter(existing -> existing.fqName().equals(cu.fqName()) && existing.kind() != cu.kind())
+                    .findFirst()
+                    .orElse(null);
+        }
 
         // Early exit if exact CodeUnit already present (same fqName, kind, source, AND signature)
         // unless it's a duplicate that should be replaced.
@@ -1690,6 +1708,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         if (existingDuplicate == null) {
+            if (crossKindDuplicate != null && isBenignDuplicate(crossKindDuplicate, cu)) {
+                log.trace("Merging benign cross-kind duplicate: {}", cu.fqName());
+                mergeCodeUnitProperties(
+                        crossKindDuplicate,
+                        cu,
+                        localChildren,
+                        localSignatures,
+                        localSourceRanges,
+                        localHasBody,
+                        localCodeUnitsBySymbol,
+                        localCuByFqName);
+                return;
+            }
+
             // No duplicate, add normally
             localTopLevelCUs.add(cu);
             localCodeUnitsBySymbol
@@ -1751,7 +1783,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     "Replacing duplicate CodeUnit: existing='{}', candidate='{}'",
                     existingDuplicate.fqName(),
                     cu.fqName());
-            localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+
+            localTopLevelCUs.removeIf(existing -> existing.equals(existingDuplicate));
 
             removeCodeUnitAndDescendants(
                     existingDuplicate,
@@ -1773,8 +1806,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         .add(cu);
             }
 
+        } else if (isBenignDuplicate(existingDuplicate, cu)) {
+            mergeCodeUnitProperties(
+                    existingDuplicate,
+                    cu,
+                    localChildren,
+                    localSignatures,
+                    localSourceRanges,
+                    localHasBody,
+                    localCodeUnitsBySymbol,
+                    localCuByFqName);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             log.trace("Ignoring duplicate {} per language policy", cu.fqName());
+        } else if (crossKindDuplicate != null && shouldIgnoreDuplicate(crossKindDuplicate, cu, file)) {
+            log.trace("Ignoring cross-kind duplicate {} per language policy", cu.fqName());
         } else {
             // If it's not ignored and not replaced, we add it (e.g. for overloads)
             localTopLevelCUs.add(cu);
@@ -1795,6 +1840,69 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Recursively removes a CodeUnit and all its descendants from the analysis maps.
      * Used when replacing duplicates to ensure children of the old definition don't appear in results.
      */
+    private void mergeCodeUnitProperties(
+            CodeUnit target,
+            CodeUnit source,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
+            Map<String, CodeUnit> localCuByFqName) {
+
+        log.trace("Merging properties from {} into {}", source.fqName(), target.fqName());
+
+        // Move and deduplicate children
+        List<CodeUnit> sourceChildren = localChildren.remove(source);
+        if (sourceChildren != null) {
+            List<CodeUnit> targetChildren = localChildren.computeIfAbsent(target, k -> new ArrayList<>());
+            for (CodeUnit child : sourceChildren) {
+                if (!targetChildren.contains(child)) {
+                    targetChildren.add(child);
+                }
+            }
+        }
+
+        // Move and deduplicate signatures
+        List<String> sourceSigs = localSignatures.remove(source);
+        if (sourceSigs != null) {
+            List<String> targetSigs = localSignatures.computeIfAbsent(target, k -> new ArrayList<>());
+            for (String sig : sourceSigs) {
+                if (!targetSigs.contains(sig)) {
+                    targetSigs.add(sig);
+                }
+            }
+        }
+
+        // Move ranges
+        List<Range> sourceRanges = localSourceRanges.remove(source);
+        if (sourceRanges != null) {
+            localSourceRanges.computeIfAbsent(target, k -> new ArrayList<>()).addAll(sourceRanges);
+        }
+
+        // OR the hasBody flag
+        Boolean removedValue = localHasBody.remove(source);
+        boolean sourceHasBody = removedValue != null && removedValue;
+        if (sourceHasBody) {
+            localHasBody.put(target, true);
+        }
+
+        // Update FQN mapping to target
+        localCuByFqName.put(source.fqName(), target);
+
+        // Remove source from symbol index (only source instance, keep target)
+        Set<CodeUnit> byId = localCodeUnitsBySymbol.get(source.identifier());
+        if (byId != null) {
+            byId.remove(source);
+        }
+        if (!source.shortName().equals(source.identifier())) {
+            Set<CodeUnit> byShort = localCodeUnitsBySymbol.get(source.shortName());
+            if (byShort != null) {
+                byShort.remove(source);
+            }
+        }
+    }
+
     private void removeCodeUnitAndDescendants(
             CodeUnit cu,
             Map<CodeUnit, List<CodeUnit>> localChildren,
@@ -1868,9 +1976,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
             Map<String, CodeUnit> localCuByFqName) {
 
-        // Look for an existing child with the same FQN (overloads may exist with different signatures)
+        // Find existing CodeUnit with the same logical identity.
+        // For functions, signature is part of identity, so overloads with different signatures are distinct.
+        // For classes, signature (e.g., C++ templates) is also included when present.
         CodeUnit existingDuplicate = kids.stream()
-                .filter(k -> k.fqName().equals(cu.fqName()))
+                .filter(existing -> sameLogicalIdentity(existing, cu))
                 .findFirst()
                 .orElse(null);
 
@@ -1881,6 +1991,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         if (existingDuplicate == null) {
+            // Search for cross-kind duplicates in the same children list
+            CodeUnit crossKindDuplicate = kids.stream()
+                    .filter(existing -> existing.fqName().equals(cu.fqName()) && existing.kind() != cu.kind())
+                    .findFirst()
+                    .orElse(null);
+
+            if (crossKindDuplicate != null && isBenignDuplicate(crossKindDuplicate, cu)) {
+                log.trace("Merging benign cross-kind child duplicate: {}", cu.fqName());
+                mergeCodeUnitProperties(
+                        crossKindDuplicate,
+                        cu,
+                        localChildren,
+                        localSignatures,
+                        localSourceRanges,
+                        localHasBody,
+                        localCodeUnitsBySymbol,
+                        localCuByFqName);
+                return;
+            }
+
             kids.add(cu);
             localCodeUnitsBySymbol
                     .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
@@ -1937,9 +2067,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
-            // Replace all same-FQN children (e.g., Python's "last wins")
+            // Replace logically identical children (e.g., Python's "last wins")
             List<CodeUnit> toRemove =
-                    kids.stream().filter(k -> k.fqName().equals(cu.fqName())).toList();
+                    kids.stream().filter(k -> k.equals(existingDuplicate)).toList();
+
             if (!toRemove.isEmpty()) {
                 toRemove.forEach(oldCu -> removeCodeUnitAndDescendants(
                         oldCu,
@@ -1961,6 +2092,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
                         .add(cu);
             }
+        } else if (isBenignDuplicate(existingDuplicate, cu)) {
+            mergeCodeUnitProperties(
+                    existingDuplicate,
+                    cu,
+                    localChildren,
+                    localSignatures,
+                    localSourceRanges,
+                    localHasBody,
+                    localCodeUnitsBySymbol,
+                    localCuByFqName);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, cu.source())) {
             log.trace("Skipping duplicate child '{}' per language policy", cu.fqName());
         } else {
@@ -2285,8 +2426,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
 
             String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
+            @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
 
-            CodeUnit existingCUforKeyLookup = localCuByFqName.get(enhancedFqName);
+            // Create a lookup key that includes signature and location for functions to allow overloads
+            // with same normalized signatures to be processed as distinct definitions.
+            String cuLookupKey = (codeUnitSignature != null)
+                    ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
+                    : enhancedFqName;
+
+            CodeUnit existingCUforKeyLookup = localCuByFqName.get(cuLookupKey);
             if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
                 cu = existingCUforKeyLookup;
                 log.trace("Reusing existing CodeUnit for function overload: {}", cu.fqName());
@@ -2304,9 +2452,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         cu.kind());
             }
 
-            @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
-
-            if (!enhancedFqName.equals(cu.fqName()) || codeUnitSignature != null) {
+            if (!enhancedFqName.equals(cu.fqName()) || !Objects.equals(codeUnitSignature, cu.signature())) {
                 String enhancedShortName = enhancedFqName;
                 if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
                     enhancedShortName =
@@ -2399,7 +2545,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 }
             }
 
-            localCuByFqName.put(cu.fqName(), cu);
+            localCuByFqName.put(cuLookupKey, cu);
             cuToCaptureName.put(cu, primaryCaptureName);
             localChildren.putIfAbsent(cu, new ArrayList<>());
 

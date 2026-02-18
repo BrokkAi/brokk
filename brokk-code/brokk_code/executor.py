@@ -10,6 +10,8 @@ from urllib.parse import quote
 
 import httpx
 
+from brokk_code.workspace import resolve_workspace_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,11 +28,13 @@ class ExecutorManager:
         jar_path: Optional[Path] = None,
         executor_version: Optional[str] = None,
         executor_snapshot: bool = True,
+        vendor: Optional[str] = None,
     ):
-        self.workspace_dir = (workspace_dir or Path.cwd()).resolve()
+        self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
         self.jar_override = jar_path
         self.executor_version = executor_version
         self.use_snapshot = executor_snapshot
+        self.vendor = vendor
         self.auth_token = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
@@ -290,6 +294,8 @@ class ExecutorManager:
 
         cmd = [
             "java",
+            "-Djava.awt.headless=true",
+            "-Dapple.awt.UIElement=true",
             "-cp",
             str(jar_path),
             "ai.brokk.executor.HeadlessExecutorMain",
@@ -302,6 +308,9 @@ class ExecutorManager:
             "--workspace-dir",
             str(self.workspace_dir),
         ]
+
+        if self.vendor is not None and str(self.vendor).strip():
+            cmd.extend(["--vendor", str(self.vendor).strip()])
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
@@ -434,6 +443,7 @@ class ExecutorManager:
         mode: str = "LUTZ",
         tags: Optional[Dict[str, str]] = None,
         session_id: Optional[str] = None,
+        auto_commit: bool = True,
     ) -> str:
         """Submits a new job to the executor.
 
@@ -451,7 +461,7 @@ class ExecutorManager:
         payload = {
             "taskInput": task_input,
             "plannerModel": planner_model,
-            "autoCommit": True,
+            "autoCommit": auto_commit,
             "autoCompress": True,
             "tags": job_tags,
         }
@@ -712,6 +722,19 @@ class ExecutorManager:
 
         try:
             resp = await self._http_client.get("/v1/tasklist")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/tasklist")
+            raise  # Should not be reached
+
+    async def set_tasklist(self, tasklist_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Replaces the current task list data."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/tasklist", json=tasklist_data)
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as e:

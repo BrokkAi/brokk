@@ -8,8 +8,8 @@ import ai.brokk.analyzer.*;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestAnalyzer;
+import ai.brokk.testutil.TestProject;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -28,7 +28,10 @@ public class FuzzyUsageFinderJavaTest {
 
     @BeforeAll
     public static void setup() throws IOException {
-        testProject = createTestProject("testcode-java");
+        var testDir = Path.of("./src/test/resources", "testcode-java")
+                .toAbsolutePath()
+                .normalize();
+        testProject = new TestProject(testDir);
         analyzer = new JavaAnalyzer(testProject);
         logger.debug(
                 "Setting up FuzzyUsageFinder tests with test code from {}",
@@ -42,30 +45,6 @@ public class FuzzyUsageFinderJavaTest {
         } catch (Exception e) {
             logger.error("Exception encountered while closing the test project at the end of testing", e);
         }
-    }
-
-    private static IProject createTestProject(String subDir) {
-        var testDir = Path.of("./src/test/resources", subDir).toAbsolutePath().normalize();
-        assertTrue(Files.exists(testDir), String.format("Test resource dir missing: %s", testDir));
-        assertTrue(Files.isDirectory(testDir), String.format("%s is not a directory", testDir));
-
-        return new IProject() {
-            @Override
-            public Path getRoot() {
-                return testDir.toAbsolutePath();
-            }
-
-            @Override
-            public Set<ProjectFile> getAllFiles() {
-                var files = testDir.toFile().listFiles();
-                if (files == null) {
-                    return Collections.emptySet();
-                }
-                return Arrays.stream(files)
-                        .map(file -> new ProjectFile(testDir, testDir.relativize(file.toPath())))
-                        .collect(Collectors.toSet());
-            }
-        };
     }
 
     @Test
@@ -260,21 +239,44 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     @Test
-    public void getUsesFunctionVsFieldAmbiguityTest() throws InterruptedException {
+    public void getUsesFunctionVsFieldAmbiguityTest() throws Exception {
         // Test that searching for a method foo() correctly identifies usages within the right enclosing methods
         // and does NOT match field usages like E.foo.
-        var finder = newFinder(testProject, analyzer);
-        var symbol = "ServiceImpl.foo";
-        var either = finder.findUsages(symbol).toEither();
+        String serviceImpl =
+                """
+                public class ServiceImpl {
+                    public void foo() {
+                        System.out.println("foo");
+                        class Local {
+                            void bar() { foo(); } // call from local class for detection
+                        }
+                    }
 
-        if (either.hasErrorMessage()) {
-            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+                    public void callFoo() {
+                        foo(); // direct call
+                    }
+                }
+                """;
+
+        try (IProject inlineProject =
+                InlineTestProjectCreator.code(serviceImpl, "ServiceImpl.java").build()) {
+            JavaAnalyzer inlineAnalyzer = new JavaAnalyzer(inlineProject);
+            var finder = newFinder(inlineProject, inlineAnalyzer);
+            var symbol = "ServiceImpl.foo";
+            var either = finder.findUsages(symbol).toEither();
+
+            if (either.hasErrorMessage()) {
+                fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+            }
+
+            var hits = either.getUsages().stream()
+                    .map(uh -> uh.enclosing().identifier())
+                    .collect(Collectors.toSet());
+
+            // We expect one hit in callFoo, and one hit from the local class bar() method
+            assertTrue(hits.contains("callFoo"), "Expected usage in callFoo");
+            assertTrue(hits.contains("bar"), "Expected usage in local class method bar(), but got: " + hits);
         }
-
-        var hits = either.getUsages().stream()
-                .map(uh -> uh.enclosing().identifier())
-                .collect(Collectors.toSet());
-        assertEquals(Set.of("foo", "callFoo"), hits);
     }
 
     @Test

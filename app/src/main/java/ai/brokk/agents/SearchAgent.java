@@ -1072,6 +1072,11 @@ public class SearchAgent {
                     instructions,
                     agent.scope,
                     context);
+            var buildDetails = agent.cm.getProject().awaitBuildDetails();
+            String verifyCommand = buildDetails.afterTaskListCommand();
+            if (!verifyCommand.isBlank()) {
+                architect.setVerifyCommand(verifyCommand);
+            }
 
             var result = architect.execute();
             var stopDetails = result.stopDetails();

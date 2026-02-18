@@ -120,24 +120,33 @@ public class AnalyzerUtil {
      * Get skeleton for a symbol by fully qualified name.
      */
     public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(analyzer::getSkeleton);
+        String combined = analyzer.getDefinitions(fqName).stream()
+                .map(analyzer::getSkeleton)
+                .flatMap(Optional::stream)
+                .collect(Collectors.joining("\n\n"));
+        return combined.isEmpty() ? Optional.empty() : Optional.of(combined);
     }
 
     /**
      * Get skeleton header (class signature + fields without method bodies) for a class by name.
      */
     public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
-        return analyzer.getDefinitions(className).stream().findFirst().flatMap(analyzer::getSkeletonHeader);
+        String combined = analyzer.getDefinitions(className).stream()
+                .map(analyzer::getSkeletonHeader)
+                .flatMap(Optional::stream)
+                .collect(Collectors.joining("\n\n"));
+        return combined.isEmpty() ? Optional.empty() : Optional.of(combined);
     }
 
     /**
-     * Get source code for a code unit by fully qualified name. Currently, only methods and classes are supported.
+     * Get source code for a code unit by fully qualified name. Currently, only methods and classes are supported. For
+     * overloaded methods, will combine sources for these as far as their fqNames match.
      */
     public static Optional<String> getSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
                 .filter(cu -> cu.isFunction() || cu.isClass())
-                .findFirst()
-                .flatMap(cu -> analyzer.getSource(cu, includeComments));
+                .flatMap(cu -> analyzer.getSource(cu, includeComments).stream())
+                .reduce((srcA, srcB) -> srcA + "\n\n" + srcB);
     }
 
     /**
@@ -146,9 +155,9 @@ public class AnalyzerUtil {
     public static List<CodeUnit> getMembersInClass(IAnalyzer analyzer, String fqClass) {
         return analyzer.getDefinitions(fqClass).stream()
                 .filter(CodeUnit::isClass)
-                .findFirst()
                 .map(analyzer::getMembersInClass)
-                .orElse(List.of());
+                .flatMap(List::stream)
+                .toList();
     }
 
     /**
@@ -263,39 +272,48 @@ public class AnalyzerUtil {
      * @param cm the context manager used to construct fragments
      * @param input a class name (short or fully qualified)
      * @param summarize whether to return a summary ({@link ContextFragments.SummaryFragment}) instead of a code fragment
-     * @return an Optional containing {@link ContextFragments.CodeFragment} or {@link ContextFragments.SummaryFragment};
+     * @return a Set containing {@link ContextFragments.CodeFragment}s or {@link ContextFragments.SummaryFragment}s;
      *         empty if no matching class is found
      */
-    public static Optional<ContextFragment> selectClassFragment(
+    public static Set<ContextFragment> selectClassFragment(
             IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
 
-        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+        Set<CodeUnit> matches = analyzer.getDefinitions(input).stream()
                 .filter(CodeUnit::isClass)
-                .findFirst();
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
-        if (opt.isEmpty()) {
-            opt = analyzer.searchDefinitions(input).stream()
+        if (matches.isEmpty()) {
+            matches = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isClass)
-                    .findFirst();
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         }
-        if (opt.isEmpty()) {
+
+        if (matches.isEmpty()) {
             String suffix = "." + input;
-            opt = analyzer.getAllDeclarations().stream()
+            matches = analyzer.getAllDeclarations().stream()
                     .filter(CodeUnit::isClass)
                     .filter(cu -> cu.shortName().equals(input)
                             || cu.fqName().equals(input)
                             || cu.fqName().endsWith(suffix))
-                    .findFirst();
-        }
-        if (opt.isEmpty()) {
-            return Optional.empty();
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         }
 
-        CodeUnit cu = opt.get();
-        ContextFragment frag = summarize
-                ? new ContextFragments.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
-                : new ContextFragments.CodeFragment(cm, cu);
-        return Optional.of(frag);
+        if (matches.isEmpty()) {
+            return Set.of();
+        }
+
+        if (summarize) {
+            return matches.stream()
+                    .map(CodeUnit::fqName)
+                    .distinct()
+                    .map(fqn -> (ContextFragment) new ContextFragments.SummaryFragment(
+                            cm, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+        }
+
+        return matches.stream()
+                .map(cu -> (ContextFragment) new ContextFragments.CodeFragment(cm, cu))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**
@@ -317,64 +335,71 @@ public class AnalyzerUtil {
      * @param cm the context manager used to construct fragments
      * @param input a method name (short or fully qualified)
      * @param summarize whether to return a summary ({@link ContextFragments.SummaryFragment}) instead of a code fragment
-     * @return an Optional containing {@link ContextFragments.CodeFragment} or {@link ContextFragments.SummaryFragment};
+     * @return a Set containing {@link ContextFragments.CodeFragment}s or {@link ContextFragments.SummaryFragment}s;
      *         empty if no matching method is found
      */
-    public static Optional<ContextFragment> selectMethodFragment(
+    public static Set<ContextFragment> selectMethodFragment(
             IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
 
         // 1) Exact definition by fully qualified name
-        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+        Set<CodeUnit> matches = analyzer.getDefinitions(input).stream()
                 .filter(CodeUnit::isFunction)
-                .findFirst();
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
         // 2) Search-based lookup
-        if (opt.isEmpty()) {
-            opt = analyzer.searchDefinitions(input).stream()
+        if (matches.isEmpty()) {
+            matches = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isFunction)
-                    .findFirst();
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         }
 
         // 3) Autocomplete-based lookup (helps when only short name is provided)
-        if (opt.isEmpty()) {
-            opt = analyzer.autocompleteDefinitions(input).stream()
+        if (matches.isEmpty()) {
+            matches = analyzer.autocompleteDefinitions(input).stream()
                     .filter(CodeUnit::isFunction)
-                    .findFirst();
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         }
 
         // 4) Fallback: scan all declarations for functions matching short name or fqName suffix
-        if (opt.isEmpty()) {
+        if (matches.isEmpty()) {
             String suffix = "." + input;
-            opt = analyzer.getAllDeclarations().stream()
+            matches = analyzer.getAllDeclarations().stream()
                     .filter(CodeUnit::isFunction)
                     .filter(cu -> cu.shortName().equals(input)
                             || cu.fqName().equals(input)
                             || cu.fqName().endsWith(suffix))
-                    .findFirst();
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         }
 
         // 5) Additional fallback: scan members of all classes for matching methods
-        if (opt.isEmpty()) {
+        if (matches.isEmpty()) {
             String suffix = "." + input;
-            opt = analyzer.getAllDeclarations().stream()
+            matches = analyzer.getAllDeclarations().stream()
                     .filter(CodeUnit::isClass)
                     .flatMap(cls -> analyzer.getMembersInClass(cls).stream())
                     .filter(CodeUnit::isFunction)
                     .filter(cu -> cu.shortName().equals(input)
                             || cu.fqName().equals(input)
                             || cu.fqName().endsWith(suffix))
-                    .findFirst();
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         }
 
-        if (opt.isEmpty()) {
-            return Optional.empty();
+        if (matches.isEmpty()) {
+            return Set.of();
         }
 
-        CodeUnit cu = opt.get();
-        ContextFragment frag = summarize
-                ? new ContextFragments.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
-                : new ContextFragments.CodeFragment(cm, cu);
-        return Optional.of(frag);
+        if (summarize) {
+            return matches.stream()
+                    .map(CodeUnit::fqName)
+                    .distinct()
+                    .map(fqn -> (ContextFragment) new ContextFragments.SummaryFragment(
+                            cm, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+        }
+
+        return matches.stream()
+                .map(cu -> (ContextFragment) new ContextFragments.CodeFragment(cm, cu))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**

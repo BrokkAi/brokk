@@ -528,7 +528,9 @@ public final class MainProject extends AbstractProject {
                     details.testAllCommand(),
                     details.testSomeCommand(),
                     canonicalExclusions,
-                    canonicalEnv));
+                    canonicalEnv,
+                    details.maxBuildAttempts(),
+                    details.afterTaskListCommand()));
         } catch (JsonProcessingException e) {
             logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
         }
@@ -570,7 +572,9 @@ public final class MainProject extends AbstractProject {
                 details.testAllCommand(),
                 details.testSomeCommand(),
                 canonicalExclusions,
-                canonicalEnv);
+                canonicalEnv,
+                details.maxBuildAttempts(),
+                details.afterTaskListCommand());
 
         try {
             String json = objectMapper.writeValueAsString(canonicalDetails);

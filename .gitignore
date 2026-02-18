@@ -37,6 +37,7 @@ build/
 
 ### VS Code ###
 .vscode/
+!brokk-vscode/.vscode/
 
 ### Metals ###
 .bloop/

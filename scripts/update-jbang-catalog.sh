@@ -151,13 +151,18 @@ for V in $ALL_VERSIONS; do
 done
 
 
-# Process the catalog: update main alias, keep the most recent N-1 other versions
+# Process the catalog: update main aliases, keep the most recent N-1 other versions
 jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REPO_SLUG" --argjson versions_to_keep "$(echo "$VERSIONS_TO_KEEP" | jq -R -s 'split("\n") | map(select(length > 0))')" '
     # Update main brokk alias to point to new version
     .aliases.brokk."script-ref" = $url |
     .aliases.brokk."main" = "ai.brokk.cli.BrokkCli" |
     .aliases.brokk."java-options" = ["--enable-native-access=ALL-UNNAMED"] |
     del(.aliases.brokk.dependencies) |
+    # Create brokk-headless alias
+    .aliases."brokk-headless"."script-ref" = $url |
+    .aliases."brokk-headless"."java" = "21" |
+    .aliases."brokk-headless"."main" = "ai.brokk.executor.HeadlessExecutorMain" |
+    .aliases."brokk-headless"."java-options" = ["--enable-native-access=ALL-UNNAMED"] |
     # Create version aliases for the versions we want to keep
     ($versions_to_keep | map({
         key: ("brokk-" + .),
@@ -169,7 +174,7 @@ jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REP
         }
     }) | from_entries) as $version_aliases |
     # Rebuild the aliases object
-    .aliases = ({"brokk": .aliases.brokk} + $version_aliases)
+    .aliases = ({"brokk": .aliases.brokk, "brokk-headless": .aliases."brokk-headless"} + $version_aliases)
 ' "$CATALOG_FILE" > "${CATALOG_FILE}.tmp"
 
 # Move the updated file back

@@ -14,11 +14,17 @@ ContextModalScreen {
 }
 
 #side-tasklist {
-    width: 30;
+    width: 38;
     dock: right;
     background: $panel;
     border-left: solid $primary;
     display: none;
+}
+
+#side-tasklist:focus {
+    /* When the task list panel has keyboard focus, highlight with the accent color
+       to match other focused elements like #chat-input and .context-chip. */
+    border-left: solid $accent;
 }
 
 #tasklist-header {
@@ -31,6 +37,19 @@ ContextModalScreen {
 
 #tasklist-container {
     padding: 1 2;
+}
+
+#tasklist-selection {
+    width: 100%;
+    color: $text-disabled;
+    padding: 0 2;
+}
+
+#tasklist-help {
+    width: 100%;
+    color: $text-muted;
+    padding: 0 2;
+    margin-bottom: 1;
 }
 
 #tasklist-content {
@@ -48,41 +67,33 @@ ChatPanel {
     background: $surface;
 }
 
-#chat-spinner-area {
+
+#status-progress {
+    width: 1fr;
     height: 1;
-    margin: 0 2;
     layout: horizontal;
-    min-height: 1;
-}
-
-#streaming-response {
     margin: 0 2;
-    max-height: 8;
-    overflow-y: auto;
-    border: round $primary-darken-2;
-    background: $surface-lighten-1;
-    padding: 0 1;
 }
 
-#chat-spinner {
+#status-spinner {
     height: 1;
     width: auto;
     min-width: 4;
-    background: transparent;
     color: $accent;
+    background: transparent;
+    margin-right: 1;
 }
 
-#chat-timer {
-    height: 1;
+#status-timer {
     width: auto;
-    content-align: left middle;
+    color: $text;
 }
 
-.token-usage {
+#chat-token-bar {
     width: 1fr;
     height: 1;
+    margin: 0 2 1 2;
     content-align: right middle;
-    color: $text-disabled;
 }
 
 #context-panel {
@@ -227,7 +238,7 @@ ChatPanel {
 }
 
 #chat-input {
-    margin: 1 2;
+    margin: 1 2 0 2;
     border: solid $primary;
     height: 4;
 }
@@ -239,6 +250,11 @@ ChatPanel {
     border: solid $primary-darken-2;
 }
 
+#status-line {
+    margin: 0 2 1 2;
+}
+
+/* Ensure the Textual `.hidden` class continues to hide the status line cleanly. */
 .hidden {
     display: none;
 }
