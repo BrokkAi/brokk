@@ -1,8 +1,8 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
+import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.*;
 

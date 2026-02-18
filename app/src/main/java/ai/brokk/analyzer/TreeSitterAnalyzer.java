@@ -756,6 +756,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return Collections.unmodifiableSet(new HashSet<>(resolved));
     }
 
+    protected Set<String> typeIdentifiersOf(ProjectFile file) {
+        Set<String> cached = cache.typeIdentifiers().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        Optional<String> content = file.read();
+        Set<String> identifiers =
+                content.map(this::extractTypeIdentifiers).map(Set::copyOf).orElseGet(Set::of);
+        cache.typeIdentifiers().put(file, identifiers);
+        return identifiers;
+    }
+
     protected @Nullable TSTree treeOf(ProjectFile file) {
         // 1. Check lazy cache first
         TSTree cached = cache.trees().get(file);

@@ -15,7 +15,7 @@ import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.ExecutorsUtil;
@@ -1412,8 +1412,9 @@ public class ContextFragments {
             Predicate<ProjectFile> fileFilter =
                     includeTestFiles ? null : file -> !ContextManager.isTestFile(file, analyzer);
 
+            // UsageFinder is the new name for the unified usage discovery service
             FuzzyResult usageResult =
-                    FuzzyUsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
+                    UsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
             var either = usageResult.toEither();
 
             var definitions = analyzer.getDefinitions(targetIdentifier);

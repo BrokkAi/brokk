@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -22,6 +23,15 @@ import org.treesitter.TreeSitterJava;
 public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
+
+    private static final ThreadLocal<TSQuery> IDENTIFIER_QUERY = ThreadLocal.withInitial(() -> {
+        try {
+            return new TSQuery(
+                    new org.treesitter.TreeSitterJava(), "[(type_identifier) (scoped_type_identifier)] @type");
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize Java identifier query", e);
+        }
+    });
 
     public JavaAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
@@ -380,8 +390,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
                     if (targetPackage.equals(candidatePackage)) {
                         // Check if the candidate actually uses any of target's identifiers
-                        Set<String> candidateSymbols =
-                                extractTypeIdentifiers(candidate.read().orElse(""));
+                        Set<String> candidateSymbols = typeIdentifiersOf(candidate);
                         if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
                             result.add(candidate);
                         }
@@ -850,35 +859,38 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         try {
             TSTree tree = getTSParser().parseString(null, source);
             TSNode root = tree.getRootNode();
-            if (root.isNull()) {
-                return Set.of();
-            }
-
-            org.treesitter.TSQuery identifierQuery =
-                    new org.treesitter.TSQuery(getTSLanguage(), "[(type_identifier) (scoped_type_identifier)] @type");
-            TSQueryCursor cursor = new TSQueryCursor();
-            cursor.exec(identifierQuery, root);
-
-            SourceContent sourceContent = SourceContent.of(source);
-            Set<String> identifiers = new HashSet<>();
-            TSQueryMatch match = new TSQueryMatch();
-
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    if (node != null && !node.isNull()) {
-                        String text = sourceContent.substringFrom(node);
-                        if (!text.isEmpty()) {
-                            identifiers.add(text);
-                        }
-                    }
-                }
-            }
-            return identifiers;
+            return performIdentifierExtraction(root, source);
         } catch (Exception e) {
             log.warn("Failed to extract type identifiers using Tree-Sitter query", e);
             return Set.of();
         }
+    }
+
+    private Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
+        if (root == null || root.isNull()) {
+            return Set.of();
+        }
+
+        TSQuery query = IDENTIFIER_QUERY.get();
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, root);
+
+        SourceContent sourceContent = SourceContent.of(source);
+        Set<String> identifiers = new HashSet<>();
+        TSQueryMatch match = new TSQueryMatch();
+
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                TSNode node = capture.getNode();
+                if (node != null && !node.isNull()) {
+                    String text = sourceContent.substringFrom(node);
+                    if (!text.isEmpty()) {
+                        identifiers.add(text);
+                    }
+                }
+            }
+        }
+        return identifiers;
     }
 
     @Override
