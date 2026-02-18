@@ -211,6 +211,22 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
                     yield ListView(*items, id="reasoning-select-list")
 
     def on_mount(self) -> None:
+        # Sync model list highlight
+        try:
+            m_list = self.query_one("#model-select-list", ListView)
+            m_idx = self.models.index(self.selected_model)
+            m_list.index = m_idx
+        except (ValueError, Exception):
+            pass
+
+        # Sync reasoning list highlight
+        try:
+            r_list = self.query_one("#reasoning-select-list", ListView)
+            r_idx = self.reasoning_levels.index(self.selected_reasoning)
+            r_list.index = r_idx
+        except (ValueError, Exception):
+            pass
+
         # Focus the model list by default
         self.query_one("#model-select-list", ListView).focus()
 
@@ -226,8 +242,15 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
                 for i, item in enumerate(message.list_view.query(ListItem)):
                     marker = "[x]" if i == idx else "[ ]"
                     item.query_one(Static).update(f"{marker} {self.models[i]}")
-                # Move focus to reasoning list
-                self.query_one("#reasoning-select-list", ListView).focus()
+
+                # Sync and focus reasoning list
+                r_list = self.query_one("#reasoning-select-list", ListView)
+                try:
+                    r_idx = self.reasoning_levels.index(self.selected_reasoning)
+                    r_list.index = r_idx
+                except (ValueError, Exception):
+                    pass
+                r_list.focus()
 
             elif message.list_view.id == "reasoning-select-list":
                 idx = int(message.item.id.split("-")[1])
