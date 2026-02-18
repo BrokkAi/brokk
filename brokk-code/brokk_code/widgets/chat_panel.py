@@ -96,9 +96,6 @@ class ChatPanel(Vertical):
         self._is_reasoning: bool = False
         self.response_pending: bool = False
         self.response_active: bool = False
-        self._last_token_time: float = 0
-        self._inactivity_timeout: float = 10.0
-        self._get_now = time.time
 
         # History Navigation State
         self._history: list[str] = []
@@ -225,9 +222,6 @@ class ChatPanel(Vertical):
         is_terminal: bool,
     ) -> None:
         """Appends a token to the current buffer and handles rendering transitions."""
-        now = self._get_now()
-        self._last_token_time = now
-
         # Defensive: Ensure response is marked active if tokens are arriving
         if not self.response_active:
             self.set_response_active()
@@ -365,7 +359,7 @@ class ChatPanel(Vertical):
             pass
 
     def set_job_running(self, running: bool) -> None:
-        """Start or stop the job progress indicator and timer."""
+        """Delegate job progress state to the StatusLine widget."""
         try:
             status_line = self.query_one("#status-line", StatusLine)
             status_line.set_job_running(running)
