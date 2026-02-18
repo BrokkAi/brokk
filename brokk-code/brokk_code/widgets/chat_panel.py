@@ -1,4 +1,3 @@
-import time
 from typing import Any, Dict, List, Optional
 
 from rich.markdown import Markdown
@@ -7,9 +6,9 @@ from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import RichLog, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
