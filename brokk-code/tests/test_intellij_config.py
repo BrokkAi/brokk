@@ -118,3 +118,32 @@ def test_configure_intellij_acp_settings_validates_types(tmp_path) -> None:
     settings_path.write_text(json.dumps({"default_mcp_settings": 123}), encoding="utf-8")
     with pytest.raises(ValueError, match="Expected 'default_mcp_settings' to be a JSON object"):
         configure_intellij_acp_settings(settings_path=settings_path)
+
+
+def test_configure_intellij_acp_settings_parses_jsonc(tmp_path) -> None:
+    settings_path = tmp_path / ".jetbrains" / "acp.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        """{
+  "agent_servers": {
+    "Existing": { "command": "cmd" }, // Comment here
+  },
+}
+""",
+        encoding="utf-8",
+    )
+
+    configure_intellij_acp_settings(settings_path=settings_path)
+
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert "Existing" in data["agent_servers"]
+    assert "Brokk Code" in data["agent_servers"]
+
+
+def test_configure_intellij_acp_settings_invalid_json(tmp_path) -> None:
+    settings_path = tmp_path / ".jetbrains" / "acp.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text("{ invalid", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Could not parse .* as JSON/JSONC"):
+        configure_intellij_acp_settings(settings_path=settings_path)

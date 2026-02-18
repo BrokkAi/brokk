@@ -137,6 +137,19 @@ def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
     assert exc.value.code == 1
 
 
+def test_main_install_zed_invalid_json_exits_nonzero(monkeypatch) -> None:
+    def fake_configure_zed_acp_settings(*, force: bool = False, settings_path=None):
+        raise ValueError("Could not parse as JSON/JSONC")
+
+    monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
+    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "zed"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+
+
 def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
     captured: dict[str, Any] = {}
 
@@ -159,6 +172,21 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
 def test_main_install_intellij_conflict_exits_nonzero(monkeypatch) -> None:
     def fake_configure_intellij_acp_settings(*, force: bool = False, settings_path=None):
         raise main_module.ExistingBrokkCodeEntryError("exists")
+
+    monkeypatch.setattr(
+        main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
+    )
+    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "intellij"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+
+
+def test_main_install_intellij_invalid_json_exits_nonzero(monkeypatch) -> None:
+    def fake_configure_intellij_acp_settings(*, force: bool = False, settings_path=None):
+        raise ValueError("Could not parse as JSON")
 
     monkeypatch.setattr(
         main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings

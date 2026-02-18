@@ -121,10 +121,7 @@ def main():
             else:
                 # Should not happen due to argparse choices
                 raise ValueError(f"Unknown target: {args.target}")
-        except ExistingBrokkCodeEntryError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        except ValueError as exc:
+        except (ExistingBrokkCodeEntryError, ValueError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
 

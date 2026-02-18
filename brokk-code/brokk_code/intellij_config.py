@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from brokk_code.zed_config import ExistingBrokkCodeEntryError, atomic_write_settings
+from brokk_code.zed_config import (
+    ExistingBrokkCodeEntryError,
+    atomic_write_settings,
+    loads_json_or_jsonc,
+)
 
 
 def configure_intellij_acp_settings(
@@ -13,13 +17,10 @@ def configure_intellij_acp_settings(
 
     if path.exists():
         raw_text = path.read_text(encoding="utf-8")
-        if not raw_text.strip():
-            settings = {}
-        else:
-            try:
-                settings = json.loads(raw_text)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"Could not parse {path} as JSON: {exc}") from exc
+        try:
+            settings = loads_json_or_jsonc(raw_text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Could not parse {path} as JSON/JSONC: {exc}") from exc
         if not isinstance(settings, dict):
             raise ValueError(f"Expected a JSON object in {path}")
     else:
