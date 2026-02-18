@@ -7,7 +7,6 @@ import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.annotations.NullMarked;
 
 /**
  * A usage analyzer strategy that delegates to JDT for precise Java symbol resolution.

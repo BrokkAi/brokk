@@ -390,7 +390,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
                     if (targetPackage.equals(candidatePackage)) {
                         // Check if the candidate actually uses any of target's identifiers
-                        Set<String> candidateSymbols = getOrExtractTypeIdentifiers(candidate);
+                        Set<String> candidateSymbols = typeIdentifiersOf(candidate);
                         if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
                             result.add(candidate);
                         }
@@ -846,26 +846,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         // Always record the module's children (even if empty) so callers can distinguish
         // "known module with no children" from "no relationship recorded".
         localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
-    }
-
-    /**
-     * Extracts type identifiers using Tree-Sitter from a ProjectFile, utilizing the cache and pre-parsed trees.
-     */
-    private Set<String> getOrExtractTypeIdentifiers(ProjectFile file) {
-        Set<String> cached = getCache().typeIdentifiers().get(file);
-        if (cached != null) {
-            return cached;
-        }
-
-        TSTree tree = treeOf(file);
-        if (tree == null) {
-            return Set.of();
-        }
-
-        Set<String> identifiers =
-                performIdentifierExtraction(tree.getRootNode(), file.read().orElse(""));
-        getCache().typeIdentifiers().put(file, identifiers);
-        return identifiers;
     }
 
     /**
