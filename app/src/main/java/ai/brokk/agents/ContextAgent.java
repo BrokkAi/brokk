@@ -231,7 +231,7 @@ public class ContextAgent {
                     new AiMessage("Thank you for the workspace summary."));
         } else {
             workspaceRepresentation =
-                    WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST));
+                    WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST, SpecialTextType.CODE_AGENT_CHANGES));
         }
 
         // Subtract workspace tokens from both budgets.

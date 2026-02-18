@@ -274,7 +274,9 @@ public class ArchitectAgent {
 
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
-        context = codeContext.withHistory(context.getTaskHistory()).addHistoryEntry(codeContext.getTaskHistory().getLast());
+        context = codeContext
+                .withHistory(context.getTaskHistory())
+                .addHistoryEntry(codeContext.getTaskHistory().getLast());
         scope.append(codeContext);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
@@ -349,16 +351,16 @@ public class ArchitectAgent {
         var summary = cm.compressHistory(CodeAgent.ConversationState.extractReasoning(messages));
         var reasoningSummarySuffix = "\n\n# CodeAgent reasoning summary\n\n" + summary;
 
-        // Format recoverable errors with clear guidance for the LLM
-        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation()) + reasoningSummarySuffix;
-        logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
-
         // Offer undo and attach diff if the CodeAgent failed and left changes behind
         if (!changedFragments.isEmpty()) {
             this.offerUndoToolNext = true;
             String combinedDiffText = DiffService.cumulativeDiff(cm.getRepo(), initialContext, context);
             context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
         }
+
+        // Format recoverable errors with clear guidance for the LLM
+        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation()) + reasoningSummarySuffix;
+        logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
         return resultString;
     }
@@ -368,83 +370,95 @@ public class ArchitectAgent {
      * Each failure type includes actionable next steps.
      */
     private String formatCodeAgentFailure(StopReason reason, String explanation) {
-        return switch (reason) {
-            case READ_ONLY_EDIT ->
-                """
-                    **Constraint Violation: Read-Only File**
+        String base =
+                switch (reason) {
+                    case READ_ONLY_EDIT ->
+                        """
+                            **Constraint Violation: Read-Only File**
 
-                    Your instructions asked to modify a file marked read-only in the Workspace:
-                    %s
+                            The Code Agent thought that your instructions implied that it should modify a file marked read-only in the Workspace:
+                            %s
 
-                    To proceed, do one of the following:
-                    1. Add the file for editing with addFilesToWorkspace([...]), then retry callCodeAgent.
-                    2. If it should remain read-only, adjust instructions to edit a different file or create a new one.
+                            To proceed, do one of the following:
+                            1. Add the file for editing with addFilesToWorkspace([...]).
+                            2. Clarify how to accomplish the task without modifying this file.
+                            """
+                                .formatted(explanation);
+                    case PARSE_ERROR ->
+                        """
+                            **Parse Error: Invalid Response Format**
 
-                    No changes were applied.
+                            The Code Agent couldn't parse the response after multiple attempts:
+                            %s
+
+                            Possible solutions:
+                            1. Slim down the Workspace to essentials so that Code Agent can focus more easily on following its instructions.
+                            2. Give CodeAgent a smaller pieces of the task, possibly with deferBuild set.
+                            """
+                                .formatted(explanation);
+                    case APPLY_ERROR ->
+                        """
+                            **Apply Error: Edit Blocks Failed**
+
+                            The Code Agent couldn't apply edits after multiple attempts:
+                            %s
+
+                            Possible solutions:
+                            1. Slim down the Workspace to essentials so that Code Agent can focus more easily on following its instructions.
+                            2. Give CodeAgent a smaller pieces of the task, possibly with deferBuild set.
+                            """
+                                .formatted(explanation);
+                    case BUILD_ERROR ->
+                        """
+                            **Build Error: Failed to Compile/Test**
+
+                            %s
+
+                            Details are in the Workspace. The Code Agent applied changes but could not make them pass verification.
+                            Since you are smarter than Code Agent, first think about what it did, then instruct it how to
+                            proceed to solve the problems.
+                            """
+                                .formatted(explanation);
+                    case IO_ERROR ->
+                        """
+                            **IO Error: File System Issue**
+
+                            An error occurred while reading or writing files:
+                            %s
+
+                            This may be a transient issue. You can retry.
+                            """
+                                .formatted(explanation);
+                    default ->
+                        """
+                            **Code Agent Failed**
+
+                            Reason: %s
+                            Details: %s
+                            """
+                                .formatted(reason, explanation);
+                };
+
+        String postscript = "";
+        var changesFragment = context.getSpecial(SpecialTextType.CODE_AGENT_CHANGES);
+        if (changesFragment.isPresent()) {
+            String diffText = changesFragment.get().text().join();
+            assert !diffText.isBlank();
+            postscript = """
+                    **Code Agent changes (unified diff)**
+                    
+                    A unified diff of the Code Agent's changes is available in the Workspace under 'Last Code Agent Changes'.
+                    
+                    If this is going in the wrong direction entirely, call `undoLastChanges` to revert and start over.
                     """
-                        .formatted(explanation);
-            case PARSE_ERROR ->
-                """
-                    **Parse Error: Invalid Response Format**
+                    .stripIndent()
+                    .stripTrailing();
+        }
 
-                    The Code Agent couldn't parse the response after multiple attempts:
-                    %s
-
-                    Next steps:
-                    - Retry callCodeAgent with instructions that produce only valid SEARCH/REPLACE blocks (no commentary).
-                    - Keep edits small and focused; prefer one file or a single function per turn.
-                    """
-                        .formatted(explanation);
-            case APPLY_ERROR ->
-                """
-                    **Apply Error: Edit Blocks Failed**
-
-                    The Code Agent couldn't apply edits after multiple attempts:
-                    %s
-
-                    Likely cause: search patterns were too generic to match uniquely.
-
-                    Try one of:
-                    - Include more unique context in each SEARCH/REPLACE block (surrounding lines that appear only once).
-                    - Target a specific function or class and include that identifier in your instructions.
-                    - Add the exact files first (addFilesToWorkspace or addFileSummariesToWorkspace), then retry callCodeAgent.
-                    - Or undo with 'undoLastChanges'.
-                    """
-                        .formatted(explanation);
-            case BUILD_ERROR ->
-                """
-                    **Build Error: Failed to Compile/Test**
-
-                    Build/test verification failed after multiple attempts.
-                    %s
-
-                    Details are in the Workspace. The Code Agent applied changes but couldn't verify them.
-                    If this is a multi-step change that will temporarily break the build, retry callCodeAgent with deferBuild=true and complete the follow-up fixes next.
-                    You can also retry with different instructions, or undo with 'undoLastChanges'.
-                    """
-                        .formatted(explanation);
-            case IO_ERROR ->
-                """
-                    **IO Error: File System Issue**
-
-                    An error occurred while reading or writing files:
-                    %s
-
-                    This may be a transient issue. You can retry.
-                    """
-                        .formatted(explanation);
-            default ->
-                """
-                    **Code Agent Failed**
-
-                    Reason: %s
-                    Details: %s
-
-                    Changes may have been made but may not be complete.
-                    You can undo with 'undoLastChanges' or retry with different instructions.
-                    """
-                        .formatted(reason, explanation);
-        };
+        if (postscript.isBlank()) {
+            return base;
+        }
+        return base.stripTrailing() + "\n\n" + postscript;
     }
 
     private void addPlanningToHistory() throws InterruptedException {
@@ -705,7 +719,9 @@ public class ArchitectAgent {
         // run code agent first
         try {
             var initialSummary = callCodeAgent(goal, false);
-            architectMessages.add(new AiMessage("Initial CodeAgent attempt:\n" + initialSummary));
+            architectMessages.add(new UserMessage(
+                    "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
+                            + initialSummary));
         } catch (ToolRegistry.FatalLlmException e) {
             var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
             this.lastFatalReason = null;
