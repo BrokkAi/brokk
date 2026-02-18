@@ -44,7 +44,6 @@ class OrderedFooter(Footer):
             ("toggle_context", "Context"),
             ("toggle_tasklist", "Tasks"),
             ("toggle_notifications", "Notifications"),
-            ("toggle_statusline", "Status"),
         ]
 
         for action, fallback_desc in order:
@@ -194,7 +193,6 @@ class BrokkApp(App):
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
-        Binding("ctrl+s", "toggle_statusline", "Status", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
@@ -1233,16 +1231,6 @@ class BrokkApp(App):
     def action_toggle_notifications(self) -> None:
         panel = self.query_one("#notification-panel")
         panel.toggle_class("hidden")
-
-    def action_toggle_statusline(self) -> None:
-        """Toggle visibility of the status line (best-effort)."""
-        try:
-            # Look in ChatPanel since it's nested there
-            panel = self.query_one(ChatPanel).query_one("#status-line")
-            panel.toggle_class("hidden")
-        except Exception:
-            # If not mounted, ignore
-            pass
 
     def _set_theme(self, theme_name: str) -> None:
         normalized_theme = normalize_theme_name(theme_name.lower())

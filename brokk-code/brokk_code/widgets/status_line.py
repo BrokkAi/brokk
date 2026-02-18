@@ -34,6 +34,7 @@ class StatusLine(Horizontal):
         self._model = "unknown"
         self._reasoning = "unknown"
         self._workspace = "unknown"
+        self._branch = "unknown"
         self._fragment_description: Optional[str] = None
         self._fragment_size: Optional[int] = None
         self._metadata: Optional[Static] = None
@@ -54,6 +55,7 @@ class StatusLine(Horizontal):
         mode = getattr(app, "current_mode", getattr(app, "agent_mode", "unknown"))
         model = getattr(app, "current_model", "unknown")
         reasoning = getattr(app, "reasoning_level", "unknown")
+        branch = getattr(app, "current_branch", "unknown")
         workspace = "unknown"
         try:
             executor = getattr(app, "executor", None)
@@ -64,7 +66,7 @@ class StatusLine(Horizontal):
         except Exception:
             pass
 
-        self.update_status(mode, model, reasoning, workspace)
+        self.update_status(mode, model, reasoning, workspace, branch)
 
     def _render_status_text(self) -> None:
         workspace_label = self._workspace_label(self._workspace)
