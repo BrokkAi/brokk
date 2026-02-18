@@ -323,7 +323,8 @@ async def test_autocomplete_ui_state_preserves_prompt_visibility():
         assert chat_input.styles.height.value == 3
         # Margin is removed to dock suggestions directly under input
         assert chat_input.styles.margin.bottom.value == 0
-        # Container margin-bottom should be 2 to raise the panel
+        # Container margin-bottom should be 2 to raise the panel (relative to the bottom of the screen)
+        # In Textual, styles.margin.bottom.value refers to the CSS value assigned.
         assert container.styles.margin.bottom.value == 2
 
         # Hide autocomplete

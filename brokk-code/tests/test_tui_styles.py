@@ -265,18 +265,16 @@ def test_help_menu_layout_contract():
         if m_match:
             margins = m_match.group(1).strip().split()
             if len(margins) == 4:
-                assert margins[1] == "2" and margins[3] == "2", (
-                    "Suggestions should match input horizontal margins"
-                )
+                assert margins[1] == "2" and margins[3] == "2", "Suggestions should match input horizontal margins"
 
     # Ensure prompt margin is removed only at the bottom when autocomplete is open to keep them tight
     open_match = re.search(
         r"#chat-input-container\.autocomplete-open\s+#chat-input\s*\{([^}]*)\}", css_content
     )
     assert open_match, "Could not find #chat-input-container.autocomplete-open #chat-input rule"
-    assert "margin-bottom: 0;" in open_match.group(1), (
-        "Prompt should lose bottom margin when suggestions are open"
-    )
+    assert (
+        "margin-bottom: 0;" in open_match.group(1)
+    ), "Prompt should lose bottom margin when suggestions are open"
 
     # Ensure container itself raises up when autocomplete is open
     container_open_match = re.search(
