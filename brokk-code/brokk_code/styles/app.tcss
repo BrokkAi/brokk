@@ -242,6 +242,7 @@ ChatPanel {
     background: $panel;
     padding: 0 1;
     height: 3;
+    border: none;
 }
 
 #notification-panel {
@@ -263,6 +264,7 @@ ChatPanel {
 
 #chat-input:focus {
     background: $surface-lighten-1;
+    border: none;
 }
 
 .ml-1 {

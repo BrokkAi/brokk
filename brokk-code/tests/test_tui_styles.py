@@ -13,8 +13,8 @@ def test_chat_input_no_border():
     assert chat_input_match, "Could not find #chat-input rule in app.tcss"
     chat_input_body = chat_input_match.group(1)
 
-    assert "border:" not in chat_input_body, (
-        f"#chat-input should not have a border. Found: {chat_input_body.strip()}"
+    assert "border: none;" in chat_input_body, (
+        f"#chat-input should explicitly set border: none. Found: {chat_input_body.strip()}"
     )
     assert "background:" in chat_input_body, "#chat-input should have a background."
     assert "padding:" in chat_input_body, "#chat-input should have padding for spacing."
@@ -23,8 +23,8 @@ def test_chat_input_no_border():
     assert focus_match, "Could not find #chat-input:focus rule in app.tcss"
     focus_body = focus_match.group(1)
 
-    assert "border:" not in focus_body, (
-        f"#chat-input:focus should not have a border. Found: {focus_body.strip()}"
+    assert "border: none;" in focus_body, (
+        f"#chat-input:focus should explicitly set border: none. Found: {focus_body.strip()}"
     )
 
 
@@ -148,7 +148,9 @@ def test_status_timer_width_regression():
 
     # Check for width or min-width >= 14
     width_match = re.search(r"(?:min-)?width\s*:\s*(\d+)\s*;", timer_body)
-    assert width_match, f"#status-timer should have a numeric width or min-width. Found: {timer_body.strip()}"
+    assert width_match, (
+        f"#status-timer should have a numeric width or min-width. Found: {timer_body.strip()}"
+    )
 
     width_val = int(width_match.group(1))
     assert width_val >= 14, (
