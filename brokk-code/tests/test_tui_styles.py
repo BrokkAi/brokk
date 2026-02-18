@@ -210,7 +210,7 @@ def test_help_menu_layout_contract():
         f"#chat-help-row horizontal margins ({help_row_margins[1]}, {help_row_margins[3]}) "
         f"should match #chat-input ({input_margins[1]}, {input_margins[3]}) for alignment."
     )
-    assert help_row_margins[2] == "0", "#chat-help-row should have 0 bottom margin."
+    assert help_row_margins[2] == "1", "#chat-help-row should have 1 bottom margin for offset."
 
     help_match = re.search(r"#chat-help\s*\{([^}]*)\}", css_content)
     assert help_match, "Could not find #chat-help rule in app.tcss"

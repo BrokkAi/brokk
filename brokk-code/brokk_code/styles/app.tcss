@@ -278,7 +278,7 @@ SlashCommandSuggestions > ListItem:focus {
 
 #chat-help-row {
     height: 1;
-    margin: 0 2 0 2;
+    margin: 0 2 1 2;
 }
 
 #help-spinner {
