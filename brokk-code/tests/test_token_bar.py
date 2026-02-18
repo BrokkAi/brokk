@@ -1,5 +1,6 @@
-from brokk_code.widgets.token_bar import TokenBar
 from textual.geometry import Size
+
+from brokk_code.widgets.token_bar import TokenBar
 
 
 def test_compute_segments_empty():

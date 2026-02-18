@@ -1,18 +1,23 @@
 import asyncio
 import time
+
 import pytest
 from textual.app import App, ComposeResult
+
 from brokk_code.widgets.status_line import StatusLine
+
 
 class StatusApp(App):
     def compose(self) -> ComposeResult:
         yield StatusLine(id="status")
 
+
 @pytest.mark.asyncio
 async def test_chat_panel_timer_lifecycle():
     """Verify that the timer in ChatPanel help row updates correctly when job is running."""
-    from brokk_code.widgets.chat_panel import ChatPanel
     from textual.widgets import Static
+
+    from brokk_code.widgets.chat_panel import ChatPanel
 
     class ChatApp(App):
         def compose(self) -> ComposeResult:
