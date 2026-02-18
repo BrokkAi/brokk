@@ -18,6 +18,9 @@ def test_chat_input_no_border():
     )
     assert "background:" in chat_input_body, "#chat-input should have a background."
     assert "padding:" in chat_input_body, "#chat-input should have padding for spacing."
+    assert "content-align: left middle;" in chat_input_body, (
+        "#chat-input should have 'content-align: left middle;' for vertical centering."
+    )
 
     focus_match = re.search(r"#chat-input:focus\s*\{([^}]*)\}", css_content)
     assert focus_match, "Could not find #chat-input:focus rule in app.tcss"
@@ -25,6 +28,9 @@ def test_chat_input_no_border():
 
     assert "border: none;" in focus_body or "border: none !important;" in focus_body, (
         f"#chat-input:focus should explicitly set border: none. Found: {focus_body.strip()}"
+    )
+    assert "content-align: left middle;" in focus_body, (
+        "#chat-input:focus should maintain 'content-align: left middle;'."
     )
 
 
