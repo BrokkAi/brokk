@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -90,11 +90,13 @@ class ChatPanel(Vertical):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self._get_now: Callable[[], float] = time.monotonic
         self._current_message_buffer: str = ""
         self._current_message_type: Optional[str] = None
         self._is_reasoning: bool = False
         self.response_pending: bool = False
         self.response_active: bool = False
+        self._last_token_time: float = 0.0
 
         # History Navigation State
         self._history: list[str] = []
