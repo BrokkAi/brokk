@@ -86,12 +86,15 @@ async def test_autocomplete_esc_hides():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         suggestions = app.query_one(SlashCommandSuggestions)
+        container = app.query_one("#chat-input-container")
 
         await pilot.press("/")
         assert suggestions.display is True
+        assert container.has_class("autocomplete-open")
 
         await pilot.press("escape")
         assert suggestions.display is False
+        assert not container.has_class("autocomplete-open")
 
 
 @pytest.mark.asyncio
@@ -125,6 +128,7 @@ async def test_autocomplete_accept_with_tab_does_not_submit():
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
+        container = app.query_one("#chat-input-container")
 
         # Track submissions
         submissions = []
@@ -132,11 +136,14 @@ async def test_autocomplete_accept_with_tab_does_not_submit():
 
         await pilot.press("/", "m", "o")
         assert suggestions.display is True
+        assert container.has_class("autocomplete-open")
+
         await pilot.press("tab")
 
         # /model needs args, so it should have a trailing space
         assert chat_input.text == "/model "
         assert suggestions.display is False
+        assert not container.has_class("autocomplete-open")
         assert len(submissions) == 0
 
 
@@ -146,6 +153,7 @@ async def test_autocomplete_accept_with_enter_submits_immediately():
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
+        container = app.query_one("#chat-input-container")
 
         # Track submissions
         submissions = []
@@ -153,12 +161,14 @@ async def test_autocomplete_accept_with_enter_submits_immediately():
 
         await pilot.press("/", "a", "s")
         assert suggestions.display is True
+        assert container.has_class("autocomplete-open")
 
         # Enter should now both complete and submit
         await pilot.press("enter")
 
         assert chat_input.text == ""  # Submitted text is cleared
         assert suggestions.display is False
+        assert not container.has_class("autocomplete-open")
         assert len(submissions) == 1
         assert submissions[0] == "/ask"
 

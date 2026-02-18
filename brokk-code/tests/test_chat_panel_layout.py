@@ -53,12 +53,19 @@ async def test_help_row_spinner_order():
 
 @pytest.mark.asyncio
 async def test_suggestions_below_chat_input():
-    """Verify that slash suggestions are positioned below the chat input in the DOM."""
+    """
+    Verify that slash suggestions are positioned below the chat input in the DOM.
+    This layout invariant ensures suggestions don't obscure the prompt when open.
+    """
     app = ChatPanelLayoutApp()
     async with app.run_test():
         container = app.query_one("#chat-input-container")
         chat_input = container.query_one("#chat-input")
         suggestions = container.query_one("#slash-suggestions")
+
+        # Verify parent-child relationship
+        assert chat_input in container.children
+        assert suggestions in container.children
 
         children = list(container.children)
         input_index = children.index(chat_input)
@@ -66,5 +73,5 @@ async def test_suggestions_below_chat_input():
 
         assert input_index < suggestions_index, (
             f"Expected #chat-input (index {input_index}) to be above "
-            f"#slash-suggestions (index {suggestions_index})"
+            f"#slash-suggestions (index {suggestions_index}) in #chat-input-container"
         )
