@@ -60,7 +60,7 @@ async def test_suggestions_overlay_chat_input():
     app = ChatPanelLayoutApp()
     async with app.run_test():
         container = app.query_one("#chat-input-container")
-        suggestions = app.query_one(SlashCommandSuggestions)
+        suggestions = app.query_one("#slash-suggestions")
 
         assert suggestions in container.children, (
             "Suggestions should be a child of #chat-input-container for overlay positioning"

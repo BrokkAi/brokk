@@ -279,10 +279,12 @@ async def test_autocomplete_ui_hidden_invariant_after_submit():
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
+        container = app.query_one("#chat-input-container")
 
         # 1. Type partial command
         await pilot.press("/", "a")
         assert suggestions.display is True
+        assert container.has_class("autocomplete-open")
 
         # 2. Submit (Enter)
         await pilot.press("enter")
@@ -290,6 +292,7 @@ async def test_autocomplete_ui_hidden_invariant_after_submit():
         # 3. Verify UI is hidden and text is cleared
         assert chat_input.text == ""
         assert suggestions.display is False
+        assert not container.has_class("autocomplete-open")
 
 
 @pytest.mark.asyncio
@@ -311,21 +314,28 @@ async def test_slash_triggers_menu_from_app_commands():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         suggestions = app.query_one(SlashCommandSuggestions)
-        chat_input = app.query_one(ChatInput)
+        container = app.query_one("#chat-input-container")
 
         # Ensure menu is hidden initially
         assert suggestions.display is False
+        assert not container.has_class("autocomplete-open")
 
         # Type '/'
         await pilot.press("/")
 
         # Assert menu is now visible and populated
         assert suggestions.display is True
-        assert len(suggestions.children) > 0
+        assert container.has_class("autocomplete-open")
+        assert len(suggestions.children) == 5
 
         # Verify the first command matches the app's mock data
         first_cmd = app.get_slash_commands()[0]["command"]
         assert first_cmd in str(suggestions.children[0].query_one(Static).renderable)
+
+        # Escape hides it
+        await pilot.press("escape")
+        assert suggestions.display is False
+        assert not container.has_class("autocomplete-open")
 
 
 @pytest.mark.asyncio
