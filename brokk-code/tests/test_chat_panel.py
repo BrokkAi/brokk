@@ -245,3 +245,27 @@ async def test_no_ctrl_u_e_bindings_in_chat_input():
     bindings = {b.key for b in ChatInput.BINDINGS}
     assert "ctrl+u" not in bindings
     assert "ctrl+e" not in bindings
+
+
+@pytest.mark.asyncio
+async def test_chat_panel_composition_success():
+    """
+    Verify that ChatPanel composes without NameError and contains expected widgets.
+    Regression test for missing Static import.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        # Verify ChatPanel exists
+        chat = app.query_one("#chat", ChatPanel)
+        assert chat is not None
+
+        # Verify #help-elapsed (Static) exists - this would have failed with NameError
+        help_elapsed = chat.query_one("#help-elapsed", Static)
+        assert help_elapsed is not None
