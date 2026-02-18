@@ -32,7 +32,6 @@ public final class FuzzyUsageFinder {
 
     private final IProject project;
     private final IAnalyzer analyzer;
-    private final AbstractService service;
     private final CandidateFileProvider fallbackCandidateProvider;
     private final UsageAnalyzer fallbackUsageAnalyzer;
     private final @Nullable Predicate<ProjectFile> fileFilter;
@@ -62,7 +61,7 @@ public final class FuzzyUsageFinder {
         var analyzer = cm.getAnalyzerUninterrupted();
         var llmAnalyzer = new LlmUsageAnalyzer(project, analyzer, service, llm, DEFAULT_MAX_USAGES);
 
-        return new FuzzyUsageFinder(project, analyzer, service, createDefaultProvider(), llmAnalyzer, fileFilter);
+        return new FuzzyUsageFinder(project, analyzer, createDefaultProvider(), llmAnalyzer, fileFilter);
     }
 
     private Configuration getConfiguration(CodeUnit target) {
@@ -93,11 +92,10 @@ public final class FuzzyUsageFinder {
      *
      * @param project the project providing files and configuration
      * @param analyzer the analyzer providing declarations/definitions
-     * @param service the LLM service.
-     * @param llm optional LLM for future disambiguation
+     * @param llmAnalyzer other llm-based analyzer for disambiguation
      */
-    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, AbstractService service, UsageAnalyzer llmAnalyzer) {
-        this(project, analyzer, service, createDefaultProvider(), llmAnalyzer, null);
+    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, UsageAnalyzer llmAnalyzer) {
+        this(project, analyzer, createDefaultProvider(), llmAnalyzer, null);
     }
 
     /**
@@ -105,29 +103,22 @@ public final class FuzzyUsageFinder {
      *
      * @param project the project providing files and configuration
      * @param analyzer the analyzer providing declarations/definitions
-     * @param service the LLM service.
      * @param candidateProvider the strategy for finding candidate files
      * @param llmAnalyzer the analyzer for finding usages (typically LLM-based)
      */
     public FuzzyUsageFinder(
-            IProject project,
-            IAnalyzer analyzer,
-            AbstractService service,
-            CandidateFileProvider candidateProvider,
-            UsageAnalyzer llmAnalyzer) {
-        this(project, analyzer, service, candidateProvider, llmAnalyzer, null);
+            IProject project, IAnalyzer analyzer, CandidateFileProvider candidateProvider, UsageAnalyzer llmAnalyzer) {
+        this(project, analyzer, candidateProvider, llmAnalyzer, null);
     }
 
     public FuzzyUsageFinder(
             IProject project,
             IAnalyzer analyzer,
-            AbstractService service,
             CandidateFileProvider candidateProvider,
             UsageAnalyzer llmAnalyzer,
             @Nullable Predicate<ProjectFile> fileFilter) {
         this.project = project;
         this.analyzer = analyzer;
-        this.service = service;
         this.fallbackCandidateProvider = candidateProvider;
         this.fallbackUsageAnalyzer = llmAnalyzer;
         this.fileFilter = fileFilter;
@@ -138,7 +129,7 @@ public final class FuzzyUsageFinder {
      *
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
-    private FuzzyResult findUsages(List<CodeUnit> overloads, int maxFiles, int maxUsages) throws InterruptedException {
+    private FuzzyResult findUsages(List<CodeUnit> overloads, int maxFiles) throws InterruptedException {
         assert !overloads.isEmpty() : "overloads must not be empty";
         var target = overloads.getFirst();
 
@@ -168,7 +159,7 @@ public final class FuzzyUsageFinder {
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      * <p>If multiple definitions exist (e.g., overloaded methods), aggregates usages from all of them.
      */
-    public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) throws InterruptedException {
+    public FuzzyResult findUsages(String fqName, int maxFiles) throws InterruptedException {
         if (isEffectivelyEmpty()) {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
             return new FuzzyResult.Success(Map.of());
@@ -182,7 +173,7 @@ public final class FuzzyUsageFinder {
         // Build overloads list from all definitions (preserving signatures for the LLM prompt)
         var overloads = List.copyOf(definitions);
 
-        var result = findUsages(overloads, maxFiles, maxUsages);
+        var result = findUsages(overloads, maxFiles);
         Map<CodeUnit, Set<UsageHit>> allHitsByOverload =
                 switch (result) {
                     case FuzzyResult.Success success -> success.hitsByOverload();
@@ -214,7 +205,7 @@ public final class FuzzyUsageFinder {
     }
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {
-        return findUsages(fqName, DEFAULT_MAX_FILES, DEFAULT_MAX_USAGES);
+        return findUsages(fqName, DEFAULT_MAX_FILES);
     }
 
     private boolean isEffectivelyEmpty() {

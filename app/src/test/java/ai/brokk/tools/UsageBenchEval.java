@@ -295,7 +295,7 @@ public class UsageBenchEval implements Callable<Integer> {
                 : null;
         UsageAnalyzer llmAnalyzer =
                 new LlmUsageAnalyzer(project, analyzer, service, llm, FuzzyUsageFinder.DEFAULT_MAX_USAGES);
-        FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, service, llmAnalyzer);
+        FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, llmAnalyzer);
 
         String projectName = project.getRoot().getFileName().toString();
         String projectPath = project.getRoot().toAbsolutePath().toString();

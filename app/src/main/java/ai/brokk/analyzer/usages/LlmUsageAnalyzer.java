@@ -30,7 +30,6 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
-@NullMarked
 public final class LlmUsageAnalyzer implements UsageAnalyzer {
     private static final Logger logger = LogManager.getLogger(LlmUsageAnalyzer.class);
 
