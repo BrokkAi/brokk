@@ -309,27 +309,28 @@ async def test_autocomplete_ui_state_preserves_prompt_visibility():
     async with app.run_test() as pilot:
         container = app.query_one("#chat-input-container")
         chat_input = app.query_one(ChatInput)
+        suggestions = app.query_one(SlashCommandSuggestions)
 
         # Initial state
         assert not container.has_class("autocomplete-open")
+        assert suggestions.display is False
         assert chat_input.styles.height.value == 3
-        assert chat_input.styles.margin.bottom.value == 1
         assert container.styles.margin.bottom.value == 0
 
         # Trigger autocomplete
         await pilot.press("/")
         assert container.has_class("autocomplete-open")
-        # In current design, height is preserved (no shrinking) to keep UI stable
+        assert suggestions.display is True
+        
+        # In current design, height is preserved to keep UI stable
         assert chat_input.styles.height.value == 3
-        # Margin is preserved on the input itself now that suggestions are siblings
-        assert chat_input.styles.margin.bottom.value == 1
-        # Container margin-bottom should be 6 to raise the panel (approx 60px/6 rows)
-        # In Textual, styles.margin.bottom.value refers to the CSS integer value.
+        
+        # Container margin-bottom should be 6 to raise the panel (approx 6 rows)
+        # when the menu is visible below it.
         assert container.styles.margin.bottom.value == 6
 
         # Hide autocomplete
         await pilot.press("escape")
         assert not container.has_class("autocomplete-open")
-        assert chat_input.styles.height.value == 3
-        assert chat_input.styles.margin.bottom.value == 1
+        assert suggestions.display is False
         assert container.styles.margin.bottom.value == 0
