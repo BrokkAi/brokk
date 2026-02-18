@@ -124,3 +124,27 @@ def test_settings_load_from_older_json_without_new_keys(tmp_path, monkeypatch):
     assert loaded.last_reasoning_level is None
     assert loaded.last_code_reasoning_level is None
     assert loaded.last_auto_commit is None
+
+
+def test_app_initializes_with_defaults_when_settings_empty(tmp_path, monkeypatch):
+    """Verify BrokkApp uses hardcoded fallbacks when settings fields are None or blank."""
+    from unittest.mock import MagicMock
+
+    from brokk_code.app import BrokkApp
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    # 1. Test None/Missing
+    app = BrokkApp(executor=MagicMock())
+    assert app.current_model == "gpt-5.2"
+    assert app.reasoning_level == "low"
+
+    # 2. Test Blank strings in settings
+    settings_dir = tmp_path / ".brokk"
+    settings_dir.mkdir(exist_ok=True)
+    settings_file = settings_dir / "settings.json"
+    settings_file.write_text('{"last_model": "  ", "last_reasoning_level": ""}')
+
+    app_blank = BrokkApp(executor=MagicMock())
+    assert app_blank.current_model == "gpt-5.2"
+    assert app_blank.reasoning_level == "low"
