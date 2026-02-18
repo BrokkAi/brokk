@@ -20,7 +20,6 @@ import dev.langchain4j.data.message.Content;
 import dev.langchain4j.data.message.ImageContent;
 import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
-import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
@@ -128,12 +127,18 @@ public final class WorkspacePrompts {
     }
 
     public static List<ChatMessage> getHistoryMessages(Context ctx, TaskResult.TaskMeta currentMeta) {
+        return getHistoryMessages(ctx, currentMeta, Set.of(TaskResult.Type.values()));
+    }
+
+    public static List<ChatMessage> getHistoryMessages(
+            Context ctx, TaskResult.TaskMeta currentMeta, Set<TaskResult.Type> includedTypes) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
 
         // Merge compressed messages into a single taskhistory message
         var compressed = taskHistory.stream()
                 .filter(TaskEntry::isCompressed)
+                .filter(e -> entryMatchesType(e, includedTypes))
                 .map(TaskEntry::toString)
                 .collect(Collectors.joining("\n\n"));
         if (!compressed.isEmpty()) {
@@ -142,30 +147,42 @@ public final class WorkspacePrompts {
         }
 
         // Uncompressed messages: process for tool and S/R block redaction
-        taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
-            var entryRawMessages = castNonNull(e.llmLog()).messages();
-            if (entryRawMessages.isEmpty()) {
-                return;
-            }
+        taskHistory.stream()
+                .filter(e -> !e.isCompressed())
+                .filter(e -> entryMatchesType(e, includedTypes))
+                .forEach(e -> {
+                    var entryRawMessages = castNonNull(e.llmLog()).messages();
+                    if (entryRawMessages.isEmpty()) {
+                        return;
+                    }
 
-            // Determine the messages to include from the entry
-            var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
-                    ? entryRawMessages
-                    : entryRawMessages.subList(0, entryRawMessages.size() - 1);
+                    // Determine the messages to include from the entry
+                    var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
+                            ? entryRawMessages
+                            : entryRawMessages.subList(0, entryRawMessages.size() - 1);
 
-            var entryMeta = e.meta();
+                    var entryMeta = e.meta();
 
-            var currentPrimaryModel = currentMeta.primaryModel();
-            var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
+                    var currentPrimaryModel = currentMeta.primaryModel();
+                    var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
 
-            // Redact tool calls if the primary models differ
-            boolean redactToolCalls =
-                    entryPrimaryModel != null && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
+                    // Redact tool calls if the primary models differ
+                    boolean redactToolCalls = entryPrimaryModel != null
+                            && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
 
-            messages.addAll(CodePrompts.redactHistoryMessages(relevantEntryMessages, redactToolCalls));
-        });
+                    messages.addAll(CodePrompts.redactHistoryMessages(relevantEntryMessages, redactToolCalls));
+                });
 
         return messages;
+    }
+
+    private static boolean entryMatchesType(TaskEntry entry, Set<TaskResult.Type> includedTypes) {
+        var meta = entry.meta();
+        if (meta == null) {
+            logger.debug("Missing meta type for {}", entry); // legacy entries
+            return true;
+        }
+        return includedTypes.contains(meta.type());
     }
 
     /**

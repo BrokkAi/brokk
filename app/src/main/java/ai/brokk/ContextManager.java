@@ -2204,7 +2204,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Llm.StreamingResult result = getLlm(
                         serviceProvider.get().summarizeModel(), "Compress history entry", TaskResult.Type.SUMMARIZE)
                 .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
-        return result.error() == null ? history : result.text();
+        return result.error() == null ? result.text() : history;
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */

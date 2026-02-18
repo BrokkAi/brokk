@@ -44,6 +44,7 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -273,8 +274,8 @@ public class ArchitectAgent {
 
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
-        context = codeContext.withHistory(context.getTaskHistory());
-        scope.append(context);
+        context = codeContext.withHistory(context.getTaskHistory()).addHistoryEntry(codeContext.getTaskHistory().getLast());
+        scope.append(codeContext);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
         // we're done with the original result now, make sure we don't reuse it by accident instead of the
@@ -414,7 +415,7 @@ public class ArchitectAgent {
                 """
                     **Build Error: Failed to Compile/Test**
 
-                    Build/test verification failed after multiple attempts:
+                    Build/test verification failed after multiple attempts.
                     %s
 
                     Details are in the Workspace. The Code Agent applied changes but couldn't verify them.
@@ -748,14 +749,14 @@ public class ArchitectAgent {
 
             var tr = turn.toolRegistry();
             var wst = turn.workspaceTools();
-            var messages = turn.messages();
             var result = turn.result();
 
             totalUsage = TokenUsage.sum(
                     totalUsage, castNonNull(result.originalResponse()).tokenUsage());
-            // Add the request and response to message history
+            // Add the request and response to message history.
+            // We append a stub for the user message instead of the full instructions to keep history lean.
             var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
-            architectMessages.add(messages.getLast());
+            architectMessages.add(new UserMessage(ArchitectPrompts.instructionsMarker()));
             architectMessages.add(aiMessage);
 
             var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
@@ -942,7 +943,7 @@ public class ArchitectAgent {
 
                 // Post-batch message with workspace merge summary
                 outputSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
-                context = context.addHistoryEntry(
+                context = combinedContext.addHistoryEntry(
                         io.getLlmRawMessages(), TaskResult.Type.SEARCH, planningModel, "Multiple concurrent searches");
                 scope.append(context);
 
@@ -1268,23 +1269,12 @@ public class ArchitectAgent {
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
 
-        // History from previous tasks/sessions
-        messages.addAll(WorkspacePrompts.getHistoryMessages(context, taskMeta()));
+        // History from previous tasks/sessions; we primarily want to avoid CODE and SEARCH sub-agents
+        var safeTypes = EnumSet.of(TaskResult.Type.ASK, TaskResult.Type.REVIEW, TaskResult.Type.ARCHITECT);
+        messages.addAll(WorkspacePrompts.getHistoryMessages(context, taskMeta(), safeTypes));
 
-        // This agent's own conversational history for the current goal, with the instructionsMarker
-        // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)
-        var marker = ArchitectPrompts.instructionsMarker();
-        messages.addAll(architectMessages.stream()
-                .map(msg -> {
-                    if (msg instanceof UserMessage um) {
-                        var text = um.singleText();
-                        if (text.contains(marker)) {
-                            return new UserMessage(marker);
-                        }
-                    }
-                    return msg;
-                })
-                .toList());
+        // This agent's own conversational history for the current goal.
+        messages.addAll(architectMessages);
 
         // Add related identifiers as a separate message/ack pair, unless we are/were in emergency mode
         var related = hasEnteredEmergencyMode
