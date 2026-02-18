@@ -233,6 +233,7 @@ async def test_action_handle_ctrl_c_no_input_widget():
 async def test_no_ctrl_u_e_bindings_in_chat_input():
     """Verify that ChatInput does not have ctrl+u or ctrl+e bindings."""
     from brokk_code.widgets.chat_panel import ChatInput
+
     bindings = {b.key for b in ChatInput.BINDINGS}
     assert "ctrl+u" not in bindings
     assert "ctrl+e" not in bindings

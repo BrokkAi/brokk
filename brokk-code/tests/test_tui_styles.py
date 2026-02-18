@@ -102,6 +102,14 @@ def test_combined_selector_modal_dimensions():
     assert "width: 100;" in body, "Combined modal should have a width of 100 for side-by-side lists"
     assert "max-height: 90%;" in body, "Combined modal should allow up to 90% screen height"
 
+    # Verify centering rule exists
+    centering_match = re.search(r"ModelReasoningSelectModal\s*\{([^}]*)\}", css_content)
+    assert centering_match, "Could not find ModelReasoningSelectModal rule in app.tcss"
+    centering_body = centering_match.group(1)
+    assert "align: center middle;" in centering_body, (
+        "ModelReasoningSelectModal should be centered via align: center middle;"
+    )
+
     # Verify list wrapper constraints within the modal
     m = r"#model-select-list-wrap,\s*#reasoning-select-list-wrap\s*\{([^}]*)\}"
     wrapper_match = re.search(m, css_content)

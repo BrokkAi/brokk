@@ -2,7 +2,7 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen {
+ContextModalScreen, ModelReasoningSelectModal {
     align: center middle;
 }
 
