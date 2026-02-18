@@ -184,3 +184,38 @@ def test_help_labels_transparent_background():
         f"{selector} should have 'background: transparent;' to avoid filled label background. "
         f"Found: {body.strip()}"
     )
+
+
+def test_help_menu_layout_contract():
+    """
+    Regression test to ensure the help menu matches the chat input's horizontal layout
+    and that legacy help labels are removed or hidden.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    # 1. Check #chat-input margins for reference
+    input_match = re.search(r"#chat-input\s*\{([^}]*)\}", css_content)
+    assert input_match, "Could not find #chat-input rule"
+    input_body = input_match.group(1)
+    # Extract horizontal margins (expecting '0 2 1 2' or similar where 2 is horizontal)
+    input_margin_match = re.search(r"margin:\s*([^;]+);", input_body)
+    assert input_margin_match, "#chat-input must have a margin defined"
+    input_margin = input_margin_match.group(1).strip()
+
+    # 2. Check #chat-help matches
+    help_match = re.search(r"#chat-help\s*\{([^}]*)\}", css_content)
+    assert help_match, "Could not find #chat-help rule in app.tcss"
+    help_body = help_match.group(1)
+
+    assert "width: 1fr;" in help_body, "#chat-help should use 1fr width"
+    assert f"margin: {input_margin};" in help_body, (
+        f"#chat-help margin should match #chat-input ({input_margin}) for alignment."
+    )
+
+    # 3. Ensure legacy help labels are not active/visible
+    # (If they were removed from the file entirely, these regexes should fail to find active rules)
+    for legacy_id in ["#tasklist-help", "#context-help"]:
+        match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
+        if match:
+            body = match.group(1)
+            assert "display: none;" in body, f"Legacy help {legacy_id} should be display: none;"
