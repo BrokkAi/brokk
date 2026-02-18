@@ -83,7 +83,7 @@ async def test_combined_modal_navigation_updates_both_settings():
 
             # 2. Selection Pane: Reasoning (Focus should be here now)
             # Reasoning list is: disable, low, medium, high.
-            # Default is low (idx 1). Move to medium (idx 2) by pressing down once.
+            # Highlight starts at current value 'low' (idx 1), so one Down moves to 'medium' (idx 2).
             await pilot.press("down")
             await pilot.press("enter")
             await pilot.pause()
