@@ -1,7 +1,7 @@
 import pytest
 from textual.app import App, ComposeResult
 
-from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
+from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.status_line import StatusLine
 
 
@@ -18,7 +18,7 @@ async def test_status_line_above_chat_input():
         chat_panel = app.query_one(ChatPanel)
 
         status_line = chat_panel.query_one("#status-line", StatusLine)
-        chat_input = chat_panel.query_one("#chat-input", ChatInput)
+        chat_input = chat_panel.query_one("#chat-input")
 
         # Get indices in the parent container's children list
         # ChatPanel inherits from Vertical, so indices correspond to vertical order
