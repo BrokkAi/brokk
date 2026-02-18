@@ -86,10 +86,12 @@ class StatusLine(Horizontal):
             path = Path(workspace)
             home = Path.home()
             if path == home:
-                return "~"
-            if path.is_relative_to(home):
-                return f"~/{path.relative_to(home).as_posix()}"
-            return path.as_posix()
+                result = "~"
+            elif path.is_relative_to(home):
+                result = f"~/{path.relative_to(home).as_posix()}"
+            else:
+                result = path.as_posix()
+            return result.replace("\\", "/")
         except Exception:
             pass
         return workspace.replace("\\", "/")
