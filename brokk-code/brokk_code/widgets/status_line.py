@@ -1,5 +1,5 @@
+import pathlib
 import time
-from pathlib import Path
 from typing import Optional
 
 from textual.app import ComposeResult
@@ -83,15 +83,24 @@ class StatusLine(Horizontal):
         if workspace == "unknown":
             return workspace
         try:
-            path = Path(workspace)
-            home = Path.home()
+            # Normalize backslashes immediately for consistent behavior across platforms
+            norm_workspace = workspace.replace("\\", "/")
+            path = pathlib.Path(norm_workspace)
+            # Use pathlib.Path.home() to respect test mocks while avoiding module-level symbol issues
+            home = pathlib.Path.home()
+
             if path == home:
-                result = "~"
-            elif path.is_relative_to(home):
-                result = f"~/{path.relative_to(home).as_posix()}"
-            else:
-                result = path.as_posix()
-            return result.replace("\\", "/")
+                return "~"
+
+            try:
+                # is_relative_to handles path comparison without filesystem access
+                if path.is_relative_to(home):
+                    rel = path.relative_to(home).as_posix()
+                    return f"~/{rel}"
+            except (ValueError, TypeError):
+                pass
+
+            return path.as_posix()
         except Exception:
             pass
         return workspace.replace("\\", "/")
