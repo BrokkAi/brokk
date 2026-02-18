@@ -288,3 +288,13 @@ ChatPanel {
     height: auto;
     max-height: 20;
 }
+
+#model-select-list, #reasoning-select-list {
+    background: transparent;
+}
+
+#model-select-list > ListItem:focus, #reasoning-select-list > ListItem:focus {
+    background: $accent 20%;
+    color: $text;
+    text-style: bold;
+}

@@ -212,14 +212,17 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
         if not message.item or not message.item.id:
             return
 
-        if message.list_view.id == "model-select-list":
-            idx = int(message.item.id.split("-")[1])
-            self.selected_model = self.models[idx]
-            self._show_reasoning_selection()
-        elif message.list_view.id == "reasoning-select-list":
-            idx = int(message.item.id.split("-")[1])
-            selected_reasoning = self.reasoning_levels[idx]
-            self.dismiss((self.selected_model, selected_reasoning))
+        try:
+            if message.list_view.id == "model-select-list":
+                idx = int(message.item.id.split("-")[1])
+                self.selected_model = self.models[idx]
+                self._show_reasoning_selection()
+            elif message.list_view.id == "reasoning-select-list":
+                idx = int(message.item.id.split("-")[1])
+                selected_reasoning = self.reasoning_levels[idx]
+                self.dismiss((self.selected_model, selected_reasoning))
+        except (ValueError, IndexError):
+            logger.error("Failed to parse index from ListItem id: %s", message.item.id)
 
     def _show_reasoning_selection(self) -> None:
         # Clear the model selection UI and show reasoning
