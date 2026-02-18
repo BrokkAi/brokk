@@ -68,14 +68,17 @@ class StatusLine(Horizontal):
 
     def _render_status_text(self) -> None:
         workspace_label = self._workspace_label(self._workspace)
+        # Compact format: {branch} - {mode} - {model} ({reasoning}) - {workspace}
         text = (
-            f"Mode: {self._mode} - "
-            f"Model: {self._model} (reasoning: {self._reasoning}) - "
-            f"Workspace: {workspace_label}"
+            f"{self._branch} - "
+            f"{self._mode} - "
+            f"{self._model} ({self._reasoning}) - "
+            f"{workspace_label}"
         )
         if self._fragment_description is not None and self._fragment_size is not None:
             size_text = format_token_count(self._fragment_size)
-            text = f"Fragment: {self._fragment_description} ({size_text} tokens)"
+            # Label-free fragment: {description} ({tokens} tokens)
+            text = f"{self._fragment_description} ({size_text} tokens)"
 
         self._set_status_metadata(text)
 
@@ -106,12 +109,14 @@ class StatusLine(Horizontal):
         model: Optional[str] = None,
         reasoning: Optional[str] = None,
         workspace: Optional[str] = None,
+        branch: Optional[str] = None,
     ) -> None:
         """Update the metadata text segment."""
         self._mode = str(mode or "unknown")
         self._model = str(model or "unknown")
         self._reasoning = str(reasoning or "unknown")
         self._workspace = str(workspace or "unknown")
+        self._branch = str(branch or "unknown")
         self._render_status_text()
 
     def set_fragment_info(self, description: Optional[str], size: Optional[int]) -> None:

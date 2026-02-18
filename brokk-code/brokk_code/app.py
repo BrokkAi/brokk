@@ -262,6 +262,7 @@ class BrokkApp(App):
             if isinstance(self.settings.last_auto_commit, bool)
             else True
         )
+        self.current_branch = "unknown"
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
@@ -332,6 +333,7 @@ class BrokkApp(App):
                 model=getattr(self, "current_model", None),
                 reasoning=getattr(self, "reasoning_level", None),
                 workspace=workspace,
+                branch=getattr(self, "current_branch", "unknown"),
             )
         except Exception:
             # Swallow all errors when updating UI that's possibly not mounted in tests.
@@ -482,6 +484,7 @@ class BrokkApp(App):
         async with self._refresh_context_lock:
             try:
                 context_data = await self.executor.get_context()
+                self.current_branch = context_data.get("branch", "unknown")
 
                 # UI updates are best-effort if screen is not on stack
                 try:
@@ -505,6 +508,8 @@ class BrokkApp(App):
                     max_tokens = context_data.get("maxTokens")
                     fragments = context_data.get("fragments")
                     chat.set_token_usage(used, max_tokens, fragments)
+
+                self._update_statusline()
 
                 # Clear error tracking on success
                 self._reported_refresh_errors.clear()
