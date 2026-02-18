@@ -25,12 +25,27 @@ def test_status_line_rendering_compact_home_abbreviation(monkeypatch):
     expected_home = "LUTZ • gpt-4 (high) • ~ • main"
     mock_metadata.update.assert_called_with(expected_home)
 
-    # Case 2: Under home
+    # Case 2: Under home (verify partial update preserves previous values)
     status.update_status(
         workspace="/home/user/projects/brokk",
     )
     expected_sub = "LUTZ • gpt-4 (high) • ~/projects/brokk • main"
     mock_metadata.update.assert_called_with(expected_sub)
+
+    # Case 3: Explicit update to "unknown" (verify explicit values overwrite previous values)
+    status.update_status(
+        mode="unknown",
+        branch="unknown",
+    )
+    expected_unknown = "unknown • gpt-4 (high) • ~/projects/brokk • unknown"
+    mock_metadata.update.assert_called_with(expected_unknown)
+
+    # Case 4: Explicit update to empty string
+    status.update_status(
+        mode="",
+    )
+    expected_empty = " • gpt-4 (high) • ~/projects/brokk • unknown"
+    mock_metadata.update.assert_called_with(expected_empty)
 
 
 def test_status_line_rendering_compact_no_abbreviation(monkeypatch):
