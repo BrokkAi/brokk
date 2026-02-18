@@ -225,6 +225,7 @@ async def test_autocomplete_history_interaction():
         suggestions = app.query_one(SlashCommandSuggestions)
 
         # 1. No autocomplete: Up should show history
+        chat_input.cursor_location = (0, 0)
         await pilot.press("up")
         assert chat_input.text == "history 2"
 
@@ -245,6 +246,7 @@ async def test_autocomplete_history_interaction():
         assert suggestions.display is False
 
         # 5. Up should now navigate history again
+        chat_input.cursor_location = (0, 0)
         await pilot.press("up")
         assert chat_input.text == "history 2"
 

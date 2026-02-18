@@ -50,8 +50,6 @@ async def test_job_progress_in_chat_panel():
     """
     from textual.app import App, ComposeResult
 
-    from brokk_code.widgets.status_line import StatusLine
-
     class TestApp(App):
         def compose(self) -> ComposeResult:
             yield ChatPanel(id="chat")
