@@ -220,7 +220,7 @@ ChatPanel {
 }
 
 #chat-input-container.autocomplete-open #chat-input {
-    height: 1;
+    height: 2;
     margin-bottom: 0;
 }
 
