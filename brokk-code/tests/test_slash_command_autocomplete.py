@@ -47,8 +47,9 @@ async def test_autocomplete_filtering():
         assert len(suggestions.children) == 2
 
         await pilot.press("d", "e", "l")
-        # Should only match /model
-        assert len(suggestions.children) == 1
+        # Should match /model and /model-code
+        assert len(suggestions.children) == 2
+        # Verify the first match is /model
         assert "/model -" in str(suggestions.children[0].query_one(Static).render())
 
 
