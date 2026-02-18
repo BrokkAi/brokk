@@ -347,3 +347,26 @@ async def test_autocomplete_ui_hidden_after_selection_even_if_prefix_matches_oth
         assert chat_input.text == "/model "
         assert suggestions.display is False
         assert hint.display is False
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_ui_hidden_invariant_after_submit():
+    """Ensure suggestions and hints are hidden after submitting, even from a partial match."""
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        chat_input = app.query_one(ChatInput)
+        suggestions = app.query_one(SlashCommandSuggestions)
+        hint = app.query_one(SlashCommandInlineHint)
+
+        # 1. Type partial command
+        await pilot.press("/", "a")
+        assert suggestions.display is True
+        assert hint.display is True
+
+        # 2. Submit (Enter)
+        await pilot.press("enter")
+
+        # 3. Verify UI is hidden and text is cleared
+        assert chat_input.text == ""
+        assert suggestions.display is False
+        assert hint.display is False

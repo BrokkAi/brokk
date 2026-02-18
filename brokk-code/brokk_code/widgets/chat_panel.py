@@ -151,6 +151,8 @@ class ChatInput(TextArea):
     def action_submit(self) -> None:
         text = self.text
         if text.strip():
+            # Suppress re-showing during the clear operation
+            self.suppress_autocomplete_once = True
             self.action_hide_autocomplete()
             self.post_message(self.Submitted(text))
             self.text = ""
