@@ -211,10 +211,8 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
             if event.key == "enter":
-                # Select the suggestion, then submit the result
-                suggestions.action_select_cursor()
-                self._set_autocomplete_open(False)
-                self.action_submit()
+                # Accept the suggestion without submitting (same as Tab)
+                self.action_accept_suggestion()
                 event.stop()
                 event.prevent_default()
                 return

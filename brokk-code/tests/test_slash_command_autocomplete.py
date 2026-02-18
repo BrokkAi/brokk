@@ -73,11 +73,10 @@ async def test_autocomplete_selection_updates_input():
         # suggestions.display should be True here
         assert app.query_one(SlashCommandSuggestions).display is True
 
-        # In this test app context, /ask is the first suggestion.
-        # Enter selects it and, because it's /ask, also submits (clearing input).
+        # Enter now accepts the suggestion without submitting
         await pilot.press("enter")
 
-        assert chat_input.text == ""
+        assert chat_input.text == "/ask"  # Command filled in, not cleared
         assert app.query_one(SlashCommandSuggestions).display is False
 
 
@@ -148,7 +147,7 @@ async def test_autocomplete_accept_with_tab_does_not_submit():
 
 
 @pytest.mark.asyncio
-async def test_autocomplete_accept_with_enter_submits_immediately():
+async def test_autocomplete_accept_with_enter_does_not_submit():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
@@ -163,14 +162,14 @@ async def test_autocomplete_accept_with_enter_submits_immediately():
         assert suggestions.display is True
         assert container.has_class("autocomplete-open")
 
-        # Enter should now both complete and submit
+        # Enter should now accept without submitting (like Tab)
         await pilot.press("enter")
 
-        assert chat_input.text == ""  # Submitted text is cleared
+        # /ask does not need args, so no trailing space
+        assert chat_input.text == "/ask"
         assert suggestions.display is False
         assert not container.has_class("autocomplete-open")
-        assert len(submissions) == 1
-        assert submissions[0] == "/ask"
+        assert len(submissions) == 0  # No submission occurred
 
 
 @pytest.mark.asyncio
@@ -286,13 +285,17 @@ async def test_autocomplete_ui_hidden_invariant_after_submit():
         assert suggestions.display is True
         assert container.has_class("autocomplete-open")
 
-        # 2. Submit (Enter)
+        # 2. Accept (Enter)
         await pilot.press("enter")
 
-        # 3. Verify UI is hidden and text is cleared
-        assert chat_input.text == ""
+        # 3. Verify UI is hidden and text is filled (not cleared yet)
+        assert chat_input.text == "/ask"
         assert suggestions.display is False
         assert not container.has_class("autocomplete-open")
+
+        # 4. Submit actually occurs on next Enter
+        await pilot.press("enter")
+        assert chat_input.text == ""
 
 
 @pytest.mark.asyncio
