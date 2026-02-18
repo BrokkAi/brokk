@@ -126,16 +126,15 @@ public final class HeadlessExecutorStdinShutdownIT {
             if (!exited) {
                 process.destroy();
                 process.waitFor(2, TimeUnit.SECONDS);
+                if (process.isAlive()) {
+                    process.destroyForcibly();
+                }
             }
 
-            if (process.isAlive()) {
-                process.destroyForcibly();
-            }
+            assertTrue(exited, "Process did not exit after stdin was closed");
 
             int exitCode = process.exitValue();
-            assertTrue(
-                    exitCode == 0 || exitCode == 1 || exitCode < 0 || !process.isAlive(),
-                    "Executor process did not exit in response to stdin closure (exitCode=" + exitCode + ")");
+            assertEquals(0, exitCode, "Executor process exited with unexpected code after stdin closure");
 
         } finally {
             try {
