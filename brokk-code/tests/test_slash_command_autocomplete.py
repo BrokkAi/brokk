@@ -359,8 +359,9 @@ async def test_autocomplete_ui_state_preserves_prompt_visibility():
         # Initial state
         assert not container.has_class("autocomplete-open")
         assert suggestions.display is False
-        assert chat_input.styles.height.value == 3
-        assert container.styles.margin.bottom.value == 0
+        # In test app (no app.tcss), ChatInput height defaults to 3 via DEFAULT_CSS
+        assert chat_input.styles.height == 3
+        assert container.styles.margin.bottom == 0
 
         # Trigger autocomplete
         await pilot.press("/")
@@ -368,13 +369,13 @@ async def test_autocomplete_ui_state_preserves_prompt_visibility():
         assert suggestions.display is True
 
         # In current design, height is preserved to keep UI stable
-        assert chat_input.styles.height.value == 3
+        assert chat_input.styles.height == 3
 
         # Container margin-bottom should be 0 - the prompt does NOT move
-        assert container.styles.margin.bottom.value == 0
+        assert container.styles.margin.bottom == 0
 
         # Hide autocomplete
         await pilot.press("escape")
         assert not container.has_class("autocomplete-open")
         assert suggestions.display is False
-        assert container.styles.margin.bottom.value == 0
+        assert container.styles.margin.bottom == 0
