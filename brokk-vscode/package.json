@@ -45,6 +45,28 @@
           "type": "string",
           "default": "",
           "description": "Auth token for an already-running executor"
+        },
+        "brokk.launchMode": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "jbang", "local", "external"],
+          "enumDescriptions": [
+            "Auto-detect: use external if port/token are set, otherwise detect local vs jbang",
+            "Launch via jbang (requires jbang installed)",
+            "Launch from a local JAR (development mode)",
+            "Connect to an already-running executor"
+          ],
+          "description": "How to start the Brokk executor"
+        },
+        "brokk.localJarPath": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit path to the Brokk shadow JAR (local mode only)"
+        },
+        "brokk.brokkRepoRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Brokk repo root for JAR discovery (local mode only)"
         }
       }
     },

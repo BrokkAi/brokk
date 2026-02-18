@@ -1,7 +1,16 @@
 import * as vscode from "vscode";
 import { ChildProcess } from "child_process";
 import path from "path";
-import { findJar, spawnExecutor, waitForReady } from "./executor/lifecycle";
+import {
+  LaunchMode,
+  detectLaunchMode,
+  findJar,
+  installJbang,
+  resolveJbangBinary,
+  spawnExecutor,
+  spawnJbang,
+  waitForReady,
+} from "./executor/lifecycle";
 import { BrokkClient } from "./executor/client";
 import { EventStreamManager } from "./executor/EventStreamManager";
 import { EventDispatcher } from "./executor/EventDispatcher";
@@ -82,15 +91,39 @@ export async function activate(context: vscode.ExtensionContext) {
 
 async function connectOrSpawn(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration("brokk");
-  const configPort = config.get<number>("executorPort", 0);
-  const configToken = config.get<string>("authToken", "");
 
-  // Priority: settings > env vars > auto-spawn
-  const extPort = configPort || parseInt(process.env.BROKK_EXECUTOR_PORT || "0", 10);
-  const extToken = configToken || process.env.BROKK_AUTH_TOKEN || "";
+  // Resolve launch mode
+  let mode = config.get<LaunchMode>("launchMode", "auto");
 
-  if (extPort > 0 && extToken) {
-    // Connect to existing executor
+  if (mode === "auto") {
+    const configPort = config.get<number>("executorPort", 0);
+    const configToken = config.get<string>("authToken", "");
+    const extPort = configPort || parseInt(process.env.BROKK_EXECUTOR_PORT || "0", 10);
+    const extToken = configToken || process.env.BROKK_AUTH_TOKEN || "";
+
+    if (extPort > 0 && extToken) {
+      mode = "external";
+    } else {
+      mode = detectLaunchMode(context.extensionUri.fsPath);
+    }
+  }
+
+  log(`Launch mode: ${mode}`);
+
+  // --- External mode ---
+  if (mode === "external") {
+    const configPort = config.get<number>("executorPort", 0);
+    const configToken = config.get<string>("authToken", "");
+    const extPort = configPort || parseInt(process.env.BROKK_EXECUTOR_PORT || "0", 10);
+    const extToken = configToken || process.env.BROKK_AUTH_TOKEN || "";
+
+    if (!extPort || !extToken) {
+      statusBarItem.text = "$(error) Brokk: Missing config";
+      statusBarItem.tooltip = "Set brokk.executorPort and brokk.authToken for external mode";
+      vscode.window.showErrorMessage("Brokk: External mode requires executorPort and authToken settings.");
+      return;
+    }
+
     log(`Connecting to external executor on port ${extPort}`);
     statusBarItem.text = "$(sync~spin) Brokk: Connecting...";
     try {
@@ -107,8 +140,7 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
     return;
   }
 
-  // Auto-spawn: find JAR relative to the extension's install location
-  // During development the extension is at <brokk-repo>/vscode-brokk/
+  // --- jbang / local modes need a workspace ---
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders) {
     statusBarItem.text = "$(warning) Brokk: No workspace";
@@ -118,27 +150,66 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
 
   const workspaceDir = workspaceFolders[0].uri.fsPath;
   const extensionDir = context.extensionUri.fsPath;
-  const brokkRoot = path.dirname(extensionDir); // extension is at <repo>/vscode-brokk
 
   log(`Workspace: ${workspaceDir}`);
   log(`Extension dir: ${extensionDir}`);
-  log(`Brokk repo root (for JAR): ${brokkRoot}`);
 
   statusBarItem.text = "$(sync~spin) Brokk: Starting...";
 
   try {
-    // Look for JAR in the brokk repo (where the extension lives), not in the workspace
-    let jarPath: string;
-    try {
-      jarPath = await findJar(brokkRoot);
-    } catch {
-      // If we're actually inside the brokk repo as workspace, try there too
-      jarPath = await findJar(workspaceDir);
-    }
-    log(`Found JAR: ${jarPath}`);
+    let handle;
 
-    const handle = await spawnExecutor(workspaceDir, jarPath);
+    if (mode === "jbang") {
+      let jbangBinary = resolveJbangBinary();
+
+      if (!jbangBinary) {
+        const choice = await vscode.window.showInformationMessage(
+          "Brokk requires jbang to run. Would you like to install it now?",
+          "Install jbang",
+          "Cancel"
+        );
+        if (choice !== "Install jbang") {
+          statusBarItem.text = "$(circle-slash) Brokk: Not connected";
+          statusBarItem.tooltip = "jbang is required. Click to retry.";
+          return;
+        }
+
+        log("Installing jbang...");
+        statusBarItem.text = "$(sync~spin) Brokk: Installing jbang...";
+        jbangBinary = await installJbang();
+        log(`jbang installed at ${jbangBinary}`);
+      }
+
+      log("Launching executor via jbang...");
+      handle = await spawnJbang(workspaceDir, jbangBinary);
+    } else {
+      // local mode
+      const explicitJar = config.get<string>("localJarPath", "") || undefined;
+      const configRepoRoot = config.get<string>("brokkRepoRoot", "");
+      const repoRoot = configRepoRoot || path.dirname(extensionDir);
+
+      log(`Brokk repo root (for JAR): ${repoRoot}`);
+
+      let jarPath: string;
+      try {
+        jarPath = await findJar(repoRoot, explicitJar);
+      } catch {
+        // If we're actually inside the brokk repo as workspace, try there too
+        jarPath = await findJar(workspaceDir);
+      }
+      log(`Found JAR: ${jarPath}`);
+
+      handle = await spawnExecutor(workspaceDir, jarPath);
+    }
+
     executorProcess = handle.process;
+
+    // Pipe executor stderr to the output channel for debugging
+    handle.process?.stderr?.on("data", (data: Buffer) => {
+      const msg = data.toString().trimEnd();
+      if (msg) log(`[executor] ${msg}`);
+    });
+
     log(`Executor spawned on port ${handle.port}`);
 
     statusBarItem.text = "$(sync~spin) Brokk: Waiting for ready...";
@@ -157,7 +228,7 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
     const message = err instanceof Error ? err.message : String(err);
     log(`Startup failed: ${message}`);
     statusBarItem.text = "$(error) Brokk: Failed";
-    statusBarItem.tooltip = `${message}\n\nClick to retry, or set brokk.executorPort and brokk.authToken in settings.`;
+    statusBarItem.tooltip = `${message}\n\nClick to retry, or configure brokk.launchMode in settings.`;
     vscode.window.showErrorMessage(`Brokk: ${message}`);
   }
 }

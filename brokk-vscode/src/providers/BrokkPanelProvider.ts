@@ -486,8 +486,8 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
           const mode = (msg.mode as string) || "LUTZ";
 
           const opts: Record<string, unknown> = {};
-          if (mode === "LUTZ" && codeModel) {
-            opts.codeModel = codeModel;
+          if (mode === "LUTZ") {
+            opts.codeModel = codeModel || plannerModel;
           } else if (mode === "CODE") {
             opts.codeModel = plannerModel;
           } else if (mode === "SEARCH") {
@@ -554,6 +554,7 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
       case "NOTIFICATION": {
         const data = event.data as NotificationData;
         if (data && data.level !== "COST") {
+          this.log?.(`[NOTIFICATION ${data.level}] ${data.message}`);
           this.sendToWebview("notification", {
             level: data.level,
             message: data.message,
@@ -565,6 +566,7 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
       case "ERROR": {
         const data = event.data as ErrorData;
         if (data) {
+          this.log?.(`[ERROR] ${data.title}: ${data.message}`);
           this.sendToWebview("error", {
             message: data.message,
             title: data.title,

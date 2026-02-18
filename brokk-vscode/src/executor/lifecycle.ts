@@ -2,8 +2,12 @@ import * as vscode from "vscode";
 import { ChildProcess, spawn } from "child_process";
 import { createInterface } from "readline";
 import { randomUUID } from "crypto";
-import { readdirSync, statSync } from "fs";
+import { execSync } from "child_process";
+import { existsSync, readdirSync, statSync } from "fs";
+import os from "os";
 import path from "path";
+
+export type LaunchMode = "auto" | "jbang" | "local" | "external";
 
 export interface ExecutorHandle {
   port: number;
@@ -13,9 +17,15 @@ export interface ExecutorHandle {
 
 /**
  * Find the newest brokk JAR in app/build/libs/, filtering out -sources JARs.
+ * If explicitJar is provided and exists, use it directly.
  */
-export async function findJar(workspaceRoot: string): Promise<string> {
-  const libsDir = path.join(workspaceRoot, "app", "build", "libs");
+export async function findJar(repoRoot: string, explicitJar?: string): Promise<string> {
+  if (explicitJar) {
+    if (existsSync(explicitJar)) return explicitJar;
+    throw new Error(`Configured JAR not found: ${explicitJar}`);
+  }
+
+  const libsDir = path.join(repoRoot, "app", "build", "libs");
 
   const matches: { path: string; mtime: number }[] = [];
   let entries: string[];
@@ -54,15 +64,6 @@ export async function spawnExecutor(
   workspaceDir: string,
   jarPath: string
 ): Promise<ExecutorHandle> {
-  // Check for external executor (for development)
-  const envPort = process.env.BROKK_EXECUTOR_PORT;
-  const envToken = process.env.BROKK_AUTH_TOKEN;
-  if (envPort && envToken) {
-    const port = parseInt(envPort, 10);
-    if (isNaN(port)) throw new Error(`Invalid BROKK_EXECUTOR_PORT: ${envPort}`);
-    return { port, authToken: envToken, process: null };
-  }
-
   const authToken = randomUUID();
   const execId = randomUUID();
 
@@ -72,6 +73,127 @@ export async function spawnExecutor(
       "-cp",
       jarPath,
       "ai.brokk.executor.HeadlessExecutorMain",
+      "--listen-addr",
+      "127.0.0.1:0",
+      "--auth-token",
+      authToken,
+      "--workspace-dir",
+      workspaceDir,
+      "--exec-id",
+      execId,
+    ],
+    {
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd: workspaceDir,
+    }
+  );
+
+  const port = await waitForPort(child);
+  return { port, authToken, process: child };
+}
+
+/**
+ * Detect whether we're running inside the brokk repo (local mode)
+ * or as a packaged extension (jbang mode).
+ */
+export function detectLaunchMode(extensionDir: string): "local" | "jbang" {
+  const repoRoot = path.dirname(extensionDir);
+  const libsDir = path.join(repoRoot, "app", "build", "libs");
+  return existsSync(libsDir) ? "local" : "jbang";
+}
+
+/**
+ * Check common locations for the jbang binary.
+ * Returns the full path if found, null otherwise.
+ */
+export function resolveJbangBinary(): string | null {
+  // Check PATH first
+  try {
+    const which = process.platform === "win32" ? "where" : "which";
+    const result = execSync(`${which} jbang`, { stdio: "pipe" }).toString().trim();
+    if (result) return result.split("\n")[0];
+  } catch {
+    // not on PATH
+  }
+
+  // Check default install location
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, ".jbang", "bin", "jbang"),
+    // Homebrew on Apple Silicon / Intel
+    "/opt/homebrew/bin/jbang",
+    "/usr/local/bin/jbang",
+  ];
+  if (process.platform === "win32") {
+    candidates.push(path.join(home, ".jbang", "bin", "jbang.cmd"));
+  }
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+/**
+ * Install jbang via the official install script.
+ * Returns the path to the installed binary.
+ */
+export async function installJbang(): Promise<string> {
+  const isWindows = process.platform === "win32";
+
+  const INSTALL_TIMEOUT_MS = 120_000; // 2 minutes
+
+  const child = isWindows
+    ? spawn("powershell", ["-Command", `iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"`], { stdio: "pipe" })
+    : spawn("bash", ["-c", "curl -Ls https://sh.jbang.dev | bash -s - app setup"], { stdio: "pipe" });
+
+  await new Promise<void>((resolve, reject) => {
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error("jbang installation timed out after 2 minutes"));
+    }, INSTALL_TIMEOUT_MS);
+
+    // Drain both stdout and stderr to prevent pipe buffer from filling
+    child.stdout?.on("data", () => {});
+    child.stderr?.on("data", (data: Buffer) => { stderr += data.toString(); });
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(new Error(`Failed to run jbang installer: ${err.message}`));
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) resolve();
+      else reject(new Error(`jbang installer exited with code ${code}${stderr ? `: ${stderr.trim()}` : ""}`));
+    });
+  });
+
+  // Trust the brokk catalog
+  const jbangPath = resolveJbangBinary();
+  if (!jbangPath) {
+    throw new Error("jbang was installed but could not be found. You may need to restart VS Code.");
+  }
+
+  execSync(`"${jbangPath}" trust add https://github.com/BrokkAi/brokk-releases`, { stdio: "pipe" });
+
+  return jbangPath;
+}
+
+/**
+ * Spawn the executor via jbang.
+ * If jbangBinary is provided, use it; otherwise look up jbang on PATH.
+ */
+export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Promise<ExecutorHandle> {
+  const jbang = jbangBinary ?? "jbang";
+
+  const authToken = randomUUID();
+  const execId = randomUUID();
+
+  const child = spawn(
+    jbang,
+    [
+      "brokk-headless@brokkai/brokk-releases",
       "--listen-addr",
       "127.0.0.1:0",
       "--auth-token",
