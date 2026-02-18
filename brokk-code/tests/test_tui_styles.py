@@ -220,7 +220,15 @@ def test_help_menu_layout_contract():
     )
     assert help_margins[2] == "0", "#chat-help should have 0 bottom margin to sit at the bottom."
 
-    # 3. Ensure legacy help labels are not active/visible
+    # 3. Verify right-alignment
+    assert "content-align: right middle;" in help_body, (
+        "#chat-help should use 'content-align: right middle;' for horizontal positioning."
+    )
+    assert "text-align: right;" in help_body, (
+        "#chat-help should use 'text-align: right;' for the label content."
+    )
+
+    # 4. Ensure legacy help labels are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)
     for legacy_id in ["#tasklist-help", "#context-help"]:
         match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
