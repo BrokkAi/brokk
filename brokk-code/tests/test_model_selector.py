@@ -98,3 +98,23 @@ async def test_action_select_model_handles_dotted_model_names():
             await app.action_select_model()
             await pilot.pause()
             assert app.screen.__class__.__name__ == "ModelSelectModal"
+
+
+def test_help_command_no_shortcuts_for_model_reasoning():
+    """Verify /help output does not mention Ctrl+U or Ctrl+E."""
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    app._handle_command("/help")
+
+    # Capture the help text passed to append_message
+    args, _ = mock_chat.append_message.call_args
+    help_text = args[1]
+
+    assert "Ctrl+U" not in help_text
+    assert "Ctrl+E" not in help_text
+    assert "Shortcut:" not in help_text
+    # Verify the commands themselves are still documented
+    assert "/model" in help_text
+    assert "/reasoning" in help_text
