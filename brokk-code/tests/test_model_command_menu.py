@@ -64,6 +64,11 @@ async def test_combined_modal_navigation_updates_both_settings():
     app = BrokkApp(executor=executor)
     app._executor_ready = True
 
+    # Force planner reasoning to 'low' so navigation is deterministic and
+    # independent of any persisted ~/.brokk/settings.json.
+    app.reasoning_level = "low"
+    app.settings.last_reasoning_level = "low"
+
     with (
         patch.object(BrokkApp, "_start_executor", return_value=None),
         patch.object(BrokkApp, "_monitor_executor", return_value=None),
@@ -83,7 +88,7 @@ async def test_combined_modal_navigation_updates_both_settings():
 
             # 2. Selection Pane: Reasoning (Focus should be here now)
             # Reasoning list is: disable, low, medium, high.
-            # Highlight starts at current value 'low' (idx 1), so one Down moves to 'medium' (idx 2).
+            # Highlight starts at 'low' (idx 1) as set above, so one Down moves to 'medium' (idx 2).
             await pilot.press("down")
             await pilot.press("enter")
             await pilot.pause()
