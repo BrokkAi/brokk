@@ -89,20 +89,20 @@ public final class UsageFinder {
      * @deprecated Use {@link #create(IContextManager)} or the full constructor.
      */
     @Deprecated
-    public UsageFinder(IProject project, IAnalyzer analyzer, UsageAnalyzer llmAnalyzer) {
-        this(project, analyzer, createDefaultProvider(), llmAnalyzer, null);
+    public UsageFinder(IProject project, IAnalyzer analyzer, UsageAnalyzer usageAnalyzer) {
+        this(project, analyzer, createDefaultProvider(), usageAnalyzer, null);
     }
 
     public UsageFinder(
             IProject project,
             IAnalyzer analyzer,
             CandidateFileProvider candidateProvider,
-            UsageAnalyzer llmAnalyzer,
+            UsageAnalyzer usageAnalyzer,
             @Nullable Predicate<ProjectFile> fileFilter) {
         this.project = project;
         this.analyzer = analyzer;
         this.fallbackCandidateProvider = candidateProvider;
-        this.fallbackUsageAnalyzer = llmAnalyzer;
+        this.fallbackUsageAnalyzer = usageAnalyzer;
         this.fileFilter = fileFilter;
     }
 
