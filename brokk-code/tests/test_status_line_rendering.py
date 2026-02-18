@@ -23,6 +23,7 @@ def test_status_line_rendering_compact_home_abbreviation(monkeypatch):
         workspace="/home/user",
         branch="main",
     )
+    # Expected format: {mode} - {model} ({reasoning}) - {workspace} - {branch}
     expected_home = "LUTZ - gpt-4 (high) - ~ - main"
     mock_metadata.update.assert_called_with(expected_home)
 
@@ -51,6 +52,7 @@ def test_status_line_rendering_compact_no_abbreviation(monkeypatch):
         branch="main",
     )
 
+    # Format: {mode} - {model} ({reasoning}) - {workspace} - {branch}
     expected = "LUTZ - gpt-4 (high) - /var/www/project - main"
     mock_metadata.update.assert_called_with(expected)
 
