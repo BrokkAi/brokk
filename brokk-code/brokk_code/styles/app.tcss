@@ -266,3 +266,25 @@ ChatPanel {
 .ml-1 {
     margin-left: 1;
 }
+
+#model-select-container, #reasoning-select-container {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#model-select-title, #reasoning-select-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#model-select-list-wrap, #reasoning-select-list-wrap {
+    height: auto;
+    max-height: 20;
+}
