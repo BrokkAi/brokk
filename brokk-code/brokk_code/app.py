@@ -357,6 +357,7 @@ class BrokkApp(App):
         self.run_worker(self._monitor_executor())
         self.run_worker(self._poll_tasklist())
         self.run_worker(self._poll_context())
+        self._update_statusline()
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
