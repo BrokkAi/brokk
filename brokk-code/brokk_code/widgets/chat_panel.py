@@ -1,3 +1,4 @@
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 from rich.markdown import Markdown
