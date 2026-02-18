@@ -65,7 +65,7 @@ ChatPanel {
     width: auto;
     min-width: 17;
     height: 1;
-    color: $text;
+    color: $text-muted;
     background: transparent;
     margin-right: 1;
 }

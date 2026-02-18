@@ -168,7 +168,7 @@ class StatusLine(Horizontal):
         self._render_status_text()
 
     def set_job_running(self, running: bool) -> None:
-        """Update internal job state. (Display is now handled by ChatPanel help row)."""
+        """Update internal job state."""
         if running:
             if self._job_start_time is None:
                 self._job_start_time = self._get_now()

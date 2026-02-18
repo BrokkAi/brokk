@@ -12,7 +12,8 @@ class StatusApp(App):
 async def test_chat_panel_timer_lifecycle():
     """Verify that the timer in ChatPanel help row updates correctly when job is running."""
     from brokk_code.widgets.chat_panel import ChatPanel
-    
+    from textual.widgets import Static
+
     class ChatApp(App):
         def compose(self) -> ComposeResult:
             yield ChatPanel()
@@ -20,7 +21,7 @@ async def test_chat_panel_timer_lifecycle():
     app = ChatApp()
     async with app.run_test() as pilot:
         chat_panel = app.query_one(ChatPanel)
-        elapsed_label = chat_panel.query_one("#help-elapsed")
+        elapsed_label = chat_panel.query_one("#help-elapsed", Static)
         help_spinner = chat_panel.query_one("#help-spinner")
 
         # Setup deterministic clock
@@ -30,6 +31,7 @@ async def test_chat_panel_timer_lifecycle():
         async def wait_for_timer(expected: str, timeout: float = 1.0):
             start = time.time()
             while time.time() - start < timeout:
+                # Textual Static.render() returns a Renderable, cast to string for comparison
                 if str(elapsed_label.render()) == expected:
                     return
                 await pilot.pause()
