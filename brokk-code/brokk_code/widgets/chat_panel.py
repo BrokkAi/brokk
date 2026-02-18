@@ -85,6 +85,12 @@ class SlashCommandSuggestions(ListView):
 class ChatInput(TextArea):
     """A multiline text area for chat input that submits on Enter."""
 
+    DEFAULT_CSS = """
+    ChatInput {
+        height: 3;
+    }
+    """
+
     suppress_autocomplete_once: bool = False
 
     BINDINGS = [
