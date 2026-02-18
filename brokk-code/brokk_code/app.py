@@ -1315,7 +1315,10 @@ class BrokkApp(App):
             # Treat intentional "Executor not started" after a controlled stop as benign.
             msg = str(ee)
             if "Executor not started" in msg:
-                logger.debug("Session export skipped because executor is not started (expected during shutdown).")
+                logger.debug(
+                    "Session export skipped because executor is not started "
+                    "(expected during shutdown)."
+                )
             else:
                 logger.warning("Failed to export session zip on shutdown: %s", ee)
         except Exception as e:
@@ -1343,7 +1346,8 @@ class BrokkApp(App):
             try:
                 can_export = False
                 if self.executor.session_id:
-                    # Prefer _executor_ready, but if it's false we still attempt only if process alive
+                    # Prefer _executor_ready, but if it is false we still attempt
+                    # export only if the process is alive.
                     if self._executor_ready or self.executor.check_alive():
                         can_export = True
 
@@ -1357,7 +1361,8 @@ class BrokkApp(App):
             # Mark executor not ready immediately so any concurrent refresh/export short-circuits.
             self._executor_ready = False
 
-            # Stop executor (best-effort). Multiple calls are safe because ExecutorManager.stop is idempotent.
+            # Stop executor (best-effort). Multiple calls are safe because
+            # ExecutorManager.stop is idempotent.
             try:
                 await self.executor.stop()
             except Exception:
