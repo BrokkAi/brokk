@@ -199,3 +199,39 @@ def test_main_keeps_workspace_when_not_in_git_repo(monkeypatch, tmp_path) -> Non
 
     assert captured["ran"] is True
     assert captured["kwargs"]["workspace_dir"] == nested_workspace.resolve()
+
+
+def test_main_resume_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    fake_app_module = ModuleType("brokk_code.app")
+
+    class FakeApp:
+        def __init__(self, **kwargs: Any):
+            captured["kwargs"] = kwargs
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    fake_app_module.BrokkApp = FakeApp
+    monkeypatch.setitem(sys.modules, "brokk_code.app", fake_app_module)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk-code",
+            "resume",
+            "session-xyz",
+            "--workspace",
+            str(tmp_path),
+            "--vendor",
+            "Anthropic",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["session_id"] == "session-xyz"
+    assert captured["kwargs"]["resume_session"] is False
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["vendor"] == "Anthropic"
