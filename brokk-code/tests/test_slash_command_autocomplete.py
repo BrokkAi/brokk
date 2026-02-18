@@ -245,3 +245,73 @@ async def test_inline_hint_hidden_on_newline():
 
         await pilot.press("shift+enter")
         assert hint.display is False
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_history_interaction():
+    """Ensure history navigation is gated correctly by autocomplete visibility."""
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        chat_panel = app.query_one(ChatPanel)
+        chat_panel.set_history(["history 1", "history 2"])
+        chat_input = app.query_one(ChatInput)
+        suggestions = app.query_one(SlashCommandSuggestions)
+
+        # 1. No autocomplete: Up should show history
+        await pilot.press("up")
+        assert chat_input.text == "history 2"
+
+        # 2. Reset and start typing a command to show autocomplete
+        chat_input.text = ""
+        await pilot.press("/")
+        assert suggestions.display is True
+        assert chat_input.text == "/"
+
+        # 3. With autocomplete: Up should navigate suggestions, NOT history
+        await pilot.press("up")
+        assert chat_input.text == "/"
+        # (Assuming index stays at 0 if moving 'up' from 0 in ListView,
+        # but the key is that text didn't change to history)
+
+        # 4. Escape to hide autocomplete
+        await pilot.press("escape")
+        assert suggestions.display is False
+
+        # 5. Up should now navigate history again
+        await pilot.press("up")
+        assert chat_input.text == "history 2"
+
+
+@pytest.mark.asyncio
+async def test_inline_hint_cleared_on_submit():
+    """Ensures the inline hint is hidden when a command is submitted."""
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        hint = app.query_one(SlashCommandInlineHint)
+        chat_input = app.query_one(ChatInput)
+
+        await pilot.press("/", "a")
+        assert hint.display is True
+
+        await pilot.press("enter")
+        assert chat_input.text == ""
+        assert hint.display is False
+
+
+@pytest.mark.asyncio
+async def test_inline_hint_multi_word_no_double_space():
+    """Ensures /task next doesn't result in double spaces when completed via hint."""
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        chat_input = app.query_one(ChatInput)
+        hint = app.query_one(SlashCommandInlineHint)
+
+        # Type /task n
+        await pilot.press(*list("/task n"))
+        assert hint.display is True
+        assert str(hint.renderable) == "/task next"
+
+        # Accept hint with Tab
+        await pilot.press("tab")
+        assert chat_input.text == "/task next"
+        # Ensure no trailing space added because /task next is a complete multi-word command

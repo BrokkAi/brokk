@@ -346,10 +346,11 @@ class ChatPanel(Vertical):
         if not chat_input.has_focus:
             return
 
-        # Bypass history navigation if suggestions are visible
+        # Bypass history navigation if suggestions or hints are visible
         try:
             suggestions = self.query_one(SlashCommandSuggestions)
-            if suggestions.display:
+            hint = self.query_one(SlashCommandInlineHint)
+            if suggestions.display or hint.display:
                 return
         except Exception:
             pass
