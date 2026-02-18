@@ -14,7 +14,8 @@ def test_chat_input_no_border():
     chat_input_body = chat_input_match.group(1)
 
     assert "border: none;" in chat_input_body or "border: none !important;" in chat_input_body, (
-        f"#chat-input should explicitly set border: none to override defaults. Found: {chat_input_body.strip()}"
+        "#chat-input should explicitly set border: none to override defaults. "
+        f"Found: {chat_input_body.strip()}"
     )
     assert "background:" in chat_input_body, "#chat-input should have a background."
     assert "padding:" in chat_input_body, "#chat-input should have padding for spacing."
