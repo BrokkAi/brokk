@@ -25,15 +25,15 @@ def test_action_toggle_mode_cycles_correctly():
         "Mode changed to: [bold]ASK[/]", level="WARNING"
     )
 
-    # Cycle 2: ASK -> SEARCH
+    # Cycle 2: ASK -> CODE
     app.action_toggle_mode()
-    assert app.agent_mode == "SEARCH"
-    assert app.sub_title == "Mode: SEARCH"
+    assert app.agent_mode == "CODE"
+    assert app.sub_title == "Mode: CODE"
     mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]SEARCH[/]", level="WARNING"
+        "Mode changed to: [bold]CODE[/]", level="WARNING"
     )
 
-    # Cycle 3: SEARCH -> LUTZ
+    # Cycle 3: CODE -> LUTZ
     app.action_toggle_mode()
     assert app.agent_mode == "LUTZ"
     assert app.sub_title == "Mode: LUTZ"
@@ -42,7 +42,7 @@ def test_action_toggle_mode_cycles_correctly():
     )
 
 
-def test_handle_command_updates_mode_and_subtitle():
+def test_handle_command_updates_mode_and_subtitle_and_search_is_unknown():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
@@ -55,12 +55,12 @@ def test_handle_command_updates_mode_and_subtitle():
         "Mode changed to: [bold]ASK[/]", level="WARNING"
     )
 
-    # Test /search
-    app._handle_command("/search")
-    assert app.agent_mode == "SEARCH"
-    assert app.sub_title == "Mode: SEARCH"
+    # Test /code
+    app._handle_command("/code")
+    assert app.agent_mode == "CODE"
+    assert app.sub_title == "Mode: CODE"
     mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]SEARCH[/]", level="WARNING"
+        "Mode changed to: [bold]CODE[/]", level="WARNING"
     )
 
     # Test /lutz
@@ -69,6 +69,14 @@ def test_handle_command_updates_mode_and_subtitle():
     assert app.sub_title == "Mode: LUTZ"
     mock_chat.add_system_message_markup.assert_called_with(
         "Mode changed to: [bold]LUTZ[/]", level="WARNING"
+    )
+
+    # /search is no longer a supported mode alias; it should be treated as unknown.
+    mock_chat.reset_mock()
+    app._handle_command("/search")
+    # Unknown command branch appends a System message like "Unknown command: /search. Type /help for assistance."
+    mock_chat.append_message.assert_called_with(
+        "System", "Unknown command: /search. Type /help for assistance."
     )
 
 
