@@ -109,17 +109,23 @@ async def test_autocomplete_navigates_with_arrows_bypassing_history():
 
 
 @pytest.mark.asyncio
-async def test_autocomplete_accept_with_tab_appends_space_for_model():
+async def test_autocomplete_accept_with_tab_does_not_submit():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
+        suggestions = app.query_one(SlashCommandSuggestions)
+
+        # Track submissions
+        submissions = []
+        app.on_chat_panel_submitted = lambda msg: submissions.append(msg.text)
 
         await pilot.press("/", "m", "o")
         await pilot.press("tab")
 
         # /model needs args, so it should have a trailing space
         assert chat_input.text == "/model "
-        assert app.query_one(SlashCommandSuggestions).display is False
+        assert suggestions.display is False
+        assert len(submissions) == 0
 
 
 @pytest.mark.asyncio
@@ -127,16 +133,20 @@ async def test_autocomplete_accept_with_enter_submits_immediately():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
+        suggestions = app.query_one(SlashCommandSuggestions)
 
         # Track submissions
         submissions = []
         app.on_chat_panel_submitted = lambda msg: submissions.append(msg.text)
 
         await pilot.press("/", "a", "s")
+        assert suggestions.display is True
+
         # Enter should now both complete and submit
         await pilot.press("enter")
 
         assert chat_input.text == ""  # Submitted text is cleared
+        assert suggestions.display is False
         assert len(submissions) == 1
         assert submissions[0] == "/ask"
 
