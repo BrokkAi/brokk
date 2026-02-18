@@ -86,3 +86,24 @@ def test_context_panel_height_regression():
     assert scroll_match, "Could not find #context-chip-scroll rule in app.tcss"
     scroll_body = scroll_match.group(1)
     assert "height: 1fr" in scroll_body, "#context-chip-scroll should use 1fr to fill panel space"
+
+
+def test_combined_selector_modal_dimensions():
+    """
+    Regression test for the combined model and reasoning selector modal sizing.
+    It should be large enough to display both lists side-by-side comfortably.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    combined_match = re.search(r"#model-reasoning-combined-container\s*\{([^}]*)\}", css_content)
+    assert combined_match, "Could not find #model-reasoning-combined-container rule in app.tcss"
+
+    body = combined_match.group(1)
+    assert "width: 100;" in body, "Combined modal should have a width of 100 for side-by-side lists"
+    assert "max-height: 90%;" in body, "Combined modal should allow up to 90% screen height"
+
+    # Verify list wrapper constraints within the modal
+    wrapper_match = re.search(r"#model-select-list-wrap,\s*#reasoning-select-list-wrap\s*\{([^}]*)\}", css_content)
+    assert wrapper_match, "Could not find selector list wrapper rule in app.tcss"
+    wrapper_body = wrapper_match.group(1)
+    assert "max-height: 30;" in wrapper_body, "Selector list wrappers should have max-height: 30"
