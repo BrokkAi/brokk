@@ -119,25 +119,25 @@ def test_combined_selector_modal_dimensions():
     assert "max-height: 30;" in wrapper_body, "Selector list wrappers should have max-height: 30"
 
 
-def test_status_progress_overflow_valid():
+def test_status_timer_wrap_overflow_valid():
     """
-    Regression test to ensure #status-progress does not use 'overflow: visible'.
+    Regression test to ensure #status-timer-wrap does not use 'overflow: visible'.
     Textual does not support 'visible' for overflow; it must be auto, hidden, or scroll.
     Also guard against 'overflow_x: visible' / 'overflow_y: visible' and hyphenated variants.
     """
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
 
-    progress_match = re.search(r"#status-progress\s*\{([^}]*)\}", css_content)
-    assert progress_match, "Could not find #status-progress rule in app.tcss"
+    timer_wrap_match = re.search(r"#status-timer-wrap\s*\{([^}]*)\}", css_content)
+    assert timer_wrap_match, "Could not find #status-timer-wrap rule in app.tcss"
 
-    progress_body = progress_match.group(1)
+    timer_wrap_body = timer_wrap_match.group(1)
 
     # Check for 'overflow', 'overflow-x', 'overflow_x', 'overflow-y', and 'overflow_y'
     # being set to 'visible' anywhere in the rule block.
     for prop in ["overflow", "overflow-x", "overflow_x", "overflow-y", "overflow_y"]:
         pattern = rf"{prop}\s*:\s*visible"
-        assert not re.search(pattern, progress_body), (
-            f"#status-progress uses '{prop}: visible' which is invalid in Textual TCSS."
+        assert not re.search(pattern, timer_wrap_body), (
+            f"#status-timer-wrap uses '{prop}: visible' which is invalid in Textual TCSS."
         )
 
 

@@ -61,19 +61,10 @@ ChatPanel {
 }
 
 
-#status-progress {
+#status-timer-wrap {
     width: auto;
     height: 1;
     layout: horizontal;
-}
-
-#status-spinner {
-    height: 1;
-    width: auto;
-    min-width: 4;
-    color: $accent;
-    background: transparent;
-    margin-right: 1;
 }
 
 #status-timer {

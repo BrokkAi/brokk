@@ -810,11 +810,7 @@ class BrokkApp(App):
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
-        try:
-            status = chat.query_one(StatusLine)
-            status.set_job_running(True)
-        except Exception:
-            pass
+        chat.set_job_running(True)
         chat.set_response_pending()
         try:
             self.current_job_id = await self.executor.submit_job(

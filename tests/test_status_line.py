@@ -13,7 +13,7 @@ async def test_status_line_timer_lifecycle():
     app = StatusApp()
     async with app.run_test() as pilot:
         status = app.query_one(StatusLine)
-        progress = status.query_one("#status-progress")
+        timer_wrap = status.query_one("#status-timer-wrap")
         timer_label = status.query_one("#status-timer")
 
         # Setup deterministic clock
@@ -30,13 +30,13 @@ async def test_status_line_timer_lifecycle():
             assert str(timer_label.render()) == expected
 
         # Initial state
-        assert progress.has_class("hidden")
+        assert timer_wrap.has_class("hidden")
         assert str(timer_label.render()) == ""
 
         # Start job
         status.set_job_running(True)
         await pilot.pause()
-        assert not progress.has_class("hidden")
+        assert not timer_wrap.has_class("hidden")
         await wait_for_timer("Elapsed: 00:00")
 
         # Advance 65s
@@ -46,7 +46,7 @@ async def test_status_line_timer_lifecycle():
         # Finish job
         status.set_job_running(False)
         await pilot.pause()
-        assert progress.has_class("hidden")
+        assert timer_wrap.has_class("hidden")
 
 @pytest.mark.asyncio
 async def test_chat_panel_status_integration():
@@ -61,7 +61,7 @@ async def test_chat_panel_status_integration():
     async with app.run_test() as pilot:
         chat_panel = app.query_one(ChatPanel)
         status_line = chat_panel.query_one(StatusLine)
-        progress = status_line.query_one("#status-progress")
+        timer_wrap = status_line.query_one("#status-timer-wrap")
         timer_label = status_line.query_one("#status-timer")
 
         # Setup deterministic clock
@@ -69,14 +69,14 @@ async def test_chat_panel_status_integration():
         status_line._get_now = lambda: current_time
 
         # Initial state: hidden
-        assert "hidden" in progress.classes
+        assert "hidden" in timer_wrap.classes
 
         # Trigger via ChatPanel
         chat_panel.set_job_running(True)
         await pilot.pause()
 
         # Verify visibility and timer initialization
-        assert "hidden" not in progress.classes
+        assert "hidden" not in timer_wrap.classes
         assert "Elapsed: 00:00" in str(timer_label.render())
 
         # Advance time and verify update
@@ -89,4 +89,4 @@ async def test_chat_panel_status_integration():
         # Stop via ChatPanel
         chat_panel.set_job_running(False)
         await pilot.pause()
-        assert "hidden" in progress.classes
+        assert "hidden" in timer_wrap.classes

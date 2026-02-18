@@ -53,8 +53,7 @@ class StatusLine(Horizontal):
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-metadata")
-        with Horizontal(id="status-progress", classes="hidden"):
-            yield LoadingIndicator(id="status-spinner")
+        with Horizontal(id="status-timer-wrap", classes="hidden"):
             yield Static(id="status-timer")
 
     def on_mount(self) -> None:
@@ -171,9 +170,9 @@ class StatusLine(Horizontal):
         self._render_status_text()
 
     def set_job_running(self, running: bool) -> None:
-        """Start or stop the job progress indicator and timer."""
+        """Start or stop the job elapsed timer."""
         try:
-            progress = self.query_one("#status-progress", Horizontal)
+            timer_wrap = self.query_one("#status-timer-wrap", Horizontal)
         except Exception:
             return
 
@@ -183,13 +182,13 @@ class StatusLine(Horizontal):
                 self._update_timer()
                 if self._timer_interval is None:
                     self._timer_interval = self.set_interval(0.2, self._update_timer)
-            progress.remove_class("hidden")
+            timer_wrap.remove_class("hidden")
         else:
             self._job_start_time = None
             if self._timer_interval is not None:
                 self._timer_interval.stop()
                 self._timer_interval = None
-            progress.add_class("hidden")
+            timer_wrap.add_class("hidden")
             try:
                 timer = self.query_one("#status-timer", Static)
                 timer.update("")
