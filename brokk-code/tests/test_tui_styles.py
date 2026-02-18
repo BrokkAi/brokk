@@ -103,7 +103,8 @@ def test_combined_selector_modal_dimensions():
     assert "max-height: 90%;" in body, "Combined modal should allow up to 90% screen height"
 
     # Verify list wrapper constraints within the modal
-    wrapper_match = re.search(r"#model-select-list-wrap,\s*#reasoning-select-list-wrap\s*\{([^}]*)\}", css_content)
+    m = r"#model-select-list-wrap,\s*#reasoning-select-list-wrap\s*\{([^}]*)\}"
+    wrapper_match = re.search(m, css_content)
     assert wrapper_match, "Could not find selector list wrapper rule in app.tcss"
     wrapper_body = wrapper_match.group(1)
     assert "max-height: 30;" in wrapper_body, "Selector list wrappers should have max-height: 30"
