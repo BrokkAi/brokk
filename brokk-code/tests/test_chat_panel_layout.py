@@ -52,28 +52,16 @@ async def test_help_row_spinner_order():
 
 
 @pytest.mark.asyncio
-async def test_suggestions_below_chat_input():
+async def test_suggestions_overlay_chat_input():
     """
-    Verify that slash suggestions are positioned below the chat input container in the DOM.
-    This layout invariant ensures suggestions appear below the prompt when open.
+    Verify that slash suggestions are inside the chat input container
+    so they can overlay above the input via layers/docking.
     """
     app = ChatPanelLayoutApp()
     async with app.run_test():
-        chat_panel = app.query_one(ChatPanel)
         container = app.query_one("#chat-input-container")
         suggestions = app.query_one(SlashCommandSuggestions)
 
-        # Verify siblings in ChatPanel
-        children = list(chat_panel.children)
-        container_index = children.index(container)
-        suggestions_index = children.index(suggestions)
-
-        assert container_index < suggestions_index, (
-            f"Expected #chat-input-container (index {container_index}) to be above "
-            f"#slash-suggestions (index {suggestions_index}) in ChatPanel"
-        )
-
-        # Also verify they are immediate siblings for predictable layout
-        assert suggestions_index == container_index + 1, (
-            "Suggestions should be the immediate next sibling of the input container"
+        assert suggestions in container.children, (
+            "Suggestions should be a child of #chat-input-container for overlay positioning"
         )

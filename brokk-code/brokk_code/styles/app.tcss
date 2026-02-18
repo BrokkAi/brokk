@@ -220,8 +220,8 @@ ChatPanel {
 }
 
 #chat-input-container.autocomplete-open {
-    /* Raise the prompt panel by ~10px (approx 1 row) when autocomplete is open */
-    margin-bottom: 1;
+    /* Prompt no longer moves when autocomplete is open */
+    margin-bottom: 0;
 }
 
 #chat-input {
@@ -264,11 +264,14 @@ ChatPanel {
 
 SlashCommandSuggestions {
     background: $panel;
-    border-top: solid $primary-darken-1;
+    border: solid $primary-darken-1;
     color: $text;
     scrollbar-gutter: stable;
-    margin: 0 2 1 2;
+    /* Overlay above the input: bottom margin matches input height + gap */
+    margin: 0 2 4 2;
     max-height: 5;
+    dock: bottom;
+    layer: top;
 }
 
 SlashCommandSuggestions > ListItem:focus {

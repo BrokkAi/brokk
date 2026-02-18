@@ -260,7 +260,7 @@ def test_help_menu_layout_contract():
                 "SlashCommandSuggestions max-height should be 5 or less"
             )
 
-        # Check margin: 0 2 1 2; (to match chat-input horizontal alignment and provide bottom padding)
+        # Check margin: 0 2 4 2; (to match chat-input horizontal alignment and clear height 3 + 1 gap)
         m_match = re.search(r"margin:\s*([^;]+);", suggestions_body)
         if m_match:
             margins = m_match.group(1).strip().split()
@@ -268,15 +268,17 @@ def test_help_menu_layout_contract():
                 assert margins[1] == "2" and margins[3] == "2", (
                     "Suggestions should match input horizontal margins"
                 )
+                assert margins[2] == "4", (
+                    "Suggestions should have bottom margin 4 to overlay above the 3-high prompt with 1 gap"
+                )
 
-    # Ensure container itself raises up when autocomplete is open
+    # Ensure container does NOT raise up when autocomplete is open
     container_open_match = re.search(
         r"#chat-input-container\.autocomplete-open\s*\{([^}]*)\}", css_content
     )
     assert container_open_match, "Could not find #chat-input-container.autocomplete-open rule"
-    # The container margin-bottom: 1 provides an offset to make room for the menu (~10px)
-    assert "margin-bottom: 1;" in container_open_match.group(1), (
-        "Container should have margin-bottom: 1 to raise prompt (~10px) when autocomplete is open"
+    assert "margin-bottom: 0;" in container_open_match.group(1), (
+        "Container should have margin-bottom: 0 as the prompt should not move when autocomplete is open"
     )
 
     # 7. Ensure legacy help widgets are not active/visible
