@@ -123,10 +123,9 @@ async def test_autocomplete_accept_with_tab_appends_space_for_model():
 
 
 @pytest.mark.asyncio
-async def test_autocomplete_accept_with_enter_does_not_submit():
+async def test_autocomplete_accept_with_enter_submits_immediately():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
-        chat_panel = app.query_one(ChatPanel)
         chat_input = app.query_one(ChatInput)
 
         # Track submissions
@@ -134,13 +133,10 @@ async def test_autocomplete_accept_with_enter_does_not_submit():
         app.on_chat_panel_submitted = lambda msg: submissions.append(msg.text)
 
         await pilot.press("/", "a", "s")
+        # Enter should now both complete and submit
         await pilot.press("enter")
 
-        assert chat_input.text == "/ask"
-        assert len(submissions) == 0
-
-        # Now press enter again to actually submit
-        await pilot.press("enter")
+        assert chat_input.text == ""  # Submitted text is cleared
         assert len(submissions) == 1
         assert submissions[0] == "/ask"
 

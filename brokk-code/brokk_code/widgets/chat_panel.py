@@ -77,8 +77,8 @@ class SlashCommandSuggestions(ListView):
             if not cmd_text:
                 # Fallback to parsing if attribute missing
                 cmd_text = str(message.item.query_one(Static).renderable).split(" - ")[0]
-            self.post_message(self.CommandSelected(cmd_text))
             self.display = False
+            self.post_message(self.CommandSelected(cmd_text))
 
 
 class ChatInput(TextArea):
@@ -130,6 +130,10 @@ class ChatInput(TextArea):
 
     def _on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Triggered whenever text changes via typing or backspace."""
+        # Avoid showing suggestions if the text was changed programmatically (no focus)
+        if not self.has_focus:
+            return
+
         app = self.app
         try:
             suggestions = app.query_one(SlashCommandSuggestions)
@@ -166,9 +170,18 @@ class ChatInput(TextArea):
                 event.stop()
                 event.prevent_default()
                 return
-            if event.key in ("enter", "tab"):
-                # Select the suggestion and stop propagation to prevent action_submit or tab cycling
+            if event.key == "tab":
+                # Select the suggestion and stop propagation
                 suggestions.action_select_cursor()
+                suggestions.display = False
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "enter":
+                # Select the suggestion, then submit the result
+                suggestions.action_select_cursor()
+                suggestions.display = False
+                self.action_submit()
                 event.stop()
                 event.prevent_default()
                 return
@@ -343,6 +356,13 @@ class ChatPanel(Vertical):
 
         if needs_arg:
             command += " "
+
+        # Defensively ensure suggestions are hidden before programmatic update
+        try:
+            suggestions = self.query_one(SlashCommandSuggestions)
+            suggestions.display = False
+        except Exception:
+            pass
 
         chat_input.text = command
         chat_input.move_cursor(chat_input.document.end)

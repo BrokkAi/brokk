@@ -128,9 +128,11 @@ def test_status_line_rendering_windows_path_normalization(monkeypatch):
 import pytest
 from textual.app import App, ComposeResult
 
+
 class StatusLineTestApp(App):
     def compose(self) -> ComposeResult:
         yield StatusLine(id="status-line")
+
 
 @pytest.mark.asyncio
 async def test_status_line_no_timer_regression():
