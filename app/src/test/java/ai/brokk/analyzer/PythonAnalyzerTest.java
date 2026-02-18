@@ -1498,6 +1498,33 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
+    void testRootRelativeWildcardImportDoesNotCrash() throws Exception {
+        // Reproducer for the "RelPath must be relative, got /__init__.py" bug.
+        // Occurs when a relative import at the project root resolves to an empty module path.
+        var builder = InlineTestProjectCreator.code("""
+                from . import *
+                """, "main.py")
+                .addFileContents(
+                        """
+                        def root_func():
+                            pass
+                        """,
+                        "__init__.py");
+
+        try (var testProject = builder.build()) {
+            var testAnalyzer = new PythonAnalyzer(testProject);
+            ProjectFile mainFile = new ProjectFile(testProject.getRoot(), "main.py");
+
+            // This call triggers resolveImports -> resolveRelativeImport -> resolveModuleFile("")
+            // Before the fix, resolveModuleFile would return "/__init__.py" and ProjectFile would throw.
+            assertDoesNotThrow(() -> {
+                Set<CodeUnit> imports = testAnalyzer.importedCodeUnitsOf(mainFile);
+                assertNotNull(imports);
+            });
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(project, analyzer);
         var symbol = "class_usage_patterns.BaseClass";
