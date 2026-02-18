@@ -92,5 +92,3 @@ async def test_action_select_model_handles_dotted_model_names():
             await app.action_select_model()
             await pilot.pause()
             assert app.screen.__class__.__name__ == "ModelSelectModal"
-
-

@@ -267,8 +267,8 @@ ChatPanel {
     margin-left: 1;
 }
 
-#model-reasoning-combined-container {
-    width: 80;
+#model-select-container, #reasoning-select-container {
+    width: 60;
     height: auto;
     max-height: 80%;
     border: thick $primary;
@@ -277,9 +277,19 @@ ChatPanel {
     align: center middle;
 }
 
+#model-reasoning-combined-container {
+    width: 84;
+    height: auto;
+    max-height: 85%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
 .selection-pane {
     width: 1fr;
     height: auto;
+    padding: 0 1;
 }
 
 #model-select-title, #reasoning-select-title {
@@ -287,20 +297,26 @@ ChatPanel {
     width: 100%;
     text-style: bold;
     margin-bottom: 1;
+    color: $text;
 }
 
 #model-select-list-wrap, #reasoning-select-list-wrap {
     height: auto;
-    max-height: 20;
+    max-height: 22;
     border: tall $primary-darken-1;
 }
 
 #model-select-list, #reasoning-select-list {
     background: transparent;
+    height: auto;
 }
 
 #model-select-list > ListItem:focus, #reasoning-select-list > ListItem:focus {
     background: $accent 20%;
     color: $text;
     text-style: bold;
+}
+
+#model-select-list > ListItem, #reasoning-select-list > ListItem {
+    padding: 0 1;
 }
