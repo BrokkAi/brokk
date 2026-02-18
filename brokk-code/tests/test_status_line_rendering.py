@@ -91,3 +91,35 @@ def test_status_line_fragment_rendering():
     size_text = format_token_count(1234)
     expected = f"my-file.py ({size_text} tokens)"
     mock_metadata.update.assert_called_with(expected)
+
+
+def test_status_line_rendering_windows_path_normalization(monkeypatch):
+    # Mock a Windows home directory
+    fake_home = Path("C:/Users/user")
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    status = StatusLine()
+    mock_metadata = MagicMock()
+    status._metadata = mock_metadata
+
+    # Case 1: Windows path outside home with backslashes
+    status.update_status(
+        mode="LUTZ",
+        model="gpt-4",
+        reasoning="high",
+        workspace="D:\\projects\\external",
+        branch="main",
+    )
+    # Note: Path("D:\\projects\\external").as_posix() or the fallback replace("\\", "/")
+    # should result in forward slashes.
+    expected_external = "LUTZ • gpt-4 (high) • D:/projects/external • main"
+    mock_metadata.update.assert_called_with(expected_external)
+
+    # Case 2: Windows path inside home with backslashes
+    # We use forward slashes for the comparison in mock_path logic or let Path handle it
+    status.update_status(
+        workspace="C:\\Users\\user\\projects\\brokk",
+    )
+    # Expected: Home abbreviation + forward slashes
+    expected_home_sub = "LUTZ • gpt-4 (high) • ~/projects/brokk • main"
+    mock_metadata.update.assert_called_with(expected_home_sub)
