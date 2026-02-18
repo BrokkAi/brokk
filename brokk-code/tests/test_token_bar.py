@@ -7,9 +7,9 @@ def test_compute_segments_empty():
 
 def test_format_tokens():
     assert TokenBar.format_tokens(500) == "500"
-    assert TokenBar.format_tokens(1500) == "1.5K"
-    assert TokenBar.format_tokens(45300) == "45.3K"
-    assert TokenBar.format_tokens(1_500_000) == "1.5M"
+    assert TokenBar.format_tokens(1500) == "1.5k"
+    assert TokenBar.format_tokens(45300) == "45k"
+    assert TokenBar.format_tokens(1_500_000) == "1.5m"
 
 
 def test_compute_segments_basic_proportions():

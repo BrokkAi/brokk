@@ -4,6 +4,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Static
 
+from brokk_code.token_format import format_token_count
+
 
 class StatusLine(Horizontal):
     """A compact status bar containing metadata and job progress.
@@ -72,7 +74,7 @@ class StatusLine(Horizontal):
             f"Workspace: {workspace_label}"
         )
         if self._fragment_description is not None and self._fragment_size is not None:
-            size_text = f"{self._fragment_size:,}"
+            size_text = format_token_count(self._fragment_size)
             text = f"Fragment: {self._fragment_description} ({size_text} tokens)"
 
         self._set_status_metadata(text)

@@ -8,6 +8,8 @@ from textual.geometry import Size
 from textual.message import Message
 from textual.widgets import Static
 
+from brokk_code.token_format import format_token_count
+
 
 class TokenBar(Static):
     """
@@ -70,11 +72,7 @@ class TokenBar(Static):
         """
         Ported from Swing TokenUsageBar.formatTokens().
         """
-        if tokens < 1000:
-            return str(tokens)
-        if tokens < 1_000_000:
-            return f"{tokens / 1000.0:.1f}K"
-        return f"{tokens / 1_000_000.0:.1f}M"
+        return format_token_count(tokens)
 
     def _render_bar(self) -> None:
         size = self._test_size or self.size
@@ -88,16 +86,22 @@ class TokenBar(Static):
         elif width <= 0:
             # No layout yet — show numbers only, no bar
             if self._max_tokens > 0:
-                usage_str = f"{self._used_tokens:,} / {self._max_tokens:,} tokens"
+                usage_str = (
+                    f"{format_token_count(self._used_tokens)} / "
+                    f"{format_token_count(self._max_tokens)} tokens"
+                )
             else:
-                usage_str = f"{self._used_tokens:,} tokens"
+                usage_str = f"{format_token_count(self._used_tokens)} tokens"
             self._rendered_text = Text(usage_str, style="dim")
             self._emit_hover(None, None)
         else:
             if self._max_tokens > 0:
-                usage_str = f" {self._used_tokens:,} / {self._max_tokens:,} tokens"
+                usage_str = (
+                    f" {format_token_count(self._used_tokens)} / "
+                    f"{format_token_count(self._max_tokens)} tokens"
+                )
             else:
-                usage_str = f" {self._used_tokens:,} tokens"
+                usage_str = f" {format_token_count(self._used_tokens)} tokens"
 
             # Reserve space for the text at the end
             bar_width = width - len(usage_str)

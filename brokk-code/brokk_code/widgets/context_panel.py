@@ -8,6 +8,8 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import Label, Static
 
+from brokk_code.token_format import format_token_count
+
 
 class ContextFragmentItem(Static):
     """A compact chip-like widget representing a single context fragment."""
@@ -56,7 +58,7 @@ class ContextFragmentItem(Static):
         text.append(f"{chip_kind} ", style="bold")
         text.append(description)
         if tokens > 0:
-            text.append(f"  {tokens:,}t", style="dim")
+            text.append(f"  {format_token_count(tokens)}t", style="dim")
         if self.fragment.get("pinned"):
             text.append("  PIN", style="bold")
 
@@ -124,7 +126,7 @@ class ContextPanel(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(id="context-header"):
             yield Label("Context", id="context-title")
-            yield Label("0 / 200,000 tokens", id="context-token-usage")
+            yield Label(f"0 / {format_token_count(200_000)} tokens", id="context-token-usage")
         yield Label("Selected: 0", id="context-selection-status")
         yield Label("Active: none", id="context-active-status")
         yield Label(
@@ -143,7 +145,9 @@ class ContextPanel(Vertical):
         max_tokens = context_data.get("maxTokens", 200_000)
 
         token_label = self.query_one("#context-token-usage", Label)
-        token_label.update(f"{used:,} / {max_tokens:,} tokens")
+        token_label.update(
+            f"{format_token_count(used)} / {format_token_count(max_tokens)} tokens"
+        )
         self._render_fragments()
 
     def on_resize(self, event: events.Resize) -> None:
@@ -270,7 +274,7 @@ class ContextPanel(Vertical):
 
         tokens = fragment.get("tokens", 0)
         if isinstance(tokens, int) and tokens > 0:
-            text += f"  {tokens:,}t"
+            text += f"  {format_token_count(tokens)}t"
         if fragment.get("pinned"):
             text += "  PIN"
 
