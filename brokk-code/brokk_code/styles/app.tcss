@@ -229,11 +229,6 @@ ChatPanel {
     layer: base;
 }
 
-#slash-hint {
-    /* Positioned absolutely within the container relative to #chat-input */
-    offset-y: -4; /* Height of input + margin/padding adjustment */
-    margin-top: 0;
-}
 
 #notification-panel {
     height: 4;

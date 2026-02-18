@@ -5,7 +5,6 @@ from brokk_code.widgets.chat_panel import (
     ChatPanel,
     ChatInput,
     SlashCommandSuggestions,
-    SlashCommandInlineHint,
 )
 
 
@@ -82,15 +81,12 @@ async def test_autocomplete_esc_hides():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         suggestions = app.query_one(SlashCommandSuggestions)
-        hint = app.query_one(SlashCommandInlineHint)
 
         await pilot.press("/")
         assert suggestions.display is True
-        assert hint.display is True
 
         await pilot.press("escape")
         assert suggestions.display is False
-        assert hint.display is False
 
 
 @pytest.mark.asyncio
@@ -122,20 +118,18 @@ async def test_autocomplete_accept_with_tab_does_not_submit():
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
-        hint = app.query_one(SlashCommandInlineHint)
 
         # Track submissions
         submissions = []
         app.on_chat_panel_submitted = lambda msg: submissions.append(msg.text)
 
         await pilot.press("/", "m", "o")
-        assert hint.display is True
+        assert suggestions.display is True
         await pilot.press("tab")
 
         # /model needs args, so it should have a trailing space
         assert chat_input.text == "/model "
         assert suggestions.display is False
-        assert hint.display is False
         assert len(submissions) == 0
 
 
@@ -203,51 +197,6 @@ async def test_autocomplete_tab_regression_no_crash():
 
 
 @pytest.mark.asyncio
-async def test_inline_hint_visibility_and_content():
-    app = AutocompleteTestApp()
-    async with app.run_test() as pilot:
-        hint = app.query_one(SlashCommandInlineHint)
-        assert hint.display is False
-
-        # Start typing a command
-        await pilot.press("/")
-        # Best match for "/" is "/ask" based on order in AutocompleteTestApp
-        assert hint.display is True
-        assert str(hint.renderable) == "/ask"
-
-        # Type more to change best match
-        await pilot.press("m")
-        assert hint.display is True
-        assert str(hint.renderable) == "/model"
-
-        # Type enough to match exactly - hint should disappear
-        await pilot.press("o", "d", "e", "l")
-        assert hint.display is False
-
-        # Backspace should bring it back
-        await pilot.press("backspace")
-        assert hint.display is True
-        assert str(hint.renderable) == "/model"
-
-        # Clear input
-        await pilot.press("ctrl+u")
-        assert hint.display is False
-
-
-@pytest.mark.asyncio
-async def test_inline_hint_hidden_on_newline():
-    app = AutocompleteTestApp()
-    async with app.run_test() as pilot:
-        hint = app.query_one(SlashCommandInlineHint)
-
-        await pilot.press("/")
-        assert hint.display is True
-
-        await pilot.press("shift+enter")
-        assert hint.display is False
-
-
-@pytest.mark.asyncio
 async def test_autocomplete_history_interaction():
     """Ensure history navigation is gated correctly by autocomplete visibility."""
     app = AutocompleteTestApp()
@@ -283,41 +232,6 @@ async def test_autocomplete_history_interaction():
 
 
 @pytest.mark.asyncio
-async def test_inline_hint_cleared_on_submit():
-    """Ensures the inline hint is hidden when a command is submitted."""
-    app = AutocompleteTestApp()
-    async with app.run_test() as pilot:
-        hint = app.query_one(SlashCommandInlineHint)
-        chat_input = app.query_one(ChatInput)
-
-        await pilot.press("/", "a")
-        assert hint.display is True
-
-        await pilot.press("enter")
-        assert chat_input.text == ""
-        assert hint.display is False
-
-
-@pytest.mark.asyncio
-async def test_inline_hint_multi_word_no_double_space():
-    """Ensures /task next doesn't result in double spaces when completed via hint."""
-    app = AutocompleteTestApp()
-    async with app.run_test() as pilot:
-        chat_input = app.query_one(ChatInput)
-        hint = app.query_one(SlashCommandInlineHint)
-
-        # Type /task n
-        await pilot.press(*list("/task n"))
-        assert hint.display is True
-        assert str(hint.renderable) == "/task next"
-
-        # Accept hint with Tab
-        await pilot.press("tab")
-        assert chat_input.text == "/task next"
-        # Ensure no trailing space added because /task next is a complete multi-word command
-
-
-@pytest.mark.asyncio
 async def test_autocomplete_ui_hidden_after_selection_even_if_prefix_matches_others():
     """
     Regression test: accepting /model should hide the UI even if /model-code exists.
@@ -327,41 +241,31 @@ async def test_autocomplete_ui_hidden_after_selection_even_if_prefix_matches_oth
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
-        hint = app.query_one(SlashCommandInlineHint)
 
         # 1. Type to match both /model and /model-code
         await pilot.press(*list("/mode"))
         assert suggestions.display is True
         assert len(suggestions.children) == 2
 
-        # 2. Select /model (index 0) and press enter (which selects but doesn't submit here because we don't call action_submit in this test context)
-        # Actually in ChatInput._on_key 'enter' selects AND submits.
-        # But ChatPanel.on_slash_command_suggestions_command_selected is what updates the text.
-
-        # Let's use Tab to accept the hint for /model
+        # 2. Use Tab to accept the suggestion for /model
         await pilot.press("l")  # text is now /model
-        assert hint.display is True
-
         await pilot.press("tab")
 
         assert chat_input.text == "/model "
         assert suggestions.display is False
-        assert hint.display is False
 
 
 @pytest.mark.asyncio
 async def test_autocomplete_ui_hidden_invariant_after_submit():
-    """Ensure suggestions and hints are hidden after submitting, even from a partial match."""
+    """Ensure suggestions are hidden after submitting, even from a partial match."""
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
-        hint = app.query_one(SlashCommandInlineHint)
 
         # 1. Type partial command
         await pilot.press("/", "a")
         assert suggestions.display is True
-        assert hint.display is True
 
         # 2. Submit (Enter)
         await pilot.press("enter")
@@ -369,4 +273,3 @@ async def test_autocomplete_ui_hidden_invariant_after_submit():
         # 3. Verify UI is hidden and text is cleared
         assert chat_input.text == ""
         assert suggestions.display is False
-        assert hint.display is False

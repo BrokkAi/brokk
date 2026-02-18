@@ -15,46 +15,6 @@ from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 
 
-class SlashCommandInlineHint(Static):
-    """A low-contrast overlay for the best slash command completion."""
-
-    DEFAULT_CSS = """
-    SlashCommandInlineHint {
-        display: none;
-        color: $text-disabled;
-        background: transparent;
-        padding: 0 1;
-        margin: 0 2 1 2;
-        height: 3;
-        content-align: left middle;
-        layer: top;
-    }
-    """
-
-    def update_hint(self, current_text: str, commands: List[Dict[str, str]]) -> None:
-        """Updates the hint text based on current input."""
-        query = current_text.strip().lower()
-        if not query.startswith("/") or "\n" in current_text or not query:
-            self.display = False
-            return
-
-        best_match = None
-        for c in commands:
-            cmd = c["command"].lower()
-            if cmd.startswith(query) and cmd != query:
-                best_match = c["command"]
-                break
-
-        if best_match:
-            # We show the full command but padded to align with typed text.
-            # Since the hint is exactly over the input, we can just show the whole string
-            # and it will look like a completion.
-            self.update(best_match)
-            self.display = True
-        else:
-            self.display = False
-
-
 class SlashCommandSuggestions(ListView):
     """A popup list for slash command autocomplete."""
 
@@ -161,20 +121,15 @@ class ChatInput(TextArea):
         self.insert("\n")
 
     def action_hide_autocomplete(self) -> None:
-        """Hides both the popup suggestions and the inline hint."""
+        """Hides the popup suggestions."""
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
             suggestions.display = False
         except Exception:
             pass
-        try:
-            hint = self.app.query_one(SlashCommandInlineHint)
-            hint.display = False
-        except Exception:
-            pass
 
     def action_accept_suggestion(self) -> None:
-        """Accepts either the highlighted popup suggestion or the inline hint."""
+        """Accepts the highlighted popup suggestion."""
         app = self.app
         try:
             suggestions = app.query_one(SlashCommandSuggestions)
@@ -184,36 +139,22 @@ class ChatInput(TextArea):
         except Exception:
             pass
 
-        try:
-            hint = app.query_one(SlashCommandInlineHint)
-            if hint.display:
-                cmd_text = str(hint.renderable)
-                # Reuse the logic in ChatPanel to handle spacing and cursor
-                self.post_message(
-                    ChatPanel.on_slash_command_suggestions_command_selected.Message(cmd_text)
-                )
-        except Exception:
-            pass
-
     def _on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Triggered whenever text changes via typing or backspace."""
         app = self.app
         try:
             suggestions = app.query_one(SlashCommandSuggestions)
-            hint = app.query_one(SlashCommandInlineHint)
         except Exception:
             return
 
         if self.suppress_autocomplete_once:
             suggestions.display = False
-            hint.display = False
             self.suppress_autocomplete_once = False
             return
 
         # Always hide if text is empty or focus is lost (programmatic updates)
         if not self.text.strip() or not self.has_focus:
             suggestions.display = False
-            hint.display = False
             return
 
         if self.text.startswith("/") and "\n" not in self.text:
@@ -221,10 +162,8 @@ class ChatInput(TextArea):
             if hasattr(app, "get_slash_commands"):
                 commands = app.get_slash_commands()
             suggestions.update_suggestions(self.text, commands)
-            hint.update_hint(self.text, commands)
         else:
             suggestions.display = False
-            hint.display = False
 
     async def _on_key(self, event: events.Key) -> None:
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
@@ -239,10 +178,8 @@ class ChatInput(TextArea):
 
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
-            hint = self.app.query_one(SlashCommandInlineHint)
         except Exception:
             suggestions = None
-            hint = None
 
         if suggestions and suggestions.display:
             if event.key in ("up", "down"):
@@ -259,20 +196,7 @@ class ChatInput(TextArea):
                 # Select the suggestion, then submit the result
                 suggestions.action_select_cursor()
                 suggestions.display = False
-                if hint:
-                    hint.display = False
                 self.action_submit()
-                event.stop()
-                event.prevent_default()
-                return
-            if event.key == "escape":
-                self.action_hide_autocomplete()
-                event.stop()
-                event.prevent_default()
-                return
-        elif hint and hint.display:
-            if event.key == "tab":
-                self.action_accept_suggestion()
                 event.stop()
                 event.prevent_default()
                 return
@@ -331,7 +255,6 @@ class ChatPanel(Vertical):
         with Vertical(id="chat-input-container"):
             yield SlashCommandSuggestions(id="slash-suggestions")
             yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
-            yield SlashCommandInlineHint(id="slash-hint")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
@@ -350,11 +273,10 @@ class ChatPanel(Vertical):
         if not chat_input.has_focus:
             return
 
-        # Bypass history navigation if suggestions or hints are visible
+        # Bypass history navigation if suggestions are visible
         try:
             suggestions = self.query_one(SlashCommandSuggestions)
-            hint = self.query_one(SlashCommandInlineHint)
-            if suggestions.display or hint.display:
+            if suggestions.display:
                 return
         except Exception:
             pass
