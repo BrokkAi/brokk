@@ -201,7 +201,7 @@ class ChatInput(TextArea):
 
         if suggestions and suggestions.display:
             if event.key in ("up", "down"):
-                suggestions._on_key(event)
+                await suggestions._on_key(event)
                 event.stop()
                 event.prevent_default()
                 return
