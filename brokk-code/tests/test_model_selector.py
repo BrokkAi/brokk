@@ -163,7 +163,7 @@ async def test_slash_autocomplete_filtering():
         # Type sk-
         await pilot.press(*list("sk-"))
         assert len(suggestions.children) == 1
-        assert "/ask-more" in str(suggestions.children[0].query_one(Static).renderable)
+        assert "/ask-more" in str(suggestions.children[0].query_one(Static).render())
 
         # Esc hides
         await pilot.press("escape")

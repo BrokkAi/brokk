@@ -49,7 +49,7 @@ async def test_autocomplete_filtering():
         await pilot.press("d", "e", "l")
         # Should only match /model
         assert len(suggestions.children) == 1
-        assert "/model -" in str(suggestions.children[0].query_one(Static).renderable)
+        assert "/model -" in str(suggestions.children[0].query_one(Static).render())
 
 
 @pytest.mark.asyncio
@@ -61,7 +61,7 @@ async def test_autocomplete_multi_word_filtering():
         await pilot.press(*list("/task t"))
         # Should match /task toggle
         assert len(suggestions.children) == 1
-        assert "/task toggle" in str(suggestions.children[0].query_one(Static).renderable)
+        assert "/task toggle" in str(suggestions.children[0].query_one(Static).render())
 
 
 @pytest.mark.asyncio
@@ -335,7 +335,7 @@ async def test_slash_triggers_menu_from_app_commands():
 
         # Verify the first command matches the app's mock data
         first_cmd = app.get_slash_commands()[0]["command"]
-        assert first_cmd in str(suggestions.children[0].query_one(Static).renderable)
+        assert first_cmd in str(suggestions.children[0].query_one(Static).render())
 
         # Escape hides it
         await pilot.press("escape")
