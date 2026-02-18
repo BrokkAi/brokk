@@ -86,20 +86,16 @@ class TokenBar(Static):
         elif width <= 0:
             # No layout yet — show numbers only, no bar
             if self._max_tokens > 0:
-                usage_str = (
-                    f"{format_token_count(self._used_tokens)} / "
-                    f"{format_token_count(self._max_tokens)} tokens"
-                )
+                pct = max(0.0, min(100.0, 100 * (1 - self._used_tokens / self._max_tokens)))
+                usage_str = f"{pct:.1f}% context remaining"
             else:
                 usage_str = f"{format_token_count(self._used_tokens)} tokens"
             self._rendered_text = Text(usage_str, style="dim")
             self._emit_hover(None, None)
         else:
             if self._max_tokens > 0:
-                usage_str = (
-                    f" {format_token_count(self._used_tokens)} / "
-                    f"{format_token_count(self._max_tokens)} tokens"
-                )
+                pct = max(0.0, min(100.0, 100 * (1 - self._used_tokens / self._max_tokens)))
+                usage_str = f" {pct:.1f}% context remaining"
             else:
                 usage_str = f" {format_token_count(self._used_tokens)} tokens"
 

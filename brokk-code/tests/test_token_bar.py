@@ -1,4 +1,5 @@
 from brokk_code.widgets.token_bar import TokenBar
+from textual.geometry import Size
 
 
 def test_compute_segments_empty():
@@ -124,3 +125,30 @@ def test_compute_segments_cannot_fit_when_min_width_unavoidable():
     )
     assert sum(w for w, k in segments) == 2
     assert all(w >= 2 for w, _ in segments)
+
+
+def test_render_percentage_remaining():
+    bar = TokenBar()
+    # Force a width that can accommodate the label
+    bar._test_size = Size(80, 1)
+
+    # 6400 / 200,000 used = 3.2% used = 96.8% remaining
+    bar.update_tokens(used_tokens=6400, max_tokens=200_000)
+    assert "96.8% context remaining" in bar._rendered_text.plain
+
+    # Test clamping: used > max
+    bar.update_tokens(used_tokens=250_000, max_tokens=200_000)
+    assert "0.0% context remaining" in bar._rendered_text.plain
+
+    # Test clamping: used < 0 (unlikely but handled)
+    bar.update_tokens(used_tokens=-1000, max_tokens=200_000)
+    assert "100.0% context remaining" in bar._rendered_text.plain
+
+
+def test_render_absolute_fallback():
+    bar = TokenBar()
+    bar._test_size = Size(80, 1)
+
+    # max_tokens <= 0 should show absolute count
+    bar.update_tokens(used_tokens=5000, max_tokens=0)
+    assert "5k tokens" in bar._rendered_text.plain
