@@ -119,48 +119,26 @@ def test_combined_selector_modal_dimensions():
     assert "max-height: 30;" in wrapper_body, "Selector list wrappers should have max-height: 30"
 
 
-def test_status_timer_wrap_overflow_valid():
+def test_help_elapsed_width_regression():
     """
-    Regression test to ensure #status-timer-wrap does not use 'overflow: visible'.
-    Textual does not support 'visible' for overflow; it must be auto, hidden, or scroll.
-    Also guard against 'overflow_x: visible' / 'overflow_y: visible' and hyphenated variants.
-    """
-    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
-
-    timer_wrap_match = re.search(r"#status-timer-wrap\s*\{([^}]*)\}", css_content)
-    assert timer_wrap_match, "Could not find #status-timer-wrap rule in app.tcss"
-
-    timer_wrap_body = timer_wrap_match.group(1)
-
-    # Check for 'overflow', 'overflow-x', 'overflow_x', 'overflow-y', and 'overflow_y'
-    # being set to 'visible' anywhere in the rule block.
-    for prop in ["overflow", "overflow-x", "overflow_x", "overflow-y", "overflow_y"]:
-        pattern = rf"{prop}\s*:\s*visible"
-        assert not re.search(pattern, timer_wrap_body), (
-            f"#status-timer-wrap uses '{prop}: visible' which is invalid in Textual TCSS."
-        )
-
-
-def test_status_timer_width_regression():
-    """
-    Ensure #status-timer has sufficient width/min-width to avoid truncating
+    Ensure #help-elapsed has sufficient width/min-width to avoid truncating
     the elapsed timer text (e.g., 'Elapsed: 00:00' which is ~14 chars).
     """
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
 
-    timer_match = re.search(r"#status-timer\s*\{([^}]*)\}", css_content)
-    assert timer_match, "Could not find #status-timer rule in app.tcss"
+    timer_match = re.search(r"#help-elapsed\s*\{([^}]*)\}", css_content)
+    assert timer_match, "Could not find #help-elapsed rule in app.tcss"
     timer_body = timer_match.group(1)
 
     # Check for width or min-width >= 14
     width_match = re.search(r"(?:min-)?width\s*:\s*(\d+)\s*;", timer_body)
     assert width_match, (
-        f"#status-timer should have a numeric width or min-width. Found: {timer_body.strip()}"
+        f"#help-elapsed should have a numeric width or min-width. Found: {timer_body.strip()}"
     )
 
     width_val = int(width_match.group(1))
     assert width_val >= 14, (
-        f"#status-timer width/min-width ({width_val}) is too small to prevent truncation. "
+        f"#help-elapsed width/min-width ({width_val}) is too small to prevent truncation. "
         "It should be at least 14 for 'Elapsed: 00:00'."
     )
 

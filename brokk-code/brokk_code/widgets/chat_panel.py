@@ -86,6 +86,8 @@ class ChatPanel(Vertical):
         self.response_pending: bool = False
         self.response_active: bool = False
         self._last_token_time: float = 0.0
+        self._job_start_time: Optional[float] = None
+        self._timer_interval: Optional[Any] = None
 
         # History Navigation State
         self._history: list[str] = []
@@ -100,6 +102,7 @@ class ChatPanel(Vertical):
         yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
+            yield Static(id="help-elapsed", classes="hidden")
             yield Label(
                 "Enter: Submit  Shift+Enter: Newline  Up/Down: History  /commands",
                 id="chat-help",
@@ -355,7 +358,7 @@ class ChatPanel(Vertical):
             pass
 
     def set_job_running(self, running: bool) -> None:
-        """Update job progress state in StatusLine and the help row spinner."""
+        """Update job progress state in StatusLine and the help row spinner/timer."""
         try:
             status_line = self.query_one("#status-line", StatusLine)
             status_line.set_job_running(running)
@@ -365,6 +368,39 @@ class ChatPanel(Vertical):
         try:
             spinner = self.query_one("#help-spinner", LoadingIndicator)
             spinner.set_class(not running, "hidden")
+        except Exception:
+            pass
+
+        try:
+            elapsed_label = self.query_one("#help-elapsed", Static)
+            if running:
+                if self._job_start_time is None:
+                    self._job_start_time = self._get_now()
+                    self._update_help_timer()
+                    if self._timer_interval is None:
+                        self._timer_interval = self.set_interval(0.2, self._update_help_timer)
+                elapsed_label.remove_class("hidden")
+            else:
+                self._job_start_time = None
+                if self._timer_interval is not None:
+                    self._timer_interval.stop()
+                    self._timer_interval = None
+                elapsed_label.add_class("hidden")
+                elapsed_label.update("")
+        except Exception:
+            pass
+
+    def _update_help_timer(self) -> None:
+        if self._job_start_time is None:
+            return
+        elapsed = max(0, int(self._get_now() - self._job_start_time))
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        time_str = (
+            f"{hours:02}:{minutes:02}:{seconds:02}" if hours > 0 else f"{minutes:02}:{seconds:02}"
+        )
+        try:
+            self.query_one("#help-elapsed", Static).update(f"Elapsed: {time_str}")
         except Exception:
             pass
 

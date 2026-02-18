@@ -53,8 +53,6 @@ class StatusLine(Horizontal):
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-metadata")
-        with Horizontal(id="status-timer-wrap", classes="hidden"):
-            yield Static(id="status-timer")
 
     def on_mount(self) -> None:
         try:
@@ -170,41 +168,9 @@ class StatusLine(Horizontal):
         self._render_status_text()
 
     def set_job_running(self, running: bool) -> None:
-        """Start or stop the job elapsed timer."""
-        try:
-            timer_wrap = self.query_one("#status-timer-wrap", Horizontal)
-        except Exception:
-            return
-
+        """Update internal job state. (Display is now handled by ChatPanel help row)."""
         if running:
             if self._job_start_time is None:
                 self._job_start_time = self._get_now()
-                self._update_timer()
-                if self._timer_interval is None:
-                    self._timer_interval = self.set_interval(0.2, self._update_timer)
-            timer_wrap.remove_class("hidden")
         else:
             self._job_start_time = None
-            if self._timer_interval is not None:
-                self._timer_interval.stop()
-                self._timer_interval = None
-            timer_wrap.add_class("hidden")
-            try:
-                timer = self.query_one("#status-timer", Static)
-                timer.update("")
-            except Exception:
-                pass
-
-    def _update_timer(self) -> None:
-        if self._job_start_time is None:
-            return
-        elapsed = max(0, int(self._get_now() - self._job_start_time))
-        hours, remainder = divmod(elapsed, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        time_str = (
-            f"{hours:02}:{minutes:02}:{seconds:02}" if hours > 0 else f"{minutes:02}:{seconds:02}"
-        )
-        try:
-            self.query_one("#status-timer", Static).update(f"Elapsed: {time_str}")
-        except Exception:
-            pass
