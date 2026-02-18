@@ -260,7 +260,7 @@ def test_help_menu_layout_contract():
                 "SlashCommandSuggestions max-height should be 5 or less"
             )
 
-        # Check margin: 0 2 4 2; (to match chat-input horizontal alignment and clear height 3 + 1 gap)
+        # Check margin: 0 2 5 2; (to match chat-input horizontal alignment and clear height 3 + help row 1 + 1 gap)
         m_match = re.search(r"margin:\s*([^;]+);", suggestions_body)
         if m_match:
             margins = m_match.group(1).strip().split()
@@ -268,8 +268,8 @@ def test_help_menu_layout_contract():
                 assert margins[1] == "2" and margins[3] == "2", (
                     "Suggestions should match input horizontal margins"
                 )
-                assert margins[2] == "4", (
-                    "Suggestions should have bottom margin 4 to overlay above the 3-high prompt with 1 gap"
+                assert margins[2] == "5", (
+                    "Suggestions should have bottom margin 5 to overlay above the 3-high prompt + 1-high help row"
                 )
 
     # Ensure container does NOT raise up when autocomplete is open

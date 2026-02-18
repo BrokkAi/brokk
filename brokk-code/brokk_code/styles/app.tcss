@@ -215,7 +215,6 @@ ChatPanel {
 #chat-input-container {
     height: auto;
     width: 100%;
-    layers: base top;
     layout: vertical;
 }
 
@@ -267,8 +266,8 @@ SlashCommandSuggestions {
     border: solid $primary-darken-1;
     color: $text;
     scrollbar-gutter: stable;
-    /* Overlay above the input: bottom margin matches input height (3) + gap (1) */
-    margin: 0 2 4 2;
+    /* Overlay above the input: bottom margin matches input height (3) + help row height (1) + gap (1) */
+    margin: 0 2 5 2;
     max-height: 5;
     dock: bottom;
     layer: top;

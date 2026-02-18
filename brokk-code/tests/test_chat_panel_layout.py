@@ -54,18 +54,17 @@ async def test_help_row_spinner_order():
 @pytest.mark.asyncio
 async def test_suggestions_overlay_chat_input():
     """
-    Verify that slash suggestions are inside the chat input container
-    so they can overlay above the input via layers/docking.
+    Verify that slash suggestions are a direct child of ChatPanel
+    so they can overlay above the input without being clipped by the input container.
     """
     app = ChatPanelLayoutApp()
     async with app.run_test():
-        container = app.query_one("#chat-input-container")
+        chat_panel = app.query_one(ChatPanel)
         suggestions = app.query_one("#slash-suggestions")
 
-        assert suggestions in container.children, (
-            "Suggestions should be a child of #chat-input-container for overlay positioning"
+        assert suggestions in chat_panel.children, (
+            "Suggestions should be a direct child of ChatPanel for overlay positioning"
         )
         # Check for layer and docking setup for overlay
-        assert container.styles.layers == ("base", "top")
         assert suggestions.styles.dock == "bottom"
         assert suggestions.styles.layer == "top"
