@@ -55,7 +55,6 @@ class StatusLine(Horizontal):
         yield Static(id="status-metadata")
         with Horizontal(id="status-progress"):
             with Horizontal(id="status-timer-wrap", classes="hidden"):
-                yield LoadingIndicator(id="status-spinner")
                 yield Static(id="status-timer")
 
     def on_mount(self) -> None:
