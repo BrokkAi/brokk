@@ -157,3 +157,19 @@ def test_status_timer_width_regression():
         f"#status-timer width/min-width ({width_val}) is too small to prevent truncation. "
         "It should be at least 14 for 'Elapsed: 00:00'."
     )
+
+
+def test_help_labels_transparent_background():
+    """
+    Ensure help labels in context and task panels have transparent backgrounds
+    to avoid inconsistent fill patterns.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    for selector in ["#context-help", "#tasklist-help"]:
+        match = re.search(rf"{selector}\s*\{{([^}}]*)\}}", css_content)
+        assert match, f"Could not find {selector} rule in app.tcss"
+        body = match.group(1)
+        assert "background: transparent;" in body, (
+            f"{selector} should have background: transparent;"
+        )

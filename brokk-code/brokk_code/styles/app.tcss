@@ -50,6 +50,7 @@ ContextModalScreen, ModelReasoningSelectModal {
     color: $text-muted;
     padding: 0 2;
     margin-bottom: 1;
+    background: transparent;
 }
 
 #tasklist-content {
@@ -129,6 +130,7 @@ ChatPanel {
     width: 100%;
     color: $text-muted;
     margin: 0 0 1 0;
+    background: transparent;
 }
 
 #context-selection-status {
