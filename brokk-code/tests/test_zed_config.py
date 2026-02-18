@@ -97,3 +97,38 @@ def test_configure_zed_acp_settings_preserves_existing_permissions(tmp_path) -> 
 
     mode = stat.S_IMODE(settings_path.stat().st_mode)
     assert mode == expected_mode
+
+
+def test_configure_zed_acp_settings_parses_jsonc(tmp_path) -> None:
+    settings_path = tmp_path / ".config" / "zed" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        """// Zed settings
+//
+// Minimal example with comments and trailing commas
+{
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false,
+  },
+  "theme": {
+    "mode": "dark",
+    "light": "One Light",
+    "dark": "Gruvbox Dark",
+  },
+}
+""",
+        encoding="utf-8",
+    )
+
+    configure_zed_acp_settings(settings_path=settings_path)
+
+    updated_text = settings_path.read_text(encoding="utf-8")
+    assert updated_text.startswith("// Zed settings")
+
+    json_start = updated_text.find("{")
+    assert json_start != -1
+    data = json.loads(updated_text[json_start:])
+    assert data["telemetry"]["diagnostics"] is False
+    assert data["theme"]["dark"] == "Gruvbox Dark"
+    assert data["agent_servers"]["Brokk Code"]["command"] == "brokk-code"
