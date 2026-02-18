@@ -1304,6 +1304,115 @@ a.file-link:hover {
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* ── Favorites & Show All Toggle ────────────────── */
+
+.favorite-option .option-label::before {
+  content: "\2605";
+  color: var(--vscode-foreground, #ccc);
+  font-size: 10px;
+  margin-right: 6px;
+}
+
+.custom-select-separator {
+  height: 1px;
+  background: var(--vscode-widget-border, #454545);
+  margin: 4px 8px;
+}
+
+.show-all-toggle {
+  padding: 4px 12px 2px;
+}
+
+.show-all-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #888);
+  cursor: pointer;
+  user-select: none;
+}
+
+.show-all-checkbox {
+  accent-color: var(--vscode-focusBorder, #007fd4);
+  cursor: pointer;
+}
+
+.all-models-container {
+  border-top: 1px solid var(--vscode-widget-border, #454545);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.all-models-container.hidden {
+  display: none;
+}
+
+/* ── Reasoning Submenu (portaled to body) ───────── */
+
+.reasoning-submenu {
+  position: fixed;
+  min-width: 120px;
+  background: var(--vscode-menu-background, #252526);
+  border: 1px solid var(--vscode-menu-border, #454545);
+  border-radius: 4px;
+  padding: 4px 0;
+  z-index: 200;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.reasoning-submenu-title {
+  padding: 4px 12px 2px;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground, #888);
+  user-select: none;
+}
+
+.reasoning-submenu-option {
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--vscode-menu-foreground, #ccc);
+  white-space: nowrap;
+}
+
+.reasoning-submenu-option:hover {
+  background: var(--vscode-menu-selectionBackground, #094771);
+  color: var(--vscode-menu-selectionForeground, #fff);
+}
+
+.reasoning-submenu-option.selected {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.custom-select-option.has-submenu {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.custom-select-option.has-submenu::after {
+  content: "\25B8";
+  margin-left: 12px;
+  color: var(--vscode-descriptionForeground, #888);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.custom-select-option.has-submenu:hover::after {
+  color: var(--vscode-menu-selectionForeground, #fff);
+}
+
+/* Keep hover highlight on the option whose submenu is open */
+.custom-select-option.submenu-active {
+  background: var(--vscode-menu-selectionBackground, #094771);
+  color: var(--vscode-menu-selectionForeground, #fff);
+}
+
+.custom-select-option.submenu-active::after {
+  color: var(--vscode-menu-selectionForeground, #fff);
+}
+
 .input-buttons {
   display: flex;
   gap: 4px;

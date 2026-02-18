@@ -18,6 +18,7 @@ import type {
   ExecutionMode,
   TaskListData,
   ModelsResponse,
+  FavoritesResponse,
   CompletionsResponse,
 } from "../types";
 
@@ -295,5 +296,11 @@ export class BrokkClient {
 
   async getModels(): Promise<ModelsResponse> {
     return this.request<ModelsResponse>("/v1/models");
+  }
+
+  // ── Favorites ────────────────────────────────────────
+
+  async getFavorites(): Promise<FavoritesResponse> {
+    return this.request<FavoritesResponse>("/v1/favorites");
   }
 }

@@ -11,6 +11,8 @@ import type {
   StateHintData,
   JobEvent,
   DiffEntry,
+  FavoriteModelInfo,
+  ModelInfo,
 } from "../types";
 import { DiffContentProvider, parseUnifiedDiff } from "./DiffContentProvider";
 import { getPanelHtml } from "./panelHtml";
@@ -37,7 +39,8 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
   private activityRefreshInFlight = false;
   private readonly extensionUri: vscode.Uri;
   private readonly diffProvider: DiffContentProvider;
-  private cachedModels: string[] = [];
+  private cachedModels: ModelInfo[] = [];
+  private cachedFavorites: FavoriteModelInfo[] = [];
 
   constructor(extensionUri: vscode.Uri, diffProvider: DiffContentProvider) {
     this.extensionUri = extensionUri;
@@ -59,12 +62,21 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
   private async refreshModels() {
     if (!this.client) return;
     try {
-      const resp = await this.client.getModels();
-      const modelNames = resp.models.map((m) =>
-        typeof m === "string" ? m : m.name
+      const [modelsResp, favoritesResp] = await Promise.all([
+        this.client.getModels(),
+        this.client.getFavorites().catch(() => ({ favorites: [] })),
+      ]);
+      const modelInfos: ModelInfo[] = modelsResp.models.map((m) =>
+        typeof m === "string"
+          ? { name: m, location: "", supportsReasoningEffort: false, supportsReasoningDisable: false }
+          : m
       );
-      this.cachedModels = modelNames;
-      this.sendToWebview("modelsUpdate", { models: modelNames });
+      this.cachedModels = modelInfos;
+      this.cachedFavorites = favoritesResp.favorites;
+      this.sendToWebview("modelsUpdate", {
+        models: modelInfos,
+        favorites: favoritesResp.favorites,
+      });
     } catch (e) {
       this.log?.(`Failed to fetch models: ${e}`);
     }
@@ -146,6 +158,7 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
       webviewView.webview.postMessage({
         type: "modelsUpdate",
         models: this.cachedModels,
+        favorites: this.cachedFavorites,
       });
     }
   }
@@ -497,6 +510,8 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
           const plannerModel = msg.plannerModel as string;
           const codeModel = msg.codeModel as string | undefined;
           const mode = (msg.mode as string) || "LUTZ";
+          const reasoningLevel = msg.reasoningLevel as string | undefined;
+          const reasoningLevelCode = msg.reasoningLevelCode as string | undefined;
 
           const opts: Record<string, unknown> = {};
           if (mode === "LUTZ") {
@@ -505,6 +520,13 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
             opts.codeModel = plannerModel;
           } else if (mode === "SEARCH") {
             opts.scanModel = plannerModel;
+          }
+
+          if (reasoningLevel) {
+            opts.reasoningLevel = reasoningLevel;
+          }
+          if (reasoningLevelCode) {
+            opts.reasoningLevelCode = reasoningLevelCode;
           }
 
           const result = await this.client.submitJob(

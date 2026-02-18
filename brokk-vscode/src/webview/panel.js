@@ -25,6 +25,22 @@ const modeSelect = initCustomSelect("mode-select");
 const plannerSelect = initCustomSelect("planner-select");
 const codeSelect = initCustomSelect("code-select");
 
+// Wire favorite selection to auto-set reasoning on the select
+plannerSelect.onChange((value, dataset) => {
+  if (dataset && dataset.isFavorite === "true" && dataset.reasoning) {
+    plannerSelect.reasoning = dataset.reasoning;
+  } else if (!dataset || dataset.isFavorite !== "true") {
+    // Non-favorite without submenu interaction keeps DEFAULT
+    // (submenu sets reasoning directly)
+  }
+});
+
+codeSelect.onChange((value, dataset) => {
+  if (dataset && dataset.isFavorite === "true" && dataset.reasoning) {
+    codeSelect.reasoning = dataset.reasoning;
+  }
+});
+
 // ── Submit ───────────────────────────────────────────
 
 const promptInput = /** @type {HTMLTextAreaElement} */ (document.getElementById("prompt-input"));
@@ -39,12 +55,17 @@ submitBtn.addEventListener("click", () => {
   addMessage("user", task);
   promptInput.value = "";
 
+  const reasoningLevel = plannerSelect.reasoning;
+  const reasoningLevelCode = codeSelect.reasoning;
+
   vscode.postMessage({
     type: "submit",
     task,
     mode: modeSelect.value,
     plannerModel: plannerSelect.value,
     codeModel: codeSelect.value || undefined,
+    reasoningLevel: reasoningLevel !== "DEFAULT" ? reasoningLevel : undefined,
+    reasoningLevelCode: reasoningLevelCode !== "DEFAULT" ? reasoningLevelCode : undefined,
   });
 });
 
@@ -214,7 +235,10 @@ window.addEventListener("message", (event) => {
 
     // Models
     case "modelsUpdate":
-      if (msg.models) populateModelSelects(plannerSelect, codeSelect, msg.models);
+      if (msg.models) {
+        const favorites = msg.favorites || [];
+        populateModelSelects(plannerSelect, codeSelect, msg.models, favorites);
+      }
       break;
 
     // Settings events
