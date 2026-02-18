@@ -244,6 +244,18 @@ ChatPanel {
     content-align: left middle;
 }
 
+SlashCommandSuggestions {
+    background: $panel;
+    border: tall $primary;
+    color: $text;
+}
+
+SlashCommandSuggestions > ListItem:focus {
+    background: $accent 20%;
+    color: $text;
+    text-style: bold;
+}
+
 #chat-help-row {
     height: 1;
     margin: 0 2 0 2;

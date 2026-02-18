@@ -58,6 +58,7 @@ class SlashCommandSuggestions(ListView):
 
     def on_list_view_selected(self, message: ListView.Selected) -> None:
         if message.item:
+            # Extract command part before the description separator
             cmd_text = str(message.item.query_one(Static).renderable).split(" - ")[0]
             self.post_message(self.Selected(cmd_text))
             self.display = False
@@ -111,6 +112,7 @@ class ChatInput(TextArea):
             event.prevent_default()
             self.action_quit()
             return
+
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
         except Exception:
