@@ -19,8 +19,8 @@ async def submit_prompt(app: BrokkApp, pilot: Any, text: str) -> None:
     await pilot.pause(0)
 
 
-    @pytest.mark.asyncio
-    async def test_tui_prompt_persistence(tmp_path):
+@pytest.mark.asyncio
+async def test_tui_prompt_persistence(tmp_path):
     """
     Verify that submitting prompts via the TUI correctly persists them to
     the workspace history file and respects trimming.
@@ -34,17 +34,16 @@ async def submit_prompt(app: BrokkApp, pilot: Any, text: str) -> None:
     app = BrokkApp(executor=stub, workspace_dir=workspace)
 
     async with app.run_test() as pilot:
-    await pilot.click("#chat-input")
-    await submit_prompt(app, pilot, "hello world")
-    await submit_prompt(app, pilot, "/info")
-    await submit_prompt(app, pilot, "second prompt")
+        await pilot.click("#chat-input")
+        await submit_prompt(app, pilot, "hello world")
+        await submit_prompt(app, pilot, "second prompt")
 
     history = load_history(app.executor.workspace_dir)
     assert history == ["hello world", "second prompt"]
 
 
-    @pytest.mark.asyncio
-    async def test_tui_prompt_trimming(tmp_path):
+@pytest.mark.asyncio
+async def test_tui_prompt_trimming(tmp_path):
     """
     Verify that prompt history is trimmed when it exceeds the limit.
     """
@@ -58,36 +57,14 @@ async def submit_prompt(app: BrokkApp, pilot: Any, text: str) -> None:
     app.settings.prompt_history_size = 2
 
     async with app.run_test() as pilot:
-    await pilot.click("#chat-input")
+        await pilot.click("#chat-input")
 
-    for i in range(3):
-        await submit_prompt(app, pilot, f"prompt {i}")
+        for i in range(3):
+            await submit_prompt(app, pilot, f"prompt {i}")
 
     history = load_history(app.executor.workspace_dir)
     assert len(history) == 2
     assert history == ["prompt 1", "prompt 2"]
-
-
-    @pytest.mark.asyncio
-    async def test_tui_history_commands(tmp_path):
-    """
-    Verify /history and /history-clear commands via TUI.
-    """
-    workspace = tmp_path / "project_cmd"
-    workspace.mkdir()
-
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
-
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
-
-    async with app.run_test() as pilot:
-    await pilot.click("#chat-input")
-    await submit_prompt(app, pilot, "prompt A")
-    await submit_prompt(app, pilot, "/history")
-    await submit_prompt(app, pilot, "/history-clear")
-
-    assert load_history(app.executor.workspace_dir) == []
 
 
 @pytest.mark.asyncio

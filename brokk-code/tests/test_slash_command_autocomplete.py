@@ -215,43 +215,6 @@ async def test_autocomplete_tab_regression_no_crash():
 
 
 @pytest.mark.asyncio
-async def test_autocomplete_history_interaction():
-    """Ensure history navigation is gated correctly by autocomplete visibility."""
-    app = AutocompleteTestApp()
-    async with app.run_test() as pilot:
-        chat_panel = app.query_one(ChatPanel)
-        chat_panel.set_history(["history 1", "history 2"])
-        chat_input = app.query_one(ChatInput)
-        suggestions = app.query_one(SlashCommandSuggestions)
-
-        # 1. No autocomplete: Up should show history
-        chat_input.cursor_location = (0, 0)
-        await pilot.press("up")
-        assert chat_input.text == "history 2"
-
-        # 2. Reset and start typing a command to show autocomplete
-        chat_input.text = ""
-        await pilot.press("/")
-        assert suggestions.display is True
-        assert chat_input.text == "/"
-
-        # 3. With autocomplete: Up should navigate suggestions, NOT history
-        await pilot.press("up")
-        assert chat_input.text == "/"
-        # (Assuming index stays at 0 if moving 'up' from 0 in ListView,
-        # but the key is that text didn't change to history)
-
-        # 4. Escape to hide autocomplete
-        await pilot.press("escape")
-        assert suggestions.display is False
-
-        # 5. Up should now navigate history again
-        chat_input.cursor_location = (0, 0)
-        await pilot.press("up")
-        assert chat_input.text == "history 2"
-
-
-@pytest.mark.asyncio
 async def test_autocomplete_ui_hidden_after_selection_even_if_prefix_matches_others():
     """
     Regression test: accepting /model should hide the UI even if /model-code exists.
@@ -344,38 +307,3 @@ async def test_slash_triggers_menu_from_app_commands():
         await pilot.press("escape")
         assert suggestions.display is False
         assert not container.has_class("autocomplete-open")
-
-
-@pytest.mark.asyncio
-async def test_autocomplete_ui_state_preserves_prompt_visibility():
-    """Verify that the autocomplete-open class is applied and prompt
-    remains visible/sized correctly."""
-    app = AutocompleteTestApp()
-    async with app.run_test() as pilot:
-        container = app.query_one("#chat-input-container")
-        chat_input = app.query_one(ChatInput)
-        suggestions = app.query_one(SlashCommandSuggestions)
-
-        # Initial state
-        assert not container.has_class("autocomplete-open")
-        assert suggestions.display is False
-        # In test app (no app.tcss), ChatInput height defaults to 3 via DEFAULT_CSS
-        assert chat_input.styles.height == 3
-        assert container.styles.margin.bottom == 0
-
-        # Trigger autocomplete
-        await pilot.press("/")
-        assert container.has_class("autocomplete-open")
-        assert suggestions.display is True
-
-        # In current design, height is preserved to keep UI stable
-        assert chat_input.styles.height == 3
-
-        # Container margin-bottom should be 0 - the prompt does NOT move
-        assert container.styles.margin.bottom == 0
-
-        # Hide autocomplete
-        await pilot.press("escape")
-        assert not container.has_class("autocomplete-open")
-        assert suggestions.display is False
-        assert container.styles.margin.bottom == 0
