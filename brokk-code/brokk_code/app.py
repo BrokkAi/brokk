@@ -210,7 +210,7 @@ class BrokkApp(App):
         executor_snapshot: bool = True,
         executor: Optional[ExecutorManager] = None,
         session_id: Optional[str] = None,
-        resume_session: bool = True,
+        resume_session: bool = False,
         vendor: Optional[str] = None,
     ) -> None:
         super().__init__()

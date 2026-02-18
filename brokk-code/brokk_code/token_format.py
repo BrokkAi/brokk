@@ -18,4 +18,3 @@ def format_token_count(tokens: int) -> str:
         formatted = f"{value // 1_000_000_000}b"
 
     return f"-{formatted}" if negative else formatted
-

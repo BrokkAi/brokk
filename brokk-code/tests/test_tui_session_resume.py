@@ -33,10 +33,10 @@ class SessionStubExecutor(StubExecutor):
 
 
 @pytest.mark.asyncio
-async def test_startup_creates_new_session_when_no_resume(tmp_path):
+async def test_startup_creates_new_session_by_default(tmp_path):
     workspace = tmp_path
     stub = SessionStubExecutor()
-    # --no-resume
+    # Default behavior is no resume
     app = BrokkApp(executor=stub, workspace_dir=workspace, resume_session=False)
 
     with patch("brokk_code.app.ChatPanel"):

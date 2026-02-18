@@ -64,17 +64,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Attempt to resume a specific session by ID",
     )
     parser.add_argument(
-        "--no-resume",
-        action="store_false",
+        "--resume",
+        action="store_true",
         dest="resume_session",
-        default=True,
-        help="Always create a new session instead of resuming the last one",
-    )
-    parser.add_argument(
-        "--new-session",
-        action="store_false",
-        dest="resume_session",
-        help="Synonym for --no-resume",
+        default=False,
+        help="Resume the last used session instead of creating a new one",
     )
 
     subparsers = parser.add_subparsers(dest="command")
