@@ -17,6 +17,7 @@ def test_chat_input_no_border():
         f"#chat-input should not have a border. Found: {chat_input_body.strip()}"
     )
     assert "background:" in chat_input_body, "#chat-input should have a background."
+    assert "padding:" in chat_input_body, "#chat-input should have padding for spacing."
 
     focus_match = re.search(r"#chat-input:focus\s*\{([^}]*)\}", css_content)
     assert focus_match, "Could not find #chat-input:focus rule in app.tcss"
