@@ -1864,17 +1864,20 @@ public class ContextFragments {
 
         public record CodeUnitSkeleton(CodeUnit codeUnit, String skeleton) {}
 
+        /**
+         * We map skeletons by code units as FQ names are not unique in the case of overloaded methods, for example.
+         */
         @Blocking
-        private Map<String, CodeUnitSkeleton> skeletonsByFqName() {
+        private Map<CodeUnit, CodeUnitSkeleton> skeletonsByCodeUnit() {
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
+            Map<CodeUnit, CodeUnitSkeleton> out = new LinkedHashMap<>();
             for (CodeUnit cu : sources().join()) {
                 if (cu.isAnonymous()) {
                     continue;
                 }
                 analyzer.getSkeleton(cu)
                         .filter(s -> !s.isBlank())
-                        .ifPresent(skeleton -> out.putIfAbsent(cu.fqName(), new CodeUnitSkeleton(cu, skeleton)));
+                        .ifPresent(skeleton -> out.putIfAbsent(cu, new CodeUnitSkeleton(cu, skeleton)));
             }
             return out;
         }
@@ -1899,9 +1902,9 @@ public class ContextFragments {
                 logger.error("combinedText is a blocking function and should not be called on the EDT!");
             }
 
-            Map<String, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            Map<CodeUnit, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
             for (SummaryFragment fragment : fragments) {
-                fragment.skeletonsByFqName().forEach(deduped::putIfAbsent);
+                fragment.skeletonsByCodeUnit().forEach(deduped::putIfAbsent);
             }
 
             if (deduped.isEmpty()) {
