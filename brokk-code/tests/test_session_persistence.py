@@ -115,3 +115,41 @@ def test_has_tasks_history_definition(tmp_path):
     # Check other meta fields
     create_zip([json.dumps({"tasks": [{"sequence": 2, "primaryModelReasoning": "logic"}]})])
     assert has_tasks(zip_path) is True
+
+
+def test_has_tasks_respects_bounds(tmp_path, monkeypatch):
+    from brokk_code import session_persistence
+
+    # Set very low bounds for testing
+    monkeypatch.setattr(session_persistence, "MAX_CONTEXTS_JSONL_BYTES", 50)
+    monkeypatch.setattr(session_persistence, "MAX_CONTEXTS_JSONL_LINES", 2)
+
+    zip_path = tmp_path / "bounded.zip"
+
+    def create_zip(lines: list[str]):
+        with zipfile.ZipFile(zip_path, "w") as z:
+            z.writestr("contexts.jsonl", "\n".join(lines))
+
+    # Case 1: Task is in the 3rd line (exceeds line limit)
+    create_zip(
+        [
+            json.dumps({"msg": "line1"}),
+            json.dumps({"msg": "line2"}),
+            json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}),
+        ]
+    )
+    assert has_tasks(zip_path) is False
+
+    # Case 2: Task is within line limit but exceeds byte limit
+    # First line is ~30 bytes, second line is ~30 bytes. Total > 50.
+    create_zip(
+        [
+            json.dumps({"padding": "x" * 20}),
+            json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}),
+        ]
+    )
+    assert has_tasks(zip_path) is False
+
+    # Case 3: Task is within both limits
+    create_zip([json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]})])
+    assert has_tasks(zip_path) is True
