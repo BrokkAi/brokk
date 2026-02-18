@@ -12,7 +12,6 @@ import org.jspecify.annotations.NullMarked;
 /**
  * A usage analyzer strategy that delegates to JDT for precise Java symbol resolution.
  */
-@NullMarked
 public final class JdtUsageAnalyzerStrategy implements UsageAnalyzer {
 
     private final IProject project;
