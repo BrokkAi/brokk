@@ -122,12 +122,13 @@ async def test_model_modal_keyboard_navigation_selects_model_and_reasoning():
 
             # Step 1: Select Model
             # Move from first to second row (beta-model) and select.
+            # This will automatically move focus to the reasoning list.
             await pilot.press("down")
             await pilot.press("enter")
             await pilot.pause()
 
             # Step 2: Select Reasoning
-            # It defaults to "disable" (first index). Select "low" (second index).
+            # Focus is now on reasoning list. Select "low" (second index).
             await pilot.press("down")
             await pilot.press("enter")
             await pilot.pause()

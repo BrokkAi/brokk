@@ -179,7 +179,7 @@ class ReasoningSelectModal(ModalScreen[str]):
 
 
 class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
-    """A combined modal for selecting both model and reasoning level in sequence."""
+    """A combined modal for selecting both model and reasoning level side-by-side."""
 
     BINDINGS = [
         Binding("escape", "dismiss", "Cancel", show=False),
@@ -188,24 +188,32 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
     def __init__(self, models: List[str], current_model: str, current_reasoning: str) -> None:
         super().__init__()
         self.models = models
-        self.current_model = current_model
-        self.current_reasoning = current_reasoning
-        self.selected_model: Optional[str] = None
+        self.selected_model = current_model
+        self.selected_reasoning = current_reasoning
         self.reasoning_levels = ["disable", "low", "medium", "high"]
 
     def compose(self) -> ComposeResult:
-        # We wrap in a single container and swap content or use layers if needed,
-        # but for simplicity we will start with the Model selection view.
-        with Vertical(id="model-select-container"):
-            yield Static("Select Model", id="model-select-title")
-            with VerticalScroll(id="model-select-list-wrap"):
-                items = []
-                for idx, m in enumerate(self.models):
-                    label = f"{'[x]' if m == self.current_model else '[ ]'} {m}"
-                    items.append(ListItem(Static(label), id=f"m-{idx}"))
-                yield ListView(*items, id="model-select-list")
+        with Horizontal(id="model-reasoning-combined-container"):
+            with Vertical(classes="selection-pane"):
+                yield Static("Model", id="model-select-title")
+                with VerticalScroll(id="model-select-list-wrap"):
+                    items = []
+                    for idx, m in enumerate(self.models):
+                        label = f"{'[x]' if m == self.selected_model else '[ ]'} {m}"
+                        items.append(ListItem(Static(label), id=f"m-{idx}"))
+                    yield ListView(*items, id="model-select-list")
+
+            with Vertical(classes="selection-pane"):
+                yield Static("Reasoning", id="reasoning-select-title")
+                with VerticalScroll(id="reasoning-select-list-wrap"):
+                    items = []
+                    for idx, r in enumerate(self.reasoning_levels):
+                        label = f"{'[x]' if r == self.selected_reasoning else '[ ]'} {r}"
+                        items.append(ListItem(Static(label), id=f"r-{idx}"))
+                    yield ListView(*items, id="reasoning-select-list")
 
     def on_mount(self) -> None:
+        # Focus the model list by default
         self.query_one("#model-select-list", ListView).focus()
 
     def on_list_view_selected(self, message: ListView.Selected) -> None:
@@ -216,32 +224,20 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
             if message.list_view.id == "model-select-list":
                 idx = int(message.item.id.split("-")[1])
                 self.selected_model = self.models[idx]
-                self._show_reasoning_selection()
+                # Update markers in model list
+                for i, item in enumerate(message.list_view.query(ListItem)):
+                    marker = "[x]" if i == idx else "[ ]"
+                    item.query_one(Static).update(f"{marker} {self.models[i]}")
+                # Move focus to reasoning list
+                self.query_one("#reasoning-select-list", ListView).focus()
+
             elif message.list_view.id == "reasoning-select-list":
                 idx = int(message.item.id.split("-")[1])
-                selected_reasoning = self.reasoning_levels[idx]
-                self.dismiss((self.selected_model, selected_reasoning))
+                self.selected_reasoning = self.reasoning_levels[idx]
+                # Dismiss immediately upon reasoning selection
+                self.dismiss((self.selected_model, self.selected_reasoning))
         except (ValueError, IndexError):
             logger.error("Failed to parse index from ListItem id: %s", message.item.id)
-
-    def _show_reasoning_selection(self) -> None:
-        # Clear the model selection UI and show reasoning
-        container = self.query_one("#model-select-container")
-        container.remove_children()
-
-        container.id = "reasoning-select-container"
-        container.mount(Static(f"Reasoning for {self.selected_model}", id="reasoning-select-title"))
-
-        items = []
-        for idx, r in enumerate(self.reasoning_levels):
-            label = f"{'[x]' if r == self.current_reasoning else '[ ]'} {r}"
-            items.append(ListItem(Static(label), id=f"r-{idx}"))
-
-        lv_wrap = VerticalScroll(id="reasoning-select-list-wrap")
-        container.mount(lv_wrap)
-        lv = ListView(*items, id="reasoning-select-list")
-        lv_wrap.mount(lv)
-        lv.focus()
 
 
 class BrokkApp(App):

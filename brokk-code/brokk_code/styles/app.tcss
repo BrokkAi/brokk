@@ -267,14 +267,19 @@ ChatPanel {
     margin-left: 1;
 }
 
-#model-select-container, #reasoning-select-container {
-    width: 60;
+#model-reasoning-combined-container {
+    width: 80;
     height: auto;
     max-height: 80%;
     border: thick $primary;
     background: $surface;
     padding: 1 2;
     align: center middle;
+}
+
+.selection-pane {
+    width: 1fr;
+    height: auto;
 }
 
 #model-select-title, #reasoning-select-title {
@@ -287,6 +292,7 @@ ChatPanel {
 #model-select-list-wrap, #reasoning-select-list-wrap {
     height: auto;
     max-height: 20;
+    border: tall $primary-darken-1;
 }
 
 #model-select-list, #reasoning-select-list {
