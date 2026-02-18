@@ -121,7 +121,8 @@ class ChatInput(TextArea):
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
             container = self.app.query_one("#chat-input-container")
-            suggestions.display = is_open
+            if suggestions.display != is_open:
+                suggestions.display = is_open
             container.set_class(is_open, "autocomplete-open")
         except Exception:
             pass
@@ -141,8 +142,16 @@ class ChatInput(TextArea):
         except Exception:
             pass
 
-    def _on_text_area_changed(self, event: TextArea.Changed) -> None:
+    def watch_text(self, old_text: str, new_text: str) -> None:
+        """Watch for programmatic text changes."""
+        self._sync_autocomplete(new_text)
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Triggered whenever text changes via typing or backspace."""
+        self._sync_autocomplete(self.text)
+
+    def _sync_autocomplete(self, text: str) -> None:
+        """Drives autocomplete visibility based on current text and focus state."""
         app = self.app
 
         if self.suppress_autocomplete_once:
@@ -150,18 +159,18 @@ class ChatInput(TextArea):
             self.suppress_autocomplete_once = False
             return
 
-        # Always hide if text is empty or focus is lost (programmatic updates)
-        if not self.text.strip() or not self.has_focus:
+        # Always hide if text is empty or focus is lost
+        if not text.strip() or not self.has_focus:
             self._set_autocomplete_open(False)
             return
 
-        if self.text.startswith("/") and "\n" not in self.text:
+        if text.startswith("/") and "\n" not in text:
             commands = []
             if hasattr(app, "get_slash_commands"):
                 commands = app.get_slash_commands()
             try:
                 suggestions = self.app.query_one(SlashCommandSuggestions)
-                is_any = suggestions.update_suggestions(self.text, commands)
+                is_any = suggestions.update_suggestions(text, commands)
                 self._set_autocomplete_open(is_any)
             except Exception:
                 pass
