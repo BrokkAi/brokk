@@ -128,7 +128,7 @@ class ChatInput(TextArea):
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
         Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
-        Binding("escape", "hide_suggestions", "Hide Suggestions", show=False),
+        Binding("escape", "hide_autocomplete", "Hide Autocomplete", show=False),
     ]
 
     class Submitted(Message):
@@ -153,19 +153,38 @@ class ChatInput(TextArea):
     def action_insert_newline(self) -> None:
         self.insert("\n")
 
-    def action_hide_suggestions(self) -> None:
+    def action_hide_autocomplete(self) -> None:
+        """Hides both the popup suggestions and the inline hint."""
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
-            if suggestions.display:
-                suggestions.display = False
+            suggestions.display = False
+        except Exception:
+            pass
+        try:
+            hint = self.app.query_one(SlashCommandInlineHint)
+            hint.display = False
         except Exception:
             pass
 
     def action_accept_suggestion(self) -> None:
+        """Accepts either the highlighted popup suggestion or the inline hint."""
+        app = self.app
         try:
-            suggestions = self.app.query_one(SlashCommandSuggestions)
+            suggestions = app.query_one(SlashCommandSuggestions)
             if suggestions.display:
                 suggestions.action_select_cursor()
+                return
+        except Exception:
+            pass
+
+        try:
+            hint = app.query_one(SlashCommandInlineHint)
+            if hint.display:
+                cmd_text = str(hint.renderable)
+                # Reuse the logic in ChatPanel to handle spacing and cursor
+                self.post_message(
+                    ChatPanel.on_slash_command_suggestions_command_selected.Message(cmd_text)
+                )
         except Exception:
             pass
 
@@ -205,8 +224,10 @@ class ChatInput(TextArea):
 
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
+            hint = self.app.query_one(SlashCommandInlineHint)
         except Exception:
             suggestions = None
+            hint = None
 
         if suggestions and suggestions.display:
             if event.key in ("up", "down"):
@@ -215,9 +236,7 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
             if event.key == "tab":
-                # Select the suggestion and stop propagation
-                suggestions.action_select_cursor()
-                suggestions.display = False
+                self.action_accept_suggestion()
                 event.stop()
                 event.prevent_default()
                 return
@@ -225,12 +244,25 @@ class ChatInput(TextArea):
                 # Select the suggestion, then submit the result
                 suggestions.action_select_cursor()
                 suggestions.display = False
+                if hint:
+                    hint.display = False
                 self.action_submit()
                 event.stop()
                 event.prevent_default()
                 return
             if event.key == "escape":
-                suggestions.display = False
+                self.action_hide_autocomplete()
+                event.stop()
+                event.prevent_default()
+                return
+        elif hint and hint.display:
+            if event.key == "tab":
+                self.action_accept_suggestion()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "escape":
+                self.action_hide_autocomplete()
                 event.stop()
                 event.prevent_default()
                 return
@@ -403,10 +435,15 @@ class ChatPanel(Vertical):
         if needs_arg:
             command += " "
 
-        # Defensively ensure suggestions are hidden before programmatic update
+        # Defensively ensure autocomplete UI is hidden before programmatic update
         try:
             suggestions = self.query_one(SlashCommandSuggestions)
             suggestions.display = False
+        except Exception:
+            pass
+        try:
+            hint = self.query_one(SlashCommandInlineHint)
+            hint.display = False
         except Exception:
             pass
 

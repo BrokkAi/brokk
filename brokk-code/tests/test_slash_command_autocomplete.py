@@ -82,12 +82,15 @@ async def test_autocomplete_esc_hides():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         suggestions = app.query_one(SlashCommandSuggestions)
+        hint = app.query_one(SlashCommandInlineHint)
 
         await pilot.press("/")
         assert suggestions.display is True
+        assert hint.display is True
 
         await pilot.press("escape")
         assert suggestions.display is False
+        assert hint.display is False
 
 
 @pytest.mark.asyncio
@@ -119,17 +122,20 @@ async def test_autocomplete_accept_with_tab_does_not_submit():
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
+        hint = app.query_one(SlashCommandInlineHint)
 
         # Track submissions
         submissions = []
         app.on_chat_panel_submitted = lambda msg: submissions.append(msg.text)
 
         await pilot.press("/", "m", "o")
+        assert hint.display is True
         await pilot.press("tab")
 
         # /model needs args, so it should have a trailing space
         assert chat_input.text == "/model "
         assert suggestions.display is False
+        assert hint.display is False
         assert len(submissions) == 0
 
 
