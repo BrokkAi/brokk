@@ -34,7 +34,7 @@ class SlashCommandSuggestions(ListView):
     }
     """
 
-    class Selected(Message):
+    class CommandSelected(Message):
         def __init__(self, command: str) -> None:
             self.command = command
             super().__init__()
@@ -77,7 +77,7 @@ class SlashCommandSuggestions(ListView):
             if not cmd_text:
                 # Fallback to parsing if attribute missing
                 cmd_text = str(message.item.query_one(Static).renderable).split(" - ")[0]
-            self.post_message(self.Selected(cmd_text))
+            self.post_message(self.CommandSelected(cmd_text))
             self.display = False
 
 
@@ -329,8 +329,8 @@ class ChatPanel(Vertical):
         self._history_index = -1
         self._draft_buffer = ""
 
-    def on_slash_command_suggestions_selected(
-        self, event: SlashCommandSuggestions.Selected
+    def on_slash_command_suggestions_command_selected(
+        self, event: SlashCommandSuggestions.CommandSelected
     ) -> None:
         chat_input = self.query_one("#chat-input", ChatInput)
         command = event.command
