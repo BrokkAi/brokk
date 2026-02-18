@@ -128,12 +128,17 @@ class StatusLine(Horizontal):
         workspace: Optional[str] = None,
         branch: Optional[str] = None,
     ) -> None:
-        """Update the metadata text segment."""
-        self._mode = str(mode or "unknown")
-        self._model = str(model or "unknown")
-        self._reasoning = str(reasoning or "unknown")
-        self._workspace = str(workspace or "unknown")
-        self._branch = str(branch or "unknown")
+        """Update the metadata text segment. Only non-None values are updated."""
+        if mode is not None:
+            self._mode = str(mode)
+        if model is not None:
+            self._model = str(model)
+        if reasoning is not None:
+            self._reasoning = str(reasoning)
+        if workspace is not None:
+            self._workspace = str(workspace)
+        if branch is not None:
+            self._branch = str(branch)
         self._render_status_text()
 
     def set_fragment_info(self, description: Optional[str], size: Optional[int]) -> None:
