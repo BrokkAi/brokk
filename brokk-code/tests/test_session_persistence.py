@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 
+import zipfile
 from brokk_code.session_persistence import (
     get_session_zip_path,
     get_state_dir,
+    has_tasks,
     load_last_session_id,
     save_last_session_id,
 )
@@ -61,3 +63,52 @@ def test_save_last_session_creates_missing_dirs(tmp_path):
     save_last_session_id(workspace, session_id)
     assert (workspace / ".brokk" / "last_session.json").exists()
     assert load_last_session_id(workspace) == session_id
+
+
+def test_has_tasks_missing_or_invalid(tmp_path):
+    assert has_tasks(tmp_path / "nonexistent.zip") is False
+
+    corrupt = tmp_path / "corrupt.zip"
+    corrupt.write_text("not a zip")
+    assert has_tasks(corrupt) is False
+
+
+def test_has_tasks_legacy_format(tmp_path):
+    zip_path = tmp_path / "legacy.zip"
+
+    # Case: Legacy with tasks
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("tasklist.json", json.dumps({"tasks": [{"id": "1", "title": "test"}]}))
+    assert has_tasks(zip_path) is True
+
+    # Case: Legacy empty
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("tasklist.json", json.dumps({"tasks": []}))
+    assert has_tasks(zip_path) is False
+
+
+def test_has_tasks_current_format(tmp_path):
+    zip_path = tmp_path / "current.zip"
+
+    def create_zip(context_virtuals, fragment_desc, tasks):
+        with zipfile.ZipFile(zip_path, "w") as z:
+            z.writestr("contexts.jsonl", json.dumps({"virtuals": context_virtuals}))
+            fragments = {"virtual": {"v1": {"description": fragment_desc, "contentId": "c1"}}}
+            z.writestr("fragments-v4.json", json.dumps(fragments))
+            z.writestr("content/c1.txt", json.dumps({"tasks": tasks}))
+
+    # Case: Success
+    create_zip(["v1"], "Task List", [{"id": "1"}])
+    assert has_tasks(zip_path) is True
+
+    # Case: Empty task list
+    create_zip(["v1"], "Task List", [])
+    assert has_tasks(zip_path) is False
+
+    # Case: Fragment not in current context
+    create_zip(["other"], "Task List", [{"id": "1"}])
+    assert has_tasks(zip_path) is False
+
+    # Case: Fragment is not "Task List"
+    create_zip(["v1"], "Notes", [{"id": "1"}])
+    assert has_tasks(zip_path) is False
