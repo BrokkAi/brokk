@@ -88,11 +88,11 @@ async def test_action_select_model_handles_dotted_model_names():
         async with app.run_test() as pilot:
             await app.action_select_model()
             await pilot.pause()
-            assert app.screen.__class__.__name__ == "ModelSelectModal"
+            assert app.screen.__class__.__name__ == "ModelReasoningSelectModal"
 
 
 @pytest.mark.asyncio
-async def test_model_modal_keyboard_navigation_selects_model():
+async def test_model_modal_keyboard_navigation_selects_model_and_reasoning():
     executor = MagicMock()
     executor.get_models = AsyncMock(
         return_value={
@@ -120,9 +120,17 @@ async def test_model_modal_keyboard_navigation_selects_model():
             await app.action_select_model()
             await pilot.pause()
 
-            # Move from first to second row and select.
+            # Step 1: Select Model
+            # Move from first to second row (beta-model) and select.
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # Step 2: Select Reasoning
+            # It defaults to "disable" (first index). Select "low" (second index).
             await pilot.press("down")
             await pilot.press("enter")
             await pilot.pause()
 
             assert app.current_model == "beta-model"
+            assert app.reasoning_level == "low"
