@@ -75,10 +75,10 @@ class ModeSuggestions(ListView):
         if event.character and len(event.character) == 1:
             self.display = False
             try:
-                chat_input = self.app.query_one("#chat-input")
+                chat_input = self.app.query_one("#chat-input", ChatInput)
                 chat_input.focus()
-                # Re-post the key to the newly focused input
-                chat_input.post_message(event)
+                # Explicitly insert the character to trigger change handlers
+                chat_input.insert(event.character)
             except Exception:
                 pass
             event.stop()
@@ -143,9 +143,9 @@ class ReasoningSuggestions(ListView):
         if event.character and len(event.character) == 1:
             self.display = False
             try:
-                chat_input = self.app.query_one("#chat-input")
+                chat_input = self.app.query_one("#chat-input", ChatInput)
                 chat_input.focus()
-                chat_input.post_message(event)
+                chat_input.insert(event.character)
             except Exception:
                 pass
             event.stop()
