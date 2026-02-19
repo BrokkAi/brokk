@@ -108,8 +108,8 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 | `Ctrl+N` | Toggle notifications panel |
 | `Ctrl+D` | Exit immediately |
 | `Ctrl+C` | Cancel job / quit |
-| `Ctrl+G` | Toggle mode (LUTZ/ASK/SEARCH) |
-| `F3` | Toggle mode (LUTZ/ASK/SEARCH) |
+| `Ctrl+G` | Toggle mode (LUTZ/ASK) |
+| `F3` | Toggle mode (LUTZ/ASK) |
 | `Ctrl+P` | Open settings |
 
 ## Theming

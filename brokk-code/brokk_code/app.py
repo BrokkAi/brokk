@@ -945,7 +945,6 @@ class BrokkApp(App):
         """Returns the structured catalog of supported slash commands."""
         return [
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
-            {"command": "/search", "description": "Set mode to SEARCH (read-only code search)"},
             {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
@@ -1071,7 +1070,7 @@ class BrokkApp(App):
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
             self.action_command_palette()
-        elif base in ("/ask", "/search", "/lutz"):
+        elif base in ("/ask", "/lutz"):
             self._set_mode(base[1:].upper())
         elif base == "/info":
             self._render_info()
@@ -1327,8 +1326,8 @@ class BrokkApp(App):
         self.run_worker(self._toggle_selected_task())
 
     def action_toggle_mode(self) -> None:
-        """Cycles through agent modes: LUTZ -> ASK -> SEARCH -> LUTZ."""
-        modes = ["LUTZ", "ASK", "SEARCH"]
+        """Cycles through agent modes: LUTZ -> ASK -> LUTZ."""
+        modes = ["LUTZ", "ASK"]
         try:
             current_index = modes.index(self.agent_mode)
         except ValueError:
