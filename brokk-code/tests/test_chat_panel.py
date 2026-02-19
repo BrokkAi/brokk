@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from textual.widgets import Static
 
@@ -331,3 +333,76 @@ async def test_slash_autocomplete_filtering():
         # Esc hides
         await pilot.press("escape")
         assert suggestions.display is False
+
+
+@pytest.mark.asyncio
+async def test_mention_autocomplete_fetch_and_accept():
+    """Verify @mention autocomplete fetches remote completions and inserts selection."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatInput, MentionSuggestions
+
+    class TestApp(App):
+        def __init__(self) -> None:
+            super().__init__()
+            self.executor = MagicMock()
+            self.executor.get_completions = AsyncMock(
+                return_value={
+                    "completions": [
+                        {
+                            "type": "class",
+                            "name": "ContextManager",
+                            "detail": "ai.brokk.ContextManager",
+                        }
+                    ]
+                }
+            )
+
+        def get_slash_commands(self):
+            return []
+
+        def compose(self) -> ComposeResult:
+            yield ChatPanel()
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        mentions = app.query_one(MentionSuggestions)
+        chat_input = app.query_one("#chat-input", ChatInput)
+
+        await pilot.press("@", "C", "o", "n")
+        await pilot.pause(0.25)
+
+        assert mentions.display is True
+        assert len(mentions.children) == 1
+        app.executor.get_completions.assert_awaited()
+
+        await pilot.press("enter")
+        await pilot.pause()
+        assert mentions.display is False
+        assert chat_input.text == "@ai.brokk.ContextManager "
+
+
+@pytest.mark.asyncio
+async def test_mention_autocomplete_ignores_email_like_text():
+    """Verify email-like text does not trigger @mention autocomplete."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import MentionSuggestions
+
+    class TestApp(App):
+        def __init__(self) -> None:
+            super().__init__()
+            self.executor = MagicMock()
+            self.executor.get_completions = AsyncMock(return_value={"completions": []})
+
+        def compose(self) -> ComposeResult:
+            yield ChatPanel()
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        mentions = app.query_one(MentionSuggestions)
+        await pilot.press(*list("foo@bar"))
+        await pilot.pause(0.25)
+
+        assert mentions.display is False
+        app.executor.get_completions.assert_not_awaited()

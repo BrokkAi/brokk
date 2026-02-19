@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -621,6 +622,14 @@ class BrokkApp(App):
                     await self.executor.drop_context_fragments(message.fragment_ids)
                     if chat:
                         chat.add_system_message(f"Dropped {len(message.fragment_ids)} fragment(s).")
+                case "drop_others":
+                    to_drop = self._compute_drop_others(
+                        panel._fragments, selected_fragments, panel._active_id
+                    )
+                    if to_drop:
+                        await self.executor.drop_context_fragments(to_drop)
+                        if chat:
+                            chat.add_system_message(f"Dropped {len(to_drop)} other fragment(s).")
                 case "drop_all":
                     await self.executor.drop_all_context()
                     if chat:
@@ -659,6 +668,29 @@ class BrokkApp(App):
                 chat.add_system_message(f"Context action failed: {e}", level="ERROR")
             else:
                 logger.error("Context action failed: %s", e)
+
+    @staticmethod
+    def _compute_drop_others(
+        all_fragments: List[Dict[str, Any]],
+        selected_fragments: List[Dict[str, Any]],
+        active_id: Optional[str],
+    ) -> List[str]:
+        protected_ids = {str(f.get("id", "")) for f in selected_fragments}
+        if active_id:
+            protected_ids.add(active_id)
+
+        to_drop = []
+        for f in all_fragments:
+            f_id = str(f.get("id", ""))
+            if not f_id or f_id in protected_ids:
+                continue
+            if bool(f.get("pinned", False)):
+                continue
+            chip_kind = str(f.get("chip_kind", f.get("chipKind", ""))).upper()
+            if chip_kind == "HISTORY":
+                continue
+            to_drop.append(f_id)
+        return to_drop
 
     @staticmethod
     def _collect_pin_updates(selected_fragments: List[Dict[str, Any]]) -> List[tuple[str, bool]]:
@@ -883,12 +915,159 @@ class BrokkApp(App):
             else:
                 self.run_worker(self._run_job(raw_text))
 
+    @staticmethod
+    def _extract_at_mentions(task_input: str) -> List[str]:
+        """Extracts whitespace-delimited @mention tokens from prompt text."""
+        tokens = re.findall(r"(?<!\S)@([^\s@]+)", task_input)
+        unique_tokens: List[str] = []
+        seen = set()
+        for token in tokens:
+            norm = token.strip()
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            unique_tokens.append(norm)
+        return unique_tokens
+
+    @staticmethod
+    def _extract_fragment_ids_from_add_context_response(resp: Any) -> List[str]:
+        if not isinstance(resp, dict):
+            return []
+
+        added = resp.get("added")
+        if not isinstance(added, list):
+            return []
+
+        ids: List[str] = []
+        for item in added:
+            if not isinstance(item, dict):
+                continue
+            raw_id = item.get("id", item.get("fragmentId"))
+            if raw_id is None:
+                continue
+            frag_id = str(raw_id).strip()
+            if frag_id:
+                ids.append(frag_id)
+
+        return list(dict.fromkeys(ids))
+
+    async def _attach_mentions_to_context(self, task_input: str) -> List[str]:
+        """Resolves @mentions and attaches matching entities to context before job submission.
+
+        Returns fragment IDs for any newly-attached context fragments when the executor's
+        add_context_* endpoints include them in their payload. If the executor does not
+        return fragment IDs, rollback-on-submit-failure is not possible.
+        """
+        mentions = self._extract_at_mentions(task_input)
+        if not mentions:
+            return []
+        if not hasattr(self.executor, "get_completions"):
+            return []
+
+        file_paths: List[str] = []
+        class_names: List[str] = []
+        method_names: List[str] = []
+
+        for mention in mentions:
+            try:
+                completion_data = await self.executor.get_completions(mention, limit=20)
+            except Exception:
+                logger.exception("Failed resolving @mention '%s' via completions", mention)
+                continue
+
+            raw_items = completion_data.get("completions", [])
+            if not isinstance(raw_items, list):
+                continue
+
+            selected: Optional[Dict[str, str]] = None
+            mention_lower = mention.lower()
+            for raw in raw_items:
+                if not isinstance(raw, dict):
+                    continue
+                detail = str(raw.get("detail", "")).strip()
+                name = str(raw.get("name", "")).strip()
+
+                if detail.lower() == mention_lower or name.lower() == mention_lower:
+                    selected = {
+                        "type": str(raw.get("type", "")).strip().lower(),
+                        "detail": detail,
+                        "name": name,
+                    }
+                    break
+
+            if selected is None:
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message(f"No exact match for @{mention}")
+                continue
+
+            completion_type = selected["type"]
+            detail = selected["detail"] or selected["name"]
+            if not detail:
+                continue
+
+            if completion_type == "file":
+                file_paths.append(detail)
+            elif completion_type in {"class", "module"}:
+                class_names.append(detail)
+            elif completion_type == "function":
+                method_names.append(detail)
+            elif completion_type == "field":
+                if "." in detail:
+                    class_names.append(detail.rsplit(".", 1)[0])
+
+        # De-duplicate while preserving order
+        file_paths = list(dict.fromkeys(file_paths))
+        class_names = list(dict.fromkeys(class_names))
+        method_names = list(dict.fromkeys(method_names))
+
+        attached_parts: List[str] = []
+        attached_fragment_ids: List[str] = []
+
+        if file_paths and hasattr(self.executor, "add_context_files"):
+            try:
+                resp = await self.executor.add_context_files(file_paths)
+                attached_fragment_ids.extend(
+                    self._extract_fragment_ids_from_add_context_response(resp)
+                )
+                attached_parts.append(f"files={len(file_paths)}")
+            except Exception:
+                logger.exception("Failed attaching @mentions as context files")
+        if class_names and hasattr(self.executor, "add_context_classes"):
+            try:
+                resp = await self.executor.add_context_classes(class_names)
+                attached_fragment_ids.extend(
+                    self._extract_fragment_ids_from_add_context_response(resp)
+                )
+                attached_parts.append(f"classes={len(class_names)}")
+            except Exception:
+                logger.exception("Failed attaching @mentions as context classes")
+        if method_names and hasattr(self.executor, "add_context_methods"):
+            try:
+                resp = await self.executor.add_context_methods(method_names)
+                attached_fragment_ids.extend(
+                    self._extract_fragment_ids_from_add_context_response(resp)
+                )
+                attached_parts.append(f"methods={len(method_names)}")
+            except Exception:
+                logger.exception("Failed attaching @mentions as context methods")
+
+        if attached_parts:
+            chat = self._maybe_chat()
+            if chat:
+                details = ", ".join(attached_parts)
+                chat.add_system_message(f"Attached @mentions to context: {details}")
+
+        return list(dict.fromkeys(attached_fragment_ids))
+
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
         chat.set_job_running(True)
         chat.set_response_pending()
+        attached_fragment_ids: List[str] = []
         try:
+            attached_fragment_ids = await self._attach_mentions_to_context(task_input)
             self.current_job_id = await self.executor.submit_job(
                 task_input,
                 self.current_model,
@@ -901,6 +1080,19 @@ class BrokkApp(App):
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
         except Exception as e:
+            if (
+                self.current_job_id is None
+                and attached_fragment_ids
+                and hasattr(self.executor, "drop_context_fragments")
+            ):
+                try:
+                    await self.executor.drop_context_fragments(attached_fragment_ids)
+                except Exception:
+                    logger.exception(
+                        "Failed to rollback context fragments after submit_job failure: %s",
+                        attached_fragment_ids,
+                    )
+
             chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
         finally:
             chat.set_response_finished()

@@ -288,7 +288,15 @@ def test_help_menu_layout_contract():
         + "should not move when autocomplete is open"
     )
 
-    # 7. Ensure legacy help widgets are not active/visible
+    # 7. Ensure context help line matches parity
+    context_help_match = re.search(r"#context-help-line\s*\{([^}]*)\}", css_content)
+    assert context_help_match, "Could not find #context-help-line rule in app.tcss"
+    context_help_body = context_help_match.group(1)
+    assert "background: transparent;" in context_help_body
+    assert "color: $text-disabled;" in context_help_body
+    assert "height: 1;" in context_help_body
+
+    # 8. Ensure legacy help widgets are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)
     for legacy_id in ["#tasklist-help", "#context-help", "#status-spinner"]:
         match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
