@@ -9,7 +9,7 @@ def _close_coro(coro):
     coro.close()
 
 
-def test_task_command_opens_panel():
+def test_task_command_toggles_panel():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     mock_panel = MagicMock(spec=TaskListPanel)
@@ -31,12 +31,13 @@ def test_task_command_opens_panel():
     # The command should also call focus()
     mock_panel.focus.assert_called()
 
-    # Test remaining open when already visible (idempotency)
+    # Test closing when already visible
     mock_panel.display = True
     mock_panel.focus.reset_mock()
     app._handle_command("/task")
-    assert mock_panel.display is True
-    mock_panel.focus.assert_called()
+    assert mock_panel.display is False
+    # Should NOT call focus when hiding
+    mock_panel.focus.assert_not_called()
 
 
 def test_task_command_next_moves_selection():
