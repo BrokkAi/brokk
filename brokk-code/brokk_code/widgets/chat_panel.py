@@ -25,7 +25,6 @@ class ModeSuggestions(ListView):
         border: none;
         color: $text;
         scrollbar-gutter: stable;
-        /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
         margin: 0 2 6 2;
         max-height: 20;
         width: 1fr;
@@ -94,7 +93,6 @@ class ReasoningSuggestions(ListView):
         border: none;
         color: $text;
         scrollbar-gutter: stable;
-        /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
         margin: 0 2 6 2;
         max-height: 20;
         width: 1fr;
@@ -161,7 +159,6 @@ class SlashCommandSuggestions(ListView):
         border: none;
         color: $text;
         scrollbar-gutter: stable;
-        /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
         margin: 0 2 6 2;
         max-height: 20;
         width: 1fr;
@@ -395,7 +392,8 @@ class ChatInput(TextArea):
                 return
             if event.key in ("tab", "enter"):
                 # Flag that we want to submit immediately if Enter was used on slash suggestions.
-                # Only apply this to 'suggestions' (SlashCommandSuggestions), not mode/reasoning menus.
+                # Only apply this to 'suggestions' (SlashCommandSuggestions),
+                # not mode/reasoning menus.
                 if event.key == "enter" and active_popup == suggestions:
                     self.submit_after_accept = True
 
