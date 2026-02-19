@@ -145,9 +145,16 @@ async def test_tasklist_panel_help_line_contains_expected_keybindings() -> None:
         help_line = panel.query_one("#tasklist-help-line", Static)
         rendered = str(help_line.renderable)
 
+        # Esc is now first and highlighted; assert content + ordering without
+        # overfitting spacing/alignment.
+        assert "[bold bright_magenta]Esc[/] Close" in rendered
+        assert rendered.index("Esc") < rendered.index("Space")
+        assert rendered.index("Esc") < rendered.index("Enter")
+
+        # Basic expected entries still present.
+        assert "Up/Down" in rendered
         assert "Space" in rendered
         assert "Enter" in rendered
-        assert "Esc" in rendered
         assert "A" in rendered
         assert "E" in rendered
         assert "D" in rendered

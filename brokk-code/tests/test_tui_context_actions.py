@@ -58,11 +58,17 @@ async def test_context_panel_shows_clear_selection_state():
 
             # Verify help line is present and contains some expected keys
             help_line = panel.query_one("#context-help-line", Static)
-            help_text = str(help_line.render())
+            help_text = str(help_line.renderable)
+
+            # Esc is now first and highlighted; assert content + ordering without
+            # overfitting spacing/alignment.
+            assert "[bold bright_magenta]Esc[/] Close" in help_text
+            assert help_text.index("Esc") < help_text.index("Space")
+            assert help_text.index("Esc") < help_text.index("Enter")
+
             # Basic keys from _get_shortcuts_text()
             assert "Space" in help_text
             assert "Enter" in help_text
-            assert "Esc" in help_text
             assert "Drop" in help_text
             assert "U" in help_text  # clear_selection
             assert "CTRL+A" in help_text  # select_all
