@@ -622,6 +622,14 @@ class BrokkApp(App):
                     await self.executor.drop_context_fragments(message.fragment_ids)
                     if chat:
                         chat.add_system_message(f"Dropped {len(message.fragment_ids)} fragment(s).")
+                case "drop_others":
+                    to_drop = self._compute_drop_others(
+                        panel._fragments, selected_fragments, panel._active_id
+                    )
+                    if to_drop:
+                        await self.executor.drop_context_fragments(to_drop)
+                        if chat:
+                            chat.add_system_message(f"Dropped {len(to_drop)} other fragment(s).")
                 case "drop_all":
                     await self.executor.drop_all_context()
                     if chat:
@@ -660,6 +668,29 @@ class BrokkApp(App):
                 chat.add_system_message(f"Context action failed: {e}", level="ERROR")
             else:
                 logger.error("Context action failed: %s", e)
+
+    @staticmethod
+    def _compute_drop_others(
+        all_fragments: List[Dict[str, Any]],
+        selected_fragments: List[Dict[str, Any]],
+        active_id: Optional[str],
+    ) -> List[str]:
+        protected_ids = {str(f.get("id", "")) for f in selected_fragments}
+        if active_id:
+            protected_ids.add(active_id)
+
+        to_drop = []
+        for f in all_fragments:
+            f_id = str(f.get("id", ""))
+            if not f_id or f_id in protected_ids:
+                continue
+            if bool(f.get("pinned", False)):
+                continue
+            chip_kind = str(f.get("chip_kind", f.get("chipKind", ""))).upper()
+            if chip_kind == "HISTORY":
+                continue
+            to_drop.append(f_id)
+        return to_drop
 
     @staticmethod
     def _collect_pin_updates(selected_fragments: List[Dict[str, Any]]) -> List[tuple[str, bool]]:

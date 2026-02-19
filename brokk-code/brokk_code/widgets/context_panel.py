@@ -97,6 +97,7 @@ class ContextPanel(Vertical):
         Binding("ctrl+a", "select_all", "Select All", show=False),
         Binding("u", "clear_selection", "Unselect", show=False),
         Binding("d", "drop_selected", "Drop", show=False),
+        Binding("o", "drop_others", "Drop Others", show=False),
         Binding("shift+d", "drop_all", "Drop All", show=False),
         Binding("p", "toggle_pin_selected", "Pin", show=False),
         Binding("r", "toggle_readonly_selected", "Readonly", show=False),
@@ -354,6 +355,10 @@ class ContextPanel(Vertical):
         fragment_ids = self._selected_fragment_ids()
         if fragment_ids:
             self.post_message(self.ActionRequested("drop_selected", fragment_ids))
+
+    def action_drop_others(self) -> None:
+        # Drop everything except selected/active, handled by App logic
+        self.post_message(self.ActionRequested("drop_others", []))
 
     def action_drop_all(self) -> None:
         self.post_message(self.ActionRequested("drop_all", []))

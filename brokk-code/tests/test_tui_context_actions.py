@@ -86,3 +86,55 @@ async def test_context_panel_shows_clear_selection_state():
             await pilot.press("right")
             await pilot.pause()
             assert "Active: Conversation history" in str(active_status.render())
+
+
+@pytest.mark.asyncio
+async def test_context_panel_drop_others_action():
+    mock_executor = MagicMock()
+    mock_executor.stop = AsyncMock()
+    mock_executor.drop_context_fragments = AsyncMock()
+    mock_executor.get_context = AsyncMock(
+        return_value={
+            "usedTokens": 400,
+            "maxTokens": 100000,
+            "fragments": [
+                {"id": "f-1", "chipKind": "EDIT", "shortDescription": "Keep Me", "tokens": 100},
+                {"id": "f-2", "chipKind": "EDIT", "shortDescription": "Drop Me", "tokens": 100},
+                {
+                    "id": "f-3",
+                    "chipKind": "HISTORY",
+                    "shortDescription": "Keep History",
+                    "tokens": 100,
+                },
+                {
+                    "id": "f-4",
+                    "chipKind": "EDIT",
+                    "shortDescription": "Keep Pinned",
+                    "pinned": True,
+                    "tokens": 100,
+                },
+            ],
+        }
+    )
+    app = BrokkApp(executor=mock_executor)
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            app._executor_ready = True
+            await pilot.press("/", *"context".split(), "enter")
+            await app._refresh_context_panel()
+            await pilot.pause()
+
+            # Active is f-1 by default.
+            # We will trigger 'drop_others' (key 'o').
+            # Should drop f-2.
+            # Should NOT drop f-1 (active), f-3 (history), f-4 (pinned).
+            await pilot.press("o")
+            await pilot.pause()
+
+            mock_executor.drop_context_fragments.assert_called_once_with(["f-2"])
