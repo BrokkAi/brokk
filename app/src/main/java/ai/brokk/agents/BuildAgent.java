@@ -838,14 +838,11 @@ public class BuildAgent {
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
         boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
 
-        // Template is defined but misconfigured - warn the user
         if (!isFilesBased && !isClassesBased && !isModulesBased) {
-            cm.getIo()
-                    .systemNotify(
-                            "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, or {{#modules}}). Please update the build configuration in Settings.",
-                            "Build Configuration Warning",
-                            JOptionPane.WARNING_MESSAGE);
-            return details.buildLintCommand();
+            // Template is defined but may be misconfigured
+            logger.debug(
+                    "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, or {{#modules}})");
+            return testSomeTemplate;
         }
 
         final Path projectRoot = cm.getProject().getRoot();
