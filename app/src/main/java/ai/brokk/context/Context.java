@@ -927,33 +927,54 @@ public class Context {
 
     @Blocking
     public Context addAsSummaries(List<ContextFragment> fragments) {
-        List<ContextFragment> toAdd = new ArrayList<>();
-        for (var cf : fragments) {
-            ContextFragments.SummaryFragment sf = null;
-            switch (cf) {
-                case ContextFragments.ProjectPathFragment ppf ->
-                    sf = new ContextFragments.SummaryFragment(
-                            contextManager, ppf.file().toString(), ContextFragment.SummaryType.FILE_SKELETONS);
-                case ContextFragments.CodeFragment ccf -> {
-                    var analyzer = contextManager.getAnalyzerUninterrupted();
-                    var cuOpt = analyzer.parentOf(
-                            analyzer.getDefinitions(ccf.getFullyQualifiedName()).getFirst());
-                    if (cuOpt.isEmpty()) {
-                        logger.warn("Missing parent for " + ccf.getFullyQualifiedName());
-                    } else {
-                        sf = new ContextFragments.SummaryFragment(
-                                contextManager, cuOpt.get().fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
-                    }
-                }
-                case ContextFragments.SummaryFragment ssf -> sf = ssf;
-                default -> logger.warn("Unexpected fragment type added by Architect {}", cf.getClass());
-            }
+        List<ContextFragment> toAdd = fragments.stream()
+                .map(cf -> (ContextFragment)
+                        (switch (cf) {
+                            case ContextFragments.ProjectPathFragment ppf -> {
+                                var analyzer = contextManager.getAnalyzerUninterrupted();
+                                if (analyzer.getDeclarations(ppf.file()).isEmpty()) {
+                                    yield ppf;
+                                }
+                                yield new ContextFragments.SummaryFragment(
+                                        contextManager,
+                                        ppf.file().toString(),
+                                        ContextFragment.SummaryType.FILE_SKELETONS);
+                            }
+                            case ContextFragments.CodeFragment ccf -> {
+                                var analyzer = contextManager.getAnalyzerUninterrupted();
+                                var defs = analyzer.getDefinitions(ccf.getFullyQualifiedName());
+                                var cuOpt = defs.isEmpty()
+                                        ? Optional.<CodeUnit>empty()
+                                        : analyzer.parentOf(defs.getFirst());
+                                if (cuOpt.isEmpty()) {
+                                    logger.warn("Missing parent for " + ccf.getFullyQualifiedName());
+                                    yield null;
+                                }
+                                yield new ContextFragments.SummaryFragment(
+                                        contextManager,
+                                        cuOpt.get().fqName(),
+                                        ContextFragment.SummaryType.CODEUNIT_SKELETON);
+                            }
+                            case ContextFragments.SummaryFragment ssf -> ssf;
+                            default -> {
+                                logger.warn("Unexpected fragment type added by Architect {}", cf.getClass());
+                                yield null;
+                            }
+                        }))
+                .filter(Objects::nonNull)
+                .toList();
 
-            if (sf != null) {
-                toAdd.add(sf);
+        Context next = addFragments(toAdd);
+
+        // Mark any resulting ProjectPathFragments (the fallback for unanalyzed files) as readonly
+        for (var f : toAdd) {
+            if (f instanceof ContextFragments.ProjectPathFragment) {
+                final Context current = next;
+                next = next.findWithSameSource(f)
+                        .map(found -> current.setReadonly(found, true))
+                        .orElse(next);
             }
         }
-
-        return addFragments(toAdd);
+        return next;
     }
 }
