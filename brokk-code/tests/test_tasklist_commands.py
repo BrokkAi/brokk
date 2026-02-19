@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 from rich.text import Text
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.widgets import Static
 
 from brokk_code.app import BrokkApp, TaskListModalScreen, TaskTitleModalScreen
@@ -42,8 +42,16 @@ def test_task_command_opens_modal_and_focuses_tasklist_panel() -> None:
     app.run_worker = MagicMock(side_effect=_close_coro)
     app.push_screen = MagicMock()
 
-    # Open modal via /task
-    app._handle_command("/task")
+    # Open modal via /task.
+    # This runs on a non-running BrokkApp (no screen stack); focused lookup may raise
+    # ScreenStackError and should be handled safely by the app logic.
+    with patch.object(
+        type(app),
+        "focused",
+        new_callable=PropertyMock,
+        side_effect=ScreenStackError("No active screen"),
+    ):
+        app._handle_command("/task")
 
     # Assert a TaskListModalScreen instance was pushed
     assert app.push_screen.call_count == 1
