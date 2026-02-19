@@ -272,7 +272,7 @@ class BrokkApp(App):
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
-        Binding("shift+tab", "toggle_mode", "Toggle mode", show=False),
+        Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
 
     def __init__(
