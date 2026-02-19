@@ -208,6 +208,7 @@ async def test_mode_command_with_arg_sets_directly():
             await pilot.pause()
             assert app.agent_mode == "ASK"
 
+
 @pytest.mark.asyncio
 async def test_mode_command_no_arg_opens_menu():
     executor = MagicMock()

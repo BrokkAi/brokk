@@ -1123,6 +1123,7 @@ class BrokkApp(App):
             if len(parts) > 1:
                 self._set_mode(parts[1].upper())
             else:
+                # Open the inline mode menu when /mode is submitted without arguments
                 chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
         elif base == "/info":
             self._render_info()
