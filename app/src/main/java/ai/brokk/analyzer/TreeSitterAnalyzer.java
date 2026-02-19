@@ -43,6 +43,9 @@ import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
 import org.pcollections.PMap;
+import org.pcollections.PSet;
+import org.pcollections.PVector;
+import org.pcollections.TreePVector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.*;
@@ -210,6 +213,162 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, SkeletonType> captureConfiguration,
             String asyncKeywordNodeType,
             Set<String> modifierNodeTypes) {}
+
+    /**
+     * Immutable accumulator for per-file analysis state.
+     */
+    private record FileAnalysisContext(
+            PVector<CodeUnit> topLevelCUs,
+            PMap<CodeUnit, PVector<CodeUnit>> children,
+            PMap<CodeUnit, PVector<String>> signatures,
+            PMap<CodeUnit, PVector<Range>> sourceRanges,
+            PMap<CodeUnit, Boolean> hasBody,
+            PMap<String, PSet<CodeUnit>> codeUnitsBySymbol,
+            PMap<String, CodeUnit> cuByFqName) {
+
+        static FileAnalysisContext empty() {
+            return new FileAnalysisContext(
+                    TreePVector.empty(),
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty());
+        }
+
+        FileAnalysisContext withTopLevelCu(CodeUnit cu) {
+            return new FileAnalysisContext(
+                    topLevelCUs.plus(cu),
+                    children,
+                    signatures,
+                    sourceRanges,
+                    hasBody,
+                    codeUnitsBySymbol,
+                    cuByFqName.plus(cu.fqName(), cu));
+        }
+
+        FileAnalysisContext withChild(CodeUnit parent, CodeUnit child) {
+            PVector<CodeUnit> kids =
+                    children.getOrDefault(parent, TreePVector.empty()).plus(child);
+            return new FileAnalysisContext(
+                    topLevelCUs,
+                    children.plus(parent, kids),
+                    signatures,
+                    sourceRanges,
+                    hasBody,
+                    codeUnitsBySymbol,
+                    cuByFqName.plus(child.fqName(), child));
+        }
+
+        FileAnalysisContext withSignature(CodeUnit cu, String signature) {
+            PVector<String> sigs = signatures.getOrDefault(cu, TreePVector.empty());
+            if (sigs.contains(signature)) return this;
+            return new FileAnalysisContext(
+                    topLevelCUs,
+                    children,
+                    signatures.plus(cu, sigs.plus(signature)),
+                    sourceRanges,
+                    hasBody,
+                    codeUnitsBySymbol,
+                    cuByFqName);
+        }
+
+        FileAnalysisContext withRange(CodeUnit cu, Range range) {
+            PVector<Range> ranges =
+                    sourceRanges.getOrDefault(cu, TreePVector.empty()).plus(range);
+            return new FileAnalysisContext(
+                    topLevelCUs,
+                    children,
+                    signatures,
+                    sourceRanges.plus(cu, ranges),
+                    hasBody,
+                    codeUnitsBySymbol,
+                    cuByFqName);
+        }
+
+        FileAnalysisContext withHasBody(CodeUnit cu, boolean body) {
+            return new FileAnalysisContext(
+                    topLevelCUs,
+                    children,
+                    signatures,
+                    sourceRanges,
+                    hasBody.plus(cu, body),
+                    codeUnitsBySymbol,
+                    cuByFqName);
+        }
+
+        FileAnalysisContext withSymbolIndex(String symbol, CodeUnit cu) {
+            PSet<CodeUnit> cus = codeUnitsBySymbol
+                    .getOrDefault(symbol, org.pcollections.HashTreePSet.empty())
+                    .plus(cu);
+            return new FileAnalysisContext(
+                    topLevelCUs,
+                    children,
+                    signatures,
+                    sourceRanges,
+                    hasBody,
+                    codeUnitsBySymbol.plus(symbol, cus),
+                    cuByFqName);
+        }
+
+        FileAnalysisContext withoutCodeUnit(CodeUnit cu) {
+            PVector<CodeUnit> kids = children.get(cu);
+            FileAnalysisContext current = this;
+            if (kids != null) {
+                for (CodeUnit child : kids) {
+                    current = current.withoutCodeUnit(child);
+                }
+            }
+            PMap<CodeUnit, PVector<CodeUnit>> cleanedChildren = removeChildReferences(cu, current.children);
+            return new FileAnalysisContext(
+                    current.topLevelCUs.minus(cu),
+                    cleanedChildren.minus(cu),
+                    current.signatures.minus(cu),
+                    current.sourceRanges.minus(cu),
+                    current.hasBody.minus(cu),
+                    current.removeFromSymbolIndex(cu),
+                    current.cuByFqName.minus(cu.fqName()));
+        }
+
+        private PMap<String, PSet<CodeUnit>> removeFromSymbolIndex(CodeUnit cu) {
+            PMap<String, PSet<CodeUnit>> nextIndex = codeUnitsBySymbol;
+            String[] keys = {cu.identifier(), cu.shortName()};
+            for (String key : keys) {
+                PSet<CodeUnit> set = nextIndex.get(key);
+                if (set != null) {
+                    set = set.minus(cu);
+                    nextIndex = set.isEmpty() ? nextIndex.minus(key) : nextIndex.plus(key, set);
+                }
+            }
+            return nextIndex;
+        }
+
+        private PMap<CodeUnit, PVector<CodeUnit>> removeChildReferences(
+                CodeUnit cu, PMap<CodeUnit, PVector<CodeUnit>> existingChildren) {
+            PMap<CodeUnit, PVector<CodeUnit>> updated = existingChildren;
+            if (existingChildren.isEmpty()) {
+                return updated;
+            }
+            for (var entry : existingChildren.entrySet()) {
+                CodeUnit parent = entry.getKey();
+                if (parent.equals(cu)) {
+                    continue;
+                }
+                PVector<CodeUnit> kids = entry.getValue();
+                if (!kids.contains(cu)) {
+                    continue;
+                }
+                PVector<CodeUnit> trimmed = kids.minus(cu);
+                if (trimmed.isEmpty()) {
+                    updated = updated.minus(parent);
+                } else {
+                    updated = updated.plus(parent, trimmed);
+                }
+            }
+            return updated;
+        }
+    }
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -866,6 +1025,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 .map(index::get)
                 .filter(Objects::nonNull)
                 .flatMap(Set::stream)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toUnmodifiableSet());
     }
 
@@ -942,7 +1102,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     if (!symbolLower.startsWith(lowerCaseQuery)) {
                         break; // stop when the prefix no longer matches
                     }
-                    results.addAll(current.symbolIndex().getOrDefault(symbol, Set.of()));
+                    Set<CodeUnit> cus = current.symbolIndex().get(symbol);
+                    if (cus != null) {
+                        results.addAll(cus);
+                    }
                 }
             } catch (IllegalArgumentException e) {
                 // Defensive fallback: if tail scan fails for any reason, ignore and continue with generic scan
@@ -970,7 +1133,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
 
             if (matches) {
-                results.addAll(current.symbolIndex().getOrDefault(symbol, Set.of()));
+                Set<CodeUnit> cus = current.symbolIndex().get(symbol);
+                if (cus != null) {
+                    results.addAll(cus);
+                }
             }
         }
 
@@ -982,6 +1148,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         return results.stream()
+                .filter(Objects::nonNull)
                 .filter(cu -> !isAnonymousStructure(cu.fqName()))
                 .sorted(IAnalyzer.autocompleteDefinitionsSortComparator())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -1667,293 +1834,118 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * - The hasBody flag is merged across snapshots using logical OR semantics so that a definition discovered in
      * any pass/file marks the CodeUnit as having a body.
      */
-    private void addTopLevelCodeUnit(
-            CodeUnit cu,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, Boolean> localHasBody,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
-            Map<String, CodeUnit> localCuByFqName,
-            ProjectFile file) {
+    private FileAnalysisContext addTopLevelCodeUnit(CodeUnit cu, FileAnalysisContext ctx, ProjectFile file) {
 
-        // Find existing CodeUnit with the same logical identity.
-        // For functions, signature is part of identity, so overloads with different signatures are distinct.
-        // For classes, signature (e.g., C++ templates) is also included when present.
-        CodeUnit existingDuplicate = localTopLevelCUs.stream()
+        CodeUnit existingDuplicate = ctx.topLevelCUs().stream()
                 .filter(existing -> sameLogicalIdentity(existing, cu))
                 .findFirst()
                 .orElse(null);
 
-        // For cross-kind declaration merging (e.g., TS function + namespace),
-        // also look for any existing CodeUnit with the same fqName but different kind
         CodeUnit crossKindDuplicate = null;
         if (existingDuplicate == null) {
-            crossKindDuplicate = localTopLevelCUs.stream()
+            crossKindDuplicate = ctx.topLevelCUs().stream()
                     .filter(existing -> existing.fqName().equals(cu.fqName()) && existing.kind() != cu.kind())
                     .findFirst()
                     .orElse(null);
         }
 
-        // Early exit if exact CodeUnit already present (same fqName, kind, source, AND signature)
-        // unless it's a duplicate that should be replaced.
-        if (localTopLevelCUs.contains(cu)
+        if (ctx.topLevelCUs().contains(cu)
                 && (existingDuplicate == null || !shouldReplaceOnDuplicate(existingDuplicate, cu))) {
-            return;
+            return ctx;
         }
 
         if (existingDuplicate == null) {
             if (crossKindDuplicate != null && isBenignDuplicate(crossKindDuplicate, cu)) {
                 log.trace("Merging benign cross-kind duplicate: {}", cu.fqName());
-                mergeCodeUnitProperties(
-                        crossKindDuplicate,
-                        cu,
-                        localChildren,
-                        localSignatures,
-                        localSourceRanges,
-                        localHasBody,
-                        localCodeUnitsBySymbol,
-                        localCuByFqName);
-                return;
+                return mergeCodeUnitProperties(crossKindDuplicate, cu, ctx);
             }
 
-            // No duplicate, add normally
-            localTopLevelCUs.add(cu);
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
-                    .add(cu);
-            if (!cu.shortName().equals(cu.identifier())) {
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
-                        .add(cu);
-            }
-            localCuByFqName.put(cu.fqName(), cu);
-            return;
+            return registerCodeUnit(cu, ctx.withTopLevelCu(cu));
         }
 
-        // SPECIAL CASE: For functions and classes, prefer the definition (with body) over a forward declaration.
         if ((cu.isFunction()
                         && existingDuplicate.isFunction()
                         && Objects.equals(cu.signature(), existingDuplicate.signature()))
                 || (cu.isClass() && existingDuplicate.isClass())) {
-            boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
-            boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
+            boolean existingHasBody = ctx.hasBody().getOrDefault(existingDuplicate, false);
+            boolean candidateHasBody = ctx.hasBody().getOrDefault(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
                 log.trace(
                         "Ignoring {} declaration for {} (definition already present)",
                         cu.kind().name().toLowerCase(Locale.ROOT),
                         cu.fqName());
-                return;
+                return ctx;
             } else if (candidateHasBody && !existingHasBody) {
                 log.trace("Replacing forward declaration with definition for: {}", cu.fqName());
-                localTopLevelCUs.remove(existingDuplicate);
-
-                removeCodeUnitAndDescendants(
-                        existingDuplicate,
-                        localChildren,
-                        localSignatures,
-                        localSourceRanges,
-                        localHasBody,
-                        localCodeUnitsBySymbol,
-                        localCuByFqName);
-
-                localTopLevelCUs.add(cu);
-                localCuByFqName.put(cu.fqName(), cu);
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
-                        .add(cu);
-                if (!cu.shortName().equals(cu.identifier())) {
-                    localCodeUnitsBySymbol
-                            .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
-                            .add(cu);
-                }
-                return;
+                return registerCodeUnit(
+                        cu, ctx.withoutCodeUnit(existingDuplicate).withTopLevelCu(cu));
             }
         }
 
         if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
-            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
             log.trace(
                     "Replacing duplicate CodeUnit: existing='{}', candidate='{}'",
                     existingDuplicate.fqName(),
                     cu.fqName());
-
-            localTopLevelCUs.removeIf(existing -> existing.equals(existingDuplicate));
-
-            removeCodeUnitAndDescendants(
-                    existingDuplicate,
-                    localChildren,
-                    localSignatures,
-                    localSourceRanges,
-                    localHasBody,
-                    localCodeUnitsBySymbol,
-                    localCuByFqName);
-
-            localTopLevelCUs.add(cu);
-            localCuByFqName.put(cu.fqName(), cu);
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
-                    .add(cu);
-            if (!cu.shortName().equals(cu.identifier())) {
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
-                        .add(cu);
-            }
-
+            return registerCodeUnit(cu, ctx.withoutCodeUnit(existingDuplicate).withTopLevelCu(cu));
         } else if (isBenignDuplicate(existingDuplicate, cu)) {
-            mergeCodeUnitProperties(
-                    existingDuplicate,
-                    cu,
-                    localChildren,
-                    localSignatures,
-                    localSourceRanges,
-                    localHasBody,
-                    localCodeUnitsBySymbol,
-                    localCuByFqName);
+            return mergeCodeUnitProperties(existingDuplicate, cu, ctx);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             log.trace("Ignoring duplicate {} per language policy", cu.fqName());
+            return ctx;
         } else if (crossKindDuplicate != null && shouldIgnoreDuplicate(crossKindDuplicate, cu, file)) {
             log.trace("Ignoring cross-kind duplicate {} per language policy", cu.fqName());
+            return ctx;
         } else {
-            // If it's not ignored and not replaced, we add it (e.g. for overloads)
-            localTopLevelCUs.add(cu);
-            localCuByFqName.put(cu.fqName(), cu);
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
-                    .add(cu);
-            if (!cu.shortName().equals(cu.identifier())) {
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
-                        .add(cu);
-            }
-            log.trace("Adding non-ignored duplicate {} (e.g., overload)", cu.fqName());
+            return registerCodeUnit(cu, ctx.withTopLevelCu(cu));
         }
+    }
+
+    private FileAnalysisContext registerCodeUnit(CodeUnit cu, FileAnalysisContext ctx) {
+        FileAnalysisContext next = ctx.withSymbolIndex(cu.identifier(), cu);
+        if (!cu.shortName().equals(cu.identifier())) {
+            next = next.withSymbolIndex(cu.shortName(), cu);
+        }
+        return next;
     }
 
     /**
      * Recursively removes a CodeUnit and all its descendants from the analysis maps.
      * Used when replacing duplicates to ensure children of the old definition don't appear in results.
      */
-    private void mergeCodeUnitProperties(
-            CodeUnit target,
-            CodeUnit source,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, Boolean> localHasBody,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
-            Map<String, CodeUnit> localCuByFqName) {
+    private FileAnalysisContext mergeCodeUnitProperties(CodeUnit target, CodeUnit source, FileAnalysisContext ctx) {
 
         log.trace("Merging properties from {} into {}", source.fqName(), target.fqName());
+        if (target.equals(source)) return ctx;
+        FileAnalysisContext current = ctx;
 
-        // Move and deduplicate children
-        List<CodeUnit> sourceChildren = localChildren.remove(source);
+        PVector<CodeUnit> sourceChildren = current.children().get(source);
         if (sourceChildren != null) {
-            List<CodeUnit> targetChildren = localChildren.computeIfAbsent(target, k -> new ArrayList<>());
             for (CodeUnit child : sourceChildren) {
-                if (!targetChildren.contains(child)) {
-                    targetChildren.add(child);
-                }
+                current = current.withChild(target, child);
             }
         }
 
-        // Move and deduplicate signatures
-        List<String> sourceSigs = localSignatures.remove(source);
+        PVector<String> sourceSigs = current.signatures().get(source);
         if (sourceSigs != null) {
-            List<String> targetSigs = localSignatures.computeIfAbsent(target, k -> new ArrayList<>());
             for (String sig : sourceSigs) {
-                if (!targetSigs.contains(sig)) {
-                    targetSigs.add(sig);
-                }
+                current = current.withSignature(target, sig);
             }
         }
 
-        // Move ranges
-        List<Range> sourceRanges = localSourceRanges.remove(source);
+        PVector<Range> sourceRanges = current.sourceRanges().get(source);
         if (sourceRanges != null) {
-            localSourceRanges.computeIfAbsent(target, k -> new ArrayList<>()).addAll(sourceRanges);
-        }
-
-        // OR the hasBody flag
-        Boolean removedValue = localHasBody.remove(source);
-        boolean sourceHasBody = removedValue != null && removedValue;
-        if (sourceHasBody) {
-            localHasBody.put(target, true);
-        }
-
-        // Update FQN mapping to target
-        localCuByFqName.put(source.fqName(), target);
-
-        // Remove source from symbol index (only source instance, keep target)
-        Set<CodeUnit> byId = localCodeUnitsBySymbol.get(source.identifier());
-        if (byId != null) {
-            byId.remove(source);
-        }
-        if (!source.shortName().equals(source.identifier())) {
-            Set<CodeUnit> byShort = localCodeUnitsBySymbol.get(source.shortName());
-            if (byShort != null) {
-                byShort.remove(source);
-            }
-        }
-    }
-
-    private void removeCodeUnitAndDescendants(
-            CodeUnit cu,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, Boolean> localHasBody,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
-            Map<String, CodeUnit> localCuByFqName) {
-
-        log.trace("removeCodeUnitAndDescendants start: {} (kind={})", cu.fqName(), cu.kind());
-
-        // 1. Recursively remove descendants first (bottom-up)
-        // We use remove() which returns the previous value to get children.
-        List<CodeUnit> children = localChildren.remove(cu);
-        if (children != null) {
-            log.trace("Found {} children to remove for {}", children.size(), cu.fqName());
-            for (CodeUnit child : children) {
-                removeCodeUnitAndDescendants(
-                        child,
-                        localChildren,
-                        localSignatures,
-                        localSourceRanges,
-                        localHasBody,
-                        localCodeUnitsBySymbol,
-                        localCuByFqName);
+            for (Range range : sourceRanges) {
+                current = current.withRange(target, range);
             }
         }
 
-        // 2. Remove from property maps
-        localSignatures.remove(cu);
-        localSourceRanges.remove(cu);
-        localHasBody.remove(cu);
-
-        // 3. Remove from lookup maps.
-        localCuByFqName.remove(cu.fqName());
-
-        Set<CodeUnit> byIdentifier = localCodeUnitsBySymbol.get(cu.identifier());
-        if (byIdentifier != null) {
-            byIdentifier.remove(cu);
-            if (byIdentifier.isEmpty()) {
-                localCodeUnitsBySymbol.remove(cu.identifier());
-            }
+        if (current.hasBody().getOrDefault(source, false)) {
+            current = current.withHasBody(target, true);
         }
 
-        if (!cu.shortName().equals(cu.identifier())) {
-            Set<CodeUnit> byShortName = localCodeUnitsBySymbol.get(cu.shortName());
-            if (byShortName != null) {
-                byShortName.remove(cu);
-                if (byShortName.isEmpty()) {
-                    localCodeUnitsBySymbol.remove(cu.shortName());
-                }
-            }
-        }
-
-        log.trace("Processed removal: {} (kind={})", cu.fqName(), cu.kind());
+        return current.withoutCodeUnit(source);
     }
 
     /**
@@ -1961,33 +1953,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Duplicate handling is controlled by shouldReplaceOnDuplicate().
      * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
      */
-    private void addChildCodeUnit(
-            CodeUnit cu,
-            CodeUnit parentCu,
-            List<CodeUnit> kids,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, Boolean> localHasBody,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol,
-            Map<String, CodeUnit> localCuByFqName) {
+    private FileAnalysisContext addChildCodeUnit(CodeUnit cu, CodeUnit parentCu, FileAnalysisContext ctx) {
 
-        // Find existing CodeUnit with the same logical identity.
-        // For functions, signature is part of identity, so overloads with different signatures are distinct.
-        // For classes, signature (e.g., C++ templates) is also included when present.
+        PVector<CodeUnit> kids = ctx.children().getOrDefault(parentCu, TreePVector.empty());
         CodeUnit existingDuplicate = kids.stream()
                 .filter(existing -> sameLogicalIdentity(existing, cu))
                 .findFirst()
                 .orElse(null);
 
-        // Early exit if exact CodeUnit already present
-        // unless it's a duplicate that should be replaced.
         if (kids.contains(cu) && (existingDuplicate == null || !shouldReplaceOnDuplicate(existingDuplicate, cu))) {
-            return;
+            return ctx;
         }
 
         if (existingDuplicate == null) {
-            // Search for cross-kind duplicates in the same children list
             CodeUnit crossKindDuplicate = kids.stream()
                     .filter(existing -> existing.fqName().equals(cu.fqName()) && existing.kind() != cu.kind())
                     .findFirst()
@@ -1995,38 +1973,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             if (crossKindDuplicate != null && isBenignDuplicate(crossKindDuplicate, cu)) {
                 log.trace("Merging benign cross-kind child duplicate: {}", cu.fqName());
-                mergeCodeUnitProperties(
-                        crossKindDuplicate,
-                        cu,
-                        localChildren,
-                        localSignatures,
-                        localSourceRanges,
-                        localHasBody,
-                        localCodeUnitsBySymbol,
-                        localCuByFqName);
-                return;
+                return mergeCodeUnitProperties(crossKindDuplicate, cu, ctx);
             }
 
-            kids.add(cu);
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
-                    .add(cu);
-            if (!cu.shortName().equals(cu.identifier())) {
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
-                        .add(cu);
-            }
-            localCuByFqName.put(cu.fqName(), cu);
-            return;
+            return registerCodeUnit(cu, ctx.withChild(parentCu, cu));
         }
 
-        // If both are functions or classes, prefer the one with a body (definition over forward decl)
         if ((cu.isFunction()
                         && existingDuplicate.isFunction()
                         && Objects.equals(cu.signature(), existingDuplicate.signature()))
                 || (cu.isClass() && existingDuplicate.isClass())) {
-            boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
-            boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
+            boolean existingHasBody = ctx.hasBody().getOrDefault(existingDuplicate, false);
+            boolean candidateHasBody = ctx.hasBody().getOrDefault(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
                 log.trace(
@@ -2034,85 +1992,27 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         cu.kind().name().toLowerCase(Locale.ROOT),
                         cu.fqName(),
                         parentCu.fqName());
-                return;
+                return ctx;
             } else if (candidateHasBody && !existingHasBody) {
                 log.trace("Replacing child forward declaration with definition for: {}", cu.fqName());
-                kids.remove(existingDuplicate);
-
-                removeCodeUnitAndDescendants(
-                        existingDuplicate,
-                        localChildren,
-                        localSignatures,
-                        localSourceRanges,
-                        localHasBody,
-                        localCodeUnitsBySymbol,
-                        localCuByFqName);
-
-                kids.add(cu);
-                localCuByFqName.put(cu.fqName(), cu);
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
-                        .add(cu);
-                if (!cu.shortName().equals(cu.identifier())) {
-                    localCodeUnitsBySymbol
-                            .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
-                            .add(cu);
-                }
-                return;
+                return registerCodeUnit(
+                        cu, ctx.withoutCodeUnit(existingDuplicate).withChild(parentCu, cu));
             }
         }
 
         if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
-            // Replace logically identical children (e.g., Python's "last wins")
-            List<CodeUnit> toRemove =
-                    kids.stream().filter(k -> k.equals(existingDuplicate)).toList();
-
-            if (!toRemove.isEmpty()) {
-                toRemove.forEach(oldCu -> removeCodeUnitAndDescendants(
-                        oldCu,
-                        localChildren,
-                        localSignatures,
-                        localSourceRanges,
-                        localHasBody,
-                        localCodeUnitsBySymbol,
-                        localCuByFqName));
-                kids.removeAll(toRemove);
-            }
-            kids.add(cu);
-            localCuByFqName.put(cu.fqName(), cu);
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
-                    .add(cu);
-            if (!cu.shortName().equals(cu.identifier())) {
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
-                        .add(cu);
-            }
+            log.trace(
+                    "Replacing duplicate child CodeUnit: existing='{}', candidate='{}'",
+                    existingDuplicate.fqName(),
+                    cu.fqName());
+            return registerCodeUnit(cu, ctx.withoutCodeUnit(existingDuplicate).withChild(parentCu, cu));
         } else if (isBenignDuplicate(existingDuplicate, cu)) {
-            mergeCodeUnitProperties(
-                    existingDuplicate,
-                    cu,
-                    localChildren,
-                    localSignatures,
-                    localSourceRanges,
-                    localHasBody,
-                    localCodeUnitsBySymbol,
-                    localCuByFqName);
+            return mergeCodeUnitProperties(existingDuplicate, cu, ctx);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, cu.source())) {
             log.trace("Skipping duplicate child '{}' per language policy", cu.fqName());
+            return ctx;
         } else {
-            // If it's not ignored and not replaced, we add it (e.g. for overloads)
-            kids.add(cu);
-            localCuByFqName.put(cu.fqName(), cu);
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
-                    .add(cu);
-            if (!cu.shortName().equals(cu.identifier())) {
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
-                        .add(cu);
-            }
-            log.trace("Adding non-ignored child duplicate '{}' (e.g., overload)", cu.fqName());
+            return registerCodeUnit(cu, ctx.withChild(parentCu, cu));
         }
     }
 
@@ -2135,7 +2035,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             TSParser localParser,
             @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
         log.trace("analyzeFileContent: Parsing file: {}", file);
-        // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
         if (fileBytes.length == 0) {
             log.trace("Skipping binary/empty file: {}", file);
             return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
@@ -2145,15 +2044,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String src = new String(fileBytes, StandardCharsets.UTF_8);
         SourceContent sourceContent = SourceContent.of(src);
 
-        List<CodeUnit> localTopLevelCUs = new ArrayList<>();
-        Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
-        Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
-        Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
-        Map<String, Set<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
-        Map<String, CodeUnit> localCuByFqName = new HashMap<>();
+        FileAnalysisContext ctx = FileAnalysisContext.empty();
         Map<CodeUnit, String> cuToCaptureName = new HashMap<>();
         List<ImportInfo> localImportInfos = new ArrayList<>();
-        Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
 
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
@@ -2289,10 +2182,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         decoratorNodesForMatch,
                                         definitionNode.getParent())); // Cache parent to avoid repeated lookups
 
-                        // Register in symbol index for resolution.
-                        // Note: deduplication/replacement logic in addTopLevelCodeUnit and addChildCodeUnit
-                        // will manage the contents of localCodeUnitsBySymbol to ensure correct lookups.
-                        localCodeUnitsBySymbol.computeIfAbsent(simpleName, k -> new HashSet<>());
+                        ctx = ctx.withSymbolIndex(simpleName, null); // Placeholder for resolution
                     } else {
                         if (simpleName == null) {
                             if (!isNullNameAllowed(
@@ -2416,21 +2306,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         simpleName,
                         primaryCaptureName,
                         file.getFileName());
-                // Remove from symbol index if we registered it but then failed to create the CU
-                localCodeUnitsBySymbol.remove(simpleName);
                 continue;
             }
 
             String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
             @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
 
-            // Create a lookup key that includes signature and location for functions to allow overloads
-            // with same normalized signatures to be processed as distinct definitions.
             String cuLookupKey = (codeUnitSignature != null)
                     ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
                     : enhancedFqName;
 
-            CodeUnit existingCUforKeyLookup = localCuByFqName.get(cuLookupKey);
+            CodeUnit existingCUforKeyLookup = ctx.cuByFqName().get(cuLookupKey);
             if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
                 cu = existingCUforKeyLookup;
                 log.trace("Reusing existing CodeUnit for function overload: {}", cu.fqName());
@@ -2480,7 +2366,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         && !bodyNodeCandidate.isNull()
                         && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
             }
-            localHasBody.put(cu, hasBody);
+            ctx = ctx.withHasBody(cu, hasBody);
 
             String signature =
                     buildSignatureString(node, simpleName, sourceContent, primaryCaptureName, modifierKeywords, file);
@@ -2503,19 +2389,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
                     && shouldMergeSignaturesForSameFqn()) {
-                List<String> existingSignatures =
-                        localSignatures.get(existingCUforKeyLookup); // Existing signatures for the *other* CU instance
+                PVector<String> existingSignatures = ctx.signatures().get(existingCUforKeyLookup);
                 boolean newIsExported = signature.trim().startsWith("export");
                 boolean oldIsExported = (existingSignatures != null && !existingSignatures.isEmpty())
-                        && existingSignatures.getFirst().trim().startsWith("export"); // Check first existing
+                        && existingSignatures.getFirst().trim().startsWith("export");
 
                 if (newIsExported && !oldIsExported) {
                     log.warn(
                             "Replacing non-exported CU/signature list for {} with new EXPORTED signature.",
                             cu.fqName());
-                    localSignatures.remove(existingCUforKeyLookup);
-                    localSourceRanges.remove(existingCUforKeyLookup);
-                    localChildren.remove(existingCUforKeyLookup);
+                    ctx = ctx.withoutCodeUnit(existingCUforKeyLookup);
                 } else if (!newIsExported && oldIsExported) {
                     log.trace(
                             "Keeping existing EXPORTED CU/signature list for {}. Discarding new non-exported signature for current CU.",
@@ -2535,15 +2418,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
 
             if (!signature.isBlank()) {
-                List<String> sigsForCu = localSignatures.computeIfAbsent(cu, k -> new ArrayList<>());
-                if (!sigsForCu.contains(signature)) {
-                    sigsForCu.add(signature);
-                }
+                ctx = ctx.withSignature(cu, signature);
             }
 
-            localCuByFqName.put(cuLookupKey, cu);
             cuToCaptureName.put(cu, primaryCaptureName);
-            localChildren.putIfAbsent(cu, new ArrayList<>());
 
             boolean attachedToParent = false;
 
@@ -2553,19 +2431,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     String enclosingFnName = enclosingFnNameOpt.get();
                     String methodFqName = classChain.isEmpty() ? enclosingFnName : (classChain + "." + enclosingFnName);
 
-                    CodeUnit parentFnCu = localCuByFqName.get(methodFqName);
+                    CodeUnit parentFnCu = ctx.cuByFqName().get(methodFqName);
                     if (parentFnCu != null) {
-                        List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
-                        addChildCodeUnit(
-                                cu,
-                                parentFnCu,
-                                kids,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                localHasBody,
-                                localCodeUnitsBySymbol,
-                                localCuByFqName);
+                        ctx = addChildCodeUnit(cu, parentFnCu, ctx);
                         attachedToParent = true;
                     } else {
                         log.trace(
@@ -2577,47 +2445,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
-                    addTopLevelCodeUnit(
-                            cu,
-                            localTopLevelCUs,
-                            localChildren,
-                            localSignatures,
-                            localSourceRanges,
-                            localHasBody,
-                            localCodeUnitsBySymbol,
-                            localCuByFqName,
-                            file);
+                    ctx = addTopLevelCodeUnit(cu, ctx, file);
                 } else {
                     String parentFqName = buildParentFqName(cu, classChain, scopeChain);
-                    CodeUnit parentCu = localCuByFqName.get(parentFqName);
+                    CodeUnit parentCu = ctx.cuByFqName().get(parentFqName);
                     if (parentCu != null) {
-                        List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
-                        addChildCodeUnit(
-                                cu,
-                                parentCu,
-                                kids,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                localHasBody,
-                                localCodeUnitsBySymbol,
-                                localCuByFqName);
+                        ctx = addChildCodeUnit(cu, parentCu, ctx);
                     } else {
                         log.trace(
                                 "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",
                                 cu,
                                 parentFqName,
                                 classChain);
-                        addTopLevelCodeUnit(
-                                cu,
-                                localTopLevelCUs,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                localHasBody,
-                                localCodeUnitsBySymbol,
-                                localCuByFqName,
-                                file);
+                        ctx = addTopLevelCodeUnit(cu, ctx, file);
                     }
                 }
             }
@@ -2634,36 +2474,57 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     ? expandRangeWithComments(rangeNode, sourceContent)
                     : originalRange;
 
-            localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
+            ctx = ctx.withRange(cu, finalRange);
             log.trace("Stored/Updated info for CU: {}", cu);
         }
 
         List<String> localImportStatements =
                 localImportInfos.stream().map(ImportInfo::rawSnippet).toList();
 
+        // Local maps for createModulesFromImports because it's an abstract hook that might not be PCollection-aware
+        // yet.
+        Map<String, CodeUnit> mCuByFqName = new HashMap<>(ctx.cuByFqName());
+        List<CodeUnit> mTopLevelCUs = new ArrayList<>(ctx.topLevelCUs());
+        Map<CodeUnit, List<String>> mSignatures = new HashMap<>();
+        ctx.signatures().forEach((k, v) -> mSignatures.put(k, new ArrayList<>(v)));
+        Map<CodeUnit, List<Range>> mSourceRanges = new HashMap<>();
+        ctx.sourceRanges().forEach((k, v) -> mSourceRanges.put(k, new ArrayList<>(v)));
+        Map<CodeUnit, List<CodeUnit>> mChildren = new HashMap<>();
+        ctx.children().forEach((k, v) -> mChildren.put(k, new ArrayList<>(v)));
+        Map<String, Set<CodeUnit>> mCodeUnitsBySymbol = new HashMap<>();
+        ctx.codeUnitsBySymbol().forEach((k, v) -> mCodeUnitsBySymbol.put(k, new HashSet<>(v)));
+
         createModulesFromImports(
                 file,
                 localImportStatements,
                 rootNode,
                 determinePackageName(file, rootNode, rootNode, sourceContent),
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges,
-                localChildren,
-                localCodeUnitsBySymbol);
+                mCuByFqName,
+                mTopLevelCUs,
+                mSignatures,
+                mSourceRanges,
+                mChildren,
+                mCodeUnitsBySymbol);
 
-        // Synthetic constructor injection: for each class-like CU, check if it needs an implicit constructor.
-        // Implicit constructors are fully integrated into the local state:
-        // 1. Attached as a direct child of the enclosing class in localChildren
-        // 2. Present in localStates (and therefore codeUnitState) via the unionKeys mechanism
-        // 3. Registered in the symbol index for resolution via getDefinitions
-        // We do NOT add a signature entry to preserve existing skeleton rendering expectations.
-        for (CodeUnit cu : List.copyOf(localCuByFqName.values())) {
+        // Re-wrap back into PCollections
+        ctx = new FileAnalysisContext(
+                TreePVector.from(mTopLevelCUs),
+                HashTreePMap.from(mChildren.entrySet().stream()
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> TreePVector.from(e.getValue())))),
+                HashTreePMap.from(mSignatures.entrySet().stream()
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> TreePVector.from(e.getValue())))),
+                HashTreePMap.from(mSourceRanges.entrySet().stream()
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> TreePVector.from(e.getValue())))),
+                ctx.hasBody(),
+                HashTreePMap.from(mCodeUnitsBySymbol.entrySet().stream()
+                        .collect(Collectors.toMap(
+                                Map.Entry::getKey, e -> org.pcollections.HashTreePSet.from(e.getValue())))),
+                HashTreePMap.from(mCuByFqName));
+
+        for (CodeUnit cu : List.copyOf(ctx.cuByFqName().values())) {
             if (cu.isClass()) {
-                List<CodeUnit> kids = localChildren.getOrDefault(cu, List.of());
+                PVector<CodeUnit> kids = ctx.children().getOrDefault(cu, TreePVector.empty());
                 boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
-                    // Use the capture name stored during analysis to identify constructors
                     String capture = cuToCaptureName.getOrDefault(k, "");
                     return isConstructor(k, cu, capture);
                 });
@@ -2672,30 +2533,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
                     CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
                     if (implicit != null) {
-                        // Register in symbol index for resolution
-                        localCodeUnitsBySymbol
-                                .computeIfAbsent(implicit.identifier(), k -> new HashSet<>())
-                                .add(implicit);
-                        if (!implicit.shortName().equals(implicit.identifier())) {
-                            localCodeUnitsBySymbol
-                                    .computeIfAbsent(implicit.shortName(), k -> new HashSet<>())
-                                    .add(implicit);
-                        }
-
-                        // Add to the main CU map
-                        localCuByFqName.putIfAbsent(implicit.fqName(), implicit);
-                        localHasBody.put(implicit, true);
-
-                        // Fully integrate into the state:
-                        // 1. Attach as child of the class
-                        localChildren
-                                .computeIfAbsent(cu, k -> new ArrayList<>())
-                                .add(implicit);
-                        // 2. Ensure entries exist for the synthetic unit itself to force inclusion in unionKeys
-                        localChildren.putIfAbsent(implicit, new ArrayList<>());
-                        localSourceRanges.putIfAbsent(implicit, new ArrayList<>());
-                        // Note: we do NOT add a signature entry to preserve current skeleton expectations
-
+                        ctx = registerCodeUnit(implicit, ctx)
+                                .withHasBody(implicit, true)
+                                .withChild(cu, implicit);
                         log.trace("Synthesized implicit constructor for class {}", cu.fqName());
                     }
                 }
@@ -2704,38 +2544,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         boolean containsTests = containsTestMarkers(tree, sourceContent);
 
-        log.trace(
-                "Finished analyzing {}: found {} top-level CUs (includes {} imports), {} total signatures, {} parent entries, {} source range entries, containsTests={}",
-                file,
-                localTopLevelCUs.size(),
-                localImportStatements.size(),
-                localSignatures.size(),
-                localChildren.size(),
-                localSourceRanges.size(),
-                containsTests);
-
-        Map<CodeUnit, List<CodeUnit>> finalLocalChildren = new HashMap<>();
-        localChildren.forEach((p, kids) -> finalLocalChildren.put(p, Collections.unmodifiableList(kids)));
-
-        Map<CodeUnit, List<Range>> finalLocalSourceRanges = new HashMap<>();
-        localSourceRanges.forEach((c, ranges) -> finalLocalSourceRanges.put(c, Collections.unmodifiableList(ranges)));
-
         Map<CodeUnit, CodeUnitProperties> localStates = new HashMap<>();
         var unionKeys = new HashSet<CodeUnit>();
-        unionKeys.addAll(finalLocalChildren.keySet());
-        unionKeys.addAll(localSignatures.keySet());
-        unionKeys.addAll(finalLocalSourceRanges.keySet());
+        unionKeys.addAll(ctx.children().keySet());
+        unionKeys.addAll(ctx.signatures().keySet());
+        unionKeys.addAll(ctx.sourceRanges().keySet());
         for (var cu : unionKeys) {
-            var kids = finalLocalChildren.getOrDefault(cu, List.of());
-            var sigs = localSignatures.getOrDefault(cu, List.of());
-            var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
-            boolean hasBody = localHasBody.getOrDefault(cu, false);
+            var kids = ctx.children().getOrDefault(cu, TreePVector.empty());
+            var sigs = ctx.signatures().getOrDefault(cu, TreePVector.empty());
+            var rngs = ctx.sourceRanges().getOrDefault(cu, TreePVector.empty());
+            boolean hasBody = ctx.hasBody().getOrDefault(cu, false);
             localStates.put(
                     cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody));
         }
 
         var duplicatesByCodeUnit =
-                localTopLevelCUs.stream().collect(Collectors.groupingBy(cu -> cu, Collectors.counting()));
+                ctx.topLevelCUs().stream().collect(Collectors.groupingBy(cu -> cu, Collectors.counting()));
         var duplicatedCUs = duplicatesByCodeUnit.entrySet().stream()
                 .filter(e -> e.getValue() > 1)
                 .toList();
@@ -2755,9 +2579,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
         }
         return new FileAnalysisResult(
-                localTopLevelCUs.stream().distinct().toList(),
+                ctx.topLevelCUs().stream().distinct().toList(),
                 Collections.unmodifiableMap(localStates),
-                localCodeUnitsBySymbol,
+                ctx.codeUnitsBySymbol().entrySet().stream()
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
                 Collections.unmodifiableList(localImportInfos),
                 containsTests);
     }
