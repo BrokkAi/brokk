@@ -649,6 +649,26 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/models")
             raise  # Should not be reached
 
+    async def get_completions(self, query: str, limit: int = 20) -> Dict[str, Any]:
+        """Returns file/symbol completions for a query string."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        query_text = query.strip()
+        if not query_text:
+            return {"completions": []}
+
+        bounded_limit = max(1, min(limit, 50))
+        try:
+            resp = await self._http_client.get(
+                "/v1/completions", params={"query": query_text, "limit": str(bounded_limit)}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/completions")
+            raise  # Should not be reached
+
     async def drop_context_fragments(self, fragment_ids: List[str]) -> Dict[str, Any]:
         """Drops specific fragments from context by ID."""
         if not self._http_client:
@@ -753,6 +773,54 @@ class ExecutorManager:
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/tasklist")
             raise  # Should not be reached
+
+    async def add_context_files(self, relative_paths: List[str]) -> Dict[str, Any]:
+        """Adds files to context by workspace-relative paths."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not relative_paths:
+            return {"added": []}
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/files", json={"relativePaths": relative_paths}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/files (status={status}): {e}") from e
+
+    async def add_context_classes(self, class_names: List[str]) -> Dict[str, Any]:
+        """Adds class summaries to context by fully-qualified class names."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not class_names:
+            return {"added": []}
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/classes", json={"classNames": class_names}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/classes (status={status}): {e}") from e
+
+    async def add_context_methods(self, method_names: List[str]) -> Dict[str, Any]:
+        """Adds method sources to context by fully-qualified method names."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not method_names:
+            return {"added": []}
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/methods", json={"methodNames": method_names}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/methods (status={status}): {e}") from e
 
     async def set_tasklist(self, tasklist_data: Dict[str, Any]) -> Dict[str, Any]:
         """Replaces the current task list data."""

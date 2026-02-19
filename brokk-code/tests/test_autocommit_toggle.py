@@ -63,3 +63,63 @@ async def test_run_job_passes_auto_commit_flag(tmp_path):
 
     assert executor.submit_job.await_count == 1
     assert executor.submit_job.await_args.kwargs["auto_commit"] is False
+
+
+@pytest.mark.asyncio
+async def test_run_job_attaches_at_mentions_to_context(tmp_path):
+    executor = MagicMock()
+    executor.workspace_dir = tmp_path
+    executor.submit_job = AsyncMock(return_value="job-1")
+    executor.get_completions = AsyncMock(
+        side_effect=[
+            {
+                "completions": [
+                    {
+                        "type": "file",
+                        "name": "app.py",
+                        "detail": "brokk_code/app.py",
+                    }
+                ]
+            },
+            {
+                "completions": [
+                    {
+                        "type": "class",
+                        "name": "ContextManager",
+                        "detail": "ai.brokk.ContextManager",
+                    }
+                ]
+            },
+            {
+                "completions": [
+                    {
+                        "type": "function",
+                        "name": "findUser",
+                        "detail": "com.example.UserService.findUser",
+                    }
+                ]
+            },
+        ]
+    )
+    executor.add_context_files = AsyncMock(return_value={"added": []})
+    executor.add_context_classes = AsyncMock(return_value={"added": []})
+    executor.add_context_methods = AsyncMock(return_value={"added": []})
+
+    async def stream_events(_job_id: str):
+        if False:  # pragma: no cover
+            yield {}
+
+    executor.stream_events = stream_events
+
+    app = BrokkApp(executor=executor)
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    await app._run_job(
+        "Use @brokk_code/app.py and @ai.brokk.ContextManager and @com.example.UserService.findUser"
+    )
+
+    executor.add_context_files.assert_awaited_once_with(["brokk_code/app.py"])
+    executor.add_context_classes.assert_awaited_once_with(["ai.brokk.ContextManager"])
+    executor.add_context_methods.assert_awaited_once_with(["com.example.UserService.findUser"])
+    executor.submit_job.assert_awaited_once()

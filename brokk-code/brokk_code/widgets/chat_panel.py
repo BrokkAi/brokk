@@ -1,5 +1,6 @@
+import asyncio
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -215,6 +216,71 @@ class SlashCommandSuggestions(ListView):
             self.post_message(self.CommandSelected(cmd_text))
 
 
+class MentionSuggestions(ListView):
+    """A popup list for @mention autocomplete."""
+
+    show_vertical_scrollbar = True
+    DEFAULT_CSS = """
+    MentionSuggestions {
+        background: $panel;
+        border: none;
+        color: $text;
+        scrollbar-gutter: stable;
+        margin: 0 2 6 2;
+        max-height: 20;
+        width: 1fr;
+        display: none;
+        layer: top;
+        dock: bottom;
+    }
+    """
+
+    class MentionSelected(Message):
+        def __init__(self, value: str) -> None:
+            self.value = value
+            super().__init__()
+
+    def update_suggestions(self, completions: List[Dict[str, str]]) -> bool:
+        """Updates popup with completion results. Returns True if any items exist."""
+        self.clear()
+        if not completions:
+            self.display = False
+            return False
+
+        for item in completions:
+            name = item.get("name", "").strip()
+            detail = item.get("detail", "").strip()
+            completion_type = item.get("type", "").strip()
+            value = detail or name
+            if not value:
+                continue
+            label = f"@{name}" if name else f"@{value}"
+            if detail and detail != name:
+                label = f"{label} - {detail}"
+            if completion_type:
+                label = f"[{completion_type}] {label}"
+
+            li = ListItem(Static(label, markup=False))
+            li.mention_value = value
+            self.append(li)
+
+        has_items = len(self.children) > 0
+        if not has_items:
+            self.display = False
+            return False
+
+        self.index = 0
+        self.display = True
+        return True
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if message.item:
+            value = getattr(message.item, "mention_value", "")
+            self.display = False
+            if value:
+                self.post_message(self.MentionSelected(value))
+
+
 class ChatInput(TextArea):
     """A multiline text area for chat input that submits on Enter."""
 
@@ -226,6 +292,8 @@ class ChatInput(TextArea):
 
     suppress_autocomplete_once: bool = False
     submit_after_accept: bool = False
+    _mention_worker: Optional[asyncio.Task[None]] = None
+    _mention_request_id: int = 0
 
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
@@ -262,16 +330,41 @@ class ChatInput(TextArea):
         """Synchronizes suggestions visibility and container styling."""
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
+            mention_suggestions = self.app.query_one(MentionSuggestions)
             container = self.app.query_one("#chat-input-container")
-            if suggestions.display != is_open:
-                suggestions.display = is_open
-            container.set_class(is_open, "autocomplete-open")
+            if not is_open:
+                if suggestions.display:
+                    suggestions.display = False
+                if mention_suggestions.display:
+                    mention_suggestions.display = False
+                container.set_class(False, "autocomplete-open")
+            else:
+                container.set_class(
+                    suggestions.display or mention_suggestions.display, "autocomplete-open"
+                )
         except Exception:
             pass
+
+    def _set_autocomplete_container_class(self) -> None:
+        try:
+            container = self.app.query_one("#chat-input-container")
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+            mention_suggestions = self.app.query_one(MentionSuggestions)
+            container.set_class(
+                suggestions.display or mention_suggestions.display, "autocomplete-open"
+            )
+        except Exception:
+            pass
+
+    def _cancel_mention_worker(self) -> None:
+        if self._mention_worker is not None and not self._mention_worker.done():
+            self._mention_worker.cancel()
+        self._mention_worker = None
 
     def action_hide_autocomplete(self) -> None:
         """Hides the popup suggestions."""
         self._set_autocomplete_open(False)
+        self._cancel_mention_worker()
         self.submit_after_accept = False
         self.suppress_autocomplete_once = False
         try:
@@ -294,6 +387,10 @@ class ChatInput(TextArea):
             suggestions = app.query_one(SlashCommandSuggestions)
             if suggestions.display:
                 suggestions.action_select_cursor()
+                return
+            mentions = app.query_one(MentionSuggestions)
+            if mentions.display:
+                mentions.action_select_cursor()
                 return
             modes = app.query_one(ModeSuggestions)
             if modes.display:
@@ -328,32 +425,135 @@ class ChatInput(TextArea):
         """Drives autocomplete visibility based on current text and focus state."""
         if self.suppress_autocomplete_once:
             self._set_autocomplete_open(False)
+            self._cancel_mention_worker()
             self.submit_after_accept = False
             self.suppress_autocomplete_once = False
             return
 
         # Always hide if text is empty, contains newlines, or focus is lost
-        if not text or not self.has_focus or "\n" in text or not text.startswith("/"):
+        if not text or not self.has_focus or "\n" in text:
             self._set_autocomplete_open(False)
+            self._cancel_mention_worker()
             self.submit_after_accept = False
             return
 
-        app = self.app
-        commands = []
-        if hasattr(app, "get_slash_commands"):
-            commands = app.get_slash_commands()
+        # Slash autocomplete remains unchanged and only applies to single-line
+        # input beginning with "/".
+        if text.startswith("/"):
+            self._cancel_mention_worker()
+            app = self.app
+            commands = []
+            if hasattr(app, "get_slash_commands"):
+                commands = app.get_slash_commands()
+
+            try:
+                suggestions = self.app.query_one(SlashCommandSuggestions)
+                mention_suggestions = self.app.query_one(MentionSuggestions)
+                is_any = suggestions.update_suggestions(text, commands)
+                if is_any:
+                    mention_suggestions.display = False
+                    # Hide other menus if they were open to ensure exclusivity
+                    self.app.query_one(ModeSuggestions).display = False
+                    self.app.query_one(ReasoningSuggestions).display = False
+                else:
+                    self.submit_after_accept = False
+
+                self._set_autocomplete_container_class()
+            except Exception:
+                pass
+            return
 
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
-            is_any = suggestions.update_suggestions(text, commands)
+            suggestions.display = False
+        except Exception:
+            pass
+        self._set_autocomplete_container_class()
+
+        mention = self._extract_active_mention(text)
+        if mention is None:
+            self._cancel_mention_worker()
+            return
+
+        _, _, query = mention
+        if not query.strip():
+            self._cancel_mention_worker()
+            try:
+                mention_suggestions = self.app.query_one(MentionSuggestions)
+                mention_suggestions.display = False
+                self._set_autocomplete_container_class()
+            except Exception:
+                pass
+            return
+
+        self._mention_request_id += 1
+        request_id = self._mention_request_id
+        self._cancel_mention_worker()
+        self._mention_worker = asyncio.create_task(
+            self._fetch_mention_suggestions(query=query, request_id=request_id)
+        )
+
+    def _extract_active_mention(self, text: str) -> Optional[Tuple[int, int, str]]:
+        """Returns (start_idx, end_idx, query) for active @mention under cursor."""
+        cursor_row, cursor_col = self.cursor_location
+        lines = text.split("\n")
+        if cursor_row >= len(lines):
+            return None
+        cursor_idx = sum(len(line) + 1 for line in lines[:cursor_row]) + cursor_col
+        cursor_idx = max(0, min(cursor_idx, len(text)))
+        before_cursor = text[:cursor_idx]
+
+        at_idx = before_cursor.rfind("@")
+        if at_idx < 0:
+            return None
+
+        if at_idx > 0 and not before_cursor[at_idx - 1].isspace():
+            return None
+
+        query = before_cursor[at_idx + 1 :]
+        if any(ch.isspace() for ch in query):
+            return None
+        return at_idx, cursor_idx, query
+
+    async def _fetch_mention_suggestions(self, query: str, request_id: int) -> None:
+        """Fetches mention completion items and updates popup if still current."""
+        await asyncio.sleep(0.12)
+        if request_id != self._mention_request_id:
+            return
+        if not self.has_focus:
+            return
+
+        try:
+            app = self.app
+            executor = getattr(app, "executor", None)
+            if executor is None or not hasattr(executor, "get_completions"):
+                return
+            data = await executor.get_completions(query=query, limit=20)
+            if request_id != self._mention_request_id:
+                return
+            completions = data.get("completions", [])
+            normalized = []
+            for item in completions:
+                if not isinstance(item, dict):
+                    continue
+                normalized.append(
+                    {
+                        "type": str(item.get("type", "")),
+                        "name": str(item.get("name", "")),
+                        "detail": str(item.get("detail", "")),
+                    }
+                )
+
+            mention_suggestions = self.app.query_one(MentionSuggestions)
+            is_any = mention_suggestions.update_suggestions(normalized)
             if is_any:
                 # Hide other menus if they were open to ensure exclusivity
+                self.app.query_one(SlashCommandSuggestions).display = False
                 self.app.query_one(ModeSuggestions).display = False
                 self.app.query_one(ReasoningSuggestions).display = False
-            else:
-                self.submit_after_accept = False
-
-            self._set_autocomplete_open(is_any)
+            self._set_autocomplete_container_class()
+        except asyncio.CancelledError:
+            return
         except Exception:
             pass
 
@@ -370,10 +570,12 @@ class ChatInput(TextArea):
 
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
+            mention_suggestions = self.app.query_one(MentionSuggestions)
             mode_suggestions = self.app.query_one(ModeSuggestions)
             reasoning_suggestions = self.app.query_one(ReasoningSuggestions)
         except Exception:
             suggestions = None
+            mention_suggestions = None
             mode_suggestions = None
             reasoning_suggestions = None
 
@@ -381,6 +583,8 @@ class ChatInput(TextArea):
         active_popup = None
         if suggestions and suggestions.display:
             active_popup = suggestions
+        elif mention_suggestions and mention_suggestions.display:
+            active_popup = mention_suggestions
         elif mode_suggestions and mode_suggestions.display:
             active_popup = mode_suggestions
         elif reasoning_suggestions and reasoning_suggestions.display:
@@ -452,6 +656,13 @@ class ChatPanel(Vertical):
             self.level = level
             super().__init__()
 
+    class MentionSelected(Message):
+        """Posted when an @mention completion is selected."""
+
+        def __init__(self, value: str) -> None:
+            self.value = value
+            super().__init__()
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._get_now: Callable[[], float] = time.monotonic
@@ -477,6 +688,7 @@ class ChatPanel(Vertical):
         with Vertical(id="chat-input-container"):
             yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield SlashCommandSuggestions(id="slash-suggestions")
+        yield MentionSuggestions(id="mention-suggestions")
         yield ModeSuggestions(id="mode-suggestions")
         yield ReasoningSuggestions(id="reasoning-suggestions")
         with Horizontal(id="chat-help-row"):
@@ -500,6 +712,8 @@ class ChatPanel(Vertical):
         # Bypass history navigation if suggestions, mode, or reasoning popups are visible
         try:
             if self.query_one(SlashCommandSuggestions).display:
+                return
+            if self.query_one(MentionSuggestions).display:
                 return
             if self.query_one(ModeSuggestions).display:
                 return
@@ -586,6 +800,7 @@ class ChatPanel(Vertical):
         """Opens the lightweight mode selection popup."""
         # Ensure mutual exclusivity: hide other popups and close the input container's open state
         self.query_one(SlashCommandSuggestions).display = False
+        self.query_one(MentionSuggestions).display = False
         self.query_one(ReasoningSuggestions).display = False
         self.query_one("#chat-input-container").remove_class("autocomplete-open")
 
@@ -598,6 +813,7 @@ class ChatPanel(Vertical):
         """Opens the lightweight reasoning selection popup."""
         # Ensure mutual exclusivity: hide other popups and close the input container's open state
         self.query_one(SlashCommandSuggestions).display = False
+        self.query_one(MentionSuggestions).display = False
         self.query_one(ModeSuggestions).display = False
         self.query_one("#chat-input-container").remove_class("autocomplete-open")
 
@@ -643,6 +859,26 @@ class ChatPanel(Vertical):
             # but we also need the App's submission handler to fire immediately for tests.
             # ChatPanel handles its internal state when it receives the Submitted message.
             chat_input.action_submit()
+
+    def on_mention_suggestions_mention_selected(
+        self, event: MentionSuggestions.MentionSelected
+    ) -> None:
+        chat_input = self.query_one("#chat-input", ChatInput)
+        text = chat_input.text
+        mention = chat_input._extract_active_mention(text)
+        if mention is None:
+            return
+        start_idx, end_idx, _ = mention
+        inserted = f"@{event.value} "
+        new_text = f"{text[:start_idx]}{inserted}{text[end_idx:]}"
+        cursor_index = start_idx + len(inserted)
+        prefix = new_text[:cursor_index]
+        cursor_row = prefix.count("\n")
+        cursor_col = len(prefix.rsplit("\n", 1)[-1])
+        chat_input.suppress_autocomplete_once = True
+        chat_input.text = new_text
+        chat_input.move_cursor((cursor_row, cursor_col))
+        chat_input.focus()
 
     def set_response_pending(self) -> None:
         """Called when a job is submitted and we are waiting for the first token."""

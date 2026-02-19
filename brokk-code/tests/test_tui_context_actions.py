@@ -55,6 +55,12 @@ async def test_context_panel_shows_clear_selection_state():
             panel = app.screen.query_one("#context-panel", ContextPanel)
             assert len(panel.query(".context-chip")) >= 2
 
+            # Verify help line is present and contains some expected keys
+            help_line = panel.query_one("#context-help-line", Static)
+            help_text = str(help_line.render())
+            assert "Space" in help_text
+            assert "Drop" in help_text
+
             selection_status = panel.query_one("#context-selection-status")
             active_status = panel.query_one("#context-active-status")
             assert "Selected: 0" in str(selection_status.render())

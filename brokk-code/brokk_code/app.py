@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -883,12 +884,128 @@ class BrokkApp(App):
             else:
                 self.run_worker(self._run_job(raw_text))
 
+    @staticmethod
+    def _extract_at_mentions(task_input: str) -> List[str]:
+        """Extracts whitespace-delimited @mention tokens from prompt text."""
+        tokens = re.findall(r"(?<!\S)@([^\s@]+)", task_input)
+        unique_tokens: List[str] = []
+        seen = set()
+        for token in tokens:
+            norm = token.strip()
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            unique_tokens.append(norm)
+        return unique_tokens
+
+    async def _attach_mentions_to_context(self, task_input: str) -> None:
+        """Resolves @mentions and attaches matching entities to context before job submission."""
+        mentions = self._extract_at_mentions(task_input)
+        if not mentions:
+            return
+        if not hasattr(self.executor, "get_completions"):
+            return
+
+        file_paths: List[str] = []
+        class_names: List[str] = []
+        method_names: List[str] = []
+
+        for mention in mentions:
+            try:
+                completion_data = await self.executor.get_completions(mention, limit=20)
+            except Exception:
+                logger.exception("Failed resolving @mention '%s' via completions", mention)
+                continue
+
+            raw_items = completion_data.get("completions", [])
+            if not isinstance(raw_items, list):
+                continue
+
+            selected: Optional[Dict[str, str]] = None
+            mention_lower = mention.lower()
+            for raw in raw_items:
+                if not isinstance(raw, dict):
+                    continue
+                detail = str(raw.get("detail", "")).strip()
+                name = str(raw.get("name", "")).strip()
+                if detail == mention or name == mention:
+                    selected = {
+                        "type": str(raw.get("type", "")).strip().lower(),
+                        "detail": detail,
+                        "name": name,
+                    }
+                    break
+                if detail.lower() == mention_lower or name.lower() == mention_lower:
+                    selected = {
+                        "type": str(raw.get("type", "")).strip().lower(),
+                        "detail": detail,
+                        "name": name,
+                    }
+            if selected is None and raw_items:
+                first = raw_items[0]
+                if isinstance(first, dict):
+                    selected = {
+                        "type": str(first.get("type", "")).strip().lower(),
+                        "detail": str(first.get("detail", "")).strip(),
+                        "name": str(first.get("name", "")).strip(),
+                    }
+
+            if selected is None:
+                continue
+
+            completion_type = selected["type"]
+            detail = selected["detail"] or selected["name"]
+            if not detail:
+                continue
+
+            if completion_type == "file":
+                file_paths.append(detail)
+            elif completion_type in {"class", "module"}:
+                class_names.append(detail)
+            elif completion_type == "function":
+                method_names.append(detail)
+            elif completion_type == "field":
+                if "." in detail:
+                    class_names.append(detail.rsplit(".", 1)[0])
+
+        # De-duplicate while preserving order
+        file_paths = list(dict.fromkeys(file_paths))
+        class_names = list(dict.fromkeys(class_names))
+        method_names = list(dict.fromkeys(method_names))
+
+        attached_parts: List[str] = []
+        if file_paths and hasattr(self.executor, "add_context_files"):
+            try:
+                await self.executor.add_context_files(file_paths)
+                attached_parts.append(f"files={len(file_paths)}")
+            except Exception:
+                logger.exception("Failed attaching @mentions as context files")
+        if class_names and hasattr(self.executor, "add_context_classes"):
+            try:
+                await self.executor.add_context_classes(class_names)
+                attached_parts.append(f"classes={len(class_names)}")
+            except Exception:
+                logger.exception("Failed attaching @mentions as context classes")
+        if method_names and hasattr(self.executor, "add_context_methods"):
+            try:
+                await self.executor.add_context_methods(method_names)
+                attached_parts.append(f"methods={len(method_names)}")
+            except Exception:
+                logger.exception("Failed attaching @mentions as context methods")
+
+        if attached_parts:
+            chat = self._maybe_chat()
+            if chat:
+                details = ", ".join(attached_parts)
+                chat.add_system_message(f"Attached @mentions to context: {details}")
+
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
         chat.set_job_running(True)
         chat.set_response_pending()
         try:
+            await self._attach_mentions_to_context(task_input)
             self.current_job_id = await self.executor.submit_job(
                 task_input,
                 self.current_model,
