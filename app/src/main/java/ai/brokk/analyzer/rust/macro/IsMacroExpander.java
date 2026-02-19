@@ -55,7 +55,7 @@ public class IsMacroExpander implements RustMacroExpander {
 
     private boolean isWhitespaceOrComment(TSNode node) {
         String type = node.getType();
-        return type.equals("line_comment") || type.equals("block_comment") || node.getStartByte() == node.getEndByte();
+        return "line_comment".equals(type) || "block_comment".equals(type) || node.getStartByte() == node.getEndByte();
     }
 
     @Override
