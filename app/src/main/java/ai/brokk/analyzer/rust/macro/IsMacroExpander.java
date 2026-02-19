@@ -11,13 +11,11 @@ import ai.brokk.util.CaseUtil;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
-import org.jspecify.annotations.NullMarked;
 import org.treesitter.TSNode;
 
 /**
  * Expander for the `is_macro::Is` derive macro which generates `is_variant()` methods for enums.
  */
-@NullMarked
 public class IsMacroExpander implements RustMacroExpander {
 
     private static final Pattern IS_ATTRIBUTE_PATTERN = Pattern.compile("(?s).*(?::|\\(|\\b)Is(?:\\b|\\)|,).*");

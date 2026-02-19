@@ -4,13 +4,11 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceContent;
 import java.util.List;
-import org.jspecify.annotations.NullMarked;
 import org.treesitter.TSNode;
 
 /**
  * Interface for strategies that expand Rust macros into synthetic CodeUnits.
  */
-@NullMarked
 public interface RustMacroExpander {
     /**
      * Returns true if this expander supports the given node (e.g., if it has the required attributes).
