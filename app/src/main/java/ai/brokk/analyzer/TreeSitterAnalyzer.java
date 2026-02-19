@@ -19,6 +19,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -1835,7 +1836,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * any pass/file marks the CodeUnit as having a body.
      */
     private FileAnalysisContext addTopLevelCodeUnit(CodeUnit cu, FileAnalysisContext ctx, ProjectFile file) {
-
         CodeUnit existingDuplicate = ctx.topLevelCUs().stream()
                 .filter(existing -> sameLogicalIdentity(existing, cu))
                 .findFirst()
@@ -1849,20 +1849,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     .orElse(null);
         }
 
-        if (ctx.topLevelCUs().contains(cu)
-                && (existingDuplicate == null || !shouldReplaceOnDuplicate(existingDuplicate, cu))) {
-            return ctx;
-        }
-
         if (existingDuplicate == null) {
-            if (crossKindDuplicate != null && isBenignDuplicate(crossKindDuplicate, cu)) {
-                log.trace("Merging benign cross-kind duplicate: {}", cu.fqName());
-                return mergeCodeUnitProperties(crossKindDuplicate, cu, ctx);
+            if (crossKindDuplicate != null) {
+                if (shouldReplaceOnDuplicate(crossKindDuplicate, cu)) {
+                    log.trace(
+                            "Replacing cross-kind duplicate: existing='{}', candidate='{}'",
+                            crossKindDuplicate.fqName(),
+                            cu.fqName());
+                    return registerCodeUnit(
+                            cu, ctx.withoutCodeUnit(crossKindDuplicate).withTopLevelCu(cu));
+                }
+                if (isBenignDuplicate(crossKindDuplicate, cu)) {
+                    log.trace("Merging benign cross-kind duplicate: {}", cu.fqName());
+                    return mergeCodeUnitProperties(crossKindDuplicate, cu, ctx);
+                }
+                if (shouldIgnoreDuplicate(crossKindDuplicate, cu, file)) {
+                    log.trace("Ignoring cross-kind duplicate {} per language policy", cu.fqName());
+                    return ctx;
+                }
             }
-
             return registerCodeUnit(cu, ctx.withTopLevelCu(cu));
         }
 
+        // preference for definitions over declarations
         if ((cu.isFunction()
                         && existingDuplicate.isFunction()
                         && Objects.equals(cu.signature(), existingDuplicate.signature()))
@@ -1894,9 +1903,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             log.trace("Ignoring duplicate {} per language policy", cu.fqName());
             return ctx;
-        } else if (crossKindDuplicate != null && shouldIgnoreDuplicate(crossKindDuplicate, cu, file)) {
-            log.trace("Ignoring cross-kind duplicate {} per language policy", cu.fqName());
-            return ctx;
         } else {
             return registerCodeUnit(cu, ctx.withTopLevelCu(cu));
         }
@@ -1915,11 +1921,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Used when replacing duplicates to ensure children of the old definition don't appear in results.
      */
     private FileAnalysisContext mergeCodeUnitProperties(CodeUnit target, CodeUnit source, FileAnalysisContext ctx) {
-
-        log.trace("Merging properties from {} into {}", source.fqName(), target.fqName());
         if (target.equals(source)) return ctx;
+        log.trace("Merging properties from {} into {}", source.fqName(), target.fqName());
+
         FileAnalysisContext current = ctx;
 
+        // Transfer children
         PVector<CodeUnit> sourceChildren = current.children().get(source);
         if (sourceChildren != null) {
             for (CodeUnit child : sourceChildren) {
@@ -1927,6 +1934,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
+        // Transfer signatures
         PVector<String> sourceSigs = current.signatures().get(source);
         if (sourceSigs != null) {
             for (String sig : sourceSigs) {
@@ -1934,6 +1942,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
+        // Transfer ranges
         PVector<Range> sourceRanges = current.sourceRanges().get(source);
         if (sourceRanges != null) {
             for (Range range : sourceRanges) {
@@ -1941,10 +1950,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
+        // Transfer hasBody flag
         if (current.hasBody().getOrDefault(source, false)) {
             current = current.withHasBody(target, true);
         }
 
+        // Purge source to avoid orphaned references or duplicate index entries
         return current.withoutCodeUnit(source);
     }
 
@@ -1954,16 +1965,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
      */
     private FileAnalysisContext addChildCodeUnit(CodeUnit cu, CodeUnit parentCu, FileAnalysisContext ctx) {
-
         PVector<CodeUnit> kids = ctx.children().getOrDefault(parentCu, TreePVector.empty());
         CodeUnit existingDuplicate = kids.stream()
                 .filter(existing -> sameLogicalIdentity(existing, cu))
                 .findFirst()
                 .orElse(null);
-
-        if (kids.contains(cu) && (existingDuplicate == null || !shouldReplaceOnDuplicate(existingDuplicate, cu))) {
-            return ctx;
-        }
 
         if (existingDuplicate == null) {
             CodeUnit crossKindDuplicate = kids.stream()
@@ -1971,14 +1977,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     .findFirst()
                     .orElse(null);
 
-            if (crossKindDuplicate != null && isBenignDuplicate(crossKindDuplicate, cu)) {
-                log.trace("Merging benign cross-kind child duplicate: {}", cu.fqName());
-                return mergeCodeUnitProperties(crossKindDuplicate, cu, ctx);
+            if (crossKindDuplicate != null) {
+                if (shouldReplaceOnDuplicate(crossKindDuplicate, cu)) {
+                    log.trace(
+                            "Replacing cross-kind child duplicate: existing='{}', candidate='{}'",
+                            crossKindDuplicate.fqName(),
+                            cu.fqName());
+                    return registerCodeUnit(
+                            cu, ctx.withoutCodeUnit(crossKindDuplicate).withChild(parentCu, cu));
+                }
+                if (isBenignDuplicate(crossKindDuplicate, cu)) {
+                    log.trace("Merging benign cross-kind child duplicate: {}", cu.fqName());
+                    return mergeCodeUnitProperties(crossKindDuplicate, cu, ctx);
+                }
             }
-
             return registerCodeUnit(cu, ctx.withChild(parentCu, cu));
         }
 
+        // preference for definitions over declarations
         if ((cu.isFunction()
                         && existingDuplicate.isFunction()
                         && Objects.equals(cu.signature(), existingDuplicate.signature()))
@@ -2068,163 +2084,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
             return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         }
-        String rootNodeType = rootNode.getType();
-        log.trace("Root node type for {}: {}", file, rootNodeType);
+        log.trace("Root node type for {}: {}", file, rootNode.getType());
 
-        Map<TSNode, DefinitionInfoRecord> declarationNodes = new HashMap<>();
-
-        TSQueryCursor cursor = new TSQueryCursor();
-        TSQuery currentThreadQuery = this.query.get();
-        cursor.exec(currentThreadQuery, rootNode);
-
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            log.trace("Match ID: {}", match.getId());
-            Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
-            List<TSNode> modifierNodesForMatch = new ArrayList<>();
-            List<TSNode> decoratorNodesForMatch = new ArrayList<>();
-
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String captureName = currentThreadQuery.getCaptureNameForId(capture.getIndex());
-                if (getIgnoredCaptures().contains(captureName)) continue;
-
-                TSNode node = capture.getNode();
-                if (node != null && !node.isNull()) {
-                    if ("keyword.modifier".equals(captureName)) {
-                        modifierNodesForMatch.add(node);
-                    } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
-                        decoratorNodesForMatch.add(node);
-                        log.trace(
-                                "  Decorator: '{}', Node: {} '{}'",
-                                captureName,
-                                node.getType(),
-                                sourceContent
-                                        .substringFrom(node)
-                                        .lines()
-                                        .findFirst()
-                                        .orElse("")
-                                        .trim());
-                    } else {
-                        capturedNodesForMatch.putIfAbsent(captureName, node);
-                        log.trace(
-                                "  Capture: '{}', Node: {} '{}'",
-                                captureName,
-                                node.getType(),
-                                sourceContent
-                                        .substringFrom(node)
-                                        .lines()
-                                        .findFirst()
-                                        .orElse("")
-                                        .trim());
-                    }
-                }
-            }
-
-            modifierNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
-            List<String> sortedModifierStrings = modifierNodesForMatch.stream()
-                    .map(modNode -> sourceContent.substringFrom(modNode).strip())
-                    .toList();
-            if (!sortedModifierStrings.isEmpty()) {
-                log.trace("  Modifiers for this match: {}", sortedModifierStrings);
-            }
-
-            decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
-
-            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
-
-            for (var captureEntry : capturedNodesForMatch.entrySet()) {
-                String captureName = captureEntry.getKey();
-                TSNode definitionNode = captureEntry.getValue();
-
-                if (captureName.endsWith(".definition")) {
-                    String simpleName;
-                    String expectedNameCapture = captureName.replace(".definition", ".name");
-                    TSNode nameNode = capturedNodesForMatch.get(expectedNameCapture);
-
-                    if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
-                        simpleName =
-                                extractSimpleName(definitionNode, sourceContent).orElse(null);
-                    } else if (nameNode != null && !nameNode.isNull()) {
-                        simpleName = sourceContent.substringFrom(nameNode);
-                        if (simpleName.isBlank()
-                                && !isBlankNameAllowed(
-                                        captureName, simpleName, definitionNode.getType(), file.getFileName())) {
-                            log.debug(
-                                    "Name capture '{}' for definition '{}' in file {} resulted in a BLANK string. NameNode text: [{}], type: [{}]. Will attempt fallback.",
-                                    expectedNameCapture,
-                                    captureName,
-                                    file,
-                                    sourceContent.substringFrom(nameNode),
-                                    nameNode.getType());
-                            simpleName = extractSimpleName(definitionNode, sourceContent)
-                                    .orElse(null);
-                        }
-                    } else {
-                        if (!isMissingNameCaptureAllowed(captureName, definitionNode.getType(), file.getFileName())) {
-                            log.debug(
-                                    "Expected name capture '{}' not found for definition '{}' in match for file {}. Current captures in this match: {}. Falling back to extractSimpleName on definition node.",
-                                    expectedNameCapture,
-                                    captureName,
-                                    file,
-                                    capturedNodesForMatch.keySet());
-                        }
-                        simpleName =
-                                extractSimpleName(definitionNode, sourceContent).orElse(null);
-                    }
-
-                    if (simpleName != null && !simpleName.isBlank()) {
-                        declarationNodes.putIfAbsent(
-                                definitionNode,
-                                new DefinitionInfoRecord(
-                                        captureName,
-                                        simpleName,
-                                        sortedModifierStrings,
-                                        decoratorNodesForMatch,
-                                        definitionNode.getParent())); // Cache parent to avoid repeated lookups
-
-                    } else {
-                        if (simpleName == null) {
-                            if (!isNullNameAllowed(
-                                    captureName,
-                                    definitionNode.getType(),
-                                    definitionNode.getStartPoint().getRow() + 1,
-                                    file.getFileName())) {
-                                log.debug(
-                                        "Could not determine simple name (NULL) for definition capture {} (Node Type [{}], Line {}) in file {}.",
-                                        captureName,
-                                        definitionNode.getType(),
-                                        definitionNode.getStartPoint().getRow() + 1,
-                                        file);
-                            }
-                        } else if (!isBlankNameAllowed(
-                                captureName, simpleName, definitionNode.getType(), file.getFileName())) {
-                            log.debug(
-                                    "Determined simple name for definition capture {} (Node Type [{}], Line {}) in file {} is BLANK. Definition will be skipped.",
-                                    captureName,
-                                    definitionNode.getType(),
-                                    definitionNode.getStartPoint().getRow() + 1,
-                                    file);
-                        }
-                    }
-                }
-            }
-        }
+        Map<TSNode, DefinitionInfoRecord> declarationNodes =
+                collectDefinitions(file, rootNode, sourceContent, localImportInfos);
 
         List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries = declarationNodes.entrySet().stream()
                 .sorted(Comparator.comparingInt(entry -> entry.getKey().getStartByte()))
                 .toList();
-
-        TSNode currentRootNode = tree.getRootNode();
 
         for (var entry : sortedDeclarationEntries) {
             TSNode node = entry.getKey();
             DefinitionInfoRecord defInfo = entry.getValue();
             String primaryCaptureName = defInfo.primaryCaptureName();
             String simpleName = defInfo.simpleName();
+
             if (isClassLike(node)) {
                 simpleName = determineClassName(node.getType(), simpleName);
             }
-            List<String> modifierKeywords = defInfo.modifierKeywords();
 
             if (simpleName.isBlank()) {
                 log.warn(
@@ -2241,41 +2118,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     primaryCaptureName,
                     node.getType());
 
-            var langProfile = getLanguageSyntaxProfile();
-            final var langProfileForLambda = langProfile;
-            SkeletonType skeletonType = refineSkeletonType(primaryCaptureName, node, langProfile);
-
-            String packageName = determinePackageName(file, node, currentRootNode, sourceContent);
-            List<String> enclosingClassNames = new ArrayList<>();
-            List<ScopeSegment> enclosingScopes = new ArrayList<>();
-            TSNode tempParent = defInfo.cachedParent();
-            while (tempParent != null && !tempParent.isNull() && !tempParent.equals(currentRootNode)) {
-                if (isClassLike(tempParent)) {
-                    final var parent = tempParent;
-                    extractSimpleName(tempParent, sourceContent).ifPresent(parentName -> {
-                        if (!parentName.isBlank()) {
-                            var name = isClassLike(parent)
-                                    ? determineClassChainSegmentName(parent.getType(), parentName)
-                                    : parentName;
-                            enclosingClassNames.addFirst(name);
-
-                            var nodeType = parent.getType();
-                            var scopeType = langProfileForLambda
-                                            .functionLikeNodeTypes()
-                                            .contains(nodeType)
-                                    ? ScopeType.FUNCTION
-                                    : langProfileForLambda.classLikeNodeTypes().contains(nodeType)
-                                            ? ScopeType.CLASS
-                                            : ScopeType.UNKNOWN;
-                            enclosingScopes.addFirst(new ScopeSegment(parentName, scopeType));
-                        }
-                    });
-                }
-                tempParent = tempParent.getParent();
-            }
-            String classChain = String.join(".", enclosingClassNames);
-            List<ScopeSegment> scopeChain = enclosingScopes;
-            log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
+            SkeletonType skeletonType = refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+            String packageName = determinePackageName(file, node, rootNode, sourceContent);
+            List<ScopeSegment> scopeChain = buildScopeChain(node, rootNode, sourceContent);
+            String classChain = buildClassChain(node, rootNode, sourceContent);
 
             Optional<String> receiverType = extractReceiverType(node, primaryCaptureName, sourceContent);
             if (receiverType.isPresent()) {
@@ -2297,8 +2143,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             CodeUnit cu = createCodeUnit(
                     file, primaryCaptureName, simpleName, packageName, classChain, scopeChain, node, skeletonType);
-            log.trace("createCodeUnit returned: {}", cu);
-
             if (cu == null) {
                 log.trace(
                         "createCodeUnit returned null for node {} ({}) in file {}",
@@ -2318,19 +2162,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             CodeUnit existingCUforKeyLookup = ctx.cuByFqName().get(cuLookupKey);
             if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
                 cu = existingCUforKeyLookup;
-                log.trace("Reusing existing CodeUnit for function overload: {}", cu.fqName());
-            }
-
-            if (enhancedFqName.endsWith("$static")) {
-                log.trace(
-                        "CAPTURE static member: fqn={}, file={}, capture={}, nodeType={}, range={}:{}, kind={}",
-                        enhancedFqName,
-                        file.getFileName(),
-                        primaryCaptureName,
-                        node.getType(),
-                        node.getStartByte(),
-                        node.getEndByte(),
-                        cu.kind());
             }
 
             if (!enhancedFqName.equals(cu.fqName()) || !Objects.equals(codeUnitSignature, cu.signature())) {
@@ -2342,48 +2173,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
             }
 
-            boolean hasBody = false;
-            SkeletonType primarySkeletonType = getSkeletonTypeForCapture(primaryCaptureName);
-            if (primarySkeletonType == SkeletonType.FUNCTION_LIKE || primarySkeletonType == SkeletonType.CLASS_LIKE) {
-                var langProfileForBody = getLanguageSyntaxProfile();
-                TSNode nodeForBody = node;
+            ctx = ctx.withHasBody(cu, computeHasBody(node, primaryCaptureName, sourceContent));
 
-                if (shouldUnwrapExportStatements() && "export_statement".equals(nodeForBody.getType())) {
-                    TSNode declarationInExport = nodeForBody.getChildByFieldName("declaration");
-                    if (declarationInExport != null && !declarationInExport.isNull()) {
-                        nodeForBody = declarationInExport;
-                    }
-                }
-
-                if (hasWrappingDecoratorNode()) {
-                    nodeForBody = extractContentFromDecoratedNode(
-                            nodeForBody, new ArrayList<>(), sourceContent, langProfileForBody);
-                }
-
-                TSNode bodyNodeCandidate = nodeForBody.getChildByFieldName(langProfileForBody.bodyFieldName());
-                hasBody = bodyNodeCandidate != null
-                        && !bodyNodeCandidate.isNull()
-                        && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
-            }
-            ctx = ctx.withHasBody(cu, hasBody);
-
-            String signature =
-                    buildSignatureString(node, simpleName, sourceContent, primaryCaptureName, modifierKeywords, file);
-
-            log.trace(
-                    "Built signature for '{}': [{}]",
-                    simpleName,
-                    signature.isBlank()
-                            ? "BLANK"
-                            : signature.lines().findFirst().orElse("EMPTY"));
-
-            if (signature.isBlank()) {
-                log.trace(
-                        "buildSignatureString returned empty/null for node {} ({}), simpleName {}. Proceeding without signature.",
-                        node.getType(),
-                        primaryCaptureName,
-                        simpleName);
-            }
+            String signature = buildSignatureString(
+                    node, simpleName, sourceContent, primaryCaptureName, defInfo.modifierKeywords(), file);
 
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
@@ -2394,25 +2187,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         && existingSignatures.getFirst().trim().startsWith("export");
 
                 if (newIsExported && !oldIsExported) {
-                    log.warn(
-                            "Replacing non-exported CU/signature list for {} with new EXPORTED signature.",
-                            cu.fqName());
                     ctx = ctx.withoutCodeUnit(existingCUforKeyLookup);
                 } else if (!newIsExported && oldIsExported) {
-                    log.trace(
-                            "Keeping existing EXPORTED CU/signature list for {}. Discarding new non-exported signature for current CU.",
-                            cu.fqName());
                     continue;
-                } else {
-                    if (isBenignDuplicate(existingCUforKeyLookup, cu)) {
-                        log.trace(
-                                "Duplicate CU FQName {} (distinct instances, benign pattern). New signature will be added.",
-                                cu.fqName());
-                    } else {
-                        log.warn(
-                                "Duplicate CU FQName {} (distinct instances). New signature will be added. Review if this is expected.",
-                                cu.fqName());
-                    }
                 }
             }
 
@@ -2422,66 +2199,257 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
             cuToCaptureName.put(cu, primaryCaptureName);
 
-            boolean attachedToParent = false;
-
-            if (CaptureNames.LAMBDA_DEFINITION.equals(primaryCaptureName)) {
-                var enclosingFnNameOpt = findEnclosingFunctionName(node, sourceContent);
-                if (enclosingFnNameOpt.isPresent()) {
-                    String enclosingFnName = enclosingFnNameOpt.get();
-                    String methodFqName = classChain.isEmpty() ? enclosingFnName : (classChain + "." + enclosingFnName);
-
-                    CodeUnit parentFnCu = ctx.cuByFqName().get(methodFqName);
-                    if (parentFnCu != null) {
-                        ctx = addChildCodeUnit(cu, parentFnCu, ctx);
-                        attachedToParent = true;
-                    } else {
-                        log.trace(
-                                "Nearest function-like parent '{}' for lambda not found in local map. Falling back to class-level parent.",
-                                methodFqName);
-                    }
-                }
-            }
-
-            if (!attachedToParent) {
-                if (classChain.isEmpty()) {
-                    ctx = addTopLevelCodeUnit(cu, ctx, file);
+            if (shouldAttachToParent(cu, node, primaryCaptureName, classChain, scopeChain)) {
+                CodeUnit parentCu =
+                        findParentForCodeUnit(cu, node, primaryCaptureName, classChain, scopeChain, ctx, sourceContent);
+                if (parentCu != null) {
+                    ctx = addChildCodeUnit(cu, parentCu, ctx);
                 } else {
-                    String parentFqName = buildParentFqName(cu, classChain, scopeChain);
-                    CodeUnit parentCu = ctx.cuByFqName().get(parentFqName);
-                    if (parentCu != null) {
-                        ctx = addChildCodeUnit(cu, parentCu, ctx);
-                    } else {
-                        log.trace(
-                                "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",
-                                cu,
-                                parentFqName,
-                                classChain);
-                        ctx = addTopLevelCodeUnit(cu, ctx, file);
-                    }
+                    ctx = addTopLevelCodeUnit(cu, ctx, file);
                 }
+            } else {
+                ctx = addTopLevelCodeUnit(cu, ctx, file);
             }
 
             var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
-            var originalRange = new Range(
-                    rangeNode.getStartByte(),
-                    rangeNode.getEndByte(),
-                    rangeNode.getStartPoint().getRow(),
-                    rangeNode.getEndPoint().getRow(),
-                    rangeNode.getStartByte());
-
             var finalRange = (cu.isClass() || cu.isFunction())
                     ? expandRangeWithComments(rangeNode, sourceContent)
-                    : originalRange;
+                    : new Range(
+                            rangeNode.getStartByte(),
+                            rangeNode.getEndByte(),
+                            rangeNode.getStartPoint().getRow(),
+                            rangeNode.getEndPoint().getRow(),
+                            rangeNode.getStartByte());
 
             ctx = ctx.withRange(cu, finalRange);
-            log.trace("Stored/Updated info for CU: {}", cu);
         }
 
         List<String> localImportStatements =
                 localImportInfos.stream().map(ImportInfo::rawSnippet).toList();
 
-        // Local maps for createModulesFromImports because it's an abstract hook that might not be PCollection-aware
-        // yet.
+        // Register modules from imports
+        ctx = wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, ctx);
+
+        // Synthesize implicit constructors
+        for (CodeUnit cu : List.copyOf(ctx.cuByFqName().values())) {
+            if (cu.isClass()) {
+                PVector<CodeUnit> kids = ctx.children().getOrDefault(cu, TreePVector.empty());
+                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
+                    String capture = cuToCaptureName.getOrDefault(k, "");
+                    return isConstructor(k, cu, capture);
+                });
+
+                if (!hasExplicitConstructor) {
+                    String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
+                    CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
+                    if (implicit != null) {
+                        ctx = registerCodeUnit(implicit, ctx)
+                                .withHasBody(implicit, true)
+                                .withChild(cu, implicit);
+                    }
+                }
+            }
+        }
+
+        boolean containsTests = containsTestMarkers(tree, sourceContent);
+        Map<CodeUnit, CodeUnitProperties> localStates = finalizeCodeUnitProperties(ctx);
+
+        long __processEnd = System.nanoTime();
+        if (timing != null) {
+            timing.processStageNanos().addAndGet(__processEnd - __processStart);
+            timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
+            timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
+        }
+        return new FileAnalysisResult(
+                ctx.topLevelCUs().stream().distinct().toList(),
+                Collections.unmodifiableMap(localStates),
+                ctx.codeUnitsBySymbol().entrySet().stream()
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
+                Collections.unmodifiableList(localImportInfos),
+                containsTests);
+    }
+
+    private Map<TSNode, DefinitionInfoRecord> collectDefinitions(
+            ProjectFile file, TSNode rootNode, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        Map<TSNode, DefinitionInfoRecord> declarationNodes = new HashMap<>();
+        TSQueryCursor cursor = new TSQueryCursor();
+        TSQuery currentThreadQuery = getThreadLocalQuery();
+        cursor.exec(currentThreadQuery, rootNode);
+
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+            List<TSNode> modifierNodesForMatch = new ArrayList<>();
+            List<TSNode> decoratorNodesForMatch = new ArrayList<>();
+
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String captureName = currentThreadQuery.getCaptureNameForId(capture.getIndex());
+                if (getIgnoredCaptures().contains(captureName)) continue;
+
+                TSNode node = capture.getNode();
+                if (node != null && !node.isNull()) {
+                    if ("keyword.modifier".equals(captureName)) {
+                        modifierNodesForMatch.add(node);
+                    } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
+                        decoratorNodesForMatch.add(node);
+                    } else {
+                        capturedNodesForMatch.putIfAbsent(captureName, node);
+                    }
+                }
+            }
+
+            modifierNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
+            List<String> sortedModifierStrings = modifierNodesForMatch.stream()
+                    .map(modNode -> sourceContent.substringFrom(modNode).strip())
+                    .toList();
+
+            decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
+            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+
+            for (var captureEntry : capturedNodesForMatch.entrySet()) {
+                String captureName = captureEntry.getKey();
+                TSNode definitionNode = captureEntry.getValue();
+
+                if (captureName.endsWith(".definition")) {
+                    String simpleName =
+                            resolveSimpleName(captureName, definitionNode, capturedNodesForMatch, sourceContent, file);
+                    if (simpleName != null && !simpleName.isBlank()) {
+                        declarationNodes.putIfAbsent(
+                                definitionNode,
+                                new DefinitionInfoRecord(
+                                        captureName,
+                                        simpleName,
+                                        sortedModifierStrings,
+                                        decoratorNodesForMatch,
+                                        definitionNode.getParent()));
+                    }
+                }
+            }
+        }
+        return declarationNodes;
+    }
+
+    private String resolveSimpleName(
+            String captureName,
+            TSNode definitionNode,
+            Map<String, TSNode> matchCaptures,
+            SourceContent sourceContent,
+            ProjectFile file) {
+        String expectedNameCapture = captureName.replace(".definition", ".name");
+        TSNode nameNode = matchCaptures.get(expectedNameCapture);
+        String simpleName = null;
+
+        if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
+            simpleName = extractSimpleName(definitionNode, sourceContent).orElse(null);
+        } else if (nameNode != null && !nameNode.isNull()) {
+            simpleName = sourceContent.substringFrom(nameNode);
+            if (simpleName.isBlank()
+                    && !isBlankNameAllowed(captureName, simpleName, definitionNode.getType(), file.getFileName())) {
+                simpleName = extractSimpleName(definitionNode, sourceContent).orElse(null);
+            }
+        } else {
+            simpleName = extractSimpleName(definitionNode, sourceContent).orElse(null);
+        }
+        return simpleName;
+    }
+
+    protected List<ScopeSegment> buildScopeChain(TSNode node, TSNode rootNode, SourceContent sourceContent) {
+        List<ScopeSegment> enclosingScopes = new ArrayList<>();
+        var profile = getLanguageSyntaxProfile();
+        TSNode tempParent = node.getParent();
+        while (tempParent != null && !tempParent.isNull() && !tempParent.equals(rootNode)) {
+            if (isClassLike(tempParent)) {
+                final var parent = tempParent;
+                extractSimpleName(tempParent, sourceContent).ifPresent(parentName -> {
+                    if (!parentName.isBlank()) {
+                        var nodeType = parent.getType();
+                        var scopeType = profile.functionLikeNodeTypes().contains(nodeType)
+                                ? ScopeType.FUNCTION
+                                : profile.classLikeNodeTypes().contains(nodeType) ? ScopeType.CLASS : ScopeType.UNKNOWN;
+                        enclosingScopes.addFirst(new ScopeSegment(parentName, scopeType));
+                    }
+                });
+            }
+            tempParent = tempParent.getParent();
+        }
+        return enclosingScopes;
+    }
+
+    protected String buildClassChain(TSNode node, TSNode rootNode, SourceContent sourceContent) {
+        Deque<String> segments = new ArrayDeque<>();
+        TSNode current = node.getParent();
+        while (current != null && !current.isNull() && !current.equals(rootNode)) {
+            if (isClassLike(current)) {
+                final TSNode parent = current;
+                extractSimpleName(parent, sourceContent).ifPresent(name -> {
+                    if (!name.isBlank()) {
+                        segments.addFirst(determineClassChainSegmentName(parent.getType(), name));
+                    }
+                });
+            }
+            current = current.getParent();
+        }
+        return String.join(".", segments);
+    }
+
+    protected boolean computeHasBody(TSNode node, String captureName, SourceContent sourceContent) {
+        SkeletonType primarySkeletonType = getSkeletonTypeForCapture(captureName);
+        if (primarySkeletonType != SkeletonType.FUNCTION_LIKE && primarySkeletonType != SkeletonType.CLASS_LIKE) {
+            return false;
+        }
+
+        var langProfile = getLanguageSyntaxProfile();
+        TSNode nodeForBody = node;
+
+        if (shouldUnwrapExportStatements() && "export_statement".equals(nodeForBody.getType())) {
+            TSNode declarationInExport = nodeForBody.getChildByFieldName("declaration");
+            if (declarationInExport != null && !declarationInExport.isNull()) {
+                nodeForBody = declarationInExport;
+            }
+        }
+
+        if (hasWrappingDecoratorNode()) {
+            nodeForBody = extractContentFromDecoratedNode(nodeForBody, new ArrayList<>(), sourceContent, langProfile);
+        }
+
+        TSNode bodyNodeCandidate = nodeForBody.getChildByFieldName(langProfile.bodyFieldName());
+        return bodyNodeCandidate != null
+                && !bodyNodeCandidate.isNull()
+                && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
+    }
+
+    protected boolean shouldAttachToParent(
+            CodeUnit cu, TSNode node, String captureName, String classChain, List<ScopeSegment> scopeChain) {
+        return !classChain.isEmpty() || CaptureNames.LAMBDA_DEFINITION.equals(captureName);
+    }
+
+    protected @Nullable CodeUnit findParentForCodeUnit(
+            CodeUnit cu,
+            TSNode node,
+            String captureName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            FileAnalysisContext ctx,
+            SourceContent sourceContent) {
+        if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
+            var enclosingFnNameOpt = findEnclosingFunctionName(node, sourceContent);
+            if (enclosingFnNameOpt.isPresent()) {
+                String enclosingFnName = enclosingFnNameOpt.get();
+                String methodFqName = classChain.isEmpty() ? enclosingFnName : (classChain + "." + enclosingFnName);
+                return ctx.cuByFqName().get(methodFqName);
+            }
+        }
+
+        String parentFqName = buildParentFqName(cu, classChain, scopeChain);
+        return ctx.cuByFqName().get(parentFqName);
+    }
+
+    private FileAnalysisContext wrapModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            SourceContent sourceContent,
+            FileAnalysisContext ctx) {
         Map<String, CodeUnit> mCuByFqName = new HashMap<>(ctx.cuByFqName());
         List<CodeUnit> mTopLevelCUs = new ArrayList<>(ctx.topLevelCUs());
         Map<CodeUnit, List<String>> mSignatures = new HashMap<>();
@@ -2505,8 +2473,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 mChildren,
                 mCodeUnitsBySymbol);
 
-        // Re-wrap back into PCollections
-        ctx = new FileAnalysisContext(
+        return new FileAnalysisContext(
                 TreePVector.from(mTopLevelCUs),
                 HashTreePMap.from(mChildren.entrySet().stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, e -> TreePVector.from(e.getValue())))),
@@ -2519,30 +2486,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         .collect(Collectors.toMap(
                                 Map.Entry::getKey, e -> org.pcollections.HashTreePSet.from(e.getValue())))),
                 HashTreePMap.from(mCuByFqName));
+    }
 
-        for (CodeUnit cu : List.copyOf(ctx.cuByFqName().values())) {
-            if (cu.isClass()) {
-                PVector<CodeUnit> kids = ctx.children().getOrDefault(cu, TreePVector.empty());
-                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
-                    String capture = cuToCaptureName.getOrDefault(k, "");
-                    return isConstructor(k, cu, capture);
-                });
-
-                if (!hasExplicitConstructor) {
-                    String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
-                    CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
-                    if (implicit != null) {
-                        ctx = registerCodeUnit(implicit, ctx)
-                                .withHasBody(implicit, true)
-                                .withChild(cu, implicit);
-                        log.trace("Synthesized implicit constructor for class {}", cu.fqName());
-                    }
-                }
-            }
-        }
-
-        boolean containsTests = containsTestMarkers(tree, sourceContent);
-
+    private Map<CodeUnit, CodeUnitProperties> finalizeCodeUnitProperties(FileAnalysisContext ctx) {
         Map<CodeUnit, CodeUnitProperties> localStates = new HashMap<>();
         var unionKeys = new HashSet<CodeUnit>();
         unionKeys.addAll(ctx.children().keySet());
@@ -2553,38 +2499,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             var kids = ctx.children().getOrDefault(cu, TreePVector.empty());
             var sigs = ctx.signatures().getOrDefault(cu, TreePVector.empty());
             var rngs = ctx.sourceRanges().getOrDefault(cu, TreePVector.empty());
-            boolean hasBody = ctx.hasBody().getOrDefault(cu, false);
             localStates.put(
-                    cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody));
+                    cu,
+                    new CodeUnitProperties(
+                            List.copyOf(kids),
+                            List.copyOf(sigs),
+                            List.copyOf(rngs),
+                            ctx.hasBody().getOrDefault(cu, false)));
         }
-
-        var duplicatesByCodeUnit =
-                ctx.topLevelCUs().stream().collect(Collectors.groupingBy(cu -> cu, Collectors.counting()));
-        var duplicatedCUs = duplicatesByCodeUnit.entrySet().stream()
-                .filter(e -> e.getValue() > 1)
-                .toList();
-        if (!duplicatedCUs.isEmpty()) {
-            var diagnostics = duplicatedCUs.stream()
-                    .map(e -> String.format(
-                            "fqName=%s, kind=%s, count=%d",
-                            e.getKey().fqName(), e.getKey().kind(), e.getValue()))
-                    .collect(Collectors.joining("; "));
-            log.error("Unexpected duplicate top-level CodeUnits in file {}: [{}]", file, diagnostics);
-        }
-
-        long __processEnd = System.nanoTime();
-        if (timing != null) {
-            timing.processStageNanos().addAndGet(__processEnd - __processStart);
-            timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
-            timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
-        }
-        return new FileAnalysisResult(
-                ctx.topLevelCUs().stream().distinct().toList(),
-                Collections.unmodifiableMap(localStates),
-                ctx.codeUnitsBySymbol().entrySet().stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
-                Collections.unmodifiableList(localImportInfos),
-                containsTests);
+        return localStates;
     }
 
     /**
