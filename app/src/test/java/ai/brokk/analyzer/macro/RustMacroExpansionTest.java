@@ -51,12 +51,12 @@ class RustMacroExpansionTest {
         }
     }
 
-    private org.treesitter.TSNode findNodeByType(org.treesitter.TSNode root, String type) {
+    private TSNode findNodeByType(TSNode root, String type) {
         if (type.equals(root.getType())) {
             return root;
         }
         for (int i = 0; i < root.getChildCount(); i++) {
-            org.treesitter.TSNode found = findNodeByType(root.getChild(i), type);
+            TSNode found = findNodeByType(root.getChild(i), type);
             if (found != null) {
                 return found;
             }
