@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.AnalyzerCreator;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -356,6 +358,33 @@ public class GoAnalyzerTest {
 
         // 10. Named type: Treated as CLASS_LIKE (can have methods), so no _module_ prefix
         assertEquals("declpkg.MyInt", fqnMap.get("declpkg.MyInt").fqName());
+    }
+
+    @Test
+    void testInlineProjectConstFqName() throws IOException {
+        String source =
+                """
+                package yaml
+
+                type yaml_parser_state_t int
+
+                const (
+                    yaml_PARSE_STREAM_START_STATE yaml_parser_state_t = iota
+                    yaml_PARSE_FLOW_MAPPING_VALUE_STATE
+                )
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "parser.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "parser.go");
+            var declarations = inlineAnalyzer.getDeclarations(file);
+            var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("yaml._module_.yaml_PARSE_FLOW_MAPPING_VALUE_STATE"),
+                    "Expected FQN for package-level const yaml_PARSE_FLOW_MAPPING_VALUE_STATE. Found: " + fqns);
+        }
     }
 
     @Test
