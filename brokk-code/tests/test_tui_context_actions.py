@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from textual.widgets import Static
 
 from brokk_code.app import BrokkApp
 from brokk_code.widgets.context_panel import ContextPanel
@@ -95,11 +96,21 @@ async def test_context_panel_drop_others_action():
     mock_executor.drop_context_fragments = AsyncMock()
     mock_executor.get_context = AsyncMock(
         return_value={
-            "usedTokens": 400,
+            "usedTokens": 500,
             "maxTokens": 100000,
             "fragments": [
-                {"id": "f-1", "chipKind": "EDIT", "shortDescription": "Keep Me", "tokens": 100},
-                {"id": "f-2", "chipKind": "EDIT", "shortDescription": "Drop Me", "tokens": 100},
+                {
+                    "id": "f-1",
+                    "chipKind": "EDIT",
+                    "shortDescription": "Keep Me (Active)",
+                    "tokens": 100,
+                },
+                {
+                    "id": "f-2",
+                    "chipKind": "EDIT",
+                    "shortDescription": "Drop Me",
+                    "tokens": 100,
+                },
                 {
                     "id": "f-3",
                     "chipKind": "HISTORY",
@@ -111,6 +122,12 @@ async def test_context_panel_drop_others_action():
                     "chipKind": "EDIT",
                     "shortDescription": "Keep Pinned",
                     "pinned": True,
+                    "tokens": 100,
+                },
+                {
+                    "id": "f-5",
+                    "chipKind": "EDIT",
+                    "shortDescription": "Keep Selected",
                     "tokens": 100,
                 },
             ],
@@ -130,10 +147,15 @@ async def test_context_panel_drop_others_action():
             await app._refresh_context_panel()
             await pilot.pause()
 
-            # Active is f-1 by default.
-            # We will trigger 'drop_others' (key 'o').
-            # Should drop f-2.
-            # Should NOT drop f-1 (active), f-3 (history), f-4 (pinned).
+            # f-1 is active by default. Select f-5 as well.
+            await pilot.press("right", "right", "right", "right", "space")
+            # Move cursor back to f-1 to make it active again.
+            await pilot.press("left", "left", "left", "left")
+            await pilot.pause()
+
+            # Trigger 'drop others' (key 'o').
+            # Protected: f-1 (active), f-3 (history), f-4 (pinned), f-5 (selected).
+            # Dropped: f-2.
             await pilot.press("o")
             await pilot.pause()
 
