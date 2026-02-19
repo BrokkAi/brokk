@@ -5,10 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.analyzer.SourceContent;
+import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.analyzer.rust.macro.IsMacroExpander;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.List;
@@ -119,7 +120,7 @@ class RustMacroExpansionTest {
 
         try (IProject project =
                 InlineTestProjectCreator.code(code, "src/lib.rs").build()) {
-            RustAnalyzer analyzer = new RustAnalyzer(project);
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
             ProjectFile file = project.getAllFiles().iterator().next();
 
             Set<CodeUnit> declarations = analyzer.getDeclarations(file);
@@ -152,7 +153,7 @@ class RustMacroExpansionTest {
 
         try (IProject project =
                 InlineTestProjectCreator.code(code, "src/lib.rs").build()) {
-            RustAnalyzer analyzer = new RustAnalyzer(project);
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
             ProjectFile file = project.getAllFiles().iterator().next();
 
             // Find the is_module method
