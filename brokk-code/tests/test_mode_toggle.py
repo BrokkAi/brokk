@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
 
+import pytest
+
 from brokk_code.app import BrokkApp
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.status_line import StatusLine
@@ -83,6 +85,12 @@ def test_ctrl_p_binding_is_settings():
     assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
 
 
+def test_shift_tab_binding_toggles_mode():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: b.action for b in app.BINDINGS}
+    assert bindings["shift+tab"] == "toggle_mode"
+
+
 def test_model_and_reasoning_bindings_do_not_exist():
     app = BrokkApp(executor=MagicMock())
     # Verify shortcuts no longer exist in app bindings.
@@ -95,6 +103,32 @@ def test_model_and_reasoning_bindings_do_not_exist():
     chat_input_bindings = {b.key for b in ChatInput.BINDINGS}
     assert "ctrl+u" not in chat_input_bindings
     assert "ctrl+e" not in chat_input_bindings
+
+
+@pytest.mark.asyncio
+async def test_shift_tab_keypress_cycles_mode_in_running_app():
+    app = BrokkApp(executor=MagicMock())
+
+    async def _noop() -> None:
+        return None
+
+    # Avoid starting background workers / touching the executor during this keybinding test.
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    assert app.agent_mode == "LUTZ"
+
+    async with app.run_test() as pilot:
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "CODE"
+
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "ASK"
+
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "LUTZ"
 
 
 def test_textual_command_palette_is_enabled():

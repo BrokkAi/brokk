@@ -104,11 +104,22 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 | Key | Action |
 |-----|--------|
 | `Ctrl+L` | Toggle context panel |
-| `Ctrl+T` | Toggle task list panel |
 | `Ctrl+N` | Toggle notifications panel |
+| `Shift+Tab` | Toggle mode (CODE/ASK/LUTZ) |
 | `Ctrl+D` | Exit immediately |
 | `Ctrl+C` | Cancel job / quit |
 | `Ctrl+P` | Open settings |
+
+### Task List Key Bindings (when the task list is open)
+
+| Key | Action |
+|-----|--------|
+| `Up/Down` | Move selection |
+| `Enter` or `Space` | Toggle selected task done |
+| `A` | Add task |
+| `E` | Edit selected task title |
+| `D` | Delete selected task |
+| `Esc` | Close task list |
 
 ## Theming
 
@@ -132,6 +143,7 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 | `/lutz` | Set mode to LUTZ (default; full agent access) |
 | `/mode` | Cycle between CODE, ASK, and LUTZ modes |
 | `/model <name>` | Switch the LLM model |
+| `/task` | Open/close the task list |
 | `/help` | Show available commands |
 | `/quit` | Exit the application |
 

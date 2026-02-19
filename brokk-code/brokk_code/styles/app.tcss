@@ -2,7 +2,7 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen, ModelReasoningSelectModal {
+ContextModalScreen, TaskListModalScreen, TaskTitleModalScreen, ModelReasoningSelectModal {
     align: center middle;
 }
 
@@ -11,6 +11,35 @@ ContextModalScreen, ModelReasoningSelectModal {
     height: 100%;
     padding: 1 2;
     background: $surface;
+}
+
+#tasklist-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
+}
+
+#task-title-modal-container {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#task-title-modal-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+#task-title-input {
+    width: 1fr;
 }
 
 #side-tasklist {
@@ -43,6 +72,15 @@ ContextModalScreen, ModelReasoningSelectModal {
     width: 100%;
     color: $text-disabled;
     padding: 0 2;
+}
+
+#tasklist-help-line {
+    width: 100%;
+    height: 1;
+    color: $text-disabled;
+    background: transparent;
+    margin-bottom: 1;
+    padding: 0 1;
 }
 
 #tasklist-content {

@@ -182,14 +182,10 @@ class SlashCommandSuggestions(ListView):
             return False
 
         query_stripped = query.strip().lower()
-        matches = []
+        matches: list[dict[str, str]] = []
         for c in commands:
             cmd_name = c["command"].lower()
-            # Direct prefix match for the command
             if cmd_name.startswith(query_stripped):
-                matches.append(c)
-            # For multi-word commands like /task next, if user typed "/task n"
-            elif query_stripped.startswith("/task ") and cmd_name.startswith(query_stripped):
                 matches.append(c)
 
         if not matches:
@@ -198,7 +194,6 @@ class SlashCommandSuggestions(ListView):
 
         for m in matches:
             li = ListItem(Static(f"{m['command']} - {m['description']}", markup=False))
-            # Store the raw command on the ListItem for easier retrieval
             li.command_name = m["command"]
             self.append(li)
 
@@ -695,7 +690,7 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                "Enter: Submit  Shift+Enter: Newline  Up/Down: History  /commands",
+                "Enter: Submit  Shift+Enter: Newline  Up/Down: History  Shift+Tab: Mode",
                 id="chat-help",
             )
 
@@ -837,11 +832,9 @@ class ChatPanel(Vertical):
         command = event.command
 
         # Append a space for commands that typically require arguments.
-        # Commands like /mode and /settings open modals/menus and should not have a trailing space.
-        needs_arg = command in ("/model", "/model-code", "/reasoning", "/reasoning-code", "/task")
-        # Also check for command group prefixes like "/task "
-        if command.startswith(("/task ", "/autocommit ")):
-            needs_arg = False  # Already has a sub-command or space
+        # Commands like /mode, /settings, /task open modals/menus and
+        # should not have a trailing space.
+        needs_arg = command in ("/model", "/model-code", "/reasoning", "/reasoning-code")
 
         if needs_arg:
             command += " "
@@ -939,21 +932,20 @@ class ChatPanel(Vertical):
             self._current_message_type = None
             return
 
+        content = self._current_message_buffer.strip()
+
         if self._is_reasoning:
-            content = self._current_message_buffer.strip()
-            log.write(
-                Panel(
-                    Text(content, style="grey50"),
-                    title="Thinking",
-                    border_style="grey37",
-                )
+            panel = Panel(
+                Markdown(content, style="grey50"),
+                title="Thinking",
+                border_style="grey37",
             )
+            log.write(panel)
             log.write("")  # Spacer
             self._current_message_buffer = ""
             self._is_reasoning = False
             self._current_message_type = None
         else:
-            content = self._current_message_buffer.strip()
             log.write(Markdown(content))
             log.write("")  # Spacer
             self._current_message_buffer = ""
