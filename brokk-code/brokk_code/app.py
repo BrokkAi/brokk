@@ -1163,9 +1163,7 @@ class BrokkApp(App):
             if len(parts) > 1:
                 self._set_mode(parts[1].upper())
             else:
-                # Cycle mode if toggle is requested via command (parity with shortcut)
-                # or open menu if the UI allows.
-                self.action_toggle_mode()
+                self.action_select_mode()
         elif base == "/info":
             self._render_info()
         elif base == "/history":
