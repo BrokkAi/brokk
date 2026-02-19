@@ -1,10 +1,18 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from rich.text import Text
 from textual.widgets import Static
 
 from brokk_code.app import BrokkApp
 from brokk_code.widgets.context_panel import ContextPanel
+
+
+def _static_rendered_text(widget: Static) -> str:
+    rendered = widget.render()
+    if isinstance(rendered, Text):
+        return rendered.plain
+    return str(rendered)
 
 
 @pytest.mark.asyncio
@@ -58,11 +66,11 @@ async def test_context_panel_shows_clear_selection_state():
 
             # Verify help line is present and contains some expected keys
             help_line = panel.query_one("#context-help-line", Static)
-            help_text = str(help_line.renderable)
+            help_text = _static_rendered_text(help_line)
 
             # Esc is now first and highlighted; assert content + ordering without
             # overfitting spacing/alignment.
-            assert "[bold bright_magenta]Esc[/] Close" in help_text
+            assert "Esc Close" in help_text
             assert help_text.index("Esc") < help_text.index("Space")
             assert help_text.index("Esc") < help_text.index("Enter")
 

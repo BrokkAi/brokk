@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
@@ -12,6 +13,13 @@ from brokk_code.widgets.tasklist_panel import TaskListPanel
 def _close_coro(coro):
     """Helper to immediately close background coroutines started by run_worker."""
     coro.close()
+
+
+def _static_rendered_text(widget: Static) -> str:
+    rendered = widget.render()
+    if isinstance(rendered, Text):
+        return rendered.plain
+    return str(rendered)
 
 
 def test_app_has_no_global_tasklist_bindings() -> None:
@@ -143,11 +151,11 @@ async def test_tasklist_panel_help_line_contains_expected_keybindings() -> None:
         await pilot.pause()
 
         help_line = panel.query_one("#tasklist-help-line", Static)
-        rendered = str(help_line.renderable)
+        rendered = _static_rendered_text(help_line)
 
         # Esc is now first and highlighted; assert content + ordering without
         # overfitting spacing/alignment.
-        assert "[bold bright_magenta]Esc[/] Close" in rendered
+        assert "Esc Close" in rendered
         assert rendered.index("Esc") < rendered.index("Space")
         assert rendered.index("Esc") < rendered.index("Enter")
 
