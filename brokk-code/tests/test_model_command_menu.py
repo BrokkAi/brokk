@@ -98,6 +98,42 @@ async def test_combined_modal_navigation_updates_both_settings():
 
 
 @pytest.mark.asyncio
+async def test_code_model_command_no_arg_opens_modal():
+    executor = MagicMock()
+    executor.get_models = AsyncMock(return_value={"models": ["m1", "m2"]})
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Simulate typing /model-code with no args
+            app._handle_command("/model-code")
+            await pilot.pause()
+
+            assert app.screen.__class__.__name__ == "ModelReasoningSelectModal"
+
+            # 1. Selection Pane: Model
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # 2. Selection Pane: Reasoning
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.code_model == "m2"
+            # Reasoning list: disable, low, medium, high. Default start 'disable' (0), down -> 'low' (1)
+            assert app.reasoning_level_code == "low"
+
+
+@pytest.mark.asyncio
 async def test_combined_modal_initial_highlight_syncs_with_current_values():
     """Regression test: Ensure Enter immediately selects the already-active model/reasoning."""
     executor = MagicMock()

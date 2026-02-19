@@ -1032,15 +1032,19 @@ class BrokkApp(App):
                 self._update_statusline()
             else:
                 self.run_worker(self.action_select_model_and_reasoning())
-        elif base == "/model-code" and len(parts) > 1:
-            self.code_model = parts[1]
-            # Persist the last-used code model
-            try:
-                self.settings.last_code_model = self.code_model
-                self.settings.save()
-            except Exception:
-                logger.exception("Failed to persist last_code_model setting")
-            chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
+        elif base == "/model-code":
+            if len(parts) > 1:
+                self.code_model = parts[1]
+                # Persist the last-used code model
+                try:
+                    self.settings.last_code_model = self.code_model
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_code_model setting")
+                chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
+                self._update_statusline()
+            else:
+                self.run_worker(self.action_select_code_model_and_reasoning())
         elif base == "/reasoning":
             if len(parts) > 1:
                 self.reasoning_level = parts[1]
@@ -1244,6 +1248,12 @@ class BrokkApp(App):
                 chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
 
     async def action_select_model_and_reasoning(self) -> None:
+        await self._select_model_and_reasoning_flow(target="planner")
+
+    async def action_select_code_model_and_reasoning(self) -> None:
+        await self._select_model_and_reasoning_flow(target="code")
+
+    async def _select_model_and_reasoning_flow(self, target: str = "planner") -> None:
         chat = self._maybe_chat()
         if not self._executor_ready:
             if chat:
@@ -1275,18 +1285,29 @@ class BrokkApp(App):
             def update_selection(result: tuple[str, str] | None) -> None:
                 if result:
                     model_id, reasoning = result
-                    self.current_model = model_id
-                    self.reasoning_level = reasoning
-                    # Persist choices
-                    try:
-                        self.settings.last_model = model_id
-                        self.settings.last_reasoning_level = reasoning
-                        self.settings.save()
-                    except Exception:
-                        logger.exception("Failed to persist model/reasoning settings")
+                    if target == "code":
+                        self.code_model = model_id
+                        self.reasoning_level_code = reasoning
+                        try:
+                            self.settings.last_code_model = model_id
+                            self.settings.last_code_reasoning_level = reasoning
+                            self.settings.save()
+                        except Exception:
+                            logger.exception("Failed to persist code model/reasoning settings")
+                        label = "Code Model"
+                    else:
+                        self.current_model = model_id
+                        self.reasoning_level = reasoning
+                        try:
+                            self.settings.last_model = model_id
+                            self.settings.last_reasoning_level = reasoning
+                            self.settings.save()
+                        except Exception:
+                            logger.exception("Failed to persist model/reasoning settings")
+                        label = "Model"
 
                     if chat:
-                        msg = f"Model: [bold]{model_id}[/] (Reasoning: [bold]{reasoning}[/])"
+                        msg = f"{label}: [bold]{model_id}[/] (Reasoning: [bold]{reasoning}[/])"
                         chat.add_system_message_markup(f"Settings updated: {msg}")
 
                     # Update statusline (best-effort)
@@ -1295,10 +1316,11 @@ class BrokkApp(App):
                     except Exception:
                         pass
 
+            current_m = self.code_model if target == "code" else self.current_model
+            current_r = self.reasoning_level_code if target == "code" else self.reasoning_level
+
             self.push_screen(
-                ModelReasoningSelectModal(
-                    available_models, self.current_model, self.reasoning_level
-                ),
+                ModelReasoningSelectModal(available_models, current_m, current_r),
                 update_selection,
             )
         except Exception as e:
