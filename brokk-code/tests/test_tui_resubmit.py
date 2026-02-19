@@ -9,8 +9,8 @@ from brokk_code.executor import ExecutorManager
 
 
 class StubExecutor(ExecutorManager):
-    def __init__(self, auto_release: bool = False):
-        super().__init__(workspace_dir=Path("."))
+    def __init__(self, workspace_dir: Path, auto_release: bool = False):
+        super().__init__(workspace_dir=workspace_dir)
         self.calls: List[Dict[str, Any]] = []
         self.submit_count = 0
         # Event to control when the stream finishes
@@ -67,12 +67,12 @@ async def type_text(pilot: Any, text: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_multiline_paste_and_submit():
+async def test_multiline_paste_and_submit(tmp_path):
     """
     Verify that multiline text (like a paste) is submitted with newlines intact.
     """
-    stub = StubExecutor(auto_release=True)
-    app = BrokkApp(executor=stub)
+    stub = StubExecutor(workspace_dir=tmp_path, auto_release=True)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
 
     async with app.run_test() as pilot:
         chat_input = app.query_one("#chat-input")
@@ -103,12 +103,12 @@ async def test_multiline_paste_and_submit():
 
 
 @pytest.mark.asyncio
-async def test_large_paste_submits_as_job():
+async def test_large_paste_submits_as_job(tmp_path):
     """
     Verify that large inputs submit normally as jobs.
     """
-    stub = StubExecutor(auto_release=True)
-    app = BrokkApp(executor=stub)
+    stub = StubExecutor(workspace_dir=tmp_path, auto_release=True)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
 
     async with app.run_test() as pilot:
         chat_input = app.query_one("#chat-input")

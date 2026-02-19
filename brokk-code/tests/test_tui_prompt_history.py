@@ -28,8 +28,7 @@ async def test_tui_prompt_persistence(tmp_path):
     workspace = tmp_path / "project"
     workspace.mkdir()
 
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
+    stub = StubExecutor(workspace_dir=workspace, auto_release=True)
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
 
@@ -50,8 +49,7 @@ async def test_tui_prompt_trimming(tmp_path):
     workspace = tmp_path / "project_trim"
     workspace.mkdir()
 
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
+    stub = StubExecutor(workspace_dir=workspace, auto_release=True)
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
     app.settings.prompt_history_size = 2
@@ -75,8 +73,7 @@ async def test_tui_history_navigation_and_duplicates(tmp_path, monkeypatch):
     workspace = tmp_path / "project_nav"
     workspace.mkdir()
 
-    stub = StubExecutor(auto_release=True)
-    stub.workspace_dir = workspace
+    stub = StubExecutor(workspace_dir=workspace, auto_release=True)
 
     app = BrokkApp(executor=stub, workspace_dir=workspace)
     monkeypatch.setattr("brokk_code.app.append_prompt", lambda *args, **kwargs: None)
