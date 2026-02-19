@@ -190,6 +190,27 @@ async def test_combined_modal_checked_marker_is_visible():
 
 
 @pytest.mark.asyncio
+async def test_mode_command_no_arg_opens_modal():
+    executor = MagicMock()
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Simulate typing /mode with no args
+            app._handle_command("/mode")
+            await pilot.pause()
+
+            assert app.screen.__class__.__name__ == "ModeSelectModal"
+
+
+@pytest.mark.asyncio
 async def test_reasoning_command_with_arg_sets_directly():
     executor = MagicMock()
     executor.stop = AsyncMock()
