@@ -16,35 +16,30 @@ def test_app_has_no_global_tasklist_bindings() -> None:
     assert "ctrl+space" not in keys
 
 
-def test_task_command_toggles_panel():
+def test_task_command_toggles_modal():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
-    mock_panel = MagicMock(spec=TaskListPanel)
 
-    def query_one(target, *args, **kwargs):
-        if target is ChatPanel:
-            return mock_chat
-        if target in (TaskListPanel, "#side-tasklist"):
-            return mock_panel
-        raise AssertionError(f"Unexpected query target: {target}")
-
-    app.query_one = MagicMock(side_effect=query_one)
+    app.query_one = MagicMock(
+        side_effect=lambda target, *a, **k: mock_chat if target is ChatPanel else None
+    )
     app.run_worker = MagicMock(side_effect=_close_coro)
 
-    # Test opening when hidden
-    mock_panel.display = False
-    app._handle_command("/task")
-    assert mock_panel.display is True
-    # The command should also call focus()
-    mock_panel.focus.assert_called()
+    app.push_screen = MagicMock()
 
-    # Test closing when already visible
-    mock_panel.display = True
-    mock_panel.focus.reset_mock()
+    # Open modal
     app._handle_command("/task")
-    assert mock_panel.display is False
-    # Should NOT call focus when hiding
-    mock_panel.focus.assert_not_called()
+    assert app.push_screen.call_count == 1
+    assert app.push_screen.call_args.args[0].__class__.__name__ == "TaskListModalScreen"
+
+    # Close modal when already open
+    mock_modal = MagicMock()
+    app.screen = mock_modal
+    mock_modal.__class__ = type("TaskListModalScreen", (), {})
+    mock_modal.dismiss = MagicMock()
+
+    app._handle_command("/task")
+    mock_modal.dismiss.assert_called_once()
 
 
 def test_task_command_next_moves_selection():
@@ -56,7 +51,7 @@ def test_task_command_next_moves_selection():
     def query_one(target, *args, **kwargs):
         if target is ChatPanel:
             return mock_chat
-        if target in (TaskListPanel, "#side-tasklist"):
+        if target == "#side-tasklist":
             return mock_panel
         raise AssertionError(f"Unexpected query target: {target}")
 
@@ -76,7 +71,7 @@ def test_task_command_toggle_dispatches_worker():
     def query_one(target, *args, **kwargs):
         if target is ChatPanel:
             return mock_chat
-        if target in (TaskListPanel, "#side-tasklist"):
+        if target == "#side-tasklist":
             return mock_panel
         raise AssertionError(f"Unexpected query target: {target}")
 

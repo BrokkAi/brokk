@@ -47,6 +47,29 @@ class ContextModalScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class TaskListModalScreen(ModalScreen[None]):
+    """Full-screen modal wrapper for the task list panel."""
+
+    BINDINGS = [
+        Binding("escape", "close_tasklist", "Close", show=False),
+    ]
+
+    def __init__(self, on_close: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_close = on_close
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="tasklist-modal-container"):
+            yield TaskListPanel(id="tasklist-panel")
+
+    def on_mount(self) -> None:
+        self.query_one(TaskListPanel).focus()
+
+    def action_close_tasklist(self) -> None:
+        self._on_close()
+        self.dismiss(None)
+
+
 class ModelSelectModal(ModalScreen[str]):
     """A modal for selecting from available models."""
 
@@ -263,7 +286,13 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
 
 
 class BrokkApp(App):
-    """The main Brokk TUI application."""
+    """The main Brokk TUI application.
+
+    Task list UI policy:
+    - The task list is accessed via a full-screen modal (TaskListModalScreen).
+    - The side task list panel remains mounted for layout stability and potential future use,
+      but it is not toggled by /task.
+    """
 
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
@@ -350,6 +379,8 @@ class BrokkApp(App):
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
         self._reasoning_target: str = "planner"
+
+        self._tasklist_restore_focus_widget: Any | None = None
 
         # Shutdown coordination flags and lock
         self._shutting_down: bool = False
@@ -537,7 +568,7 @@ class BrokkApp(App):
                 # We poll even if a job is running, as /v1/tasklist is low impact
                 try:
                     tasklist_data = await self.executor.get_tasklist()
-                    self.query_one(TaskListPanel).update_tasklist_details(tasklist_data)
+                    self._update_tasklist_details_all(tasklist_data)
                 except Exception:
                     logger.debug("Periodic tasklist poll failed", exc_info=True)
             await asyncio.sleep(15.0)
@@ -569,10 +600,11 @@ class BrokkApp(App):
                         self.query_one(ContextPanel).refresh_context(context_data)
                 except (ScreenStackError, Exception):
                     pass
+
                 try:
-                    task_list = self.query_one(TaskListPanel)
-                    if not task_list.has_detailed_info:
-                        task_list.refresh_tasklist(context_data)
+                    for task_list in self._tasklist_panels():
+                        if not task_list.has_detailed_info:
+                            task_list.refresh_tasklist(context_data)
                 except (ScreenStackError, Exception):
                     pass
 
@@ -716,23 +748,49 @@ class BrokkApp(App):
             updates.append((fragment_id, not current))
         return updates
 
+    def _tasklist_panels(self) -> List[TaskListPanel]:
+        """Return all mounted task list panels (side + modal if present)."""
+        panels: List[TaskListPanel] = []
+        try:
+            panels.append(self.query_one("#side-tasklist", TaskListPanel))
+        except Exception:
+            pass
+
+        try:
+            if isinstance(self.screen, TaskListModalScreen):
+                panels.append(self.screen.query_one(TaskListPanel))
+        except Exception:
+            pass
+
+        return panels
+
+    def _active_tasklist_panel(self) -> TaskListPanel:
+        """Return the panel that should receive task actions."""
+        if isinstance(self.screen, TaskListModalScreen):
+            return self.screen.query_one(TaskListPanel)
+        return self.query_one("#side-tasklist", TaskListPanel)
+
+    def _update_tasklist_details_all(self, tasklist_data: Dict[str, Any]) -> None:
+        for panel in self._tasklist_panels():
+            panel.update_tasklist_details(tasklist_data)
+
     async def _ensure_tasklist_data(self) -> Optional[Dict[str, Any]]:
-        panel = self.query_one(TaskListPanel)
+        panel = self._active_tasklist_panel()
         data = panel.tasklist_data_for_update()
         if data is not None:
             return data
         data = await self.executor.get_tasklist()
-        panel.update_tasklist_details(data)
+        self._update_tasklist_details_all(data)
         return panel.tasklist_data_for_update()
 
     async def _persist_tasklist(self, data: Dict[str, Any]) -> Dict[str, Any]:
         saved = await self.executor.set_tasklist(data)
-        self.query_one(TaskListPanel).update_tasklist_details(saved)
+        self._update_tasklist_details_all(saved)
         return saved
 
     async def _toggle_selected_task(self) -> None:
         chat = self.query_one(ChatPanel)
-        panel = self.query_one(TaskListPanel)
+        panel = self._active_tasklist_panel()
         selected = panel.selected_task()
         if not selected:
             chat.add_system_message("No task selected.")
@@ -759,7 +817,7 @@ class BrokkApp(App):
 
     async def _delete_selected_task(self) -> None:
         chat = self.query_one(ChatPanel)
-        panel = self.query_one(TaskListPanel)
+        panel = self._active_tasklist_panel()
         selected = panel.selected_task()
         if not selected:
             chat.add_system_message("No task selected.")
@@ -805,7 +863,7 @@ class BrokkApp(App):
 
     async def _edit_selected_task(self, title: str) -> None:
         chat = self.query_one(ChatPanel)
-        panel = self.query_one(TaskListPanel)
+        panel = self._active_tasklist_panel()
         selected = panel.selected_task()
         if not selected:
             chat.add_system_message("No task selected.")
@@ -1370,11 +1428,11 @@ class BrokkApp(App):
         elif base == "/context":
             self.action_toggle_context()
         elif base == "/task":
-            panel = self.query_one(TaskListPanel)
             if len(parts) == 1:
                 self.action_toggle_tasklist()
             elif len(parts) >= 2:
                 action = parts[1].lower()
+                panel = self._active_tasklist_panel()
                 if action == "next":
                     if not panel.move_selection(1):
                         chat.add_system_message("No next task.")
@@ -1582,21 +1640,42 @@ class BrokkApp(App):
             chat.set_token_bar_visible(True)
 
     def action_toggle_tasklist(self) -> None:
-        """Toggles the task list panel and focuses it when opening."""
-        panel = self.query_one("#side-tasklist")
-        panel.display = not panel.display
-        if panel.display:
-            try:
-                panel.focus()
-            except Exception:
-                pass
+        """Toggle the task list modal.
+
+        When opened, the modal's TaskListPanel receives focus.
+        When closed, focus is restored to whatever had it previously (best-effort).
+        """
+        if isinstance(self.screen, TaskListModalScreen):
+            self._restore_tasklist_focus()
+            self.screen.dismiss(None)
+            return
+
+        self._tasklist_restore_focus_widget = getattr(self, "focused", None)
+
+        def on_close() -> None:
+            self._restore_tasklist_focus()
+
+        self.push_screen(TaskListModalScreen(on_close=on_close))
+
+        if self._executor_ready:
+            self.run_worker(self._refresh_context_panel())
+
+    def _restore_tasklist_focus(self) -> None:
+        widget = self._tasklist_restore_focus_widget
+        self._tasklist_restore_focus_widget = None
+        if widget is None:
+            return
+        try:
+            widget.focus()
+        except Exception:
+            pass
 
     def action_task_next(self) -> None:
-        panel = self.query_one(TaskListPanel)
+        panel = self._active_tasklist_panel()
         panel.move_selection(1)
 
     def action_task_prev(self) -> None:
-        panel = self.query_one(TaskListPanel)
+        panel = self._active_tasklist_panel()
         panel.move_selection(-1)
 
     def action_task_toggle(self) -> None:
