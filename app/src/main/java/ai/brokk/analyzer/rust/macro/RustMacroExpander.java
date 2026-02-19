@@ -12,5 +12,10 @@ import org.treesitter.TSNode;
  */
 @NullMarked
 public interface RustMacroExpander {
+    /**
+     * Returns true if this expander supports the given node (e.g., if it has the required attributes).
+     */
+    boolean supports(TSNode targetNode, SourceContent source);
+
     List<CodeUnit> expand(TSNode targetNode, SourceContent source, ProjectFile file, String packageName);
 }

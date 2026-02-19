@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.rust.macro;
 
+import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.ATTRIBUTE_ITEM;
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.ENUM_ITEM;
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.ENUM_VARIANT;
 
@@ -8,6 +9,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceContent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.jspecify.annotations.NullMarked;
 import org.treesitter.TSNode;
 
@@ -16,6 +18,45 @@ import org.treesitter.TSNode;
  */
 @NullMarked
 public class IsMacroExpander implements RustMacroExpander {
+
+    private static final Pattern IS_ATTRIBUTE_PATTERN = Pattern.compile("(?s).*(?::|\\(|\\b)Is(?:\\b|\\)|,).*");
+
+    @Override
+    public boolean supports(TSNode targetNode, SourceContent source) {
+        if (!ENUM_ITEM.equals(targetNode.getType())) {
+            return false;
+        }
+
+        // Check children (attributes are often children of the enum_item in rust grammar)
+        for (int i = 0; i < targetNode.getChildCount(); i++) {
+            TSNode child = targetNode.getChild(i);
+            if (ATTRIBUTE_ITEM.equals(child.getType())) {
+                if (IS_ATTRIBUTE_PATTERN.matcher(source.substringFrom(child)).matches()) {
+                    return true;
+                }
+            }
+        }
+
+        // Check preceding siblings
+        TSNode prev = targetNode.getPrevSibling();
+        while (prev != null && !prev.isNull()) {
+            if (ATTRIBUTE_ITEM.equals(prev.getType())) {
+                if (IS_ATTRIBUTE_PATTERN.matcher(source.substringFrom(prev)).matches()) {
+                    return true;
+                }
+            } else if (!isWhitespaceOrComment(prev)) {
+                break;
+            }
+            prev = prev.getPrevSibling();
+        }
+
+        return false;
+    }
+
+    private boolean isWhitespaceOrComment(TSNode node) {
+        String type = node.getType();
+        return type.equals("line_comment") || type.equals("block_comment") || node.getStartByte() == node.getEndByte();
+    }
 
     @Override
     public List<CodeUnit> expand(TSNode targetNode, SourceContent source, ProjectFile file, String packageName) {

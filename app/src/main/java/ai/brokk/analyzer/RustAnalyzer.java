@@ -486,9 +486,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
 
         if (ENUM_ITEM.equals(node.getType())) {
-            if (hasIsMacroAttribute(node, sourceContent)) {
-                RustMacroExpander expander = new IsMacroExpander();
-                List<CodeUnit> expanded = expander.expand(node, sourceContent, file, packageName);
+            RustMacroExpander isExpander = new IsMacroExpander();
+            if (isExpander.supports(node, sourceContent)) {
+                List<CodeUnit> expanded = isExpander.expand(node, sourceContent, file, packageName);
                 if (!expanded.isEmpty()) {
                     // First element is the synthetic impl block (Class CU)
                     CodeUnit implCu = expanded.get(0);
@@ -579,37 +579,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     localHasBody,
                     localCodeUnitsBySymbol);
         }
-    }
-
-    private boolean hasIsMacroAttribute(TSNode node, SourceContent sourceContent) {
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (ATTRIBUTE_ITEM.equals(child.getType())) {
-                String attrText = sourceContent.substringFrom(child);
-                // Matches #[derive(Is)], #[derive(is_macro::Is)], or just #[Is].
-                // We check for "Is" as a whole identifier or the final segment of a path.
-                // Regex matches:
-                // 1. Standalone Is: #[Is]
-                // 2. Scoped Is: is_macro::Is
-                // 3. Within derive: #[derive(Is)], #[derive(is_macro::Is)], #[derive(..., Is, ...)]
-                if (attrText.matches("(?s).*(?::|\\(|\\b)Is(?:\\b|\\)|,).*")) {
-                    return true;
-                }
-            }
-        }
-        // Also check preceding siblings (attributes can be siblings of the enum_item in some grammar versions)
-        TSNode prev = node.getPrevSibling();
-        while (prev != null && !prev.isNull()) {
-            if (ATTRIBUTE_ITEM.equals(prev.getType())) {
-                if (sourceContent.substringFrom(prev).matches("(?s).*(?::|\\(|\\b)Is(?:\\b|\\)|,).*")) {
-                    return true;
-                }
-            } else if (!isWhitespaceOnlyNode(prev) && !isCommentNode(prev)) {
-                break;
-            }
-            prev = prev.getPrevSibling();
-        }
-        return false;
     }
 
     @Override
