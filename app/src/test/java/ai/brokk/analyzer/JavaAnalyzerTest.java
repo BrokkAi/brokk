@@ -1842,6 +1842,41 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testLambdaParenting() throws IOException {
+        String code =
+                """
+                package p;
+                import java.util.List;
+                public class LambdaTest {
+                    public void process(List<String> list) {
+                        list.forEach(s -> {
+                            System.out.println(s);
+                        });
+                    }
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "LambdaTest.java").build()) {
+            var analyzer = new JavaAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "LambdaTest.java");
+
+            var declarations = analyzer.getDeclarations(file);
+            var processMethod = declarations.stream()
+                    .filter(cu -> cu.fqName().equals("p.LambdaTest.process"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var lambda = declarations.stream()
+                    .filter(cu -> cu.fqName().contains("$anon$"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var children = analyzer.getDirectChildren(processMethod);
+            assertTrue(children.contains(lambda), "Lambda should be a child of the enclosing method 'process'");
+        }
+    }
+
+    @Test
     public void testFindNearestDeclaration_MethodParameter() throws IOException {
         String content =
                 """

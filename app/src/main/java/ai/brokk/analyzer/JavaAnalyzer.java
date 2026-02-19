@@ -816,36 +816,33 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected void createModulesFromImports(
+    protected FileAnalysisContext createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+            FileAnalysisContext ctx) {
         if (modulePackageName.isBlank()) {
-            return;
+            return ctx;
         }
 
-        // Look up the module in localCuByFqName (created via captures).
+        // Look up the module in cuByFqName (created via captures).
         // Only use modules that are already present; do not create new ones.
-        CodeUnit moduleCu = localCuByFqName.get(modulePackageName);
+        CodeUnit moduleCu = ctx.cuByFqName().get(modulePackageName);
         if (moduleCu == null || !moduleCu.isModule()) {
-            return;
+            return ctx;
         }
 
-        // Filter localTopLevelCUs to find top-level classes in this package.
-        List<CodeUnit> classesInPackage = localTopLevelCUs.stream()
+        // Find top-level classes in this package.
+        List<CodeUnit> classesInPackage = ctx.topLevelCUs().stream()
                 .filter(cu -> cu.isClass() && modulePackageName.equals(cu.packageName()))
                 .toList();
 
-        // Always record the module's children (even if empty) so callers can distinguish
-        // "known module with no children" from "no relationship recorded".
-        localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
+        FileAnalysisContext updated = ctx;
+        for (CodeUnit child : classesInPackage) {
+            updated = updated.withChild(moduleCu, child);
+        }
+        return updated;
     }
 
     /**
@@ -1398,6 +1395,37 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         }
 
         return params.stream().collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    @Override
+    protected boolean shouldAttachToParent(
+            CodeUnit cu, TSNode node, String captureName, String classChain, List<ScopeSegment> scopeChain) {
+        return super.shouldAttachToParent(cu, node, captureName, classChain, scopeChain)
+                || CaptureNames.LAMBDA_DEFINITION.equals(captureName);
+    }
+
+    @Override
+    protected @Nullable CodeUnit findParentForCodeUnit(
+            CodeUnit cu,
+            TSNode node,
+            String captureName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            TreeSitterAnalyzer.FileAnalysisContext ctx,
+            SourceContent sourceContent) {
+        if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
+            var enclosingFnNameOpt = findEnclosingJavaMethodOrClassName(node, sourceContent);
+            if (enclosingFnNameOpt.isPresent()) {
+                String enclosingFnName = enclosingFnNameOpt.get();
+                String methodFqName = classChain.isEmpty() ? enclosingFnName : (classChain + "." + enclosingFnName);
+                // Prepend package if present
+                if (!cu.packageName().isEmpty()) {
+                    methodFqName = cu.packageName() + "." + methodFqName;
+                }
+                return ctx.cuByFqName().get(methodFqName);
+            }
+        }
+        return super.findParentForCodeUnit(cu, node, captureName, classChain, scopeChain, ctx, sourceContent);
     }
 
     @Override
