@@ -331,11 +331,61 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/sessions`** - Create a new session
   - Body: `{ "name": "<session name>" }`
-  - Returns: `{ "sessionId": "<uuid>", "name": "<session name>" }`
+  - Returns `201`: `{ "sessionId": "<uuid>", "name": "<session name>" }`
+
+- **`POST /v1/sessions/switch`** - Switch the active session
+  - Body: `{ "sessionId": "<uuid>" }`
+  - Returns: `{ "status": "ok", "sessionId": "<uuid>" }`
 
 - **`PUT /v1/sessions`** - Upload an existing session zip file
   - Content-Type: `application/zip`
-  - Returns: `{ "sessionId": "<uuid>" }`
+  - Optional header: `X-Session-Id: <uuid>` (if omitted, server generates one)
+  - Returns `201`: `{ "sessionId": "<uuid>" }`
+
+- **`GET /v1/sessions`** - List sessions
+  - Returns: `{ "sessions": [...], "currentSessionId": "<uuid>" }`
+
+- **`GET /v1/sessions/current`** - Get current session metadata
+  - Returns: `{ "id": "<uuid>", "name": "...", "created": <epochMs>, "modified": <epochMs> }`
+
+- **`GET /v1/sessions/{sessionId}`** - Download a session zip
+  - Returns: `application/zip`
+
+### Context & Task List (Authenticated)
+
+- **`GET /v1/context`** - Get live context summary
+  - Optional query: `tokens=true|1` to include token estimates
+
+- **`GET /v1/context/fragments/{fragmentId}`** - Get one context fragment's content
+
+- **`GET /v1/context/conversation`** - Get conversation/task-history entries
+
+- **`POST /v1/context/drop`** - Drop fragments by ID
+  - Body: `{ "fragmentIds": ["..."] }`
+
+- **`POST /v1/context/pin`** - Set pin state on a fragment
+  - Body: `{ "fragmentId": "...", "pinned": true|false }`
+
+- **`POST /v1/context/readonly`** - Set readonly state on an editable fragment
+  - Body: `{ "fragmentId": "...", "readonly": true|false }`
+
+- **`POST /v1/context/compress-history`** - Trigger async history compression
+
+- **`POST /v1/context/clear-history`** - Clear context history
+
+- **`POST /v1/context/drop-all`** - Drop all context fragments
+
+- **`POST /v1/context/files`** - Add files to context
+  - Body: `{ "relativePaths": ["path/from/workspace/root"] }`
+
+- **`POST /v1/context/classes`** - Add class summaries to context
+  - Body: `{ "classNames": ["com.example.MyClass"] }`
+
+- **`POST /v1/context/methods`** - Add method sources to context
+  - Body: `{ "methodNames": ["com.example.MyClass.myMethod"] }`
+
+- **`POST /v1/context/text`** - Add free-form text to context
+  - Body: `{ "text": "..." }` (max 1 MiB UTF-8)
 
 - **`GET /v1/tasklist`** (Authenticated) - Get current task list content
   - Returns the structured content of the current active task list.
@@ -355,6 +405,42 @@ Once running, the executor exposes the following endpoints:
       ]
     }
     ```
+
+- **`POST /v1/tasklist`** - Replace current task list content
+  - Body: `{ "bigPicture": "<optional>", "tasks": [ ... ] }`
+
+### Activity (Authenticated)
+
+- **`GET /v1/activity`** - Get grouped activity/history timeline
+
+- **`GET /v1/activity/diff?contextId=<uuid>`** - Get per-fragment diff for a context snapshot
+
+- **`POST /v1/activity/undo`** - Undo to a specific context
+  - Body: `{ "contextId": "<uuid>" }`
+
+- **`POST /v1/activity/undo-step`** - Undo one step
+
+- **`POST /v1/activity/redo`** - Redo one step
+
+- **`POST /v1/activity/copy-context`** - Reset current context to a snapshot (without history)
+  - Body: `{ "contextId": "<uuid>" }`
+
+- **`POST /v1/activity/copy-context-history`** - Reset current context to a snapshot including history
+  - Body: `{ "contextId": "<uuid>" }`
+
+- **`POST /v1/activity/new-session`** - Create a new session from a context snapshot
+  - Body: `{ "contextId": "<uuid>", "name": "<optional>" }`
+
+### Models & Completions (Authenticated)
+
+- **`GET /v1/models`** - List available models and capabilities
+
+- **`GET /v1/completions`** - File/symbol completions for mention UX
+  - Query params:
+    - `query` (required for non-empty results)
+    - `limit` (optional, clamped to 1..50; default 20)
+
+- **`GET /v1/favorites`** - List favorite model configs
 
 ### Job Management (Authenticated)
 
@@ -438,13 +524,14 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
 
 - **`GET /v1/jobs/{jobId}/events`** - Get job events (supports polling)
   - Query params: `?after={seq}&limit={n}`
-  - Returns: Array of `JobEvent` objects
+  - Returns: `{ "events": [ ... ], "nextAfter": <seq> }`
 
 - **`POST /v1/jobs/{jobId}/cancel`** - Cancel a running job
-  - Returns: Updated `JobStatus`
+  - Returns: `202 Accepted` with empty body
 
 - **`GET /v1/jobs/{jobId}/diff`** - Get git diff of job changes
-  - Returns: Plain text diff
+  - Returns: Plain text diff (`text/plain; charset=UTF-8`)
+  - If git is unavailable, returns `409` with `NO_GIT`
 
 ### Authentication
 
