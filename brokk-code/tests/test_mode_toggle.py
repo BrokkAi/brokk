@@ -16,14 +16,21 @@ def test_action_toggle_mode_cycles_correctly():
     # Initial state
     assert app.agent_mode == "LUTZ"
 
-    # Cycle 1: LUTZ -> ASK
+    # Cycle 1: LUTZ -> CODE
+    app.action_toggle_mode()
+    assert app.agent_mode == "CODE"
+    mock_chat.add_system_message_markup.assert_called_with(
+        "Mode changed to: [bold]CODE[/]", level="WARNING"
+    )
+
+    # Cycle 2: CODE -> ASK
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
     mock_chat.add_system_message_markup.assert_called_with(
         "Mode changed to: [bold]ASK[/]", level="WARNING"
     )
 
-    # Cycle 2: ASK -> LUTZ
+    # Cycle 3: ASK -> LUTZ
     app.action_toggle_mode()
     assert app.agent_mode == "LUTZ"
     mock_chat.add_system_message_markup.assert_called_with(
@@ -35,6 +42,13 @@ def test_handle_command_updates_agent_mode():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
+
+    # Test /code
+    app._handle_command("/code")
+    assert app.agent_mode == "CODE"
+    mock_chat.add_system_message_markup.assert_called_with(
+        "Mode changed to: [bold]CODE[/]", level="WARNING"
+    )
 
     # Test /ask
     app._handle_command("/ask")
