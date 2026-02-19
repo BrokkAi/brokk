@@ -384,11 +384,12 @@ def test_build_context_chip_blocks_orders_by_chip_kind() -> None:
     ]
 
 
-async def test_prompt_emits_context_snapshot_after_stream() -> None:
+async def test_prompt_emits_context_snapshot_after_stream(tmp_path: Path) -> None:
     updates: list[tuple[str, dict[str, str]]] = []
 
     class StubExecutor:
-        workspace_dir = Path(".").resolve()
+        def __init__(self, workspace_dir: Path):
+            self.workspace_dir = workspace_dir
 
         async def start(self) -> None:
             pass
@@ -458,7 +459,7 @@ async def test_prompt_emits_context_snapshot_after_stream() -> None:
             "kind": "embedded_resource",
         }
 
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
     await bridge.prompt(
         prompt=[{"type": "text", "text": "hello"}],
         session_id="acp-session-1",
@@ -485,11 +486,12 @@ async def test_prompt_emits_context_snapshot_after_stream() -> None:
     assert updates[5][1]["text"] == " | 50\n"
 
 
-async def test_prompt_emits_discarded_context_as_json_markdown_text() -> None:
+async def test_prompt_emits_discarded_context_as_json_markdown_text(tmp_path: Path) -> None:
     updates: list[tuple[str, dict[str, str]]] = []
 
     class StubExecutor:
-        workspace_dir = Path(".").resolve()
+        def __init__(self, workspace_dir: Path):
+            self.workspace_dir = workspace_dir
 
         async def start(self) -> None:
             pass
@@ -557,7 +559,7 @@ async def test_prompt_emits_discarded_context_as_json_markdown_text() -> None:
             "kind": "embedded_resource",
         }
 
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
     await bridge.prompt(
         prompt=[{"type": "text", "text": "hello"}],
         session_id="acp-session-1",
@@ -578,11 +580,14 @@ async def test_prompt_emits_discarded_context_as_json_markdown_text() -> None:
     assert '"content": "dropped items here"' in json_blocks[0]
 
 
-async def test_prompt_emits_summary_as_list_item_with_text_and_tokens_for_brokk_uri() -> None:
+async def test_prompt_emits_summary_as_list_item_with_text_and_tokens_for_brokk_uri(
+    tmp_path: Path,
+) -> None:
     updates: list[tuple[str, dict[str, str]]] = []
 
     class StubExecutor:
-        workspace_dir = Path(".").resolve()
+        def __init__(self, workspace_dir: Path):
+            self.workspace_dir = workspace_dir
 
         async def start(self) -> None:
             pass
@@ -650,7 +655,7 @@ async def test_prompt_emits_summary_as_list_item_with_text_and_tokens_for_brokk_
             "kind": "embedded_resource",
         }
 
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
     await bridge.prompt(
         prompt=[{"type": "text", "text": "hello"}],
         session_id="acp-session-1",

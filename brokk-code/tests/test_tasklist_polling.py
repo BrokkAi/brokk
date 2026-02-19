@@ -210,11 +210,14 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await app._refresh_context_panel()
 
             mock_ctx.assert_called()
-            await pilot.press("ctrl+l")
+            # Open context modal
+            await pilot.press("/", *"context".split(), "enter")
             await app._refresh_context_panel()
             await pilot.pause()
             panel = app.screen.query_one(ContextPanel)
-            assert "100 / 200k tokens" in str(panel.query_one("#context-token-usage").render())
+            # The token bar now renders percentage remaining for max_tokens > 0
+            # With usedTokens=100 and default max=200,000, it should show context remaining
+            assert "context remaining" in str(panel.query_one("#context-token-usage").render())
 
 
 @pytest.mark.asyncio
@@ -244,7 +247,8 @@ async def test_context_chips_wrap_into_multiple_rows(tmp_path):
 
         async with app.run_test() as pilot:
             app._executor_ready = True
-            await pilot.press("ctrl+l")
+            # Open context modal
+            await pilot.press("/", *"context".split(), "enter")
             await app._refresh_context_panel()
             await pilot.pause()
 

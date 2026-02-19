@@ -2,34 +2,37 @@ import importlib.resources
 import re
 
 
-def test_chat_input_border_style():
+def test_chat_input_no_border():
     """
-    Regression test to ensure #chat-input does not use 'border: tall'.
-    We prefer 'solid' or other lighter borders to keep the UI clean.
+    Regression test to ensure #chat-input does not use borders.
+    We prefer background-based styling for the prompt.
     """
-    # Load the CSS content from the package resources
-    # Python 3.11+ API
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
-
-    # Check #chat-input rule
-    # We use a regex to find the block for #chat-input and ensure it doesn't contain 'border: tall'
-    # This is a simple substring check within the block context.
 
     chat_input_match = re.search(r"#chat-input\s*\{([^}]*)\}", css_content)
     assert chat_input_match, "Could not find #chat-input rule in app.tcss"
-
     chat_input_body = chat_input_match.group(1)
-    assert "border: tall" not in chat_input_body, (
-        f"#chat-input should not use 'border: tall'. Found: {chat_input_body.strip()}"
-    )
 
-    # Check #chat-input:focus rule
+    assert "border: none;" in chat_input_body or "border: none !important;" in chat_input_body, (
+        "#chat-input should explicitly set border: none to override defaults. "
+        f"Found: {chat_input_body.strip()}"
+    )
+    assert "background:" in chat_input_body, "#chat-input should have a background."
+    assert "padding:" in chat_input_body, "#chat-input should have padding for spacing."
+    assert (
+        "content-align: left middle;" in chat_input_body
+        or "content-align: left middle !important;" in chat_input_body
+    ), "#chat-input should have 'content-align: left middle;' for vertical centering."
+
     focus_match = re.search(r"#chat-input:focus\s*\{([^}]*)\}", css_content)
     assert focus_match, "Could not find #chat-input:focus rule in app.tcss"
-
     focus_body = focus_match.group(1)
-    assert "border: tall" not in focus_body, (
-        f"#chat-input:focus should not use 'border: tall'. Found: {focus_body.strip()}"
+
+    assert "border: none;" in focus_body or "border: none !important;" in focus_body, (
+        f"#chat-input:focus should explicitly set border: none. Found: {focus_body.strip()}"
+    )
+    assert "content-align: left middle;" in focus_body, (
+        "#chat-input:focus should maintain 'content-align: left middle;'."
     )
 
 
@@ -116,3 +119,179 @@ def test_combined_selector_modal_dimensions():
     assert wrapper_match, "Could not find selector list wrapper rule in app.tcss"
     wrapper_body = wrapper_match.group(1)
     assert "max-height: 30;" in wrapper_body, "Selector list wrappers should have max-height: 30"
+
+
+def test_help_elapsed_width_regression():
+    """
+    Ensure #help-elapsed has sufficient width/min-width to avoid truncating
+    the elapsed timer text (e.g., 'Elapsed: 00:00' which is ~14 chars).
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    timer_match = re.search(r"#help-elapsed\s*\{([^}]*)\}", css_content)
+    assert timer_match, "Could not find #help-elapsed rule in app.tcss"
+    timer_body = timer_match.group(1)
+
+    # Check for width or min-width >= 14
+    width_match = re.search(r"(?:min-)?width\s*:\s*(\d+)\s*;", timer_body)
+    assert width_match, (
+        f"#help-elapsed should have a numeric width or min-width. Found: {timer_body.strip()}"
+    )
+
+    width_val = int(width_match.group(1))
+    assert width_val >= 14, (
+        f"#help-elapsed width/min-width ({width_val}) is too small to prevent truncation. "
+        "It should be at least 14 for 'Elapsed: 00:00'."
+    )
+
+
+def test_help_labels_style_parity():
+    """
+    Ensure the chat help static has a transparent background, disabled text color,
+    and appropriate dimensions to maintain style parity.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    selector = "#chat-help"
+    # Match the selector and its block; keep consistent with other regex-based checks.
+    pattern = rf"{re.escape(selector)}\s*\{{([^}}]*)\}}"
+    match = re.search(pattern, css_content)
+    assert match, f"Could not find {selector} rule in app.tcss"
+
+    body = match.group(1)
+
+    # Explicitly require transparent background; fail if changed to any non-transparent value.
+    assert "background: transparent;" in body, (
+        f"{selector} should have 'background: transparent;' to avoid filled label background. "
+        f"Found: {body.strip()}"
+    )
+
+    # Assert color parity
+    assert "color: $text-disabled;" in body, (
+        f"{selector} should use '$text-disabled' color. Found: {body.strip()}"
+    )
+
+    # Assert height and padding for layout parity
+    assert "height: 1;" in body, f"{selector} should have 'height: 1;'. Found: {body.strip()}"
+    assert "padding: 0 1;" in body, f"{selector} should have 'padding: 0 1;'. Found: {body.strip()}"
+
+
+def test_help_menu_layout_contract():
+    """
+    Regression test to ensure the help menu matches the chat input's horizontal layout
+    and that legacy help labels are removed or hidden.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    # 1. Check #chat-input margins for reference
+    input_match = re.search(r"#chat-input\s*\{([^}]*)\}", css_content)
+    assert input_match, "Could not find #chat-input rule"
+    input_body = input_match.group(1)
+    # Extract horizontal margins (expecting '0 2 1 2' or similar where 2 is horizontal)
+    input_margin_match = re.search(r"margin:\s*([^;]+);", input_body)
+    assert input_margin_match, "#chat-input must have a margin defined"
+    input_margin = input_margin_match.group(1).strip()
+
+    # 2. Check #chat-help-row matches margins of #chat-input
+    help_row_match = re.search(r"#chat-help-row\s*\{([^}]*)\}", css_content)
+    assert help_row_match, "Could not find #chat-help-row rule in app.tcss"
+    help_row_body = help_row_match.group(1)
+
+    # Horizontal alignment check: Extract lateral margins from input (2nd and 4th components)
+    input_margins = input_margin.split()
+    help_row_margin_match = re.search(r"margin:\s*([^;]+);", help_row_body)
+    assert help_row_margin_match, "#chat-help-row must have a margin defined"
+    help_row_margins = help_row_margin_match.group(1).strip().split()
+
+    same_margins = (
+        input_margins[1] == help_row_margins[1] and input_margins[3] == help_row_margins[3]
+    )
+    assert same_margins, (
+        f"#chat-help-row horizontal margins ({help_row_margins[1]}, {help_row_margins[3]}) "
+        f"should match #chat-input ({input_margins[1]}, {input_margins[3]}) for alignment."
+    )
+    # Ensure there is a bottom margin to provide breathing room at the bottom of the screen
+    assert int(help_row_margins[2]) >= 1, (
+        f"#chat-help-row should have at least 1 bottom margin. Found: {help_row_margins[2]}"
+    )
+
+    help_match = re.search(r"#chat-help\s*\{([^}]*)\}", css_content)
+    assert help_match, "Could not find #chat-help rule in app.tcss"
+    help_body = help_match.group(1)
+    assert "width: 1fr;" in help_body, "#chat-help should use 1fr width"
+
+    # 3. Verify right-alignment
+    assert "content-align: right middle;" in help_body, (
+        "#chat-help should use 'content-align: right middle;' for horizontal positioning."
+    )
+    assert "text-align: right;" in help_body, (
+        "#chat-help should use 'text-align: right;' for the label content."
+    )
+
+    # 4. Ensure help spinner is styled correctly on the left
+    spinner_match = re.search(r"#help-spinner\s*\{([^}]*)\}", css_content)
+    assert spinner_match, "Could not find #help-spinner rule in app.tcss"
+    spinner_body = spinner_match.group(1)
+    assert "height: 1;" in spinner_body
+    assert "margin-right: 1;" in spinner_body, (
+        "Spinner should have right margin to separate from text"
+    )
+
+    # Negative regression: flex-shrink is invalid in TCSS and causes a crash.
+    assert "flex-shrink" not in spinner_body, (
+        "Textual TCSS does not support 'flex-shrink' property; using it causes a crash."
+    )
+
+    # 5. Ensure no invalid scrollbar properties exist (Textual uses scrollbar-x/y or show-scrollbar)
+    # We allow the substring in comments or documentation, but check for
+    # the pattern in property definitions.
+    assert not re.search(r"show-vertical-scrollbar\s*:", css_content), (
+        "Textual TCSS does not support 'show-vertical-scrollbar'; "
+        + "use 'show-scrollbar' or 'scrollbar-y'."
+    )
+    assert "show-horizontal-scrollbar" not in css_content
+
+    # 6. Ensure autocomplete footprint is constrained and prompt visibility is maintained
+    # Check both SlashCommandSuggestions and ModeSuggestions (shared rules)
+    suggestions_match = re.search(
+        r"SlashCommandSuggestions,\s*ModeSuggestions\s*\{([^}]*)\}", css_content
+    )
+    if suggestions_match:
+        suggestions_body = suggestions_match.group(1)
+        # Check max-height is constrained but large enough for all commands
+        mh_match = re.search(r"max-height:\s*(\d+)\s*;", suggestions_body)
+        if mh_match:
+            assert int(mh_match.group(1)) <= 20, (
+                "SlashCommandSuggestions max-height should be 20 or less"
+            )
+
+        # Check margin to match chat-input horizontal alignment and cover status line
+        m_match = re.search(r"margin:\s*([^;]+);", suggestions_body)
+        if m_match:
+            margins = m_match.group(1).strip().split()
+            if len(margins) == 4:
+                assert margins[1] == "2" and margins[3] == "2", (
+                    "Suggestions should match input horizontal margins"
+                )
+                assert margins[2] == "6", (
+                    "Suggestions should have bottom margin 6 to overlay "
+                    + "above the 3-high prompt + 1-high help row"
+                )
+
+    # Ensure container does NOT raise up when autocomplete is open
+    container_open_match = re.search(
+        r"#chat-input-container\.autocomplete-open\s*\{([^}]*)\}", css_content
+    )
+    assert container_open_match, "Could not find #chat-input-container.autocomplete-open rule"
+    assert "margin-bottom: 0;" in container_open_match.group(1), (
+        "Container should have margin-bottom: 0 as the prompt "
+        + "should not move when autocomplete is open"
+    )
+
+    # 7. Ensure legacy help widgets are not active/visible
+    # (If they were removed from the file entirely, these regexes should fail to find active rules)
+    for legacy_id in ["#tasklist-help", "#context-help", "#status-spinner"]:
+        match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
+        if match:
+            body = match.group(1)
+            assert "display: none;" in body, f"Legacy help {legacy_id} should be display: none;"

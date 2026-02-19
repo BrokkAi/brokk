@@ -53,8 +53,6 @@ class ContextFragmentItem(Static):
         text = Text()
         if self.has_class("is-selected"):
             text.append("[SELECTED] ", style="bold")
-        if self.has_class("is-active"):
-            text.append("[ACTIVE] ", style="bold")
         text.append(f"{chip_kind} ", style="bold")
         text.append(description)
         if tokens > 0:
@@ -126,14 +124,9 @@ class ContextPanel(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(id="context-header"):
             yield Label("Context", id="context-title")
-            yield Label(f"0 / {format_token_count(200_000)} tokens", id="context-token-usage")
+            yield Label("100.0% context remaining", id="context-token-usage")
         yield Label("Selected: 0", id="context-selection-status")
         yield Label("Active: none", id="context-active-status")
-        yield Label(
-            "Arrows: Move  Enter: Select  Space: Toggle  D: Drop  Shift+D: Drop All  "
-            "P: Pin  R: Readonly  H: Compress History  X: Clear History",
-            id="context-help",
-        )
         with VerticalScroll(id="context-chip-scroll"):
             yield Vertical(id="context-chip-wrap")
 
@@ -145,7 +138,12 @@ class ContextPanel(Vertical):
         max_tokens = context_data.get("maxTokens", 200_000)
 
         token_label = self.query_one("#context-token-usage", Label)
-        token_label.update(f"{format_token_count(used)} / {format_token_count(max_tokens)} tokens")
+        if max_tokens > 0:
+            pct = max(0.0, min(100.0, 100 * (1 - used / max_tokens)))
+            usage_str = f"{pct:.1f}% context remaining"
+        else:
+            usage_str = f"{format_token_count(used)} tokens"
+        token_label.update(usage_str)
         self._render_fragments()
 
     def on_resize(self, event: events.Resize) -> None:

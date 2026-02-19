@@ -47,7 +47,8 @@ async def test_context_panel_shows_clear_selection_state():
         async with app.run_test() as pilot:
             app._executor_ready = True
 
-            await pilot.press("ctrl+l")
+            # Open context modal via slash command
+            await pilot.press("/", *"context".split(), "enter")
             await app._refresh_context_panel()
             await pilot.pause()
 
@@ -68,7 +69,7 @@ async def test_context_panel_shows_clear_selection_state():
                 item.render().plain for item in panel.query(".context-chip")
             )
             assert "[SELECTED]" in selected_chip_texts
-            assert "[ACTIVE]" in selected_chip_texts
+            assert "[ACTIVE]" not in selected_chip_texts
 
             # Move active cursor to next chip.
             await pilot.press("right")

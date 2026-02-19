@@ -28,38 +28,18 @@ async def test_action_select_model_not_ready():
 
 
 @pytest.mark.asyncio
-async def test_action_select_model_updates_state():
-    # Setup app and executor mock
-    executor = MagicMock()
-    executor.get_models = AsyncMock(
-        return_value={
-            "models": [
-                {"name": "gpt-4", "location": "x"},
-                {"name": "claude-3", "location": "y"},
-            ]
-        }
-    )
-    app = BrokkApp(executor=executor)
-    app._executor_ready = True
+async def test_action_select_mode_opens_menu():
+    # Setup app
+    app = BrokkApp(executor=MagicMock())
+    app.agent_mode = "LUTZ"
 
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
 
-    # We mock push_screen to capture the callback and invoke it immediately
-    # as if the user selected a model in the modal.
-    def mock_push_screen(screen, callback=None):
-        # Verify it uses the model-only modal
-        assert screen.__class__.__name__ == "ModelSelectModal"
-        if callback:
-            # ModelSelectModal returns a single string
-            callback("claude-3")
+    app.action_select_mode()
 
-    app.push_screen = MagicMock(side_effect=mock_push_screen)
-
-    await app.action_select_model()
-
-    assert app.current_model == "claude-3"
-    mock_chat.add_system_message_markup.assert_called_with("Model changed to: [bold]claude-3[/]")
+    # Verify it opens the inline menu on ChatPanel instead of pushing a modal screen
+    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
 
 
 @pytest.mark.asyncio
@@ -110,3 +90,61 @@ def test_help_command_no_shortcuts_for_model_reasoning():
     # Verify the commands themselves are still documented
     assert "/model" in help_text
     assert "/reasoning" in help_text
+
+
+def test_help_output_matches_command_catalog():
+    """Ensure every command in the catalog is present in the /help output."""
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    app._handle_command("/help")
+
+    args, _ = mock_chat.append_message.call_args
+    help_text = args[1]
+
+    for cmd_entry in app.get_slash_commands():
+        cmd = cmd_entry["command"]
+        assert cmd in help_text, f"Command {cmd} missing from /help output"
+
+
+@pytest.mark.asyncio
+async def test_slash_autocomplete_filtering():
+    """Verify slash suggestions filter correctly."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.widgets.chat_panel import ChatPanel, SlashCommandSuggestions
+
+    class TestApp(App):
+        def get_slash_commands(self):
+            return [
+                {"command": "/ask", "description": "d"},
+                {"command": "/ask-more", "description": "d"},
+                {"command": "/help", "description": "d"},
+            ]
+
+        def compose(self) -> ComposeResult:
+            yield ChatPanel()
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        suggestions = app.query_one(SlashCommandSuggestions)
+
+        # Initially hidden
+        assert suggestions.display is False
+
+        # Type /a
+        await pilot.press(*list("/a"))
+        assert suggestions.display is True
+        # matches /ask and /ask-more
+        assert len(suggestions.children) == 2
+
+        # Type sk-
+        await pilot.press(*list("sk-"))
+        assert len(suggestions.children) == 1
+        assert "/ask-more" in str(suggestions.children[0].query_one(Static).render())
+
+        # Esc hides
+        await pilot.press("escape")
+        assert suggestions.display is False

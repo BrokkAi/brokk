@@ -1,4 +1,3 @@
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,8 +7,8 @@ from brokk_code.settings import Settings
 from brokk_code.widgets.chat_panel import ChatPanel
 
 
-def test_handle_command_autocommit_shows_status():
-    app = BrokkApp(executor=MagicMock(workspace_dir=Path(".").resolve()))
+def test_handle_command_autocommit_shows_status(tmp_path):
+    app = BrokkApp(executor=MagicMock(workspace_dir=tmp_path))
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
 
@@ -22,8 +21,8 @@ def test_handle_command_autocommit_shows_status():
     assert kwargs.get("level") == "WARNING"
 
 
-def test_handle_command_autocommit_off_persists_and_announces():
-    app = BrokkApp(executor=MagicMock(workspace_dir=Path(".").resolve()))
+def test_handle_command_autocommit_off_persists_and_announces(tmp_path):
+    app = BrokkApp(executor=MagicMock(workspace_dir=tmp_path))
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
 
@@ -44,9 +43,9 @@ def test_handle_command_autocommit_off_persists_and_announces():
 
 
 @pytest.mark.asyncio
-async def test_run_job_passes_auto_commit_flag():
+async def test_run_job_passes_auto_commit_flag(tmp_path):
     executor = MagicMock()
-    executor.workspace_dir = Path(".").resolve()
+    executor.workspace_dir = tmp_path
     executor.submit_job = AsyncMock(return_value="job-1")
 
     async def stream_events(_job_id: str):

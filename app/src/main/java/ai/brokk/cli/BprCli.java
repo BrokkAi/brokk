@@ -521,6 +521,7 @@ public final class BprCli implements Callable<Integer> {
 
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();
+        var explicitContext = context;
 
         // --- Deep Scan ------------------------------------------------------
         boolean isStandaloneDeepScan = deepScan
@@ -664,12 +665,16 @@ public final class BprCli implements Callable<Integer> {
                         return 1;
                     }
 
-                    var originalContext = context;
                     ArchitectAgent agent;
 
                     AtomicReference<Context> discoveredContext = new AtomicReference<>(new Context(cm));
                     Optional<ContextAgent.RecommendationResult> cachedRec;
                     if (isInfer) {
+                        if (!deepScan) {
+                            logger.warn("--infer-context is more effective when used with --deepscan.");
+                        }
+
+                        // (1) Initial cache/context state
                         cachedRec = readRecommendationFromCache(taskFile, cm);
                         if (cachedRec.isPresent()) {
                             context = context.addAsSummaries(cachedRec.get().fragments());
@@ -679,13 +684,13 @@ public final class BprCli implements Callable<Integer> {
                             agent.setVerifyCommand(testAllCmd);
                         }
                         agent.setListener(codeContext -> {
-                            // add new fragments on success or failure
-                            var delta = ContextDelta.between(originalContext, codeContext)
+                            // (2) Listener invoked by CodeAgent completion
+                            var delta = ContextDelta.between(explicitContext, codeContext)
                                     .join();
                             var union = requireNonNull(discoveredContext.get()).addAsSummaries(delta.addedFragments());
                             discoveredContext.set(union);
                         });
-                        result = cachedRec.isPresent() ? agent.execute() : agent.executeWithScan();
+                        result = agent.execute();
                     } else {
                         agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, context);
                         cachedRec = Optional.empty();
@@ -695,25 +700,28 @@ public final class BprCli implements Callable<Integer> {
                     context = result.context();
                     scope.append(result);
 
+                    // (3) Final context state after execution
                     if (isInfer && getCacheMode().canWrite()) {
                         ContextAgent.RecommendationResult finalRec;
                         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS && cachedRec.isPresent()) {
                             // on failure, take the union of our original recommendations and where we ended up, so we
                             // don't accidentally make it worse
+                            // TODO: this is broken, we will never remove fragments because the first callCodeAgent
+                            // will be with the starting fragments, so we just add them back immediately
                             discoveredContext.set(requireNonNull(discoveredContext.get())
                                     .addAsSummaries(cachedRec.get().fragments()));
                         }
-                        var delta = ContextDelta.between(originalContext, requireNonNull(discoveredContext.get()));
+                        var delta = ContextDelta.between(explicitContext, requireNonNull(discoveredContext.get()));
                         finalRec = new ContextAgent.RecommendationResult(
                                 true, delta.join().addedFragments(), null);
                         writeRecommendationToCache(finalRec, taskFile);
 
                         var baseContext = cachedRec
                                 .map(recommendationResult ->
-                                        originalContext.addAsSummaries(recommendationResult.fragments()))
-                                .orElse(originalContext);
+                                        explicitContext.addAsSummaries(recommendationResult.fragments()))
+                                .orElse(explicitContext);
                         var recDelta = ContextDelta.between(
-                                        baseContext, originalContext.addAsSummaries(finalRec.fragments()))
+                                        baseContext, explicitContext.addAsSummaries(finalRec.fragments()))
                                 .join();
                         var jsonMap = new java.util.LinkedHashMap<String, Object>();
                         jsonMap.put("addedFragments", recDelta.addedFragments().size());
@@ -1127,7 +1135,10 @@ public final class BprCli implements Callable<Integer> {
                         var classes = parseFromCdl(classesCdl);
 
                         logger.debug(
-                                "Read {} files and {} classes from properties cache", files.size(), classes.size());
+                                "Read {} files and {} classes from properties cache {}",
+                                files.size(),
+                                classes.size(),
+                                propsFile);
 
                         var fileFragments = files.stream()
                                 .map(fname -> (ContextFragment) new ContextFragments.SummaryFragment(

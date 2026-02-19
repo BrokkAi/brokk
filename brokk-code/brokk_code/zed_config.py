@@ -5,7 +5,7 @@ from typing import Any
 
 
 class ExistingBrokkCodeEntryError(Exception):
-    """Raised when Zed already has a Brokk Code agent server entry."""
+    """Raised when an IDE configuration already has a Brokk Code agent server entry."""
 
 
 def _split_leading_json_prefix(text: str) -> tuple[str, str]:
@@ -170,7 +170,8 @@ def _remove_trailing_commas(text: str) -> str:
     return "".join(out)
 
 
-def _loads_json_or_jsonc(text: str) -> Any:
+def loads_json_or_jsonc(text: str) -> Any:
+    """Loads JSON or JSONC (JSON with comments and trailing commas)."""
     stripped = text.strip()
     if not stripped:
         return {}
@@ -196,7 +197,8 @@ def _brokk_code_agent_server_config() -> dict[str, Any]:
     }
 
 
-def _atomic_write_settings(path: Path, settings: dict[str, Any]) -> None:
+def atomic_write_settings(path: Path, settings: dict[str, Any]) -> None:
+    """Atomically writes settings to a JSON file."""
     _atomic_write_settings_text(path, f"{json.dumps(settings, indent=2)}\n")
 
 
@@ -233,7 +235,7 @@ def configure_zed_acp_settings(*, force: bool = False, settings_path: Path | Non
         if prefix and not prefix.endswith("\n"):
             prefix = f"{prefix}\n"
         try:
-            parsed_json = _loads_json_or_jsonc(json_text)
+            parsed_json = loads_json_or_jsonc(json_text)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Could not parse {path} as JSON/JSONC: {exc}") from exc
         if not isinstance(parsed_json, dict):
