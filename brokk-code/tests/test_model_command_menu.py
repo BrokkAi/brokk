@@ -286,3 +286,71 @@ async def test_reasoning_command_with_arg_sets_directly():
             await pilot.pause()
 
             assert app.reasoning_level == "high"
+
+
+@pytest.mark.asyncio
+async def test_model_code_command_with_arg_sets_directly():
+    executor = MagicMock()
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Simulate typing /model-code gemini-pro
+            app._handle_command("/model-code gemini-pro")
+            await pilot.pause()
+
+            assert app.code_model == "gemini-pro"
+
+
+@pytest.mark.asyncio
+async def test_code_model_modal_navigation_updates_code_settings():
+    executor = MagicMock()
+    executor.get_models = AsyncMock(
+        return_value={
+            "models": [
+                {"name": "code-alpha", "location": "x"},
+                {"name": "code-beta", "location": "y"},
+            ]
+        }
+    )
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    # Initialize code reasoning
+    app.reasoning_level_code = "disable"
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Trigger combined modal for code model
+            await app.action_select_code_model_and_reasoning()
+            await pilot.pause()
+
+            # 1. Selection Pane: Model
+            # Move to 'code-beta'
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # 2. Selection Pane: Reasoning
+            # Highlight starts at 'disable' (idx 0), down to 'low' (idx 1)
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.code_model == "code-beta"
+            assert app.reasoning_level_code == "low"
+            # Ensure planner settings remained untouched
+            assert app.current_model != "code-beta"
