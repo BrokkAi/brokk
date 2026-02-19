@@ -2311,9 +2311,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 TSNode definitionNode = captureEntry.getValue();
 
                 if (captureName.endsWith(".definition")) {
-                    String simpleName =
+                    Optional<String> simpleNameOpt =
                             resolveSimpleName(captureName, definitionNode, capturedNodesForMatch, sourceContent, file);
-                    if (simpleName != null && !simpleName.isBlank()) {
+                    if (simpleNameOpt.isPresent() && !simpleNameOpt.get().isBlank()) {
+                        String simpleName = simpleNameOpt.get();
                         declarationNodes.putIfAbsent(
                                 definitionNode,
                                 new DefinitionInfoRecord(
@@ -2329,7 +2330,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return declarationNodes;
     }
 
-    private String resolveSimpleName(
+    private Optional<String> resolveSimpleName(
             String captureName,
             TSNode definitionNode,
             Map<String, TSNode> matchCaptures,
@@ -2337,18 +2338,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             ProjectFile file) {
         String expectedNameCapture = captureName.replace(".definition", ".name");
         TSNode nameNode = matchCaptures.get(expectedNameCapture);
-        String simpleName = null;
+        Optional<String> simpleName = Optional.empty();
 
         if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
-            simpleName = extractSimpleName(definitionNode, sourceContent).orElse(null);
+            simpleName = extractSimpleName(definitionNode, sourceContent);
         } else if (nameNode != null && !nameNode.isNull()) {
-            simpleName = sourceContent.substringFrom(nameNode);
-            if (simpleName.isBlank()
-                    && !isBlankNameAllowed(captureName, simpleName, definitionNode.getType(), file.getFileName())) {
-                simpleName = extractSimpleName(definitionNode, sourceContent).orElse(null);
+            String nameText = sourceContent.substringFrom(nameNode);
+            if (nameText.isBlank()
+                    && !isBlankNameAllowed(captureName, nameText, definitionNode.getType(), file.getFileName())) {
+                simpleName = extractSimpleName(definitionNode, sourceContent);
+            } else {
+                simpleName = Optional.of(nameText);
             }
         } else {
-            simpleName = extractSimpleName(definitionNode, sourceContent).orElse(null);
+            simpleName = extractSimpleName(definitionNode, sourceContent);
         }
         return simpleName;
     }
