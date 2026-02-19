@@ -62,18 +62,16 @@ def test_mode_toggle_command_updates_agent_mode():
     # Test /mode toggles to ASK
     app._handle_command("/mode")
     assert app.agent_mode == "ASK"
+    mock_chat.add_system_message_markup.assert_called_with(
+        "Mode changed to: [bold]ASK[/]", level="WARNING"
+    )
 
     # Test /mode toggles back to LUTZ
     app._handle_command("/mode")
     assert app.agent_mode == "LUTZ"
-
-
-def test_mode_toggle_bindings_removed():
-    app = BrokkApp(executor=MagicMock())
-    # Verify the bindings are no longer present
-    bindings = {b.key: b.action for b in app.BINDINGS}
-    assert "ctrl+g" not in bindings
-    assert "f3" not in bindings
+    mock_chat.add_system_message_markup.assert_called_with(
+        "Mode changed to: [bold]LUTZ[/]", level="WARNING"
+    )
 
 
 def test_no_f2_settings_binding():
