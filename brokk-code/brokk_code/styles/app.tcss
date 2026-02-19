@@ -262,7 +262,7 @@ ChatPanel {
     content-align: left middle;
 }
 
-SlashCommandSuggestions {
+SlashCommandSuggestions, ModeSuggestions, ReasoningSuggestions {
     background: $panel;
     border: none;
     color: $text;
@@ -270,11 +270,19 @@ SlashCommandSuggestions {
     /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
     margin: 0 2 6 2;
     max-height: 20;
+    width: 1fr;
+    display: none;
+    layer: top;
+    dock: bottom;
 }
 
-SlashCommandSuggestions > ListItem:focus {
+SlashCommandSuggestions > ListItem:focus, ModeSuggestions > ListItem:focus, ReasoningSuggestions > ListItem:focus {
     background: $surface-lighten-1;
     color: $accent;
+}
+
+SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions ListItem {
+    padding: 0 1;
 }
 
 #chat-help-row {
