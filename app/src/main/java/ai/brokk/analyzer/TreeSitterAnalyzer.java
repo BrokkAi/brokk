@@ -225,7 +225,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             PMap<CodeUnit, PVector<Range>> sourceRanges,
             PMap<CodeUnit, Boolean> hasBody,
             PMap<String, PSet<CodeUnit>> codeUnitsBySymbol,
-            PMap<String, CodeUnit> cuByFqName) {
+            PMap<String, CodeUnit> cuByFqName,
+            PMap<CodeUnit, PVector<String>> lookupKeys) {
 
         static FileAnalysisContext empty() {
             return new FileAnalysisContext(
@@ -235,32 +236,37 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     HashTreePMap.empty(),
                     HashTreePMap.empty(),
                     HashTreePMap.empty(),
+                    HashTreePMap.empty(),
                     HashTreePMap.empty());
         }
 
         FileAnalysisContext withTopLevelCu(CodeUnit cu) {
-            return new FileAnalysisContext(
+            FileAnalysisContext updated = new FileAnalysisContext(
                     topLevelCUs.plus(cu),
                     children,
                     signatures,
                     sourceRanges,
                     hasBody,
                     codeUnitsBySymbol,
-                    cuByFqName.plus(cu.fqName(), cu));
+                    cuByFqName,
+                    lookupKeys);
+            return updated.withLookupKey(cu.fqName(), cu);
         }
 
         FileAnalysisContext withChild(CodeUnit parent, CodeUnit child) {
             PVector<CodeUnit> kids = children.getOrDefault(parent, TreePVector.empty());
             boolean alreadyPresent = kids.contains(child);
             PVector<CodeUnit> updatedKids = alreadyPresent ? kids : kids.plus(child);
-            return new FileAnalysisContext(
+            FileAnalysisContext updated = new FileAnalysisContext(
                     topLevelCUs,
                     children.plus(parent, updatedKids),
                     signatures,
                     sourceRanges,
                     hasBody,
                     codeUnitsBySymbol,
-                    cuByFqName.plus(child.fqName(), child));
+                    cuByFqName,
+                    lookupKeys);
+            return updated.withLookupKey(child.fqName(), child);
         }
 
         FileAnalysisContext withSignature(CodeUnit cu, String signature) {
@@ -273,7 +279,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     sourceRanges,
                     hasBody,
                     codeUnitsBySymbol,
-                    cuByFqName);
+                    cuByFqName,
+                    lookupKeys);
         }
 
         FileAnalysisContext withRange(CodeUnit cu, Range range) {
@@ -286,7 +293,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     sourceRanges.plus(cu, ranges),
                     hasBody,
                     codeUnitsBySymbol,
-                    cuByFqName);
+                    cuByFqName,
+                    lookupKeys);
         }
 
         FileAnalysisContext withHasBody(CodeUnit cu, boolean body) {
@@ -297,7 +305,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     sourceRanges,
                     hasBody.plus(cu, body),
                     codeUnitsBySymbol,
-                    cuByFqName);
+                    cuByFqName,
+                    lookupKeys);
         }
 
         FileAnalysisContext withSymbolIndex(String symbol, CodeUnit cu) {
@@ -311,7 +320,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     sourceRanges,
                     hasBody,
                     codeUnitsBySymbol.plus(symbol, cus),
-                    cuByFqName);
+                    cuByFqName,
+                    lookupKeys);
         }
 
         FileAnalysisContext withoutChildren(CodeUnit parent) {
@@ -325,7 +335,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     sourceRanges,
                     hasBody,
                     codeUnitsBySymbol,
-                    cuByFqName);
+                    cuByFqName,
+                    lookupKeys);
         }
 
         FileAnalysisContext withoutCodeUnit(CodeUnit cu) {
@@ -337,6 +348,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 }
             }
             PMap<CodeUnit, PVector<CodeUnit>> cleanedChildren = removeChildReferences(cu, current.children);
+            PMap<String, CodeUnit> cleanedCuByFqName = current.cuByFqName;
+            PVector<String> associatedLookupKeys = current.lookupKeys.getOrDefault(cu, TreePVector.empty());
+            for (String key : associatedLookupKeys) {
+                cleanedCuByFqName = cleanedCuByFqName.minus(key);
+            }
+            PMap<CodeUnit, PVector<String>> cleanedLookupKeys = current.lookupKeys.minus(cu);
             return new FileAnalysisContext(
                     current.topLevelCUs.minus(cu),
                     cleanedChildren.minus(cu),
@@ -344,7 +361,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     current.sourceRanges.minus(cu),
                     current.hasBody.minus(cu),
                     current.removeFromSymbolIndex(cu),
-                    current.cuByFqName.minus(cu.fqName()));
+                    cleanedCuByFqName,
+                    cleanedLookupKeys);
+        }
+
+        FileAnalysisContext withLookupKey(String lookupKey, CodeUnit cu) {
+            PVector<String> keys = lookupKeys.getOrDefault(cu, TreePVector.empty());
+            CodeUnit existing = cuByFqName.get(lookupKey);
+            if (keys.contains(lookupKey) && Objects.equals(existing, cu)) {
+                return this;
+            }
+            PVector<String> updatedKeys = keys.contains(lookupKey) ? keys : keys.plus(lookupKey);
+            return new FileAnalysisContext(
+                    topLevelCUs,
+                    children,
+                    signatures,
+                    sourceRanges,
+                    hasBody,
+                    codeUnitsBySymbol,
+                    cuByFqName.plus(lookupKey, cu),
+                    lookupKeys.plus(cu, updatedKeys));
         }
 
         private PMap<String, PSet<CodeUnit>> removeFromSymbolIndex(CodeUnit cu) {
@@ -1982,6 +2018,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             current = current.withHasBody(target, true);
         }
 
+        PVector<String> sourceLookupKeys = current.lookupKeys.getOrDefault(source, TreePVector.empty());
+        for (String lookupKey : sourceLookupKeys) {
+            current = current.withLookupKey(lookupKey, target);
+        }
+
         // Detach the source children mapping so withoutCodeUnit does not recursively delete moved nodes
         current = current.withoutChildren(source);
 
@@ -2252,6 +2293,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             rangeNode.getStartByte());
 
             ctx = ctx.withRange(cu, finalRange);
+            ctx = ctx.withLookupKey(cuLookupKey, cu);
         }
 
         List<String> localImportStatements =
@@ -2509,7 +2551,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 HashTreePMap.from(mCodeUnitsBySymbol.entrySet().stream()
                         .collect(Collectors.toMap(
                                 Map.Entry::getKey, e -> org.pcollections.HashTreePSet.from(e.getValue())))),
-                HashTreePMap.from(mCuByFqName));
+                HashTreePMap.from(mCuByFqName),
+                ctx.lookupKeys());
     }
 
     private Map<CodeUnit, CodeUnitProperties> finalizeCodeUnitProperties(FileAnalysisContext ctx) {
