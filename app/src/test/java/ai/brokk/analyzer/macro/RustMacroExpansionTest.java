@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.macro;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -27,28 +28,24 @@ class RustMacroExpansionTest {
         String codeWithAttr = "#[derive(is_macro::Is)] enum Target {}";
         String codeWithoutAttr = "#[derive(Debug)] enum Other {}";
 
-        try (IProject project =
-                InlineTestProjectCreator.code(codeWithAttr, "src/lib.rs").build()) {
-            IsMacroExpander expander = new IsMacroExpander();
+        IsMacroExpander expander = new IsMacroExpander();
 
-            // Test matching
-            SourceContent sourceWith = SourceContent.of(codeWithAttr);
-            TSParser parser = new TSParser();
-            parser.setLanguage(new TreeSitterRust());
-            TSTree treeWith = parser.parseString(null, codeWithAttr);
-            TSNode enumWith = findNodeByType(treeWith.getRootNode(), "enum_item");
-            assertTrue(
-                    enumWith != null && expander.supports(enumWith, sourceWith),
-                    "Should support enum with Is attribute");
+        // Test matching
+        SourceContent sourceWith = SourceContent.of(codeWithAttr);
+        TSParser parser = new TSParser();
+        parser.setLanguage(new TreeSitterRust());
+        TSTree treeWith = parser.parseString(null, codeWithAttr);
+        TSNode enumWith = findNodeByType(treeWith.getRootNode(), "enum_item");
+        assertTrue(
+                enumWith != null && expander.supports(enumWith, sourceWith), "Should support enum with Is attribute");
 
-            // Test non-matching
-            SourceContent sourceWithout = SourceContent.of(codeWithoutAttr);
-            TSTree treeWithout = parser.parseString(null, codeWithoutAttr);
-            TSNode enumWithout = findNodeByType(treeWithout.getRootNode(), "enum_item");
-            assertTrue(
-                    enumWithout != null && !expander.supports(enumWithout, sourceWithout),
-                    "Should not support enum without Is attribute");
-        }
+        // Test non-matching
+        SourceContent sourceWithout = SourceContent.of(codeWithoutAttr);
+        TSTree treeWithout = parser.parseString(null, codeWithoutAttr);
+        TSNode enumWithout = findNodeByType(treeWithout.getRootNode(), "enum_item");
+        assertTrue(
+                enumWithout != null && !expander.supports(enumWithout, sourceWithout),
+                "Should not support enum without Is attribute");
     }
 
     private TSNode findNodeByType(TSNode root, String type) {
@@ -156,10 +153,6 @@ class RustMacroExpansionTest {
             TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
             ProjectFile file = project.getAllFiles().iterator().next();
 
-            // Find the is_module method
-            CodeUnit isModule =
-                    analyzer.getDefinitions("ScopeKind.is_module").iterator().next();
-
             // In TreeSitterAnalyzer, signatures are added for each occurrence.
             // If our collision check works, we should only see the manual one (with its specific signature)
             // or at least ensure we didn't duplicate the CU if they are identical.
@@ -177,6 +170,13 @@ class RustMacroExpansionTest {
                     .count();
 
             assertEquals(1, count, "Should only have one is_module method despite macro");
+
+            // Assert that the is_module method is the user-defined one (not synthetic)
+            CodeUnit isModule = children.stream()
+                    .filter(c -> c.identifier().equals("is_module"))
+                    .findFirst()
+                    .orElseThrow();
+            assertNotNull(isModule, "is_module should exist and not be null");
         }
     }
 }
