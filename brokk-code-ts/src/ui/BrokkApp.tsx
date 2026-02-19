@@ -188,7 +188,6 @@ export function BrokkApp(options: BrokkAppOptions): React.JSX.Element {
   const readyRef = useRef(false);
   const sessionRef = useRef<string | undefined>(undefined);
   const appStateRef = useRef<AppState>(initialState());
-  const tokenFlushTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   appStateRef.current = appState;
   readyRef.current = ready;
@@ -844,51 +843,50 @@ export function BrokkApp(options: BrokkAppOptions): React.JSX.Element {
       });
       currentJobIdRef.current = jobId;
 
-      let assistantText = "";
-      let renderedAssistantText = "";
-      const flushAssistantMessage = (force: boolean): void => {
-        if (!assistantText || assistantText === renderedAssistantText) {
+      let currentBuffer = "";
+      let currentIsReasoning = false;
+      const flushAssistantBuffer = (): void => {
+        const content = currentBuffer.trim();
+        if (!content) {
+          currentBuffer = "";
+          currentIsReasoning = false;
           return;
         }
-        if (!force && tokenFlushTimerRef.current) {
-          return;
-        }
-        renderedAssistantText = assistantText;
-        setMessages((prev) => {
-          const next = [...prev];
-          if (next.length > 0 && next[next.length - 1]?.author === "assistant") {
-            next[next.length - 1] = { author: "assistant", text: renderedAssistantText };
-          } else {
-            next.push({ author: "assistant", text: renderedAssistantText });
-          }
-          return next;
+        addMessage({
+          author: "assistant",
+          text: currentIsReasoning ? `### Thinking\n\n${content}` : content
         });
-      };
-      const scheduleAssistantFlush = (): void => {
-        if (tokenFlushTimerRef.current) {
-          return;
-        }
-        tokenFlushTimerRef.current = setTimeout(() => {
-          tokenFlushTimerRef.current = undefined;
-          flushAssistantMessage(true);
-        }, 40);
+        currentBuffer = "";
+        currentIsReasoning = false;
       };
       for await (const event of executor.streamEvents(jobId)) {
         const eventType = event.type;
         const data = event.data && typeof event.data === "object" ? (event.data as JsonRecord) : {};
 
         if (eventType === "LLM_TOKEN" && typeof data.token === "string") {
-          assistantText += data.token;
-          scheduleAssistantFlush();
+          const isReasoning = Boolean(data.isReasoning);
+          const isNewMessage = Boolean(data.isNewMessage);
+          const isTerminal = Boolean(data.isTerminal);
+          const shouldStartNew =
+            isNewMessage || (currentBuffer.length > 0 && currentIsReasoning !== isReasoning);
+
+          if (shouldStartNew) {
+            flushAssistantBuffer();
+          }
+          currentIsReasoning = isReasoning;
+          currentBuffer += data.token;
+          if (isTerminal) {
+            flushAssistantBuffer();
+          }
         } else if (eventType === "NOTIFICATION") {
-          flushAssistantMessage(true);
+          flushAssistantBuffer();
           const level = String(data.level ?? "INFO");
           const message = String(data.message ?? "");
           if (message) {
             addMessage({ author: "system", text: `[${level}] ${message}` });
           }
         } else if (eventType === "ERROR") {
-          flushAssistantMessage(true);
+          flushAssistantBuffer();
           addMessage({ author: "system", text: `[ERROR] ${String(data.message ?? "Unknown error")}` });
         } else if (eventType === "STATE_HINT") {
           const name = String(data.name ?? "");
@@ -897,14 +895,10 @@ export function BrokkApp(options: BrokkAppOptions): React.JSX.Element {
           }
         }
       }
-      flushAssistantMessage(true);
+      flushAssistantBuffer();
     } catch (error) {
       addMessage({ author: "system", text: `[ERROR] ${error instanceof Error ? error.message : String(error)}` });
     } finally {
-      if (tokenFlushTimerRef.current) {
-        clearTimeout(tokenFlushTimerRef.current);
-        tokenFlushTimerRef.current = undefined;
-      }
       currentJobIdRef.current = undefined;
       await refreshContextAndTasks().catch(() => undefined);
 

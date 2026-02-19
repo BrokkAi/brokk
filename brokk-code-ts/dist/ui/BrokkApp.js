@@ -130,7 +130,6 @@ export function BrokkApp(options) {
     const readyRef = useRef(false);
     const sessionRef = useRef(undefined);
     const appStateRef = useRef(initialState());
-    const tokenFlushTimerRef = useRef(undefined);
     appStateRef.current = appState;
     readyRef.current = ready;
     sessionRef.current = sessionId;
@@ -717,45 +716,41 @@ export function BrokkApp(options) {
                 sessionId: sessionRef.current
             });
             currentJobIdRef.current = jobId;
-            let assistantText = "";
-            let renderedAssistantText = "";
-            const flushAssistantMessage = (force) => {
-                if (!assistantText || assistantText === renderedAssistantText) {
+            let currentBuffer = "";
+            let currentIsReasoning = false;
+            const flushAssistantBuffer = () => {
+                const content = currentBuffer.trim();
+                if (!content) {
+                    currentBuffer = "";
+                    currentIsReasoning = false;
                     return;
                 }
-                if (!force && tokenFlushTimerRef.current) {
-                    return;
-                }
-                renderedAssistantText = assistantText;
-                setMessages((prev) => {
-                    const next = [...prev];
-                    if (next.length > 0 && next[next.length - 1]?.author === "assistant") {
-                        next[next.length - 1] = { author: "assistant", text: renderedAssistantText };
-                    }
-                    else {
-                        next.push({ author: "assistant", text: renderedAssistantText });
-                    }
-                    return next;
+                addMessage({
+                    author: "assistant",
+                    text: currentIsReasoning ? `### Thinking\n\n${content}` : content
                 });
-            };
-            const scheduleAssistantFlush = () => {
-                if (tokenFlushTimerRef.current) {
-                    return;
-                }
-                tokenFlushTimerRef.current = setTimeout(() => {
-                    tokenFlushTimerRef.current = undefined;
-                    flushAssistantMessage(true);
-                }, 40);
+                currentBuffer = "";
+                currentIsReasoning = false;
             };
             for await (const event of executor.streamEvents(jobId)) {
                 const eventType = event.type;
                 const data = event.data && typeof event.data === "object" ? event.data : {};
                 if (eventType === "LLM_TOKEN" && typeof data.token === "string") {
-                    assistantText += data.token;
-                    scheduleAssistantFlush();
+                    const isReasoning = Boolean(data.isReasoning);
+                    const isNewMessage = Boolean(data.isNewMessage);
+                    const isTerminal = Boolean(data.isTerminal);
+                    const shouldStartNew = isNewMessage || (currentBuffer.length > 0 && currentIsReasoning !== isReasoning);
+                    if (shouldStartNew) {
+                        flushAssistantBuffer();
+                    }
+                    currentIsReasoning = isReasoning;
+                    currentBuffer += data.token;
+                    if (isTerminal) {
+                        flushAssistantBuffer();
+                    }
                 }
                 else if (eventType === "NOTIFICATION") {
-                    flushAssistantMessage(true);
+                    flushAssistantBuffer();
                     const level = String(data.level ?? "INFO");
                     const message = String(data.message ?? "");
                     if (message) {
@@ -763,7 +758,7 @@ export function BrokkApp(options) {
                     }
                 }
                 else if (eventType === "ERROR") {
-                    flushAssistantMessage(true);
+                    flushAssistantBuffer();
                     addMessage({ author: "system", text: `[ERROR] ${String(data.message ?? "Unknown error")}` });
                 }
                 else if (eventType === "STATE_HINT") {
@@ -773,16 +768,12 @@ export function BrokkApp(options) {
                     }
                 }
             }
-            flushAssistantMessage(true);
+            flushAssistantBuffer();
         }
         catch (error) {
             addMessage({ author: "system", text: `[ERROR] ${error instanceof Error ? error.message : String(error)}` });
         }
         finally {
-            if (tokenFlushTimerRef.current) {
-                clearTimeout(tokenFlushTimerRef.current);
-                tokenFlushTimerRef.current = undefined;
-            }
             currentJobIdRef.current = undefined;
             await refreshContextAndTasks().catch(() => undefined);
             const pending = pendingPromptRef.current;

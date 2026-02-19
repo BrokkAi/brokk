@@ -12,9 +12,9 @@ export interface ChatPanelProps {
   rowLimit?: number;
 }
 
-interface ChatMessageViewProps {
-  message: ChatMessage;
-  messageIndex: number;
+interface ChatRow {
+  key: string;
+  node: React.JSX.Element;
 }
 
 function renderInline(markdown: string): React.ReactNode[] {
@@ -123,13 +123,21 @@ function renderMarkdownLines(markdown: string): React.JSX.Element[] {
 
     const bullet = line.match(/^[-*+]\s+(.+)$/);
     if (bullet) {
-      rendered.push(<Text key={`b-${index}`}>{`- `}{renderInline(bullet[1] ?? "")}</Text>);
+      rendered.push(
+        <Text key={`b-${index}`}>
+          - {renderInline(bullet[1] ?? "")}
+        </Text>,
+      );
       return;
     }
 
     const ordered = line.match(/^(\d+)\.\s+(.+)$/);
     if (ordered) {
-      rendered.push(<Text key={`o-${index}`}>{`${ordered[1]}. `}{renderInline(ordered[2] ?? "")}</Text>);
+      rendered.push(
+        <Text key={`o-${index}`}>
+          {ordered[1]}. {renderInline(ordered[2] ?? "")}
+        </Text>,
+      );
       return;
     }
 
@@ -139,40 +147,61 @@ function renderMarkdownLines(markdown: string): React.JSX.Element[] {
   return rendered;
 }
 
-const ChatMessageView = React.memo(function ChatMessageView(props: ChatMessageViewProps): React.JSX.Element {
-  const renderedMarkdown = React.useMemo(() => renderMarkdownLines(props.message.text), [props.message.text]);
-  return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Text
-        color={
-          props.message.author === "user" ? COLORS.user : props.message.author === "assistant" ? COLORS.assistant : COLORS.system
-        }
-      >
-        {props.message.author.toUpperCase()}:
-      </Text>
-      <Box marginLeft={2} flexDirection="column">
-        {props.message.author === "assistant" || props.message.author === "system" ? (
-          renderedMarkdown
-        ) : (
-          <Text>{props.message.text}</Text>
-        )}
-      </Box>
-    </Box>
-  );
-});
+function buildRows(messages: ChatMessage[]): ChatRow[] {
+  const rows: ChatRow[] = [];
+
+  messages.forEach((message, messageIndex) => {
+    const authorColor = message.author === "user" ? COLORS.user : message.author === "assistant" ? COLORS.assistant : COLORS.system;
+
+    rows.push({
+      key: `h-${messageIndex}`,
+      node: (
+        <Text color={authorColor}>
+          {message.author.toUpperCase()}:
+        </Text>
+      )
+    });
+
+    if (message.author === "assistant" || message.author === "system") {
+      const markdownRows = renderMarkdownLines(message.text);
+      if (markdownRows.length === 0) {
+        rows.push({ key: `m-${messageIndex}-0`, node: <Text>  </Text> });
+      } else {
+        markdownRows.forEach((row, lineIndex) => {
+          rows.push({
+            key: `m-${messageIndex}-${lineIndex}`,
+            node: <Box marginLeft={2}>{row}</Box>
+          });
+        });
+      }
+    } else {
+      const userLines = message.text.replace(/\r\n/g, "\n").split("\n");
+      userLines.forEach((line, lineIndex) => {
+        rows.push({ key: `u-${messageIndex}-${lineIndex}`, node: <Text>{`  ${line}`}</Text> });
+      });
+    }
+
+    rows.push({ key: `s-${messageIndex}`, node: <Text> </Text> });
+  });
+
+  return rows;
+}
 
 export const ChatPanel = React.memo(function ChatPanel(props: ChatPanelProps): React.JSX.Element {
-  const rowLimit = props.rowLimit ?? 18;
-  const tail = props.messages.slice(-rowLimit);
-  const tailStartIndex = props.messages.length - tail.length;
+  const rowLimit = Math.max(3, props.rowLimit ?? 18);
+  const allRows = React.useMemo(() => buildRows(props.messages), [props.messages]);
+  const tailRows = allRows.slice(-rowLimit);
+  const blankRows = Math.max(0, rowLimit - tailRows.length);
+
   return (
     <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-      {tail.map((message, index) => (
-        <ChatMessageView
-          key={`${tailStartIndex + index}-${message.author}`}
-          message={message}
-          messageIndex={tailStartIndex + index}
-        />
+      {Array.from({ length: blankRows }, (_, index) => (
+        <Text key={`pad-${index}`}> </Text>
+      ))}
+      {tailRows.map((row) => (
+        <Box key={row.key} flexShrink={0}>
+          {row.node}
+        </Box>
       ))}
     </Box>
   );

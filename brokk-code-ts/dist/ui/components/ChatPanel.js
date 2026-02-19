@@ -68,25 +68,54 @@ function renderMarkdownLines(markdown) {
         }
         const bullet = line.match(/^[-*+]\s+(.+)$/);
         if (bullet) {
-            rendered.push(_jsxs(Text, { children: [`- `, renderInline(bullet[1] ?? "")] }, `b-${index}`));
+            rendered.push(_jsxs(Text, { children: ["- ", renderInline(bullet[1] ?? "")] }, `b-${index}`));
             return;
         }
         const ordered = line.match(/^(\d+)\.\s+(.+)$/);
         if (ordered) {
-            rendered.push(_jsxs(Text, { children: [`${ordered[1]}. `, renderInline(ordered[2] ?? "")] }, `o-${index}`));
+            rendered.push(_jsxs(Text, { children: [ordered[1], ". ", renderInline(ordered[2] ?? "")] }, `o-${index}`));
             return;
         }
         rendered.push(_jsx(Text, { children: renderInline(rawLine) }, `p-${index}`));
     });
     return rendered;
 }
-const ChatMessageView = React.memo(function ChatMessageView(props) {
-    const renderedMarkdown = React.useMemo(() => renderMarkdownLines(props.message.text), [props.message.text]);
-    return (_jsxs(Box, { flexDirection: "column", marginBottom: 1, children: [_jsxs(Text, { color: props.message.author === "user" ? COLORS.user : props.message.author === "assistant" ? COLORS.assistant : COLORS.system, children: [props.message.author.toUpperCase(), ":"] }), _jsx(Box, { marginLeft: 2, flexDirection: "column", children: props.message.author === "assistant" || props.message.author === "system" ? (renderedMarkdown) : (_jsx(Text, { children: props.message.text })) })] }));
-});
+function buildRows(messages) {
+    const rows = [];
+    messages.forEach((message, messageIndex) => {
+        const authorColor = message.author === "user" ? COLORS.user : message.author === "assistant" ? COLORS.assistant : COLORS.system;
+        rows.push({
+            key: `h-${messageIndex}`,
+            node: (_jsxs(Text, { color: authorColor, children: [message.author.toUpperCase(), ":"] }))
+        });
+        if (message.author === "assistant" || message.author === "system") {
+            const markdownRows = renderMarkdownLines(message.text);
+            if (markdownRows.length === 0) {
+                rows.push({ key: `m-${messageIndex}-0`, node: _jsx(Text, { children: "  " }) });
+            }
+            else {
+                markdownRows.forEach((row, lineIndex) => {
+                    rows.push({
+                        key: `m-${messageIndex}-${lineIndex}`,
+                        node: _jsx(Box, { marginLeft: 2, children: row })
+                    });
+                });
+            }
+        }
+        else {
+            const userLines = message.text.replace(/\r\n/g, "\n").split("\n");
+            userLines.forEach((line, lineIndex) => {
+                rows.push({ key: `u-${messageIndex}-${lineIndex}`, node: _jsx(Text, { children: `  ${line}` }) });
+            });
+        }
+        rows.push({ key: `s-${messageIndex}`, node: _jsx(Text, { children: " " }) });
+    });
+    return rows;
+}
 export const ChatPanel = React.memo(function ChatPanel(props) {
-    const rowLimit = props.rowLimit ?? 18;
-    const tail = props.messages.slice(-rowLimit);
-    const tailStartIndex = props.messages.length - tail.length;
-    return (_jsx(Box, { flexDirection: "column", flexGrow: 1, flexShrink: 1, children: tail.map((message, index) => (_jsx(ChatMessageView, { message: message, messageIndex: tailStartIndex + index }, `${tailStartIndex + index}-${message.author}`))) }));
+    const rowLimit = Math.max(3, props.rowLimit ?? 18);
+    const allRows = React.useMemo(() => buildRows(props.messages), [props.messages]);
+    const tailRows = allRows.slice(-rowLimit);
+    const blankRows = Math.max(0, rowLimit - tailRows.length);
+    return (_jsxs(Box, { flexDirection: "column", flexGrow: 1, flexShrink: 1, children: [Array.from({ length: blankRows }, (_, index) => (_jsx(Text, { children: " " }, `pad-${index}`))), tailRows.map((row) => (_jsx(Box, { flexShrink: 0, children: row.node }, row.key)))] }));
 });
