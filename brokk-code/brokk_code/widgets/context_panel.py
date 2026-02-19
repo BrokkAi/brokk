@@ -53,7 +53,7 @@ class ContextFragmentItem(Static):
         text = Text()
         if self.has_class("is-selected"):
             text.append("[SELECTED] ", style="bold")
-        if self.has_class("is-active"):
+        if self.has_class("is-active") and not self.has_class("is-selected"):
             text.append("[ACTIVE] ", style="bold")
         text.append(f"{chip_kind} ", style="bold")
         text.append(description)
