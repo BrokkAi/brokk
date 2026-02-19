@@ -17,9 +17,7 @@ def test_task_command_opens_panel():
     def query_one(target, *args, **kwargs):
         if target is ChatPanel:
             return mock_chat
-        if target is TaskListPanel:
-            return mock_panel
-        if target == "#side-tasklist":
+        if target in (TaskListPanel, "#side-tasklist"):
             return mock_panel
         raise AssertionError(f"Unexpected query target: {target}")
 
@@ -30,13 +28,15 @@ def test_task_command_opens_panel():
     mock_panel.display = False
     app._handle_command("/task")
     assert mock_panel.display is True
+    # The command should also call focus()
+    mock_panel.focus.assert_called()
 
     # Test remaining open when already visible (idempotency)
     mock_panel.display = True
+    mock_panel.focus.reset_mock()
     app._handle_command("/task")
     assert mock_panel.display is True
-
-    assert mock_panel.focus.call_count >= 1
+    mock_panel.focus.assert_called()
 
 
 def test_task_command_next_moves_selection():
@@ -48,7 +48,7 @@ def test_task_command_next_moves_selection():
     def query_one(target, *args, **kwargs):
         if target is ChatPanel:
             return mock_chat
-        if target is TaskListPanel:
+        if target in (TaskListPanel, "#side-tasklist"):
             return mock_panel
         raise AssertionError(f"Unexpected query target: {target}")
 
@@ -68,7 +68,7 @@ def test_task_command_toggle_dispatches_worker():
     def query_one(target, *args, **kwargs):
         if target is ChatPanel:
             return mock_chat
-        if target is TaskListPanel:
+        if target in (TaskListPanel, "#side-tasklist"):
             return mock_panel
         raise AssertionError(f"Unexpected query target: {target}")
 
