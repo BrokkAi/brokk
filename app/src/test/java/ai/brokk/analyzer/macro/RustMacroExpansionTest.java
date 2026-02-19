@@ -24,7 +24,7 @@ import org.treesitter.TreeSitterRust;
 class RustMacroExpansionTest {
 
     @Test
-    void testIsMacroExpanderSupports() throws IOException {
+    void testIsMacroExpanderSupports() {
         String codeWithAttr = "#[derive(is_macro::Is)] enum Target {}";
         String codeWithoutAttr = "#[derive(Debug)] enum Other {}";
 
