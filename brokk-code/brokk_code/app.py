@@ -946,6 +946,7 @@ class BrokkApp(App):
         return [
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
             {"command": "/code", "description": "Set mode to CODE (read-only mode)"},
+            {"command": "/search", "description": "Alias for /code (deprecated)"},
             {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
@@ -1071,6 +1072,9 @@ class BrokkApp(App):
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
             self.action_command_palette()
+        elif base == "/search":
+            chat.add_system_message("/search is deprecated, using /code mode instead.", level="WARNING")
+            self._set_mode("CODE", announce=False)
         elif base in ("/ask", "/code", "/lutz"):
             self._set_mode(base[1:].upper())
         elif base == "/info":

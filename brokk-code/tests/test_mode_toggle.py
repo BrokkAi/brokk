@@ -64,6 +64,14 @@ def test_handle_command_updates_agent_mode():
         "Mode changed to: [bold]LUTZ[/]", level="WARNING"
     )
 
+    # Test deprecated /search alias
+    app._handle_command("/search")
+    assert app.agent_mode == "CODE"
+    # Verify warning about deprecation was sent
+    mock_chat.add_system_message.assert_any_call(
+        "/search is deprecated, using /code mode instead.", level="WARNING"
+    )
+
 
 def test_mode_toggle_bindings_exist():
     app = BrokkApp(executor=MagicMock())
