@@ -272,6 +272,7 @@ class ChatInput(TextArea):
     def action_hide_autocomplete(self) -> None:
         """Hides the popup suggestions."""
         self._set_autocomplete_open(False)
+        self.submit_after_accept = False
         try:
             mode_sug = self.app.query_one(ModeSuggestions)
             if mode_sug.display:
@@ -320,17 +321,20 @@ class ChatInput(TextArea):
     def on_blur(self, event: events.Blur) -> None:
         """Hide autocomplete when input loses focus."""
         self._set_autocomplete_open(False)
+        self.submit_after_accept = False
 
     def _sync_autocomplete(self, text: str) -> None:
         """Drives autocomplete visibility based on current text and focus state."""
         if self.suppress_autocomplete_once:
             self._set_autocomplete_open(False)
+            self.submit_after_accept = False
             self.suppress_autocomplete_once = False
             return
 
         # Always hide if text is empty, contains newlines, or focus is lost
         if not text or not self.has_focus or "\n" in text or not text.startswith("/"):
             self._set_autocomplete_open(False)
+            self.submit_after_accept = False
             return
 
         app = self.app
@@ -345,6 +349,8 @@ class ChatInput(TextArea):
                 # Hide other menus if they were open to ensure exclusivity
                 self.app.query_one(ModeSuggestions).display = False
                 self.app.query_one(ReasoningSuggestions).display = False
+            else:
+                self.submit_after_accept = False
 
             self._set_autocomplete_open(is_any)
         except Exception:

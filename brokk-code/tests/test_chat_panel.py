@@ -331,3 +331,51 @@ async def test_slash_autocomplete_filtering():
         # Esc hides
         await pilot.press("escape")
         assert suggestions.display is False
+
+
+@pytest.mark.asyncio
+async def test_slash_autocomplete_submit_flag_reset():
+    """Verify that submit_after_accept is reset when autocomplete is dismissed."""
+    from textual import events
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatInput, ChatPanel, SlashCommandSuggestions
+
+    class TestApp(App):
+        def get_slash_commands(self):
+            return [{"command": "/ask", "description": "d"}]
+
+        def compose(self) -> ComposeResult:
+            yield ChatPanel()
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat_input = app.query_one(ChatInput)
+        suggestions = app.query_one(SlashCommandSuggestions)
+
+        # 1. Trigger suggestions
+        await pilot.press(*list("/a"))
+        assert suggestions.display is True
+
+        # 2. Test dismissal via Escape
+        chat_input.submit_after_accept = True
+        await pilot.press("escape")
+        assert suggestions.display is False
+        assert chat_input.submit_after_accept is False
+
+        # 3. Test dismissal via blur
+        await pilot.press(*list("/a"))
+        assert suggestions.display is True
+        chat_input.submit_after_accept = True
+        chat_input.post_message(events.Blur())
+        await pilot.pause()
+        assert suggestions.display is False
+        assert chat_input.submit_after_accept is False
+
+        # 4. Test dismissal via text change (e.g. backspacing the slash)
+        await pilot.press(*list("/a"))
+        assert suggestions.display is True
+        chat_input.submit_after_accept = True
+        await pilot.press("backspace", "backspace")
+        assert suggestions.display is False
+        assert chat_input.submit_after_accept is False
