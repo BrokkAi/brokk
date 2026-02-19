@@ -299,10 +299,10 @@ class ChatInput(TextArea):
             suggestions = self.app.query_one(SlashCommandSuggestions)
             is_any = suggestions.update_suggestions(text, commands)
             if is_any:
-                # Hide mode menu if it was open to ensure exclusivity
-                mode_suggestions = self.app.query_one(ModeSuggestions)
-                if mode_suggestions.display:
-                    mode_suggestions.display = False
+                # Hide other menus if they were open to ensure exclusivity
+                self.app.query_one(ModeSuggestions).display = False
+                self.app.query_one(ReasoningSuggestions).display = False
+
             self._set_autocomplete_open(is_any)
         except Exception:
             pass
@@ -538,6 +538,7 @@ class ChatPanel(Vertical):
         ms = self.query_one(ModeSuggestions)
         ms.update_modes(modes, current)
         ms.display = True
+        ms.focus()
 
     def open_reasoning_menu(self, levels: List[str], current: str) -> None:
         """Opens the lightweight reasoning selection popup."""
@@ -549,6 +550,7 @@ class ChatPanel(Vertical):
         rs = self.query_one(ReasoningSuggestions)
         rs.update_levels(levels, current)
         rs.display = True
+        rs.focus()
 
     def on_mode_suggestions_mode_selected(self, event: ModeSuggestions.ModeSelected) -> None:
         self.post_message(self.ModeSelected(event.mode))

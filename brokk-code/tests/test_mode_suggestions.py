@@ -22,8 +22,9 @@ async def test_mode_menu_selection_updates_app_state():
         patch.object(BrokkApp, "_poll_context", return_value=None),
     ):
         async with app.run_test() as pilot:
-            # 1. Trigger the mode menu
-            app._handle_command("/mode")
+            # 1. Trigger the mode menu via ChatPanel method to bypass the /mode cycle behavior
+            chat = app.query_one(ChatPanel)
+            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], app.agent_mode)
             await pilot.pause()
 
             mode_suggestions = app.query_one(ModeSuggestions)
@@ -65,8 +66,9 @@ async def test_mode_menu_exclusivity_with_slash_commands():
             assert slash_suggestions.display is True
             assert mode_suggestions.display is False
 
-            # 2. Trigger mode menu via command
-            app._handle_command("/mode")
+            # 2. Trigger mode menu via ChatPanel method
+            chat = app.query_one(ChatPanel)
+            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], app.agent_mode)
             await pilot.pause()
 
             assert slash_suggestions.display is False
@@ -99,7 +101,8 @@ async def test_reasoning_menu_exclusivity():
             from brokk_code.widgets.chat_panel import ReasoningSuggestions
 
             # 1. Open mode menu
-            app._handle_command("/mode")
+            chat = app.query_one(ChatPanel)
+            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], app.agent_mode)
             await pilot.pause()
 
             mode_suggestions = app.query_one("#mode-suggestions")
@@ -108,8 +111,8 @@ async def test_reasoning_menu_exclusivity():
             assert mode_suggestions.display is True
             assert reasoning_suggestions.display is False
 
-            # 2. Trigger reasoning menu via command
-            app._handle_command("/reasoning")
+            # 2. Trigger reasoning menu
+            chat.open_reasoning_menu(["low", "high"], "low")
             await pilot.pause()
 
             assert mode_suggestions.display is False
@@ -121,7 +124,8 @@ async def test_mode_menu_esc_hides():
     """Verify Escape key hides the mode menu."""
     app = BrokkApp(executor=MagicMock())
     async with app.run_test() as pilot:
-        app._handle_command("/mode")
+        chat = app.query_one(ChatPanel)
+        chat.open_mode_menu(["CODE", "ASK", "LUTZ"], app.agent_mode)
         await pilot.pause()
 
         mode_suggestions = app.query_one(ModeSuggestions)
@@ -133,7 +137,7 @@ async def test_mode_menu_esc_hides():
 
 @pytest.mark.asyncio
 async def test_mode_command_submission_behavior():
-    """Verify /mode opens menu on submit, and /mode <MODE> sets it directly."""
+    """Verify /mode cycles mode on submit, and /mode <MODE> sets it directly."""
     executor = MagicMock()
     executor.stop = AsyncMock()
     app = BrokkApp(executor=executor)
@@ -147,18 +151,15 @@ async def test_mode_command_submission_behavior():
     ):
         async with app.run_test() as pilot:
             chat_input = app.query_one(ChatInput)
-            mode_suggestions = app.query_one(ModeSuggestions)
 
-            # 1. Test /mode submission opens menu
+            # 1. Test /mode submission cycles (LUTZ -> CODE)
+            assert app.agent_mode == "LUTZ"
             await pilot.press(*list("/mode"))
             await pilot.press("enter")
             await pilot.pause()
 
-            assert mode_suggestions.display is True
+            assert app.agent_mode == "CODE"
             assert chat_input.text == ""  # Input cleared on submit
-
-            # Close menu
-            await pilot.press("escape")
 
             # 2. Test /mode <MODE> submission sets directly
             await pilot.press(*list("/mode ask"))
@@ -166,4 +167,3 @@ async def test_mode_command_submission_behavior():
             await pilot.pause()
 
             assert app.agent_mode == "ASK"
-            assert mode_suggestions.display is False
