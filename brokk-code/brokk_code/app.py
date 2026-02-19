@@ -1030,7 +1030,7 @@ class BrokkApp(App):
             {"command": "/settings", "description": "Open settings"},
             {"command": "/history", "description": "Show recent prompt history"},
             {"command": "/history-clear", "description": "Clear prompt history"},
-            {"command": "/task", "description": "Open task panel"},
+            {"command": "/task", "description": "Open and focus task panel"},
             {"command": "/task next", "description": "Select next task"},
             {"command": "/task prev", "description": "Select previous task"},
             {"command": "/task toggle", "description": "Toggle selected task done state"},
@@ -1392,20 +1392,13 @@ class BrokkApp(App):
             chat.set_token_bar_visible(True)
 
     def action_toggle_tasklist(self) -> None:
+        """Opens and focuses the task list panel."""
         panel = self.query_one("#side-tasklist")
-        panel.display = not panel.display
-        if panel.display:
-            try:
-                panel.focus()
-            except Exception:
-                pass
-        else:
-            chat = self._maybe_chat()
-            if chat:
-                try:
-                    chat.query_one("#chat-input").focus()
-                except Exception:
-                    pass
+        panel.display = True
+        try:
+            panel.focus()
+        except Exception:
+            pass
 
     def action_task_next(self) -> None:
         panel = self.query_one(TaskListPanel)

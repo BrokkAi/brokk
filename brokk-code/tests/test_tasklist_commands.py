@@ -13,14 +13,12 @@ def test_task_command_opens_panel():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     mock_panel = MagicMock(spec=TaskListPanel)
-    mock_panel.display = False
 
     def query_one(target, *args, **kwargs):
         if target is ChatPanel:
             return mock_chat
         if target is TaskListPanel:
             return mock_panel
-        # Match string-based ID lookups as well
         if target == "#side-tasklist":
             return mock_panel
         raise AssertionError(f"Unexpected query target: {target}")
@@ -28,10 +26,17 @@ def test_task_command_opens_panel():
     app.query_one = MagicMock(side_effect=query_one)
     app.run_worker = MagicMock(side_effect=_close_coro)
 
+    # Test opening when hidden
+    mock_panel.display = False
     app._handle_command("/task")
-
     assert mock_panel.display is True
-    mock_panel.focus.assert_called_once()
+
+    # Test remaining open when already visible (idempotency)
+    mock_panel.display = True
+    app._handle_command("/task")
+    assert mock_panel.display is True
+
+    assert mock_panel.focus.call_count >= 1
 
 
 def test_task_command_next_moves_selection():
