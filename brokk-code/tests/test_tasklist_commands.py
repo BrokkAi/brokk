@@ -1,6 +1,9 @@
 from unittest.mock import MagicMock
 
-from brokk_code.app import BrokkApp, TaskListModalScreen
+import pytest
+from textual.app import App, ComposeResult
+
+from brokk_code.app import BrokkApp, TaskListModalScreen, TaskTitleModalScreen
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
@@ -115,3 +118,113 @@ def test_task_command_toggle_dispatches_worker() -> None:
 
     # Toggling dispatches a background worker to update the selected task
     assert app.run_worker.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_tasklist_panel_keybindings_call_app_actions() -> None:
+    class TestApp(App):
+        def __init__(self) -> None:
+            super().__init__()
+            self.action_task_add = MagicMock()
+            self.action_task_edit = MagicMock()
+            self.action_task_delete = MagicMock()
+            self.action_task_toggle = MagicMock()
+
+        def compose(self) -> ComposeResult:
+            yield TaskListPanel(id="tl")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#tl", TaskListPanel)
+        panel.update_tasklist_details(
+            {
+                "bigPicture": "x",
+                "tasks": [
+                    {"id": "1", "title": "One", "text": "One", "done": False},
+                ],
+            }
+        )
+        panel.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        app.action_task_add.assert_called_once()
+
+        await pilot.press("e")
+        await pilot.pause()
+        app.action_task_edit.assert_called_once()
+
+        await pilot.press("d")
+        await pilot.pause()
+        app.action_task_delete.assert_called_once()
+
+        await pilot.press("space")
+        await pilot.pause()
+        app.action_task_toggle.assert_called_once()
+
+
+def test_app_task_add_opens_modal_and_dispatches_add_worker_on_submit() -> None:
+    app = BrokkApp(executor=MagicMock())
+    app.run_worker = MagicMock(side_effect=_close_coro)
+    app.push_screen = MagicMock()
+
+    app.action_task_add()
+
+    assert app.push_screen.call_count == 1
+    pushed_screen = app.push_screen.call_args.args[0]
+    callback = app.push_screen.call_args.args[1]
+    assert isinstance(pushed_screen, TaskTitleModalScreen)
+
+    callback("New Task")
+
+    assert app.run_worker.call_count == 1
+    worker_coro = app.run_worker.call_args.args[0]
+    assert worker_coro.__name__ == "_add_task"
+
+
+def test_app_task_edit_opens_modal_with_initial_and_dispatches_edit_worker_on_submit() -> None:
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+    mock_panel = MagicMock(spec=TaskListPanel)
+    mock_panel.selected_task.return_value = {
+        "id": "1",
+        "title": "Old",
+        "text": "Old",
+        "done": False,
+    }
+
+    def query_one(target, *args, **kwargs):
+        if target is ChatPanel:
+            return mock_chat
+        if target == "#side-tasklist":
+            return mock_panel
+        raise AssertionError(f"Unexpected query target: {target}")
+
+    app.query_one = MagicMock(side_effect=query_one)
+    app.run_worker = MagicMock(side_effect=_close_coro)
+    app.push_screen = MagicMock()
+
+    app.action_task_edit()
+
+    assert app.push_screen.call_count == 1
+    pushed_screen = app.push_screen.call_args.args[0]
+    callback = app.push_screen.call_args.args[1]
+    assert isinstance(pushed_screen, TaskTitleModalScreen)
+
+    callback("Updated")
+
+    assert app.run_worker.call_count == 1
+    worker_coro = app.run_worker.call_args.args[0]
+    assert worker_coro.__name__ == "_edit_selected_task"
+
+
+def test_app_task_delete_dispatches_delete_worker() -> None:
+    app = BrokkApp(executor=MagicMock())
+    app.run_worker = MagicMock(side_effect=_close_coro)
+
+    app.action_task_delete()
+
+    assert app.run_worker.call_count == 1
+    worker_coro = app.run_worker.call_args.args[0]
+    assert worker_coro.__name__ == "_delete_selected_task"

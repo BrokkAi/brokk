@@ -10,7 +10,7 @@ from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import ListItem, ListView, Static
+from textual.widgets import Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
@@ -68,6 +68,33 @@ class TaskListModalScreen(ModalScreen[None]):
     def action_close_tasklist(self) -> None:
         self._on_close()
         self.dismiss(None)
+
+
+class TaskTitleModalScreen(ModalScreen[Optional[str]]):
+    """Small modal to prompt for a task title (add/edit)."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, title: str, *, initial: str = "") -> None:
+        super().__init__()
+        self._title = title
+        self._initial = initial
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="task-title-modal-container"):
+            yield Static(self._title, id="task-title-modal-title")
+            yield Input(value=self._initial, placeholder="Task title", id="task-title-input")
+
+    def on_mount(self) -> None:
+        inp = self.query_one("#task-title-input", Input)
+        inp.focus()
+        inp.cursor_position = len(inp.value)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = str(event.value or "").strip()
+        self.dismiss(value if value else None)
 
 
 class ModelSelectModal(ModalScreen[str]):
@@ -1680,6 +1707,35 @@ class BrokkApp(App):
 
     def action_task_toggle(self) -> None:
         self.run_worker(self._toggle_selected_task())
+
+    def action_task_delete(self) -> None:
+        self.run_worker(self._delete_selected_task())
+
+    def action_task_add(self) -> None:
+        def on_done(result: Optional[str]) -> None:
+            if result is None:
+                return
+            self.run_worker(self._add_task(result))
+
+        self.push_screen(TaskTitleModalScreen("Add Task"), on_done)
+
+    def action_task_edit(self) -> None:
+        chat = self._maybe_chat()
+        panel = self._active_tasklist_panel()
+        selected = panel.selected_task()
+        if not selected:
+            if chat:
+                chat.add_system_message("No task selected.")
+            return
+
+        initial = str(selected.get("title", "") or "").strip()
+
+        def on_done(result: Optional[str]) -> None:
+            if result is None:
+                return
+            self.run_worker(self._edit_selected_task(result))
+
+        self.push_screen(TaskTitleModalScreen("Edit Task", initial=initial), on_done)
 
     def action_toggle_mode(self) -> None:
         """Cycles through agent modes: CODE -> ASK -> LUTZ -> CODE."""

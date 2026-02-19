@@ -21,6 +21,9 @@ class TaskListPanel(Vertical):
         Binding("left,up", "cursor_prev", "Prev", show=False),
         Binding("right,down", "cursor_next", "Next", show=False),
         Binding("enter,space", "toggle_selected", "Toggle", show=False),
+        Binding("a", "task_add", "Add", show=False),
+        Binding("e", "task_edit", "Edit", show=False),
+        Binding("d", "task_delete", "Delete", show=False),
     ]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -88,6 +91,21 @@ class TaskListPanel(Vertical):
         app = self.app
         if app is not None and hasattr(app, "action_task_toggle"):
             app.action_task_toggle()
+
+    def action_task_add(self) -> None:
+        app = self.app
+        if app is not None and hasattr(app, "action_task_add"):
+            app.action_task_add()
+
+    def action_task_edit(self) -> None:
+        app = self.app
+        if app is not None and hasattr(app, "action_task_edit"):
+            app.action_task_edit()
+
+    def action_task_delete(self) -> None:
+        app = self.app
+        if app is not None and hasattr(app, "action_task_delete"):
+            app.action_task_delete()
 
     def refresh_tasklist(self, context_data: Dict[str, Any]) -> None:
         """Finds the TASK_LIST fragment and updates the display using context overview."""
