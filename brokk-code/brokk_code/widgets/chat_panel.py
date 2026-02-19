@@ -935,13 +935,12 @@ class ChatPanel(Vertical):
         content = self._current_message_buffer.strip()
 
         if self._is_reasoning:
-            log.write(
-                Panel(
-                    Markdown(content, style="grey50"),
-                    title="Thinking",
-                    border_style="grey37",
-                )
+            panel = Panel(
+                Markdown(content, style="grey50"),
+                border_style="grey37",
             )
+            panel.title = "Thinking"
+            log.write(panel)
             log.write("")  # Spacer
             self._current_message_buffer = ""
             self._is_reasoning = False
