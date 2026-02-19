@@ -1739,16 +1739,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
-     * Determines whether variable declarations need unwrapping to find specific declarators.
-     * JavaScript/TypeScript use lexical_declaration (const/let) and variable_declaration (var)
-     * which contain variable_declarator nodes that might hold arrow functions or const values.
+     * Resolved nodes used for signature generation and content extraction.
      *
-     * @param node         the node to check
-     * @param skeletonType the expected skeleton type
-     * @return true if unwrapping is needed
+     * @param signatureNode the node used to slice the textual signature (e.g. including 'export' keyword)
+     * @param contentNode the inner node used for body extraction and child traversal
      */
-    protected boolean needsVariableDeclaratorUnwrapping(TSNode node, SkeletonType skeletonType) {
-        return false;
+    protected record ResolvedNodes(TSNode signatureNode, TSNode contentNode) {}
+
+    /**
+     * Resolves the nodes to be used for signature and content processing.
+     * Allows languages to unwrap wrappers (like export statements or variable declarations).
+     *
+     * <p>Default implementation returns the input node for both signature and content.
+     *
+     * @param definitionNode the primary node captured by the query
+     * @param simpleName the simple name of the definition
+     * @param refined the refined skeleton type
+     * @param sourceContent the source content
+     * @return a record containing the signature and content nodes
+     */
+    protected ResolvedNodes resolveSignatureNodes(
+            TSNode definitionNode, String simpleName, SkeletonType refined, SourceContent sourceContent) {
+        return new ResolvedNodes(definitionNode, definitionNode);
     }
 
     /**
@@ -2764,66 +2776,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Recompute refined type defensively to ensure consistency with any subclass overrides.
         var refined = refineSkeletonType(primaryCaptureName, definitionNode, profile);
 
-        // By default the same node is used for both content and signature slicing.
-        TSNode nodeForContent = definitionNode;
-        TSNode nodeForSignature = definitionNode;
-
-        // Unwrap export statements for structural processing when enabled, but keep the original
-        // node for signature slicing when needed (to preserve 'export' text if already present).
-        if (shouldUnwrapExportStatements() && "export_statement".equals(definitionNode.getType())) {
-            TSNode decl = definitionNode.getChildByFieldName("declaration");
-            if (decl != null && !decl.isNull()) {
-                boolean typeMatch = false;
-                String innerType = decl.getType();
-                switch (refined) {
-                    case CLASS_LIKE -> typeMatch = profile.classLikeNodeTypes().contains(innerType);
-                    case FUNCTION_LIKE ->
-                        typeMatch = profile.functionLikeNodeTypes().contains(innerType)
-                                || ("lexical_declaration".equals(innerType)
-                                        || "variable_declaration".equals(innerType));
-                    case FIELD_LIKE ->
-                        typeMatch = profile.fieldLikeNodeTypes().contains(innerType)
-                                || "variable_declarator".equals(innerType)
-                                || "lexical_declaration".equals(innerType)
-                                || "variable_declaration".equals(innerType);
-                    case ALIAS_LIKE -> typeMatch = "type_alias_declaration".equals(innerType);
-                    default -> {}
-                }
-                if (typeMatch) {
-                    nodeForContent = decl;
-                } else {
-                    log.trace(
-                            "Export wrapper contains unexpected inner node type for refined={}, innerType={}, outerType={}",
-                            refined,
-                            innerType,
-                            definitionNode.getType());
-                }
-            }
-        }
-
-        // Variable declarator unwrapping: for const/let/var declarations, find the specific declarator by name.
-        if (needsVariableDeclaratorUnwrapping(nodeForContent, refined)
-                && ("lexical_declaration".equals(nodeForContent.getType())
-                        || "variable_declaration".equals(nodeForContent.getType()))) {
-            boolean found = false;
-            for (int i = 0; i < nodeForContent.getNamedChildCount(); i++) {
-                TSNode child = nodeForContent.getNamedChild(i);
-                if (child != null && !child.isNull() && "variable_declarator".equals(child.getType())) {
-                    TSNode nameNode = child.getChildByFieldName(profile.identifierFieldName());
-                    if (nameNode != null && !nameNode.isNull()) {
-                        String name = sourceContent.substringFrom(nameNode).strip();
-                        if (simpleName.equals(name)) {
-                            nodeForContent = child;
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (!found) {
-                log.trace("Could not find variable_declarator for '{}'", simpleName);
-            }
-        }
+        ResolvedNodes resolved = resolveSignatureNodes(definitionNode, simpleName, refined, sourceContent);
+        TSNode nodeForSignature = resolved.signatureNode();
+        TSNode nodeForContent = resolved.contentNode();
 
         // Decorators handling:
         if (hasWrappingDecoratorNode()) {

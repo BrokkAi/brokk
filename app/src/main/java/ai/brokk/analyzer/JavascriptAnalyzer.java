@@ -134,13 +134,42 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected boolean shouldUnwrapExportStatements() {
-        return true;
-    }
+    protected ResolvedNodes resolveSignatureNodes(
+            TSNode definitionNode, String simpleName, SkeletonType refined, SourceContent sourceContent) {
+        TSNode nodeForSignature = definitionNode;
+        TSNode nodeForContent = definitionNode;
 
-    @Override
-    protected boolean needsVariableDeclaratorUnwrapping(TSNode node, SkeletonType skeletonType) {
-        return skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE;
+        // 1. Unwrap export statement
+        if ("export_statement".equals(definitionNode.getType())) {
+            TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
+            if (declarationInExport != null && !declarationInExport.isNull()) {
+                nodeForSignature = declarationInExport;
+                nodeForContent = declarationInExport;
+            }
+        }
+
+        // 2. Unwrap variable declaration to specific declarator for content/body extraction
+        if (refined == SkeletonType.FIELD_LIKE || refined == SkeletonType.FUNCTION_LIKE) {
+            String nodeType = nodeForContent.getType();
+            if ("lexical_declaration".equals(nodeType) || "variable_declaration".equals(nodeType)) {
+                // Find the variable_declarator child that matches the simpleName
+                for (int i = 0; i < nodeForContent.getChildCount(); i++) {
+                    TSNode child = nodeForContent.getChild(i);
+                    if ("variable_declarator".equals(child.getType())) {
+                        TSNode nameNode = child.getChildByFieldName(
+                                getLanguageSyntaxProfile().identifierFieldName());
+                        if (nameNode != null
+                                && !nameNode.isNull()
+                                && sourceContent.substringFrom(nameNode).equals(simpleName)) {
+                            nodeForContent = child;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return new ResolvedNodes(nodeForSignature, nodeForContent);
     }
 
     @Override
