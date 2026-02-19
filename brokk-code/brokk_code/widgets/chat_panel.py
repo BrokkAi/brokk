@@ -348,11 +348,9 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
             if event.key in ("tab", "enter"):
-                # Flag that we want to submit immediately if Enter was used on slash suggestions
-                if event.key == "enter" and active_popup == suggestions:
-                    self.submit_after_accept = True
-                else:
-                    self.submit_after_accept = False
+                # Flag that we want to submit immediately if Enter was used on slash suggestions.
+                # Only apply this to 'suggestions' (SlashCommandSuggestions), not mode/reasoning menus.
+                self.submit_after_accept = event.key == "enter" and active_popup == suggestions
 
                 self.action_accept_suggestion()
                 event.stop()
@@ -569,6 +567,8 @@ class ChatPanel(Vertical):
     ) -> None:
         chat_input = self.query_one("#chat-input", ChatInput)
         command = event.command
+
+        # Capture the flag before resetting it
         should_submit = chat_input.submit_after_accept
         chat_input.submit_after_accept = False
 
@@ -590,6 +590,8 @@ class ChatPanel(Vertical):
         chat_input.focus()
 
         if should_submit:
+            # We call action_submit on the next tick or directly.
+            # In Textual, calling it here ensures the text property update is reflected.
             chat_input.action_submit()
 
     def set_response_pending(self) -> None:
