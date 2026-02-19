@@ -141,6 +141,7 @@ class ChatInput(TextArea):
     """
 
     suppress_autocomplete_once: bool = False
+    submit_after_accept: bool = False
 
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
@@ -302,6 +303,8 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
             if event.key in ("tab", "enter"):
+                if event.key == "enter" and active_popup == suggestions:
+                    self.submit_after_accept = True
                 self.action_accept_suggestion()
                 event.stop()
                 event.prevent_default()
@@ -532,6 +535,10 @@ class ChatPanel(Vertical):
         chat_input.text = command
         chat_input.move_cursor(chat_input.document.end)
         chat_input.focus()
+
+        if chat_input.submit_after_accept:
+            chat_input.submit_after_accept = False
+            chat_input.action_submit()
 
     def set_response_pending(self) -> None:
         """Called when a job is submitted and we are waiting for the first token."""
