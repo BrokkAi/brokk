@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.text import Text
 from textual.widgets import Static
 
@@ -191,6 +193,44 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
         # Should contain the Markdown-rendered Hello, and still not contain a Thinking panel.
         assert "Hello" in combined
         assert "Thinking" not in combined
+
+
+@pytest.mark.asyncio
+async def test_reasoning_bubble_renders_markdown() -> None:
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+
+        panel.append_token(
+            "**hello**\n\n- item",
+            "AI",
+            is_new_message=True,
+            is_reasoning=True,
+            is_terminal=True,
+        )
+        await pilot.pause()
+
+        thinking_panels = [
+            line
+            for line in log.lines
+            if isinstance(line, Panel) and getattr(line, "title", None) == "Thinking"
+        ]
+        assert len(thinking_panels) == 1
+
+        thinking_panel = thinking_panels[0]
+        assert isinstance(thinking_panel.renderable, Markdown)
+
+        # Ensure the markdown source content made it into the renderable
+        assert "**hello**" in thinking_panel.renderable.markup
+        assert "- item" in thinking_panel.renderable.markup
 
 
 @pytest.mark.asyncio
