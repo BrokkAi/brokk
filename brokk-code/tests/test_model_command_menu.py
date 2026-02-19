@@ -129,7 +129,8 @@ async def test_code_model_command_no_arg_opens_modal():
             await pilot.pause()
 
             assert app.code_model == "m2"
-            # Reasoning list: disable, low, medium, high. Default start 'disable' (0), down -> 'low' (1)
+            # Reasoning list: disable, low, medium, high.
+            # Default start 'disable' (0), down -> 'low' (1)
             assert app.reasoning_level_code == "low"
 
 
