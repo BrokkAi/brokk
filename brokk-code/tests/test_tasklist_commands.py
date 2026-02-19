@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from rich.text import Text
@@ -265,3 +265,37 @@ def test_app_task_delete_dispatches_delete_worker() -> None:
     assert app.run_worker.call_count == 1
     worker_coro = app.run_worker.call_args.args[0]
     assert worker_coro.__name__ == "_delete_selected_task"
+
+
+@pytest.mark.asyncio
+async def test_ensure_tasklist_data_falls_back_to_side_panel_when_modal_panel_not_mounted() -> None:
+    executor = MagicMock()
+    executor.get_tasklist = AsyncMock()
+
+    app = BrokkApp(executor=executor)
+
+    side_panel = MagicMock(spec=TaskListPanel)
+    expected_data = {"bigPicture": "x", "tasks": []}
+    side_panel.tasklist_data_for_update.return_value = expected_data
+
+    def query_one(target, *args, **kwargs):
+        if target == "#side-tasklist":
+            return side_panel
+        raise AssertionError(f"Unexpected query target: {target}")
+
+    app.query_one = MagicMock(side_effect=query_one)
+
+    modal = TaskListModalScreen(on_close=lambda: None)
+
+    def modal_query_one(target, *args, **kwargs):
+        if target is TaskListPanel:
+            raise Exception("Not mounted yet")
+        raise AssertionError(f"Unexpected modal query target: {target}")
+
+    modal.query_one = MagicMock(side_effect=modal_query_one)
+
+    with patch.object(type(app), "screen", new_callable=PropertyMock, return_value=modal):
+        data = await app._ensure_tasklist_data()
+
+    assert data == expected_data
+    executor.get_tasklist.assert_not_awaited()

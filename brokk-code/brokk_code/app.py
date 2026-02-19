@@ -799,7 +799,11 @@ class BrokkApp(App):
             current_screen = None
 
         if isinstance(current_screen, TaskListModalScreen):
-            return current_screen.query_one(TaskListPanel)
+            try:
+                return current_screen.query_one(TaskListPanel)
+            except Exception:
+                # Modal may be current but its contents not mounted yet; fall back to side panel.
+                return self.query_one("#side-tasklist", TaskListPanel)
 
         return self.query_one("#side-tasklist", TaskListPanel)
 
