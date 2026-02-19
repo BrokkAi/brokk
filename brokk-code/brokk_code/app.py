@@ -1075,12 +1075,7 @@ class BrokkApp(App):
                 )
                 self._update_statusline()
             else:
-                # Open the inline reasoning menu when /reasoning is submitted without arguments
-                levels = ["disable", "low", "medium", "high"]
-                current = str(self.reasoning_level or "low").strip() or "low"
-                if current not in levels:
-                    current = "low"
-                chat.open_reasoning_menu(levels, current)
+                self.action_select_reasoning()
         elif base == "/reasoning-code" and len(parts) > 1:
             self.reasoning_level_code = parts[1]
             # Persist code reasoning preference
@@ -1348,39 +1343,7 @@ class BrokkApp(App):
             if chat:
                 chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
 
-    async def action_select_reasoning(self) -> None:
-        chat = self._maybe_chat()
-        levels = ["disable", "low", "medium", "high"]
-        current = str(self.reasoning_level or "low").strip() or "low"
-        if current not in levels:
-            current = "low"
-
-        def update_level(level: str | None) -> None:
-            if level:
-                self.reasoning_level = level
-                # Persist the user's reasoning preference
-                try:
-                    self.settings.last_reasoning_level = level
-                    self.settings.save()
-                except Exception:
-                    logger.exception("Failed to persist reasoning level")
-                if chat:
-                    chat.add_system_message_markup(f"Reasoning level changed to: [bold]{level}[/]")
-                # Update statusline (best-effort)
-                try:
-                    self._update_statusline()
-                except Exception:
-                    pass
-
-        self.push_screen(ReasoningSelectModal(levels, current), update_level)
-
-    def action_select_mode(self) -> None:
-        chat = self._maybe_chat()
-        if chat:
-            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
-
-    def action_select_reasoning_inline(self) -> None:
-        """Action to trigger the inline reasoning menu (e.g. from keybinding)."""
+    def action_select_reasoning(self) -> None:
         chat = self._maybe_chat()
         if chat:
             levels = ["disable", "low", "medium", "high"]
@@ -1388,6 +1351,11 @@ class BrokkApp(App):
             if current not in levels:
                 current = "low"
             chat.open_reasoning_menu(levels, current)
+
+    def action_select_mode(self) -> None:
+        chat = self._maybe_chat()
+        if chat:
+            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):
