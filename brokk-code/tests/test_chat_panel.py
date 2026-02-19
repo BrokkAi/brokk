@@ -296,6 +296,7 @@ async def test_chat_help_line_includes_shift_tab_mode_after_history() -> None:
 
         assert "Up/Down: History" in rendered
         assert "Shift+Tab: Mode" in rendered
+        assert "/commands" not in rendered
         assert rendered.index("Up/Down: History") < rendered.index("Shift+Tab: Mode")
 
 
