@@ -78,6 +78,26 @@ class TaskListPanel(Vertical):
         with VerticalScroll(id="tasklist-container"):
             yield Static("No task list active", id="tasklist-content")
 
+    def _get_shortcuts_text(self) -> str:
+        """Derive a concise help line from BINDINGS."""
+        shortcuts: list[str] = []
+        for binding in self.BINDINGS:
+            # Skip navigation and internal-only keys; we add manual entries for these.
+            if binding.key in ("left,up", "right,down", "enter,space"):
+                continue
+
+            key_display = binding.key.upper()
+            if "SHIFT+" in key_display:
+                key_display = key_display.replace("SHIFT+", "")
+            shortcuts.append(f"[b]{key_display}[/b] {binding.description}")
+
+        manual = [
+            "[b]Up/Down[/b] Move",
+            "[b]Space[/b] Toggle",
+            "[b]Enter[/b] Toggle",
+        ]
+        return "  ".join(manual + shortcuts)
+
     def on_mount(self) -> None:
         self._update_selection_status()
 
