@@ -129,6 +129,9 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 
 | Command | Description |
 |---------|-------------|
+| `/ask` | Set mode to ASK (questions only) |
+| `/code` | Set mode to CODE (read-only mode) |
+| `/lutz` | Set mode to LUTZ (full agent access) |
 | `/model <name>` | Switch the LLM model |
 | `/help` | Show available commands |
 | `/quit` | Exit the application |

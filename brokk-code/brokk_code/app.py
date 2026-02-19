@@ -945,7 +945,7 @@ class BrokkApp(App):
         """Returns the structured catalog of supported slash commands."""
         return [
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
-            {"command": "/code", "description": "Set mode to CODE (read-only code search)"},
+            {"command": "/code", "description": "Set mode to CODE (read-only mode)"},
             {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
