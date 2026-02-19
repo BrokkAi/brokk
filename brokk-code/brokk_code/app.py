@@ -1644,6 +1644,13 @@ class BrokkApp(App):
         if chat:
             chat.set_token_bar_visible(True)
 
+    def _maybe_focused_widget(self) -> Any | None:
+        """Best-effort focused widget lookup; returns None if there is no active screen."""
+        try:
+            return self.focused
+        except ScreenStackError:
+            return None
+
     def action_toggle_tasklist(self) -> None:
         """Toggle the task list modal.
 
@@ -1660,7 +1667,7 @@ class BrokkApp(App):
             current_screen.dismiss(None)
             return
 
-        self._tasklist_restore_focus_widget = getattr(self, "focused", None)
+        self._tasklist_restore_focus_widget = self._maybe_focused_widget()
 
         def on_close() -> None:
             self._restore_tasklist_focus()
