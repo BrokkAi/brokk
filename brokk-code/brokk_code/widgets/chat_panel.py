@@ -396,7 +396,8 @@ class ChatInput(TextArea):
             if event.key in ("tab", "enter"):
                 # Flag that we want to submit immediately if Enter was used on slash suggestions.
                 # Only apply this to 'suggestions' (SlashCommandSuggestions), not mode/reasoning menus.
-                self.submit_after_accept = event.key == "enter" and active_popup == suggestions
+                if event.key == "enter" and active_popup == suggestions:
+                    self.submit_after_accept = True
 
                 self.action_accept_suggestion()
                 event.stop()
@@ -614,10 +615,6 @@ class ChatPanel(Vertical):
         chat_input = self.query_one("#chat-input", ChatInput)
         command = event.command
 
-        # Capture the flag before resetting it
-        should_submit = chat_input.submit_after_accept
-        chat_input.submit_after_accept = False
-
         # Append a space for commands that typically require arguments.
         # Commands like /mode and /settings open modals/menus and should not have a trailing space.
         needs_arg = command in ("/model", "/model-code", "/reasoning", "/reasoning-code", "/task")
@@ -635,9 +632,8 @@ class ChatPanel(Vertical):
         chat_input.move_cursor(chat_input.document.end)
         chat_input.focus()
 
-        if should_submit:
-            # We call action_submit on the next tick or directly.
-            # In Textual, calling it here ensures the text property update is reflected.
+        if chat_input.submit_after_accept:
+            chat_input.submit_after_accept = False
             chat_input.action_submit()
 
     def set_response_pending(self) -> None:
