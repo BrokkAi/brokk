@@ -146,7 +146,11 @@ class ContextPanel(Vertical):
             shortcuts.append(f"[b]{key_display}[/b] {binding.description}")
 
         # Add manual entries for the ones we skipped above but want to show
-        manual = ["[b]Space[/b] Toggle", "[b]Enter[/b] Select", "[b]Esc[/b] Close"]
+        manual = [
+            "[bold bright_magenta]Esc[/] Close",
+            "[b]Space[/b] Toggle",
+            "[b]Enter[/b] Select",
+        ]
         return "  ".join(manual + shortcuts)
 
     def refresh_context(self, context_data: Dict[str, Any]) -> None:

@@ -93,10 +93,10 @@ class TaskListPanel(Vertical):
             shortcuts.append(f"[b]{key_display}[/b] {binding.description}")
 
         manual = [
+            "[bold bright_magenta]Esc[/] Close",
             "[b]Up/Down[/b] Move",
             "[b]Space[/b] Toggle",
             "[b]Enter[/b] Toggle",
-            "[b]Esc[/b] Close",
         ]
         return "  ".join(manual + shortcuts)
 
