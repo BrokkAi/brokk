@@ -190,6 +190,25 @@ async def test_combined_modal_checked_marker_is_visible():
 
 
 @pytest.mark.asyncio
+async def test_mode_command_with_arg_sets_directly():
+    """Verify /mode <MODE> updates state immediately without menu."""
+    executor = MagicMock()
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            app._handle_command("/mode ASK")
+            await pilot.pause()
+            assert app.agent_mode == "ASK"
+
+@pytest.mark.asyncio
 async def test_mode_command_no_arg_opens_menu():
     executor = MagicMock()
     executor.stop = AsyncMock()

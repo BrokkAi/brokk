@@ -252,7 +252,8 @@ def test_help_menu_layout_contract():
     assert "show-horizontal-scrollbar" not in css_content
 
     # 6. Ensure autocomplete footprint is constrained and prompt visibility is maintained
-    suggestions_match = re.search(r"SlashCommandSuggestions\s*\{([^}]*)\}", css_content)
+    # Check both SlashCommandSuggestions and ModeSuggestions (shared rules)
+    suggestions_match = re.search(r"SlashCommandSuggestions,\s*ModeSuggestions\s*\{([^}]*)\}", css_content)
     if suggestions_match:
         suggestions_body = suggestions_match.group(1)
         # Check max-height is constrained but large enough for all commands
