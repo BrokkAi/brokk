@@ -96,6 +96,17 @@ public class ContentDiffUtils {
         var oldLines = toLines(oldContent);
         var newLines = toLines(newContent);
 
+        if (newContent.isEmpty() && !oldContent.isEmpty()) {
+            String label = oldName != null ? oldName : "unknown";
+            String diff =
+                    """
+                    --- a/%s
+                    +++ /dev/null
+                    [HARNESS NOTE: %s was removed]"""
+                            .formatted(label, label);
+            return new DiffComputationResult(diff, 0, oldLines.size());
+        }
+
         Patch<String> patch = DiffUtils.diff(oldLines, newLines, ContentDiffUtils::reviewLinesEqualIgnoringWhitespace);
         if (patch.getDeltas().isEmpty()) {
             return new DiffComputationResult("", 0, 0);
