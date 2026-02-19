@@ -10,12 +10,13 @@ from brokk_code.widgets.chat_panel import ReasoningSuggestions
 
 @pytest.mark.asyncio
 async def test_reasoning_menu_keyboard_navigation_selects_level():
+    """Verify that submitting /reasoning opens the inline popup and updates state."""
     executor = MagicMock()
     executor.stop = AsyncMock()
-    executor.session_id = None
-
     app = BrokkApp(executor=executor)
     app._executor_ready = True
+    # Force a known starting level
+    app.reasoning_level = "low"
 
     with (
         patch.object(BrokkApp, "_start_executor", return_value=None),
@@ -24,20 +25,21 @@ async def test_reasoning_menu_keyboard_navigation_selects_level():
         patch.object(BrokkApp, "_poll_context", return_value=None),
     ):
         async with app.run_test() as pilot:
-            # Trigger via /reasoning command
-            app._handle_command("/reasoning")
+            # 1. Trigger via /reasoning command submission
+            await pilot.press(*list("/reasoning"))
+            await pilot.press("enter")
             await pilot.pause()
 
             reasoning_suggestions = app.query_one(ReasoningSuggestions)
             assert reasoning_suggestions.display is True
 
-            # Navigation inside ListView:
-            # ["disable", "low", "medium", "high"]
-            # Default for app is usually "low" (index 1).
-            # To get to "medium" (index 2), we press down once.
+            # 2. Navigation inside ListView:
+            # Levels: ["disable", "low", "medium", "high"]
+            # Current is "low" (index 1). Press down to "medium" (index 2).
             await pilot.press("down")
             await pilot.press("enter")
             await pilot.pause()
 
+            # 3. Verify app state updated
             assert app.reasoning_level == "medium"
             assert reasoning_suggestions.display is False

@@ -80,6 +80,41 @@ async def test_mode_menu_exclusivity_with_slash_commands():
 
 
 @pytest.mark.asyncio
+async def test_reasoning_menu_exclusivity():
+    """Verify that opening the reasoning menu closes mode and slash suggestions."""
+    executor = MagicMock()
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            from brokk_code.widgets.chat_panel import ReasoningSuggestions
+
+            # 1. Open mode menu
+            app._handle_command("/mode")
+            await pilot.pause()
+            
+            mode_suggestions = app.query_one("#mode-suggestions")
+            reasoning_suggestions = app.query_one(ReasoningSuggestions)
+            
+            assert mode_suggestions.display is True
+            assert reasoning_suggestions.display is False
+
+            # 2. Trigger reasoning menu via command
+            app._handle_command("/reasoning")
+            await pilot.pause()
+
+            assert mode_suggestions.display is False
+            assert reasoning_suggestions.display is True
+
+
+@pytest.mark.asyncio
 async def test_mode_menu_esc_hides():
     """Verify Escape key hides the mode menu."""
     app = BrokkApp(executor=MagicMock())
