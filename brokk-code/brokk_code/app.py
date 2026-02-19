@@ -992,7 +992,7 @@ class BrokkApp(App):
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
             {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
-            {"command": "/mode", "description": "Select agent mode (CODE, ASK, or LUTZ)"},
+            {"command": "/mode", "description": "Open mode selection menu"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
             {"command": "/reasoning", "description": "Set reasoning level for planner"},
@@ -1331,16 +1331,9 @@ class BrokkApp(App):
         self.push_screen(ReasoningSelectModal(levels, current), update_level)
 
     def action_select_mode(self) -> None:
-        modes = ["CODE", "ASK", "LUTZ"]
-        current = self.agent_mode.upper()
-        if current not in modes:
-            current = "LUTZ"
-
-        def update_mode(mode: str | None) -> None:
-            if mode:
-                self._set_mode(mode)
-
-        self.push_screen(ModeSelectModal(modes, current), update_mode)
+        chat = self._maybe_chat()
+        if chat:
+            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):

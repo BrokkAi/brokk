@@ -63,7 +63,7 @@ async def test_action_select_model_updates_state():
 
 
 @pytest.mark.asyncio
-async def test_action_select_mode_updates_state():
+async def test_action_select_mode_opens_menu():
     # Setup app
     app = BrokkApp(executor=MagicMock())
     app.agent_mode = "LUTZ"
@@ -71,19 +71,10 @@ async def test_action_select_mode_updates_state():
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
 
-    # Mock push_screen to simulate selecting 'CODE' in the modal
-    def mock_push_screen(screen, callback=None):
-        assert screen.__class__.__name__ == "ModeSelectModal"
-        if callback:
-            callback("CODE")
-
-    app.push_screen = MagicMock(side_effect=mock_push_screen)
-
     app.action_select_mode()
 
-    assert app.agent_mode == "CODE"
-    # _set_mode handles the notification
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]CODE[/]")
+    # Verify it opens the inline menu on ChatPanel instead of pushing a modal screen
+    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
 
 
 @pytest.mark.asyncio
