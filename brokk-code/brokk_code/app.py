@@ -959,29 +959,19 @@ class BrokkApp(App):
                     continue
                 detail = str(raw.get("detail", "")).strip()
                 name = str(raw.get("name", "")).strip()
-                if detail == mention or name == mention:
-                    selected = {
-                        "type": str(raw.get("type", "")).strip().lower(),
-                        "detail": detail,
-                        "name": name,
-                    }
-                    break
+
                 if detail.lower() == mention_lower or name.lower() == mention_lower:
                     selected = {
                         "type": str(raw.get("type", "")).strip().lower(),
                         "detail": detail,
                         "name": name,
                     }
-            if selected is None and raw_items:
-                first = raw_items[0]
-                if isinstance(first, dict):
-                    selected = {
-                        "type": str(first.get("type", "")).strip().lower(),
-                        "detail": str(first.get("detail", "")).strip(),
-                        "name": str(first.get("name", "")).strip(),
-                    }
+                    break
 
             if selected is None:
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message(f"No exact match for @{mention}")
                 continue
 
             completion_type = selected["type"]
