@@ -1,7 +1,6 @@
 package ai.brokk.util;
 
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import org.jspecify.annotations.NullMarked;
 
 /**
  * Utility for string case conversions, leveraging Jackson's naming strategies.

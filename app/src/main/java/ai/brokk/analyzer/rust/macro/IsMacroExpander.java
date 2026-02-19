@@ -19,7 +19,7 @@ import org.treesitter.TSNode;
 public class IsMacroExpander implements RustMacroExpander {
 
     private static final Pattern IS_ATTRIBUTE_PATTERN =
-            Pattern.compile("(?s).*(?::|\\(|\\b)Is(?:\\b|\\)|,).*", Pattern.DOTALL);
+            Pattern.compile(".*(?:is_macro::)?Is(?:\\b|\\)|,).*", Pattern.DOTALL);
 
     @Override
     public boolean supports(TSNode targetNode, SourceContent source) {
