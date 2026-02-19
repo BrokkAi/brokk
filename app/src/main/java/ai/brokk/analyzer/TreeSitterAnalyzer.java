@@ -2521,48 +2521,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             TSNode rootNode,
             SourceContent sourceContent,
             FileAnalysisContext ctx) {
-        Map<String, CodeUnit> mCuByFqName = new HashMap<>(ctx.cuByFqName());
-        List<CodeUnit> mTopLevelCUs = new ArrayList<>(ctx.topLevelCUs());
-        Map<CodeUnit, List<String>> mSignatures = new HashMap<>();
-        ctx.signatures().forEach((k, v) -> mSignatures.put(k, new ArrayList<>(v)));
-        Map<CodeUnit, List<Range>> mSourceRanges = new HashMap<>();
-        ctx.sourceRanges().forEach((k, v) -> mSourceRanges.put(k, new ArrayList<>(v)));
-        Map<CodeUnit, List<CodeUnit>> mChildren = new HashMap<>();
-        ctx.children().forEach((k, v) -> mChildren.put(k, new ArrayList<>(v)));
-        Map<String, Set<CodeUnit>> mCodeUnitsBySymbol = new HashMap<>();
-        ctx.codeUnitsBySymbol().forEach((k, v) -> mCodeUnitsBySymbol.put(k, new HashSet<>(v)));
-
-        createModulesFromImports(
+        return createModulesFromImports(
                 file,
                 localImportStatements,
                 rootNode,
                 determinePackageName(file, rootNode, rootNode, sourceContent),
-                mCuByFqName,
-                mTopLevelCUs,
-                mSignatures,
-                mSourceRanges,
-                mChildren,
-                mCodeUnitsBySymbol);
-
-        FileAnalysisContext updated = new FileAnalysisContext(
-                TreePVector.from(mTopLevelCUs),
-                HashTreePMap.from(mChildren.entrySet().stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> TreePVector.from(e.getValue())))),
-                HashTreePMap.from(mSignatures.entrySet().stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> TreePVector.from(e.getValue())))),
-                HashTreePMap.from(mSourceRanges.entrySet().stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> TreePVector.from(e.getValue())))),
-                ctx.hasBody(),
-                HashTreePMap.from(mCodeUnitsBySymbol.entrySet().stream()
-                        .collect(Collectors.toMap(
-                                Map.Entry::getKey, e -> org.pcollections.HashTreePSet.from(e.getValue())))),
-                HashTreePMap.from(mCuByFqName),
-                ctx.lookupKeys());
-
-        for (Map.Entry<String, CodeUnit> entry : mCuByFqName.entrySet()) {
-            updated = updated.withLookupKey(entry.getKey(), entry.getValue());
-        }
-        return updated;
+                ctx);
     }
 
     private Map<CodeUnit, CodeUnitProperties> finalizeCodeUnitProperties(FileAnalysisContext ctx) {
@@ -2666,20 +2630,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     /**
      * Useful for languages that have a module system, e.g., dynamic languages, to declare MODULE code units with.
-     * Provides access to local state maps to register the module and its children.
+     * Operates on the immutable FileAnalysisContext to register modules and their properties.
      */
-    protected void createModulesFromImports(
+    protected FileAnalysisContext createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
-        // default no-op
+            FileAnalysisContext ctx) {
+        return ctx;
     }
 
     /**

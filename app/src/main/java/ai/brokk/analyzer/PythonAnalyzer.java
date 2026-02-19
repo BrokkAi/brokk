@@ -864,20 +864,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected void createModulesFromImports(
+    protected FileAnalysisContext createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+            FileAnalysisContext ctx) {
 
         if (modulePackageName.isBlank()) {
-            return;
+            return ctx;
         }
 
         int idx = modulePackageName.lastIndexOf('.');
@@ -886,25 +881,21 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
 
-        // Register module in symbol index for getDefinitions() lookup
-        localCodeUnitsBySymbol
-                .computeIfAbsent(moduleCu.identifier(), k -> new HashSet<>())
-                .add(moduleCu);
-        if (!moduleCu.shortName().equals(moduleCu.identifier())) {
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(moduleCu.shortName(), k -> new HashSet<>())
-                    .add(moduleCu);
-        }
-
-        List<CodeUnit> children = localTopLevelCUs.stream()
+        List<CodeUnit> children = ctx.topLevelCUs().stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
                 .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
                 .toList();
 
-        localChildren.put(moduleCu, children);
-        localCuByFqName.put(moduleCu.fqName(), moduleCu);
+        FileAnalysisContext updated = ctx.withSymbolIndex(moduleCu.identifier(), moduleCu)
+                .withSymbolIndex(moduleCu.shortName(), moduleCu)
+                .withSignature(moduleCu, "# module " + modulePackageName)
+                .withLookupKey(moduleCu.fqName(), moduleCu);
 
-        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("# module " + modulePackageName);
+        for (CodeUnit child : children) {
+            updated = updated.withChild(moduleCu, child);
+        }
+
+        return updated;
     }
 
     @Override
