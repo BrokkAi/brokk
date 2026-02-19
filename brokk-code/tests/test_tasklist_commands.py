@@ -207,6 +207,31 @@ def test_app_task_edit_opens_modal_with_initial_and_dispatches_edit_worker_on_su
     assert worker_coro.__name__ == "_edit_selected_task"
 
 
+def test_task_command_open_when_executor_ready_triggers_immediate_tasklist_fetch() -> None:
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+
+    def query_one(target, *args, **kwargs):
+        if target is ChatPanel:
+            return mock_chat
+        raise AssertionError(f"Unexpected query target: {target}")
+
+    app.query_one = MagicMock(side_effect=query_one)
+    app.run_worker = MagicMock(side_effect=_close_coro)
+    app.push_screen = MagicMock()
+    app._executor_ready = True
+
+    app._handle_command("/task")
+
+    assert app.push_screen.call_count == 1
+    assert app.run_worker.call_count == 2
+    worker_names = {
+        app.run_worker.call_args_list[0].args[0].__name__,
+        app.run_worker.call_args_list[1].args[0].__name__,
+    }
+    assert worker_names == {"_ensure_tasklist_data", "_refresh_context_panel"}
+
+
 def test_app_task_delete_dispatches_delete_worker() -> None:
     app = BrokkApp(executor=MagicMock())
     app.run_worker = MagicMock(side_effect=_close_coro)

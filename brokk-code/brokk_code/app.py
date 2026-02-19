@@ -1657,6 +1657,7 @@ class BrokkApp(App):
         self.push_screen(TaskListModalScreen(on_close=on_close))
 
         if self._executor_ready:
+            self.run_worker(self._ensure_tasklist_data())
             self.run_worker(self._refresh_context_panel())
 
     def _restore_tasklist_focus(self) -> None:
