@@ -1,4 +1,4 @@
-package ai.brokk.analyzer.rust.macro;
+package ai.brokk.analyzer.macro;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -7,6 +7,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.analyzer.SourceContent;
+import ai.brokk.analyzer.rust.macro.IsMacroExpander;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
