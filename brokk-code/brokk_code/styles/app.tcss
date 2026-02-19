@@ -261,7 +261,7 @@ ChatPanel {
     content-align: left middle;
 }
 
-SlashCommandSuggestions {
+SlashCommandSuggestions, ModeSuggestions {
     background: $panel;
     border: none;
     color: $text;
@@ -271,7 +271,7 @@ SlashCommandSuggestions {
     max-height: 20;
 }
 
-SlashCommandSuggestions > ListItem:focus {
+SlashCommandSuggestions > ListItem:focus, ModeSuggestions > ListItem:focus {
     background: $surface-lighten-1;
     color: $accent;
 }

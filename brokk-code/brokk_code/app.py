@@ -809,6 +809,9 @@ class BrokkApp(App):
         except Exception as e:
             chat.add_system_message(f"Failed to edit task: {e}", level="ERROR")
 
+    def on_chat_panel_mode_selected(self, message: ChatPanel.ModeSelected) -> None:
+        self._set_mode(message.mode.upper())
+
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
         Handles user input from the chat panel.
@@ -1120,7 +1123,7 @@ class BrokkApp(App):
             if len(parts) > 1:
                 self._set_mode(parts[1].upper())
             else:
-                self.action_select_mode()
+                chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
         elif base == "/info":
             self._render_info()
         elif base == "/history":

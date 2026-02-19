@@ -15,13 +15,45 @@ from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 
 
+class ModeSuggestions(ListView):
+    """A popup list for selecting agent modes."""
+
+    show_vertical_scrollbar = True
+
+    class ModeSelected(Message):
+        def __init__(self, mode: str) -> None:
+            self.mode = mode
+            super().__init__()
+
+    def update_modes(self, modes: List[str], current: str) -> None:
+        self.clear()
+        for mode in modes:
+            marker = "[x]" if mode.upper() == current.upper() else "[ ]"
+            li = ListItem(Static(f"{marker} {mode}", markup=False))
+            li.mode_name = mode
+            self.append(li)
+
+        # Focus current or first
+        try:
+            idx = [m.upper() for m in modes].index(current.upper())
+            self.index = idx
+        except ValueError:
+            self.index = 0
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if message.item:
+            mode = getattr(message.item, "mode_name", "")
+            self.display = False
+            self.post_message(self.ModeSelected(mode))
+
+
 class SlashCommandSuggestions(ListView):
     """A popup list for slash command autocomplete."""
 
     show_vertical_scrollbar = True
 
     DEFAULT_CSS = """
-    SlashCommandSuggestions {
+    SlashCommandSuggestions, ModeSuggestions {
         display: none;
         height: auto;
         max-height: 20;
@@ -30,7 +62,7 @@ class SlashCommandSuggestions(ListView):
         dock: bottom;
         layer: top;
     }
-    SlashCommandSuggestions ListItem {
+    SlashCommandSuggestions ListItem, ModeSuggestions ListItem {
         padding: 0 1;
     }
     """
@@ -138,6 +170,10 @@ class ChatInput(TextArea):
     def action_hide_autocomplete(self) -> None:
         """Hides the popup suggestions."""
         self._set_autocomplete_open(False)
+        try:
+            self.app.query_one(ModeSuggestions).display = False
+        except Exception:
+            pass
 
     def action_accept_suggestion(self) -> None:
         """Accepts the highlighted popup suggestion."""
@@ -146,6 +182,10 @@ class ChatInput(TextArea):
             suggestions = app.query_one(SlashCommandSuggestions)
             if suggestions.display:
                 suggestions.action_select_cursor()
+                return
+            modes = app.query_one(ModeSuggestions)
+            if modes.display:
+                modes.action_select_cursor()
                 return
         except Exception:
             pass
@@ -187,6 +227,9 @@ class ChatInput(TextArea):
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
             is_any = suggestions.update_suggestions(text, commands)
+            if is_any:
+                # Hide mode menu if it was open
+                self.app.query_one(ModeSuggestions).display = False
             self._set_autocomplete_open(is_any)
         except Exception:
             pass
@@ -204,27 +247,30 @@ class ChatInput(TextArea):
 
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
+            mode_suggestions = self.app.query_one(ModeSuggestions)
         except Exception:
             suggestions = None
+            mode_suggestions = None
 
+        # Check suggestions or modes
+        active_popup = None
         if suggestions and suggestions.display:
+            active_popup = suggestions
+        elif mode_suggestions and mode_suggestions.display:
+            active_popup = mode_suggestions
+
+        if active_popup:
             if event.key == "up":
-                suggestions.action_cursor_up()
+                active_popup.action_cursor_up()
                 event.stop()
                 event.prevent_default()
                 return
             if event.key == "down":
-                suggestions.action_cursor_down()
+                active_popup.action_cursor_down()
                 event.stop()
                 event.prevent_default()
                 return
-            if event.key == "tab":
-                self.action_accept_suggestion()
-                event.stop()
-                event.prevent_default()
-                return
-            if event.key == "enter":
-                # Accept the suggestion without submitting (same as Tab)
+            if event.key in ("tab", "enter"):
                 self.action_accept_suggestion()
                 event.stop()
                 event.prevent_default()
@@ -259,6 +305,13 @@ class ChatPanel(Vertical):
             self.text = text
             super().__init__()
 
+    class ModeSelected(Message):
+        """Posted when a mode is selected from the suggestion popup."""
+
+        def __init__(self, mode: str) -> None:
+            self.mode = mode
+            super().__init__()
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._get_now: Callable[[], float] = time.monotonic
@@ -284,6 +337,7 @@ class ChatPanel(Vertical):
         with Vertical(id="chat-input-container"):
             yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield SlashCommandSuggestions(id="slash-suggestions")
+        yield ModeSuggestions(id="mode-suggestions")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
@@ -302,10 +356,11 @@ class ChatPanel(Vertical):
         if not chat_input.has_focus:
             return
 
-        # Bypass history navigation if suggestions are visible
+        # Bypass history navigation if suggestions or mode popups are visible
         try:
-            suggestions = self.query_one(SlashCommandSuggestions)
-            if suggestions.display:
+            if self.query_one(SlashCommandSuggestions).display:
+                return
+            if self.query_one(ModeSuggestions).display:
                 return
         except Exception:
             pass
@@ -383,6 +438,19 @@ class ChatPanel(Vertical):
         self.post_message(self.Submitted(event.text))
         self._history_index = -1
         self._draft_buffer = ""
+
+    def open_mode_menu(self, modes: List[str], current: str) -> None:
+        """Opens the lightweight mode selection popup."""
+        # Ensure mutual exclusivity
+        self.query_one(SlashCommandSuggestions).display = False
+        self.query_one("#chat-input-container").remove_class("autocomplete-open")
+
+        ms = self.query_one(ModeSuggestions)
+        ms.update_modes(modes, current)
+        ms.display = True
+
+    def on_mode_suggestions_mode_selected(self, event: ModeSuggestions.ModeSelected) -> None:
+        self.post_message(self.ModeSelected(event.mode))
 
     def on_slash_command_suggestions_command_selected(
         self, event: SlashCommandSuggestions.CommandSelected
