@@ -218,7 +218,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Immutable accumulator for per-file analysis state.
      */
-    private record FileAnalysisContext(
+    protected record FileAnalysisContext(
             PVector<CodeUnit> topLevelCUs,
             PMap<CodeUnit, PVector<CodeUnit>> children,
             PMap<CodeUnit, PVector<String>> signatures,
@@ -227,7 +227,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             PMap<String, PSet<CodeUnit>> codeUnitsBySymbol,
             PMap<String, CodeUnit> cuByFqName) {
 
-        static FileAnalysisContext empty() {
+        protected static FileAnalysisContext empty() {
             return new FileAnalysisContext(
                     TreePVector.empty(),
                     HashTreePMap.empty(),
@@ -238,7 +238,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     HashTreePMap.empty());
         }
 
-        FileAnalysisContext withTopLevelCu(CodeUnit cu) {
+        protected FileAnalysisContext withTopLevelCu(CodeUnit cu) {
             return new FileAnalysisContext(
                     topLevelCUs.plus(cu),
                     children,
@@ -249,7 +249,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     cuByFqName.plus(cu.fqName(), cu));
         }
 
-        FileAnalysisContext withChild(CodeUnit parent, CodeUnit child) {
+        protected FileAnalysisContext withChild(CodeUnit parent, CodeUnit child) {
             PVector<CodeUnit> kids =
                     children.getOrDefault(parent, TreePVector.empty()).plus(child);
             return new FileAnalysisContext(
@@ -262,7 +262,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     cuByFqName.plus(child.fqName(), child));
         }
 
-        FileAnalysisContext withSignature(CodeUnit cu, String signature) {
+        protected FileAnalysisContext withSignature(CodeUnit cu, String signature) {
             PVector<String> sigs = signatures.getOrDefault(cu, TreePVector.empty());
             if (sigs.contains(signature)) return this;
             return new FileAnalysisContext(
@@ -275,7 +275,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     cuByFqName);
         }
 
-        FileAnalysisContext withRange(CodeUnit cu, Range range) {
+        protected FileAnalysisContext withRange(CodeUnit cu, Range range) {
             PVector<Range> ranges =
                     sourceRanges.getOrDefault(cu, TreePVector.empty()).plus(range);
             return new FileAnalysisContext(
@@ -288,7 +288,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     cuByFqName);
         }
 
-        FileAnalysisContext withHasBody(CodeUnit cu, boolean body) {
+        protected FileAnalysisContext withHasBody(CodeUnit cu, boolean body) {
             return new FileAnalysisContext(
                     topLevelCUs,
                     children,
@@ -299,7 +299,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     cuByFqName);
         }
 
-        FileAnalysisContext withSymbolIndex(String symbol, CodeUnit cu) {
+        protected FileAnalysisContext withSymbolIndex(String symbol, CodeUnit cu) {
             PSet<CodeUnit> cus = codeUnitsBySymbol
                     .getOrDefault(symbol, org.pcollections.HashTreePSet.empty())
                     .plus(cu);
@@ -313,7 +313,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     cuByFqName);
         }
 
-        FileAnalysisContext withoutCodeUnit(CodeUnit cu) {
+        protected FileAnalysisContext withoutCodeUnit(CodeUnit cu) {
             PVector<CodeUnit> kids = children.get(cu);
             FileAnalysisContext current = this;
             if (kids != null) {
@@ -2435,7 +2435,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected boolean shouldAttachToParent(
             CodeUnit cu, TSNode node, String captureName, String classChain, List<ScopeSegment> scopeChain) {
-        return !classChain.isEmpty() || CaptureNames.LAMBDA_DEFINITION.equals(captureName);
+        return !classChain.isEmpty();
     }
 
     protected @Nullable CodeUnit findParentForCodeUnit(
@@ -2446,15 +2446,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<ScopeSegment> scopeChain,
             FileAnalysisContext ctx,
             SourceContent sourceContent) {
-        if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
-            var enclosingFnNameOpt = findEnclosingFunctionName(node, sourceContent);
-            if (enclosingFnNameOpt.isPresent()) {
-                String enclosingFnName = enclosingFnNameOpt.get();
-                String methodFqName = classChain.isEmpty() ? enclosingFnName : (classChain + "." + enclosingFnName);
-                return ctx.cuByFqName().get(methodFqName);
-            }
-        }
-
         String parentFqName = buildParentFqName(cu, classChain, scopeChain);
         return ctx.cuByFqName().get(parentFqName);
     }

@@ -1389,6 +1389,37 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    protected boolean shouldAttachToParent(
+            CodeUnit cu, TSNode node, String captureName, String classChain, List<ScopeSegment> scopeChain) {
+        return super.shouldAttachToParent(cu, node, captureName, classChain, scopeChain)
+                || CaptureNames.LAMBDA_DEFINITION.equals(captureName);
+    }
+
+    @Override
+    protected @Nullable CodeUnit findParentForCodeUnit(
+            CodeUnit cu,
+            TSNode node,
+            String captureName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            TreeSitterAnalyzer.FileAnalysisContext ctx,
+            SourceContent sourceContent) {
+        if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
+            var enclosingFnNameOpt = findEnclosingJavaMethodOrClassName(node, sourceContent);
+            if (enclosingFnNameOpt.isPresent()) {
+                String enclosingFnName = enclosingFnNameOpt.get();
+                String methodFqName = classChain.isEmpty() ? enclosingFnName : (classChain + "." + enclosingFnName);
+                // Prepend package if present
+                if (!cu.packageName().isEmpty()) {
+                    methodFqName = cu.packageName() + "." + methodFqName;
+                }
+                return ctx.cuByFqName().get(methodFqName);
+            }
+        }
+        return super.findParentForCodeUnit(cu, node, captureName, classChain, scopeChain, ctx, sourceContent);
+    }
+
+    @Override
     protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
         // Java implicit constructors only exist for classes, not interfaces/enums/records/annotations.
         if (!CaptureNames.CLASS_DEFINITION.equals(classCaptureName)) {
