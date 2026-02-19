@@ -273,6 +273,7 @@ class ChatInput(TextArea):
         """Hides the popup suggestions."""
         self._set_autocomplete_open(False)
         self.submit_after_accept = False
+        self.suppress_autocomplete_once = False
         try:
             mode_sug = self.app.query_one(ModeSuggestions)
             if mode_sug.display:

@@ -357,11 +357,16 @@ async def test_slash_autocomplete_submit_flag_reset():
         await pilot.press(*list("/a"))
         assert suggestions.display is True
 
-        # 2. Test dismissal via Escape
+        # 2. Test dismissal via Escape and re-opening
         chat_input.submit_after_accept = True
         await pilot.press("escape")
         assert suggestions.display is False
         assert chat_input.submit_after_accept is False
+
+        # Re-type to ensure it opens again
+        await pilot.press("backspace", "backspace")  # Clear /a
+        await pilot.press(*list("/a"))
+        assert suggestions.display is True
 
         # 3. Test dismissal via blur
         await pilot.press(*list("/a"))
@@ -379,3 +384,7 @@ async def test_slash_autocomplete_submit_flag_reset():
         await pilot.press("backspace", "backspace")
         assert suggestions.display is False
         assert chat_input.submit_after_accept is False
+
+        # Verify re-opening after text-based dismissal
+        await pilot.press(*list("/a"))
+        assert suggestions.display is True
