@@ -3325,4 +3325,43 @@ public class TypescriptAnalyzerTest {
                 classUsageHits.size() >= 5,
                 "Expected at least 5 different usage patterns, found: " + classUsageHits.size());
     }
+
+    @Test
+    void testIdenticalOverloadsMergedByLookupKey() throws IOException {
+        // This test validates cuLookupKey behavior in TreeSitterAnalyzer.analyzeFileContent.
+        // It uses an inline project with a TypeScript interface that has two identical signatures.
+        String code =
+                """
+                interface Logger {
+                    log(message: string): void;
+                    log(message: string): void;
+                }
+                """;
+
+        try (var testProject = ai.brokk.testutil.InlineTestProjectCreator.code(code, "IdenticalOverloads.ts")
+                .build()) {
+            var tsAnalyzer = new TypescriptAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "IdenticalOverloads.ts");
+            Set<CodeUnit> declarations = tsAnalyzer.getDeclarations(file);
+
+            // Find the 'log' method CodeUnit
+            List<CodeUnit> logMethods = declarations.stream()
+                    .filter(cu -> cu.shortName().equals("Logger.log") && cu.isFunction())
+                    .toList();
+
+            // Assert that only one CodeUnit was registered despite two identical signature nodes in the AST
+            assertEquals(
+                    1,
+                    logMethods.size(),
+                    "Should have exactly one CodeUnit for Logger.log despite identical overloads");
+
+            CodeUnit logMethod = logMethods.get(0);
+            List<String> signatures = tsAnalyzer.signaturesOf(logMethod);
+
+            // Assert that signatures were merged (deduplicated) for that single CodeUnit
+            // TreeSitterAnalyzer.withSignature deduplicates identical signature strings.
+            assertEquals(1, signatures.size(), "Signatures should be merged into a single unique entry");
+            assertTrue(signatures.get(0).contains("log(message: string): void"), "Signature text should be correct");
+        }
+    }
 }
