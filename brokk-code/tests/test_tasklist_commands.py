@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 from textual.app import App, ComposeResult
@@ -67,13 +67,13 @@ def test_task_command_closes_modal_and_restores_focus() -> None:
     restore_focus_widget = MagicMock()
     app._tasklist_restore_focus_widget = restore_focus_widget
 
-    # Simulate the modal already being open
+    # Simulate the modal already being open (Textual's `screen` has no setter)
     modal = TaskListModalScreen(on_close=lambda: None)
     modal.dismiss = MagicMock()
-    app.screen = modal
 
-    # /task should close the modal and restore focus
-    app._handle_command("/task")
+    with patch.object(type(app), "screen", new_callable=PropertyMock, return_value=modal):
+        # /task should close the modal and restore focus
+        app._handle_command("/task")
 
     restore_focus_widget.focus.assert_called_once()
     modal.dismiss.assert_called_once_with(None)

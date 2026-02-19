@@ -793,8 +793,14 @@ class BrokkApp(App):
 
     def _active_tasklist_panel(self) -> TaskListPanel:
         """Return the panel that should receive task actions."""
-        if isinstance(self.screen, TaskListModalScreen):
-            return self.screen.query_one(TaskListPanel)
+        try:
+            current_screen = self.screen
+        except ScreenStackError:
+            current_screen = None
+
+        if isinstance(current_screen, TaskListModalScreen):
+            return current_screen.query_one(TaskListPanel)
+
         return self.query_one("#side-tasklist", TaskListPanel)
 
     def _update_tasklist_details_all(self, tasklist_data: Dict[str, Any]) -> None:
@@ -1644,9 +1650,14 @@ class BrokkApp(App):
         When opened, the modal's TaskListPanel receives focus.
         When closed, focus is restored to whatever had it previously (best-effort).
         """
-        if isinstance(self.screen, TaskListModalScreen):
+        try:
+            current_screen = self.screen
+        except ScreenStackError:
+            current_screen = None
+
+        if isinstance(current_screen, TaskListModalScreen):
             self._restore_tasklist_focus()
-            self.screen.dismiss(None)
+            current_screen.dismiss(None)
             return
 
         self._tasklist_restore_focus_widget = getattr(self, "focused", None)
