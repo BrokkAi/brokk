@@ -438,17 +438,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected void expandMacros(
-            ProjectFile file,
-            TSTree tree,
-            SourceContent sourceContent,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, Boolean> localHasBody,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+    protected FileAnalysisContext expandMacros(
+            ProjectFile file, TSTree tree, SourceContent sourceContent, FileAnalysisContext ctx) {
         log.trace("RustAnalyzer.expandMacros: file={}", file);
 
         TSNode root = tree.getRootNode();
@@ -458,32 +449,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         // In Rust, attributes are preceding siblings or children depending on the node type.
         // For enum_item, they are often children of the enum_item node or preceding siblings.
         // The treesitter-rust grammar usually has attribute_item as a child of the enum_item.
-        processMacrosRecursive(
-                root,
-                file,
-                sourceContent,
-                packageName,
-                localChildren,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges,
-                localHasBody,
-                localCodeUnitsBySymbol);
+        return processMacrosRecursive(root, file, sourceContent, packageName, ctx);
     }
 
-    private void processMacrosRecursive(
-            TSNode node,
-            ProjectFile file,
-            SourceContent sourceContent,
-            String packageName,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, Boolean> localHasBody,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+    private FileAnalysisContext processMacrosRecursive(
+            TSNode node, ProjectFile file, SourceContent sourceContent, String packageName, FileAnalysisContext ctx) {
 
         if (ENUM_ITEM.equals(node.getType())) {
             RustMacroExpander isExpander = new IsMacroExpander();
@@ -495,36 +465,24 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
                     // Find or create the impl block.
                     // For classes (impl blocks), fqName is the primary key.
-                    CodeUnit existingImpl = localCuByFqName.get(implCu.fqName());
+                    CodeUnit existingImpl = ctx.cuByFqName().get(implCu.fqName());
                     if (existingImpl == null) {
-                        localTopLevelCUs.add(implCu);
-                        localCuByFqName.put(implCu.fqName(), implCu);
-                        localChildren.put(implCu, new ArrayList<>());
-                        localSignatures.put(implCu, List.of("impl " + implCu.identifier() + " {"));
-                        // Fallback range for synthetic impl based on enum location
-                        localSourceRanges.put(
-                                implCu,
-                                new ArrayList<>(List.of(new Range(
-                                        node.getStartByte(),
-                                        node.getEndByte(),
-                                        node.getStartPoint().getRow(),
-                                        node.getEndPoint().getRow(),
-                                        node.getStartByte()))));
-                        localCodeUnitsBySymbol
-                                .computeIfAbsent(implCu.identifier(), k -> new HashSet<>())
-                                .add(implCu);
+                        ctx = ctx.withTopLevelCu(implCu)
+                                .withSignature(implCu, "impl " + implCu.identifier() + " {")
+                                .withRange(
+                                        implCu,
+                                        new Range(
+                                                node.getStartByte(),
+                                                node.getEndByte(),
+                                                node.getStartPoint().getRow(),
+                                                node.getEndPoint().getRow(),
+                                                node.getStartByte()))
+                                .withSymbolIndex(implCu.identifier(), implCu);
+
                         if (!implCu.shortName().equals(implCu.identifier())) {
-                            localCodeUnitsBySymbol
-                                    .computeIfAbsent(implCu.shortName(), k -> new HashSet<>())
-                                    .add(implCu);
+                            ctx = ctx.withSymbolIndex(implCu.shortName(), implCu);
                         }
                         existingImpl = implCu;
-                    }
-
-                    List<CodeUnit> implChildren = localChildren.get(existingImpl);
-                    if (implChildren == null) {
-                        implChildren = new ArrayList<>();
-                        localChildren.put(existingImpl, implChildren);
                     }
 
                     // Add generated methods
@@ -532,31 +490,31 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                         CodeUnit methodCu = expanded.get(i);
 
                         // Collision check: skip if method already exists in this impl block or by FQN.
-                        // We check the children of the existing impl block.
+                        var implChildren =
+                                ctx.children().getOrDefault(existingImpl, org.pcollections.TreePVector.empty());
                         boolean collision = implChildren.stream()
                                         .anyMatch(c -> c.identifier().equals(methodCu.identifier()))
-                                || localCuByFqName.containsKey(methodCu.fqName());
+                                || ctx.cuByFqName().containsKey(methodCu.fqName());
 
                         if (!collision) {
-                            implChildren.add(methodCu);
-                            localCuByFqName.put(methodCu.fqName(), methodCu);
-                            localHasBody.put(methodCu, true);
-                            localSignatures.put(
-                                    methodCu,
-                                    List.of("pub fn " + methodCu.identifier() + "(&self) -> bool { " + bodyPlaceholder()
-                                            + " }"));
-                            localCodeUnitsBySymbol
-                                    .computeIfAbsent(methodCu.identifier(), k -> new HashSet<>())
-                                    .add(methodCu);
+                            ctx = ctx.withChild(existingImpl, methodCu)
+                                    .withHasBody(methodCu, true)
+                                    .withSignature(
+                                            methodCu,
+                                            "pub fn " + methodCu.identifier() + "(&self) -> bool { " + bodyPlaceholder()
+                                                    + " }")
+                                    .withSymbolIndex(methodCu.identifier(), methodCu);
+
                             if (!methodCu.shortName().equals(methodCu.identifier())) {
-                                localCodeUnitsBySymbol
-                                        .computeIfAbsent(methodCu.shortName(), k -> new HashSet<>())
-                                        .add(methodCu);
+                                ctx = ctx.withSymbolIndex(methodCu.shortName(), methodCu);
                             }
 
-                            // Ensure entries exist for the synthetic unit itself
-                            localChildren.putIfAbsent(methodCu, new ArrayList<>());
-                            localSourceRanges.put(methodCu, new ArrayList<>(localSourceRanges.get(existingImpl)));
+                            // Copy ranges from parent impl
+                            var parentRanges =
+                                    ctx.sourceRanges().getOrDefault(existingImpl, org.pcollections.TreePVector.empty());
+                            for (Range range : parentRanges) {
+                                ctx = ctx.withRange(methodCu, range);
+                            }
 
                             log.trace("Added synthetic method {} to {}", methodCu.fqName(), existingImpl.fqName());
                         }
@@ -566,19 +524,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {
-            processMacrosRecursive(
-                    node.getChild(i),
-                    file,
-                    sourceContent,
-                    packageName,
-                    localChildren,
-                    localCuByFqName,
-                    localTopLevelCUs,
-                    localSignatures,
-                    localSourceRanges,
-                    localHasBody,
-                    localCodeUnitsBySymbol);
+            ctx = processMacrosRecursive(node.getChild(i), file, sourceContent, packageName, ctx);
         }
+        return ctx;
     }
 
     @Override
