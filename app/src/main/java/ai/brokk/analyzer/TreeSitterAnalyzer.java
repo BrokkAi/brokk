@@ -2654,6 +2654,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         List<String> localImportStatements =
                 localImportInfos.stream().map(ImportInfo::rawSnippet).toList();
 
+        expandMacros(
+                file,
+                tree,
+                sourceContent,
+                localChildren,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges,
+                localHasBody,
+                localCodeUnitsBySymbol);
+
         createModulesFromImports(
                 file,
                 localImportStatements,
@@ -4480,5 +4492,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
         return null;
+    }
+
+    /**
+     * Hook for subclasses to perform macro expansion or other synthetic CodeUnit injection.
+     * Called at the end of {@code analyzeFileContent} before the final state is frozen.
+     *
+     * @param file                   The file being analyzed.
+     * @param tree                   The parsed Tree-sitter tree.
+     * @param sourceContent          The source content.
+     * @param localChildren          Mutable map of parent to child CodeUnits.
+     * @param localCuByFqName        Mutable map of FQ name (with signature/offset suffix) to CodeUnit.
+     * @param localTopLevelCUs       Mutable list of top-level CodeUnits for the file.
+     * @param localSignatures        Mutable map of CodeUnit to its signature list.
+     * @param localSourceRanges      Mutable map of CodeUnit to its source ranges.
+     * @param localHasBody           Mutable map of CodeUnit to its hasBody flag.
+     * @param localCodeUnitsBySymbol Mutable map of symbol identifiers to CodeUnits.
+     */
+    protected void expandMacros(
+            ProjectFile file,
+            TSTree tree,
+            SourceContent sourceContent,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+        // No-op by default
     }
 }

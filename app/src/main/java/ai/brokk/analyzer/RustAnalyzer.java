@@ -436,6 +436,22 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected void expandMacros(
+            ProjectFile file,
+            TSTree tree,
+            SourceContent sourceContent,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+        log.trace("RustAnalyzer.expandMacros: file={}", file);
+        // Expansion logic will be implemented here
+    }
+
+    @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         TSQueryCursor cursor = new TSQueryCursor();
         TSQuery rustQuery = getThreadLocalQuery();
