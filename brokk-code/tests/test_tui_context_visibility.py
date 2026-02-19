@@ -32,3 +32,19 @@ async def test_toggle_context_opens_fullscreen_modal_and_syncs_token_bar_visibil
         await pilot.press("ctrl+l")
         assert not isinstance(app.screen, ContextModalScreen)
         assert not token_usage.has_class("hidden")
+
+        # Toggle 3: Open via slash command -> hide token bar.
+        await pilot.press("/")
+        await pilot.type("context")
+        await pilot.press("enter")
+        assert isinstance(app.screen, ContextModalScreen)
+        assert token_usage.has_class("hidden")
+
+        # Toggle 4: Close via slash command -> show token bar.
+        # Note: ChatInput in app.py handles '/' commands, but while modal is open
+        # the modal's bindings or clicking back might be needed.
+        # However, slash commands are submitted via the ChatPanel's input.
+        # If the modal is open, we can still use ctrl+l to close as per ContextModalScreen.BINDINGS.
+        await pilot.press("ctrl+l")
+        assert not isinstance(app.screen, ContextModalScreen)
+        assert not token_usage.has_class("hidden")
