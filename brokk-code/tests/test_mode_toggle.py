@@ -19,23 +19,17 @@ def test_action_toggle_mode_cycles_correctly():
     # Cycle 1: LUTZ -> CODE
     app.action_toggle_mode()
     assert app.agent_mode == "CODE"
-    mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]CODE[/]", level="WARNING"
-    )
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]CODE[/]")
 
     # Cycle 2: CODE -> ASK
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
-    mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]ASK[/]", level="WARNING"
-    )
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]ASK[/]")
 
     # Cycle 3: ASK -> LUTZ
     app.action_toggle_mode()
     assert app.agent_mode == "LUTZ"
-    mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]LUTZ[/]", level="WARNING"
-    )
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
 
 
 def test_handle_command_updates_agent_mode():
@@ -46,23 +40,17 @@ def test_handle_command_updates_agent_mode():
     # Test /code
     app._handle_command("/code")
     assert app.agent_mode == "CODE"
-    mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]CODE[/]", level="WARNING"
-    )
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]CODE[/]")
 
     # Test /ask
     app._handle_command("/ask")
     assert app.agent_mode == "ASK"
-    mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]ASK[/]", level="WARNING"
-    )
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]ASK[/]")
 
     # Test /lutz
     app._handle_command("/lutz")
     assert app.agent_mode == "LUTZ"
-    mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]LUTZ[/]", level="WARNING"
-    )
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
 
 
 def test_mode_toggle_command_updates_agent_mode():
@@ -76,23 +64,17 @@ def test_mode_toggle_command_updates_agent_mode():
     # Test /mode cycles: LUTZ -> CODE
     app._handle_command("/mode")
     assert app.agent_mode == "CODE"
-    mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]CODE[/]", level="WARNING"
-    )
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]CODE[/]")
 
     # Test /mode cycles: CODE -> ASK
     app._handle_command("/mode")
     assert app.agent_mode == "ASK"
-    mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]ASK[/]", level="WARNING"
-    )
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]ASK[/]")
 
     # Test /mode cycles: ASK -> LUTZ
     app._handle_command("/mode")
     assert app.agent_mode == "LUTZ"
-    mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]LUTZ[/]", level="WARNING"
-    )
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
 
 
 def test_no_f2_settings_binding():

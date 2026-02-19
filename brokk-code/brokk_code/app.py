@@ -907,7 +907,7 @@ class BrokkApp(App):
             msg_markup = f"Mode changed to: [bold]{self.agent_mode}[/]"
             chat = self._maybe_chat()
             if chat:
-                chat.add_system_message_markup(msg_markup, level="WARNING")
+                chat.add_system_message_markup(msg_markup)
             else:
                 logger.info("Mode changed to %s", self.agent_mode)
 
