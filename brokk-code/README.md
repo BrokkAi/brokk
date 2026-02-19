@@ -108,8 +108,6 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 | `Ctrl+N` | Toggle notifications panel |
 | `Ctrl+D` | Exit immediately |
 | `Ctrl+C` | Cancel job / quit |
-| `Ctrl+G` | Toggle mode (LUTZ/ASK/SEARCH) |
-| `F3` | Toggle mode (LUTZ/ASK/SEARCH) |
 | `Ctrl+P` | Open settings |
 
 ## Theming
@@ -129,6 +127,10 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 
 | Command | Description |
 |---------|-------------|
+| `/code` | Set mode to CODE (direct implementation) |
+| `/ask` | Set mode to ASK (questions only) |
+| `/lutz` | Set mode to LUTZ (default; full agent access) |
+| `/mode` | Cycle between CODE, ASK, and LUTZ modes |
 | `/model <name>` | Switch the LLM model |
 | `/help` | Show available commands |
 | `/quit` | Exit the application |

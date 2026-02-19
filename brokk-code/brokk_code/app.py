@@ -28,7 +28,6 @@ class ContextModalScreen(ModalScreen[None]):
 
     BINDINGS = [
         Binding("escape", "close_context", "Close", show=False),
-        Binding("ctrl+l", "close_context", "Close", show=False),
     ]
 
     def __init__(self, on_close: Callable[[], None]) -> None:
@@ -128,6 +127,50 @@ class ReasoningSelectModal(ModalScreen[str]):
             self.dismiss(level)
 
 
+class ModeSelectModal(ModalScreen[str]):
+    """A modal for selecting the agent mode."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, modes: List[str], current: str) -> None:
+        super().__init__()
+        self.modes = modes
+        self.current = current
+        self._item_id_to_mode: Dict[str, str] = {
+            f"mode-{idx}": mode for idx, mode in enumerate(modes)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="mode-select-container"):
+            yield Static("Select Mode", id="mode-select-title")
+            with VerticalScroll(id="mode-select-list-wrap"):
+                yield ListView(
+                    *[
+                        ListItem(
+                            Static(
+                                f"{'[x]' if mode == self.current else '[ ]'} {mode}",
+                                markup=False,
+                            ),
+                            id=item_id,
+                        )
+                        for item_id, mode in self._item_id_to_mode.items()
+                    ],
+                    id="mode-select-list",
+                )
+
+    def on_mount(self) -> None:
+        self.query_one("#mode-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        mode = self._item_id_to_mode.get(message.item.id)
+        if mode:
+            self.dismiss(mode)
+
+
 class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
     """A combined modal for selecting both model and reasoning level side-by-side."""
 
@@ -188,7 +231,9 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
 
         try:
             if message.list_view.id == "model-select-list":
-                idx = int(message.item.id.split("-")[1])
+                # IDs are 'm-0', 'm-1', etc.
+                idx_str = message.item.id.split("-")[-1]
+                idx = int(idx_str)
                 self.selected_model = self.models[idx]
                 # Update markers in model list
                 for i, item in enumerate(message.list_view.query(ListItem)):
@@ -206,7 +251,9 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
                 r_list.focus()
 
             elif message.list_view.id == "reasoning-select-list":
-                idx = int(message.item.id.split("-")[1])
+                # IDs are 'r-0', 'r-1', etc.
+                idx_str = message.item.id.split("-")[-1]
+                idx = int(idx_str)
                 self.selected_reasoning = self.reasoning_levels[idx]
                 # Dismiss immediately upon reasoning selection
                 self.dismiss((self.selected_model, self.selected_reasoning))
@@ -220,17 +267,13 @@ class BrokkApp(App):
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
-        # Footer/help-bar ordering: Mode, Context, Tasks, Notifications, Settings
-        Binding("ctrl+g", "toggle_mode", "Mode", show=True),
+        # Footer/help-bar ordering: Context, Tasks, Notifications, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
-        Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
-        Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
         Binding("ctrl+space", "task_toggle", "Task Toggle", show=False),
-        Binding("f3", "toggle_mode", "Mode", show=False),
     ]
 
     def __init__(
@@ -307,6 +350,7 @@ class BrokkApp(App):
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
+        self._reasoning_target: str = "planner"
 
         # Shutdown coordination flags and lock
         self._shutting_down: bool = False
@@ -767,6 +811,38 @@ class BrokkApp(App):
         except Exception as e:
             chat.add_system_message(f"Failed to edit task: {e}", level="ERROR")
 
+    def on_chat_panel_mode_selected(self, message: ChatPanel.ModeSelected) -> None:
+        self._set_mode(message.mode.upper())
+
+    def on_chat_panel_reasoning_level_selected(
+        self, message: ChatPanel.ReasoningLevelSelected
+    ) -> None:
+        chat = self._maybe_chat()
+        if self._reasoning_target == "code":
+            self.reasoning_level_code = message.level
+            try:
+                self.settings.last_code_reasoning_level = message.level
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist code reasoning level")
+            if chat:
+                chat.add_system_message_markup(
+                    f"Code reasoning level changed to: [bold]{message.level}[/]"
+                )
+        else:
+            self.reasoning_level = message.level
+            try:
+                self.settings.last_reasoning_level = message.level
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist reasoning level")
+            if chat:
+                chat.add_system_message_markup(
+                    f"Reasoning level changed to: [bold]{message.level}[/]"
+                )
+
+        self._update_statusline()
+
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
         Handles user input from the chat panel.
@@ -909,7 +985,7 @@ class BrokkApp(App):
             msg_markup = f"Mode changed to: [bold]{self.agent_mode}[/]"
             chat = self._maybe_chat()
             if chat:
-                chat.add_system_message_markup(msg_markup, level="WARNING")
+                chat.add_system_message_markup(msg_markup)
             else:
                 logger.info("Mode changed to %s", self.agent_mode)
 
@@ -944,9 +1020,11 @@ class BrokkApp(App):
     def get_slash_commands() -> List[Dict[str, str]]:
         """Returns the structured catalog of supported slash commands."""
         return [
+            {"command": "/context", "description": "Toggle and focus context panel"},
+            {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
-            {"command": "/search", "description": "Set mode to SEARCH (read-only code search)"},
             {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
+            {"command": "/mode", "description": "Open mode selection menu"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
             {"command": "/reasoning", "description": "Set reasoning level for planner"},
@@ -955,7 +1033,7 @@ class BrokkApp(App):
             {"command": "/settings", "description": "Open settings"},
             {"command": "/history", "description": "Show recent prompt history"},
             {"command": "/history-clear", "description": "Clear prompt history"},
-            {"command": "/task", "description": "Show task info"},
+            {"command": "/task", "description": "Toggle and focus task panel"},
             {"command": "/task next", "description": "Select next task"},
             {"command": "/task prev", "description": "Select previous task"},
             {"command": "/task toggle", "description": "Toggle selected task done state"},
@@ -986,15 +1064,19 @@ class BrokkApp(App):
                 self._update_statusline()
             else:
                 self.run_worker(self.action_select_model_and_reasoning())
-        elif base == "/model-code" and len(parts) > 1:
-            self.code_model = parts[1]
-            # Persist the last-used code model
-            try:
-                self.settings.last_code_model = self.code_model
-                self.settings.save()
-            except Exception:
-                logger.exception("Failed to persist last_code_model setting")
-            chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
+        elif base == "/model-code":
+            if len(parts) > 1:
+                self.code_model = parts[1]
+                # Persist the last-used code model
+                try:
+                    self.settings.last_code_model = self.code_model
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_code_model setting")
+                chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
+                self._update_statusline()
+            else:
+                self.run_worker(self.action_select_code_model_and_reasoning())
         elif base == "/reasoning":
             if len(parts) > 1:
                 self.reasoning_level = parts[1]
@@ -1009,18 +1091,22 @@ class BrokkApp(App):
                 )
                 self._update_statusline()
             else:
-                self.run_worker(self.action_select_reasoning())
-        elif base == "/reasoning-code" and len(parts) > 1:
-            self.reasoning_level_code = parts[1]
-            # Persist code reasoning preference
-            try:
-                self.settings.last_code_reasoning_level = self.reasoning_level_code
-                self.settings.save()
-            except Exception:
-                logger.exception("Failed to persist last_code_reasoning_level setting")
-            chat.add_system_message_markup(
-                f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
-            )
+                self.action_select_reasoning(target="planner")
+        elif base == "/reasoning-code":
+            if len(parts) > 1:
+                self.reasoning_level_code = parts[1]
+                # Persist code reasoning preference
+                try:
+                    self.settings.last_code_reasoning_level = self.reasoning_level_code
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_code_reasoning_level setting")
+                chat.add_system_message_markup(
+                    f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
+                )
+                self._update_statusline()
+            else:
+                self.action_select_reasoning(target="code")
         elif base == "/autocommit":
             if len(parts) == 1:
                 state = "ON" if self.auto_commit else "OFF"
@@ -1071,8 +1157,13 @@ class BrokkApp(App):
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
             self.action_command_palette()
-        elif base in ("/ask", "/search", "/lutz"):
+        elif base in ("/code", "/ask", "/lutz"):
             self._set_mode(base[1:].upper())
+        elif base == "/mode":
+            if len(parts) > 1:
+                self._set_mode(parts[1].upper())
+            else:
+                self.action_select_mode()
         elif base == "/info":
             self._render_info()
         elif base == "/history":
@@ -1086,19 +1177,12 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+        elif base == "/context":
+            self.action_toggle_context()
         elif base == "/task":
             panel = self.query_one(TaskListPanel)
             if len(parts) == 1:
-                selected = panel.selected_task()
-                if not selected:
-                    chat.add_system_message(
-                        "Task commands: /task next | prev | toggle | delete | "
-                        "add <title> | edit <title>"
-                    )
-                else:
-                    done = "[x]" if bool(selected.get("done", False)) else "[ ]"
-                    title = str(selected.get("title", "Task")).strip() or "Task"
-                    chat.add_system_message(f"Selected task: {done} {title}")
+                self.action_toggle_tasklist()
             elif len(parts) >= 2:
                 action = parts[1].lower()
                 if action == "next":
@@ -1192,6 +1276,12 @@ class BrokkApp(App):
                 chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
 
     async def action_select_model_and_reasoning(self) -> None:
+        await self._select_model_and_reasoning_flow(target="planner")
+
+    async def action_select_code_model_and_reasoning(self) -> None:
+        await self._select_model_and_reasoning_flow(target="code")
+
+    async def _select_model_and_reasoning_flow(self, target: str = "planner") -> None:
         chat = self._maybe_chat()
         if not self._executor_ready:
             if chat:
@@ -1223,18 +1313,29 @@ class BrokkApp(App):
             def update_selection(result: tuple[str, str] | None) -> None:
                 if result:
                     model_id, reasoning = result
-                    self.current_model = model_id
-                    self.reasoning_level = reasoning
-                    # Persist choices
-                    try:
-                        self.settings.last_model = model_id
-                        self.settings.last_reasoning_level = reasoning
-                        self.settings.save()
-                    except Exception:
-                        logger.exception("Failed to persist model/reasoning settings")
+                    if target == "code":
+                        self.code_model = model_id
+                        self.reasoning_level_code = reasoning
+                        try:
+                            self.settings.last_code_model = model_id
+                            self.settings.last_code_reasoning_level = reasoning
+                            self.settings.save()
+                        except Exception:
+                            logger.exception("Failed to persist code model/reasoning settings")
+                        label = "Code Model"
+                    else:
+                        self.current_model = model_id
+                        self.reasoning_level = reasoning
+                        try:
+                            self.settings.last_model = model_id
+                            self.settings.last_reasoning_level = reasoning
+                            self.settings.save()
+                        except Exception:
+                            logger.exception("Failed to persist model/reasoning settings")
+                        label = "Model"
 
                     if chat:
-                        msg = f"Model: [bold]{model_id}[/] (Reasoning: [bold]{reasoning}[/])"
+                        msg = f"{label}: [bold]{model_id}[/] (Reasoning: [bold]{reasoning}[/])"
                         chat.add_system_message_markup(f"Settings updated: {msg}")
 
                     # Update statusline (best-effort)
@@ -1243,41 +1344,32 @@ class BrokkApp(App):
                     except Exception:
                         pass
 
+            current_m = self.code_model if target == "code" else self.current_model
+            current_r = self.reasoning_level_code if target == "code" else self.reasoning_level
+
             self.push_screen(
-                ModelReasoningSelectModal(
-                    available_models, self.current_model, self.reasoning_level
-                ),
+                ModelReasoningSelectModal(available_models, current_m, current_r),
                 update_selection,
             )
         except Exception as e:
             if chat:
                 chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
 
-    async def action_select_reasoning(self) -> None:
+    def action_select_reasoning(self, target: str = "planner") -> None:
         chat = self._maybe_chat()
-        levels = ["disable", "low", "medium", "high"]
-        current = str(self.reasoning_level or "low").strip() or "low"
-        if current not in levels:
-            current = "low"
+        if chat:
+            self._reasoning_target = target
+            levels = ["disable", "low", "medium", "high"]
+            current_val = self.reasoning_level_code if target == "code" else self.reasoning_level
+            current = str(current_val or "low").strip() or "low"
+            if current not in levels:
+                current = "low"
+            chat.open_reasoning_menu(levels, current)
 
-        def update_level(level: str | None) -> None:
-            if level:
-                self.reasoning_level = level
-                # Persist the user's reasoning preference
-                try:
-                    self.settings.last_reasoning_level = level
-                    self.settings.save()
-                except Exception:
-                    logger.exception("Failed to persist reasoning level")
-                if chat:
-                    chat.add_system_message_markup(f"Reasoning level changed to: [bold]{level}[/]")
-                # Update statusline (best-effort)
-                try:
-                    self._update_statusline()
-                except Exception:
-                    pass
-
-        self.push_screen(ReasoningSelectModal(levels, current), update_level)
+    def action_select_mode(self) -> None:
+        chat = self._maybe_chat()
+        if chat:
+            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):
@@ -1300,6 +1392,7 @@ class BrokkApp(App):
             chat.set_token_bar_visible(True)
 
     def action_toggle_tasklist(self) -> None:
+        """Toggles the task list panel and focuses it when opening."""
         panel = self.query_one("#side-tasklist")
         panel.display = not panel.display
         if panel.display:
@@ -1307,13 +1400,6 @@ class BrokkApp(App):
                 panel.focus()
             except Exception:
                 pass
-        else:
-            chat = self._maybe_chat()
-            if chat:
-                try:
-                    chat.query_one("#chat-input").focus()
-                except Exception:
-                    pass
 
     def action_task_next(self) -> None:
         panel = self.query_one(TaskListPanel)
@@ -1327,8 +1413,8 @@ class BrokkApp(App):
         self.run_worker(self._toggle_selected_task())
 
     def action_toggle_mode(self) -> None:
-        """Cycles through agent modes: LUTZ -> ASK -> SEARCH -> LUTZ."""
-        modes = ["LUTZ", "ASK", "SEARCH"]
+        """Cycles through agent modes: CODE -> ASK -> LUTZ -> CODE."""
+        modes = ["CODE", "ASK", "LUTZ"]
         try:
             current_index = modes.index(self.agent_mode)
         except ValueError:

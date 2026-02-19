@@ -47,6 +47,7 @@ public final class HeadlessExecutorMain {
             "brokk-api-key",
             "proxy-setting",
             "vendor",
+            "exit-on-stdin-eof",
             "help");
 
     private final UUID execId;
@@ -121,6 +122,31 @@ public final class HeadlessExecutorMain {
         return System.getenv(envVarName);
     }
 
+    private static boolean parseBooleanValue(String rawValue, String sourceName) {
+        var normalized = rawValue.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "", "1", "true", "yes", "on" -> true;
+            case "0", "false", "no", "off" -> false;
+            default ->
+                throw new IllegalArgumentException("Invalid boolean value for " + sourceName + ": '" + rawValue
+                        + "'. Expected one of true/false, 1/0, yes/no, on/off.");
+        };
+    }
+
+    private static boolean getBooleanConfigValue(
+            Map<String, String> parsedArgs, String argKey, String envVarName, boolean defaultValue) {
+        if (parsedArgs.containsKey(argKey)) {
+            return parseBooleanValue(parsedArgs.get(argKey), "--" + argKey);
+        }
+
+        var envValue = System.getenv(envVarName);
+        if (envValue != null && !envValue.isBlank()) {
+            return parseBooleanValue(envValue, envVarName);
+        }
+
+        return defaultValue;
+    }
+
     /**
      * Create a copy of the parsed arguments map with sensitive values redacted.
      * Sensitive keys include: auth-token, brokk-api-key
@@ -162,10 +188,13 @@ public final class HeadlessExecutorMain {
         System.out.println("  --proxy-setting <setting>  LLM proxy: BROKK, LOCALHOST, STAGING (optional)");
         System.out.println(
                 "  --vendor <vendor>          Other-models vendor: Default, Anthropic, Gemini, OpenAI, OpenAI - Codex (optional)");
+        System.out.println(
+                "  --exit-on-stdin-eof[=bool] Exit when stdin closes/errors (default: false; env EXIT_ON_STDIN_EOF)");
         System.out.println("  --help                     Show this help message");
         System.out.println();
         System.out.println("Arguments can also be provided via environment variables:");
-        System.out.println("  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING");
+        System.out.println(
+                "  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING, EXIT_ON_STDIN_EOF");
         System.out.println();
 
         System.exit(invalidArgs.isEmpty() ? 0 : 1);
@@ -438,6 +467,8 @@ public final class HeadlessExecutorMain {
             }
             var workspaceDir = Path.of(workspaceDirStr);
 
+            var exitOnStdinEof = getBooleanConfigValue(parsedArgs, "exit-on-stdin-eof", "EXIT_ON_STDIN_EOF", false);
+
             // Build ContextManager from workspace
             var project = new MainProject(workspaceDir);
 
@@ -517,6 +548,8 @@ public final class HeadlessExecutorMain {
                 System.out.println("  vendor:      " + vendorArg.trim());
             }
             System.out.println();
+            System.out.println("  exitOnStdinEof: " + exitOnStdinEof);
+            System.out.println();
             System.out.println("Available HTTP Endpoints:");
             System.out.println();
             System.out.println("  Unauthenticated (Health & Info):");
@@ -560,6 +593,48 @@ public final class HeadlessExecutorMain {
             System.out.println("Executor listening on http://" + boundHost + ":" + boundPort);
             System.out.println("Try: curl http://" + boundHost + ":" + boundPort + "/health/live");
             System.out.println();
+
+            if (exitOnStdinEof) {
+                // Monitor stdin for EOF / parent-death signal.
+                // This thread blocks on System.in.read() and will initiate a controlled shutdown
+                // if EOF is observed or an IOException occurs. It is a daemon so it won't
+                // prevent JVM shutdown if other non-daemon threads remain.
+                Thread stdinMonitor = new Thread(
+                        () -> {
+                            try {
+                                // Read until EOF (-1) or exception. We don't process the bytes; we only
+                                // treat EOF as a signal that the parent has gone away.
+                                int read;
+                                while ((read = System.in.read()) != -1) {
+                                    // Consume bytes without processing. If stdin is a terminal, this will
+                                    // block until user input / EOF and thus not interfere with normal usage.
+                                }
+                                logger.info("System.in closed (EOF detected). Initiating controlled shutdown.");
+                            } catch (IOException e) {
+                                logger.info(
+                                        "IOException while monitoring System.in; initiating controlled shutdown.", e);
+                            } catch (Throwable t) {
+                                logger.warn(
+                                        "Unexpected error in System.in monitor; initiating controlled shutdown.", t);
+                            } finally {
+                                try {
+                                    // Try to stop executor gracefully; use a short delay to speed shutdown.
+                                    executor.stop(5);
+                                } catch (Exception e) {
+                                    logger.warn("Error while stopping executor from stdin monitor", e);
+                                } finally {
+                                    // Ensure process exits even if shutdown hook doesn't run immediately.
+                                    System.exit(0);
+                                }
+                            }
+                        },
+                        "HeadlessExecutor-StdInMonitor");
+                stdinMonitor.setDaemon(true);
+                stdinMonitor.start();
+                logger.info("System.in EOF monitor enabled; process will exit when stdin closes or errors.");
+            } else {
+                logger.info("System.in EOF monitor disabled; executor will ignore stdin closure.");
+            }
 
             // Add shutdown hook
             Runtime.getRuntime()

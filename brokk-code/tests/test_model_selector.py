@@ -28,38 +28,18 @@ async def test_action_select_model_not_ready():
 
 
 @pytest.mark.asyncio
-async def test_action_select_model_updates_state():
-    # Setup app and executor mock
-    executor = MagicMock()
-    executor.get_models = AsyncMock(
-        return_value={
-            "models": [
-                {"name": "gpt-4", "location": "x"},
-                {"name": "claude-3", "location": "y"},
-            ]
-        }
-    )
-    app = BrokkApp(executor=executor)
-    app._executor_ready = True
+async def test_action_select_mode_opens_menu():
+    # Setup app
+    app = BrokkApp(executor=MagicMock())
+    app.agent_mode = "LUTZ"
 
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
 
-    # We mock push_screen to capture the callback and invoke it immediately
-    # as if the user selected a model in the modal.
-    def mock_push_screen(screen, callback=None):
-        # Verify it uses the model-only modal
-        assert screen.__class__.__name__ == "ModelSelectModal"
-        if callback:
-            # ModelSelectModal returns a single string
-            callback("claude-3")
+    app.action_select_mode()
 
-    app.push_screen = MagicMock(side_effect=mock_push_screen)
-
-    await app.action_select_model()
-
-    assert app.current_model == "claude-3"
-    mock_chat.add_system_message_markup.assert_called_with("Model changed to: [bold]claude-3[/]")
+    # Verify it opens the inline menu on ChatPanel instead of pushing a modal screen
+    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
 
 
 @pytest.mark.asyncio

@@ -210,7 +210,8 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await app._refresh_context_panel()
 
             mock_ctx.assert_called()
-            await pilot.press("ctrl+l")
+            # Open context modal
+            await pilot.press("/", *"context".split(), "enter")
             await app._refresh_context_panel()
             await pilot.pause()
             panel = app.screen.query_one(ContextPanel)
@@ -246,7 +247,8 @@ async def test_context_chips_wrap_into_multiple_rows(tmp_path):
 
         async with app.run_test() as pilot:
             app._executor_ready = True
-            await pilot.press("ctrl+l")
+            # Open context modal
+            await pilot.press("/", *"context".split(), "enter")
             await app._refresh_context_panel()
             await pilot.pause()
 

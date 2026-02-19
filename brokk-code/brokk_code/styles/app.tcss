@@ -162,19 +162,6 @@ ChatPanel {
     background: $accent 22%;
 }
 
-.context-chip.is-active {
-    border: round $accent;
-    background: $accent 28%;
-    text-style: bold;
-}
-
-.context-chip.is-selected {
-    border: round $warning;
-    background: $warning 35%;
-    color: $warning-lighten-3;
-    text-style: bold;
-}
-
 .context-chip-empty {
     border: none;
     padding: 0;
@@ -209,6 +196,20 @@ ChatPanel {
 }
 
 .context-chip.is-pinned {
+    text-style: bold;
+}
+
+.context-chip.is-active {
+    border: round $accent-lighten-2;
+    background: $accent 45%;
+    color: $text;
+    text-style: bold;
+}
+
+.context-chip.is-selected {
+    border: round $success-lighten-2;
+    background: $success 65%;
+    color: $text;
     text-style: bold;
 }
 
@@ -261,7 +262,7 @@ ChatPanel {
     content-align: left middle;
 }
 
-SlashCommandSuggestions {
+SlashCommandSuggestions, ModeSuggestions, ReasoningSuggestions {
     background: $panel;
     border: none;
     color: $text;
@@ -269,11 +270,19 @@ SlashCommandSuggestions {
     /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
     margin: 0 2 6 2;
     max-height: 20;
+    width: 1fr;
+    display: none;
+    layer: top;
+    dock: bottom;
 }
 
-SlashCommandSuggestions > ListItem:focus {
+SlashCommandSuggestions > ListItem:focus, ModeSuggestions > ListItem:focus, ReasoningSuggestions > ListItem:focus {
     background: $surface-lighten-1;
     color: $accent;
+}
+
+SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions ListItem {
+    padding: 0 1;
 }
 
 #chat-help-row {

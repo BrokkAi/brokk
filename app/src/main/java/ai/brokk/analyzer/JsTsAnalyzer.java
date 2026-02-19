@@ -8,8 +8,6 @@ import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -111,71 +109,37 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     @Override
-    protected void createModulesFromImports(
+    protected FileAnalysisContext createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
-        createModulesFromJavaScriptLikeImports(
-                file,
-                localImportStatements,
-                rootNode,
-                modulePackageName,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges,
-                localCodeUnitsBySymbol);
-    }
-
-    protected static void createModulesFromJavaScriptLikeImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
-        if (!localImportStatements.isEmpty()) {
-            String moduleShortName = file.getFileName();
-            CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
-
-            if (!localCuByFqName.containsKey(moduleCU.fqName())) {
-                localTopLevelCUs.addFirst(moduleCU);
-                localCuByFqName.put(moduleCU.fqName(), moduleCU);
-                String importBlockSignature = String.join("\n", localImportStatements);
-                localSignatures
-                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(importBlockSignature);
-
-                var moduleRange = new Range(
-                        rootNode.getStartByte(),
-                        rootNode.getEndByte(),
-                        rootNode.getStartPoint().getRow(),
-                        rootNode.getEndPoint().getRow(),
-                        rootNode.getStartByte());
-                localSourceRanges
-                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(moduleRange);
-
-                localCodeUnitsBySymbol
-                        .computeIfAbsent(moduleCU.identifier(), k -> new HashSet<>())
-                        .add(moduleCU);
-                if (!moduleCU.shortName().equals(moduleCU.identifier())) {
-                    localCodeUnitsBySymbol
-                            .computeIfAbsent(moduleCU.shortName(), k -> new HashSet<>())
-                            .add(moduleCU);
-                }
-            }
+            FileAnalysisContext ctx) {
+        if (localImportStatements.isEmpty()) {
+            return ctx;
         }
+
+        String moduleShortName = file.getFileName();
+        CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
+
+        if (ctx.cuByFqName().containsKey(moduleCU.fqName())) {
+            return ctx;
+        }
+
+        String importBlockSignature = String.join("\n", localImportStatements);
+        var moduleRange = new Range(
+                rootNode.getStartByte(),
+                rootNode.getEndByte(),
+                rootNode.getStartPoint().getRow(),
+                rootNode.getEndPoint().getRow(),
+                rootNode.getStartByte());
+
+        return ctx.withTopLevelCu(moduleCU)
+                .withSignature(moduleCU, importBlockSignature)
+                .withRange(moduleCU, moduleRange)
+                .withHasBody(moduleCU, true)
+                .withSymbolIndex(moduleCU.identifier(), moduleCU)
+                .withSymbolIndex(moduleCU.shortName(), moduleCU);
     }
 
     @Override

@@ -15,23 +15,156 @@ from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 
 
+class ModeSuggestions(ListView):
+    """A popup list for selecting agent modes."""
+
+    show_vertical_scrollbar = True
+    DEFAULT_CSS = """
+    ModeSuggestions {
+        background: $panel;
+        border: none;
+        color: $text;
+        scrollbar-gutter: stable;
+        margin: 0 2 6 2;
+        max-height: 20;
+        width: 1fr;
+        display: none;
+        layer: top;
+        dock: bottom;
+    }
+    """
+
+    class ModeSelected(Message):
+        def __init__(self, mode: str) -> None:
+            self.mode = mode
+            super().__init__()
+
+    def update_modes(self, modes: List[str], current: str) -> None:
+        self.clear()
+        for mode in modes:
+            marker = "[x]" if mode.upper() == current.upper() else "[ ]"
+            li = ListItem(Static(f"{marker} {mode}", markup=False))
+            li.mode_name = mode
+            self.append(li)
+
+        # Focus current or first
+        try:
+            idx = [m.upper() for m in modes].index(current.upper())
+            self.index = idx
+        except ValueError:
+            self.index = 0
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if message.item:
+            mode = getattr(message.item, "mode_name", "")
+            self.display = False
+            self.post_message(self.ModeSelected(mode))
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            self.display = False
+            try:
+                self.app.query_one("#chat-input").focus()
+            except Exception:
+                pass
+            event.stop()
+            return
+
+        # If it's a character key (length 1), hide the menu and forward to input
+        if event.character and len(event.character) == 1:
+            self.display = False
+            try:
+                chat_input = self.app.query_one("#chat-input", ChatInput)
+                chat_input.focus()
+                # Explicitly insert the character to trigger change handlers
+                chat_input.insert(event.character)
+            except Exception:
+                pass
+            event.stop()
+
+
+class ReasoningSuggestions(ListView):
+    """A popup list for selecting reasoning levels."""
+
+    show_vertical_scrollbar = True
+    DEFAULT_CSS = """
+    ReasoningSuggestions {
+        background: $panel;
+        border: none;
+        color: $text;
+        scrollbar-gutter: stable;
+        margin: 0 2 6 2;
+        max-height: 20;
+        width: 1fr;
+        display: none;
+        layer: top;
+        dock: bottom;
+    }
+    """
+
+    class LevelSelected(Message):
+        def __init__(self, level: str) -> None:
+            self.level = level
+            super().__init__()
+
+    def update_levels(self, levels: List[str], current: str) -> None:
+        self.clear()
+        for level in levels:
+            marker = "[x]" if level.lower() == current.lower() else "[ ]"
+            li = ListItem(Static(f"{marker} {level}", markup=False))
+            li.level_name = level
+            self.append(li)
+
+        # Focus current or first
+        try:
+            idx = [level.lower() for level in levels].index(current.lower())
+            self.index = idx
+        except ValueError:
+            self.index = 0
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if message.item:
+            level = getattr(message.item, "level_name", "")
+            self.display = False
+            self.post_message(self.LevelSelected(level))
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            self.display = False
+            try:
+                self.app.query_one("#chat-input").focus()
+            except Exception:
+                pass
+            event.stop()
+            return
+
+        if event.character and len(event.character) == 1:
+            self.display = False
+            try:
+                chat_input = self.app.query_one("#chat-input", ChatInput)
+                chat_input.focus()
+                chat_input.insert(event.character)
+            except Exception:
+                pass
+            event.stop()
+
+
 class SlashCommandSuggestions(ListView):
     """A popup list for slash command autocomplete."""
 
     show_vertical_scrollbar = True
-
     DEFAULT_CSS = """
     SlashCommandSuggestions {
-        display: none;
-        height: auto;
+        background: $panel;
+        border: none;
+        color: $text;
+        scrollbar-gutter: stable;
+        margin: 0 2 6 2;
         max-height: 20;
         width: 1fr;
-        margin: 0 2 0 2;
-        dock: bottom;
+        display: none;
         layer: top;
-    }
-    SlashCommandSuggestions ListItem {
-        padding: 0 1;
+        dock: bottom;
     }
     """
 
@@ -92,6 +225,7 @@ class ChatInput(TextArea):
     """
 
     suppress_autocomplete_once: bool = False
+    submit_after_accept: bool = False
 
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
@@ -138,6 +272,20 @@ class ChatInput(TextArea):
     def action_hide_autocomplete(self) -> None:
         """Hides the popup suggestions."""
         self._set_autocomplete_open(False)
+        self.submit_after_accept = False
+        self.suppress_autocomplete_once = False
+        try:
+            mode_sug = self.app.query_one(ModeSuggestions)
+            if mode_sug.display:
+                mode_sug.display = False
+        except Exception:
+            pass
+        try:
+            reason_sug = self.app.query_one(ReasoningSuggestions)
+            if reason_sug.display:
+                reason_sug.display = False
+        except Exception:
+            pass
 
     def action_accept_suggestion(self) -> None:
         """Accepts the highlighted popup suggestion."""
@@ -146,6 +294,14 @@ class ChatInput(TextArea):
             suggestions = app.query_one(SlashCommandSuggestions)
             if suggestions.display:
                 suggestions.action_select_cursor()
+                return
+            modes = app.query_one(ModeSuggestions)
+            if modes.display:
+                modes.action_select_cursor()
+                return
+            reasoning = app.query_one(ReasoningSuggestions)
+            if reasoning.display:
+                reasoning.action_select_cursor()
                 return
         except Exception:
             pass
@@ -166,17 +322,20 @@ class ChatInput(TextArea):
     def on_blur(self, event: events.Blur) -> None:
         """Hide autocomplete when input loses focus."""
         self._set_autocomplete_open(False)
+        self.submit_after_accept = False
 
     def _sync_autocomplete(self, text: str) -> None:
         """Drives autocomplete visibility based on current text and focus state."""
         if self.suppress_autocomplete_once:
             self._set_autocomplete_open(False)
+            self.submit_after_accept = False
             self.suppress_autocomplete_once = False
             return
 
         # Always hide if text is empty, contains newlines, or focus is lost
         if not text or not self.has_focus or "\n" in text or not text.startswith("/"):
             self._set_autocomplete_open(False)
+            self.submit_after_accept = False
             return
 
         app = self.app
@@ -187,6 +346,13 @@ class ChatInput(TextArea):
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
             is_any = suggestions.update_suggestions(text, commands)
+            if is_any:
+                # Hide other menus if they were open to ensure exclusivity
+                self.app.query_one(ModeSuggestions).display = False
+                self.app.query_one(ReasoningSuggestions).display = False
+            else:
+                self.submit_after_accept = False
+
             self._set_autocomplete_open(is_any)
         except Exception:
             pass
@@ -204,27 +370,40 @@ class ChatInput(TextArea):
 
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
+            mode_suggestions = self.app.query_one(ModeSuggestions)
+            reasoning_suggestions = self.app.query_one(ReasoningSuggestions)
         except Exception:
             suggestions = None
+            mode_suggestions = None
+            reasoning_suggestions = None
 
+        # Check suggestions, modes, or reasoning
+        active_popup = None
         if suggestions and suggestions.display:
+            active_popup = suggestions
+        elif mode_suggestions and mode_suggestions.display:
+            active_popup = mode_suggestions
+        elif reasoning_suggestions and reasoning_suggestions.display:
+            active_popup = reasoning_suggestions
+
+        if active_popup:
             if event.key == "up":
-                suggestions.action_cursor_up()
+                active_popup.action_cursor_up()
                 event.stop()
                 event.prevent_default()
                 return
             if event.key == "down":
-                suggestions.action_cursor_down()
+                active_popup.action_cursor_down()
                 event.stop()
                 event.prevent_default()
                 return
-            if event.key == "tab":
-                self.action_accept_suggestion()
-                event.stop()
-                event.prevent_default()
-                return
-            if event.key == "enter":
-                # Accept the suggestion without submitting (same as Tab)
+            if event.key in ("tab", "enter"):
+                # Flag that we want to submit immediately if Enter was used on slash suggestions.
+                # Only apply this to 'suggestions' (SlashCommandSuggestions),
+                # not mode/reasoning menus.
+                if event.key == "enter" and active_popup == suggestions:
+                    self.submit_after_accept = True
+
                 self.action_accept_suggestion()
                 event.stop()
                 event.prevent_default()
@@ -259,6 +438,20 @@ class ChatPanel(Vertical):
             self.text = text
             super().__init__()
 
+    class ModeSelected(Message):
+        """Posted when a mode is selected from the suggestion popup."""
+
+        def __init__(self, mode: str) -> None:
+            self.mode = mode
+            super().__init__()
+
+    class ReasoningLevelSelected(Message):
+        """Posted when a reasoning level is selected from the suggestion popup."""
+
+        def __init__(self, level: str) -> None:
+            self.level = level
+            super().__init__()
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._get_now: Callable[[], float] = time.monotonic
@@ -284,6 +477,8 @@ class ChatPanel(Vertical):
         with Vertical(id="chat-input-container"):
             yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield SlashCommandSuggestions(id="slash-suggestions")
+        yield ModeSuggestions(id="mode-suggestions")
+        yield ReasoningSuggestions(id="reasoning-suggestions")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
@@ -302,10 +497,13 @@ class ChatPanel(Vertical):
         if not chat_input.has_focus:
             return
 
-        # Bypass history navigation if suggestions are visible
+        # Bypass history navigation if suggestions, mode, or reasoning popups are visible
         try:
-            suggestions = self.query_one(SlashCommandSuggestions)
-            if suggestions.display:
+            if self.query_one(SlashCommandSuggestions).display:
+                return
+            if self.query_one(ModeSuggestions).display:
+                return
+            if self.query_one(ReasoningSuggestions).display:
                 return
         except Exception:
             pass
@@ -380,9 +578,41 @@ class ChatPanel(Vertical):
 
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         """Forward submission message from the internal ChatInput."""
-        self.post_message(self.Submitted(event.text))
         self._history_index = -1
         self._draft_buffer = ""
+        self.post_message(self.Submitted(event.text))
+
+    def open_mode_menu(self, modes: List[str], current: str) -> None:
+        """Opens the lightweight mode selection popup."""
+        # Ensure mutual exclusivity: hide other popups and close the input container's open state
+        self.query_one(SlashCommandSuggestions).display = False
+        self.query_one(ReasoningSuggestions).display = False
+        self.query_one("#chat-input-container").remove_class("autocomplete-open")
+
+        ms = self.query_one(ModeSuggestions)
+        ms.update_modes(modes, current)
+        ms.display = True
+        ms.focus()
+
+    def open_reasoning_menu(self, levels: List[str], current: str) -> None:
+        """Opens the lightweight reasoning selection popup."""
+        # Ensure mutual exclusivity: hide other popups and close the input container's open state
+        self.query_one(SlashCommandSuggestions).display = False
+        self.query_one(ModeSuggestions).display = False
+        self.query_one("#chat-input-container").remove_class("autocomplete-open")
+
+        rs = self.query_one(ReasoningSuggestions)
+        rs.update_levels(levels, current)
+        rs.display = True
+        rs.focus()
+
+    def on_mode_suggestions_mode_selected(self, event: ModeSuggestions.ModeSelected) -> None:
+        self.post_message(self.ModeSelected(event.mode))
+
+    def on_reasoning_suggestions_level_selected(
+        self, event: ReasoningSuggestions.LevelSelected
+    ) -> None:
+        self.post_message(self.ReasoningLevelSelected(event.level))
 
     def on_slash_command_suggestions_command_selected(
         self, event: SlashCommandSuggestions.CommandSelected
@@ -390,7 +620,8 @@ class ChatPanel(Vertical):
         chat_input = self.query_one("#chat-input", ChatInput)
         command = event.command
 
-        # Append a space for commands that typically require arguments
+        # Append a space for commands that typically require arguments.
+        # Commands like /mode and /settings open modals/menus and should not have a trailing space.
         needs_arg = command in ("/model", "/model-code", "/reasoning", "/reasoning-code", "/task")
         # Also check for command group prefixes like "/task "
         if command.startswith(("/task ", "/autocommit ")):
@@ -405,6 +636,13 @@ class ChatPanel(Vertical):
         chat_input.text = command
         chat_input.move_cursor(chat_input.document.end)
         chat_input.focus()
+
+        if chat_input.submit_after_accept:
+            chat_input.submit_after_accept = False
+            # We must post the message for ChatPanel.on_chat_input_submitted to see it,
+            # but we also need the App's submission handler to fire immediately for tests.
+            # ChatPanel handles its internal state when it receives the Submitted message.
+            chat_input.action_submit()
 
     def set_response_pending(self) -> None:
         """Called when a job is submitted and we are waiting for the first token."""

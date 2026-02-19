@@ -64,9 +64,11 @@ async def test_combined_modal_navigation_updates_both_settings():
     app = BrokkApp(executor=executor)
     app._executor_ready = True
 
-    # Force planner reasoning to 'low' so navigation is deterministic and
+    # Force planner reasoning and model so navigation is deterministic and
     # independent of any persisted ~/.brokk/settings.json.
+    app.current_model = "alpha-model"
     app.reasoning_level = "low"
+    app.settings.last_model = "alpha-model"
     app.settings.last_reasoning_level = "low"
 
     with (
@@ -95,6 +97,43 @@ async def test_combined_modal_navigation_updates_both_settings():
 
             assert app.current_model == "beta-model"
             assert app.reasoning_level == "medium"
+
+
+@pytest.mark.asyncio
+async def test_code_model_command_no_arg_opens_modal():
+    executor = MagicMock()
+    executor.get_models = AsyncMock(return_value={"models": ["m1", "m2"]})
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Simulate typing /model-code with no args
+            app._handle_command("/model-code")
+            await pilot.pause()
+
+            assert app.screen.__class__.__name__ == "ModelReasoningSelectModal"
+
+            # 1. Selection Pane: Model
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # 2. Selection Pane: Reasoning
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.code_model == "m2"
+            # Reasoning list: disable, low, medium, high.
+            # Default start 'disable' (0), down -> 'low' (1)
+            assert app.reasoning_level_code == "low"
 
 
 @pytest.mark.asyncio
@@ -190,6 +229,49 @@ async def test_combined_modal_checked_marker_is_visible():
 
 
 @pytest.mark.asyncio
+async def test_mode_command_with_arg_sets_directly():
+    """Verify /mode <MODE> updates state immediately without menu."""
+    executor = MagicMock()
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            app._handle_command("/mode ASK")
+            await pilot.pause()
+            assert app.agent_mode == "ASK"
+
+
+@pytest.mark.asyncio
+async def test_mode_command_no_arg_opens_menu():
+    executor = MagicMock()
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # We mock ChatPanel to verify the menu is opened
+            chat_panel = app.query_one("ChatPanel")
+            with patch.object(chat_panel, "open_mode_menu") as mock_open:
+                # Simulate typing /mode with no args
+                app._handle_command("/mode")
+                await pilot.pause()
+                mock_open.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
+
+
+@pytest.mark.asyncio
 async def test_reasoning_command_with_arg_sets_directly():
     executor = MagicMock()
     executor.stop = AsyncMock()
@@ -207,3 +289,72 @@ async def test_reasoning_command_with_arg_sets_directly():
             await pilot.pause()
 
             assert app.reasoning_level == "high"
+
+
+@pytest.mark.asyncio
+async def test_model_code_command_with_arg_sets_directly():
+    executor = MagicMock()
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Simulate typing /model-code gemini-pro
+            app._handle_command("/model-code gemini-pro")
+            await pilot.pause()
+
+            assert app.code_model == "gemini-pro"
+
+
+@pytest.mark.asyncio
+async def test_code_model_modal_navigation_updates_code_settings():
+    executor = MagicMock()
+    executor.get_models = AsyncMock(
+        return_value={
+            "models": [
+                {"name": "code-alpha", "location": "x"},
+                {"name": "code-beta", "location": "y"},
+            ]
+        }
+    )
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    # Initialize code settings to known state
+    app.code_model = "code-alpha"
+    app.reasoning_level_code = "disable"
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            # Trigger combined modal for code model
+            await app.action_select_code_model_and_reasoning()
+            await pilot.pause()
+
+            # 1. Selection Pane: Model
+            # Move to 'code-beta'
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # 2. Selection Pane: Reasoning
+            # Highlight starts at 'disable' (idx 0), down to 'low' (idx 1)
+            await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.code_model == "code-beta"
+            assert app.reasoning_level_code == "low"
+            # Ensure planner settings remained untouched
+            assert app.current_model != "code-beta"

@@ -29,18 +29,23 @@ class ExecutorManager:
         executor_version: Optional[str] = None,
         executor_snapshot: bool = True,
         vendor: Optional[str] = None,
+        exit_on_stdin_eof: bool = False,
     ):
         self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
         self.jar_override = jar_path
         self.executor_version = executor_version
         self.use_snapshot = executor_snapshot
         self.vendor = vendor
+        self.exit_on_stdin_eof = exit_on_stdin_eof
         self.auth_token = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
         self.resolved_jar_path: Optional[Path] = None
 
         self._process: Optional[asyncio.subprocess.Process] = None
+        # The stdin stream for the subprocess (when created with PIPE).
+        # Stored so we can close it on shutdown.
+        self._stdin: Optional[asyncio.StreamWriter] = None
         self._http_client: Optional[httpx.AsyncClient] = None
 
     def _sanitize_tag_for_filename(self, tag: str) -> str:
@@ -311,13 +316,34 @@ class ExecutorManager:
 
         if self.vendor is not None and str(self.vendor).strip():
             cmd.extend(["--vendor", str(self.vendor).strip()])
+        if self.exit_on_stdin_eof:
+            cmd.append("--exit-on-stdin-eof")
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
         try:
+            # Create subprocess with a dedicated stdin pipe so the Java
+            # executor can detect parent death.
+            #
+            # Implementation note / lifecycle guarantee:
+            # - We intentionally open the child's stdin as a PIPE and retain the StreamWriter
+            #   (self._stdin) reference. The Java HeadlessExecutorMain watches System.in for EOF
+            #   and treats that as a parent-death signal, initiating a controlled shutdown.
+            # - IDEs like IntelliJ will close the child's stdin when the run/debug profile is
+            #   terminated or the parent process is killed. Relying on stdin EOF allows the Java
+            #   executor to exit even when the Python process's 'finally' cleanup does not run,
+            #   preventing lingering brokk.jar/HeadlessExecutorMain processes.
+            #
+            # See HeadlessExecutorMain's stdin monitor for more details.
             self._process = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
             )
+            # Store the stdin stream for later closure in stop()
+            # Note: Process.stdin is a StreamWriter-like object when stdin=PIPE.
+            self._stdin = self._process.stdin  # type: ignore[attr-defined]
         except FileNotFoundError:
             raise ExecutorError(
                 "Java executable not found. "
@@ -762,6 +788,37 @@ class ExecutorManager:
 
         if self._process:
             logger.info("Stopping executor subprocess...")
+            # First, attempt to close stdin so the child process can
+            # observe EOF and exit if it chooses.
+            if self._stdin is not None:
+                try:
+                    # StreamWriter.close() is synchronous; wait for wait_closed() if available.
+                    #
+                    # Closing the child's stdin is the preferred first step for shutdown because
+                    # HeadlessExecutorMain treats stdin EOF as a signal to perform a controlled
+                    # shutdown. This helps ensure the Java process exits even if the Python
+                    # interpreter is killed abruptly by the IDE and its own cleanup handlers
+                    # do not run.
+                    self._stdin.close()
+                    wait_closed = getattr(self._stdin, "wait_closed", None)
+                    if callable(wait_closed):
+                        try:
+                            await wait_closed()
+                        except (BrokenPipeError, ConnectionResetError):
+                            # Child already gone or closed the pipe;
+                            # ignore these expected conditions.
+                            pass
+                        except Exception:
+                            logger.exception("Unexpected error while waiting for stdin to close")
+                    # Clear reference
+                except (BrokenPipeError, ConnectionResetError):
+                    # Expected if the child has already exited or closed the pipe.
+                    pass
+                except Exception:
+                    logger.exception("Unexpected error while closing subprocess stdin")
+                finally:
+                    self._stdin = None
+
             try:
                 self._process.terminate()
                 try:
