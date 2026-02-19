@@ -2657,8 +2657,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             String exportPrefix,
             String signatureText,
             String baseIndent);
-    // renderClassFooter is removed, replaced by getLanguageSpecificCloser
-    // buildClassMemberSkeletons is removed from this direct path; children are handled by recursive reconstruction.
 
     /* ---------- Granular Signature Rendering Callbacks (Formatting) ---------- */
 
@@ -2675,8 +2673,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return parametersNode.isNull() ? "" : sourceContent.substringFrom(parametersNode);
     }
 
-    // Removed deprecated formatParameterList(String)
-
     /**
      * Formats the return-type portion of a function signature. Subclasses may override to provide language-specific
      * formatting. The default implementation returns the raw text of {@code returnTypeNode} extracted from the provided
@@ -2689,8 +2685,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected String formatReturnType(@Nullable TSNode returnTypeNode, SourceContent sourceContent) {
         return returnTypeNode == null || returnTypeNode.isNull() ? "" : sourceContent.substringFrom(returnTypeNode);
     }
-
-    // Removed deprecated formatReturnType(String)
 
     protected String formatHeritage(String signatureText) {
         return signatureText;

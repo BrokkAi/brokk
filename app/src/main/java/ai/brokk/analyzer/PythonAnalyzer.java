@@ -886,10 +886,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                 .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
                 .toList();
 
-        FileAnalysisContext updated = ctx.withSymbolIndex(moduleCu.identifier(), moduleCu)
-                .withSymbolIndex(moduleCu.shortName(), moduleCu)
-                .withSignature(moduleCu, "# module " + modulePackageName)
-                .withLookupKey(moduleCu.fqName(), moduleCu);
+        FileAnalysisContext updated =
+                ctx.withTopLevelCu(moduleCu).withSignature(moduleCu, "# module " + modulePackageName);
+
+        // withTopLevelCu already registers identifiers in symbolIndex and fqName in cuByFqName/lookupKeys.
 
         for (CodeUnit child : children) {
             updated = updated.withChild(moduleCu, child);
