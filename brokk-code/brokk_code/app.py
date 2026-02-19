@@ -268,7 +268,6 @@ class BrokkApp(App):
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
-        Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
@@ -1031,7 +1030,7 @@ class BrokkApp(App):
             {"command": "/settings", "description": "Open settings"},
             {"command": "/history", "description": "Show recent prompt history"},
             {"command": "/history-clear", "description": "Clear prompt history"},
-            {"command": "/task", "description": "Show task info"},
+            {"command": "/task", "description": "Open task panel"},
             {"command": "/task next", "description": "Select next task"},
             {"command": "/task prev", "description": "Select previous task"},
             {"command": "/task toggle", "description": "Toggle selected task done state"},
@@ -1179,16 +1178,11 @@ class BrokkApp(App):
         elif base == "/task":
             panel = self.query_one(TaskListPanel)
             if len(parts) == 1:
-                selected = panel.selected_task()
-                if not selected:
-                    chat.add_system_message(
-                        "Task commands: /task next | prev | toggle | delete | "
-                        "add <title> | edit <title>"
-                    )
-                else:
-                    done = "[x]" if bool(selected.get("done", False)) else "[ ]"
-                    title = str(selected.get("title", "Task")).strip() or "Task"
-                    chat.add_system_message(f"Selected task: {done} {title}")
+                panel.display = True
+                try:
+                    panel.focus()
+                except Exception:
+                    pass
             elif len(parts) >= 2:
                 action = parts[1].lower()
                 if action == "next":

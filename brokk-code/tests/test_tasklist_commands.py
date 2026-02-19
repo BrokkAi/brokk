@@ -9,11 +9,11 @@ def _close_coro(coro):
     coro.close()
 
 
-def test_task_command_without_selection_shows_help():
+def test_task_command_opens_panel():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     mock_panel = MagicMock(spec=TaskListPanel)
-    mock_panel.selected_task.return_value = None
+    mock_panel.display = False
 
     def query_one(target, *args, **kwargs):
         if target is ChatPanel:
@@ -27,9 +27,8 @@ def test_task_command_without_selection_shows_help():
 
     app._handle_command("/task")
 
-    mock_chat.add_system_message.assert_called_with(
-        "Task commands: /task next | prev | toggle | delete | add <title> | edit <title>"
-    )
+    assert mock_panel.display is True
+    mock_panel.focus.assert_called_once()
 
 
 def test_task_command_next_moves_selection():
