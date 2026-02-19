@@ -47,6 +47,38 @@ class ModeSuggestions(ListView):
             self.post_message(self.ModeSelected(mode))
 
 
+class ReasoningSuggestions(ListView):
+    """A popup list for selecting reasoning levels."""
+
+    show_vertical_scrollbar = True
+
+    class LevelSelected(Message):
+        def __init__(self, level: str) -> None:
+            self.level = level
+            super().__init__()
+
+    def update_levels(self, levels: List[str], current: str) -> None:
+        self.clear()
+        for level in levels:
+            marker = "[x]" if level.lower() == current.lower() else "[ ]"
+            li = ListItem(Static(f"{marker} {level}", markup=False))
+            li.level_name = level
+            self.append(li)
+
+        # Focus current or first
+        try:
+            idx = [l.lower() for l in levels].index(current.lower())
+            self.index = idx
+        except ValueError:
+            self.index = 0
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if message.item:
+            level = getattr(message.item, "level_name", "")
+            self.display = False
+            self.post_message(self.LevelSelected(level))
+
+
 class SlashCommandSuggestions(ListView):
     """A popup list for slash command autocomplete."""
 
@@ -159,6 +191,10 @@ class ChatInput(TextArea):
             self.app.query_one(ModeSuggestions).display = False
         except Exception:
             pass
+        try:
+            self.app.query_one(ReasoningSuggestions).display = False
+        except Exception:
+            pass
 
     def action_accept_suggestion(self) -> None:
         """Accepts the highlighted popup suggestion."""
@@ -171,6 +207,10 @@ class ChatInput(TextArea):
             modes = app.query_one(ModeSuggestions)
             if modes.display:
                 modes.action_select_cursor()
+                return
+            reasoning = app.query_one(ReasoningSuggestions)
+            if reasoning.display:
+                reasoning.action_select_cursor()
                 return
         except Exception:
             pass
@@ -235,16 +275,20 @@ class ChatInput(TextArea):
         try:
             suggestions = self.app.query_one(SlashCommandSuggestions)
             mode_suggestions = self.app.query_one(ModeSuggestions)
+            reasoning_suggestions = self.app.query_one(ReasoningSuggestions)
         except Exception:
             suggestions = None
             mode_suggestions = None
+            reasoning_suggestions = None
 
-        # Check suggestions or modes
+        # Check suggestions, modes, or reasoning
         active_popup = None
         if suggestions and suggestions.display:
             active_popup = suggestions
         elif mode_suggestions and mode_suggestions.display:
             active_popup = mode_suggestions
+        elif reasoning_suggestions and reasoning_suggestions.display:
+            active_popup = reasoning_suggestions
 
         if active_popup:
             if event.key == "up":
@@ -299,6 +343,13 @@ class ChatPanel(Vertical):
             self.mode = mode
             super().__init__()
 
+    class ReasoningLevelSelected(Message):
+        """Posted when a reasoning level is selected from the suggestion popup."""
+
+        def __init__(self, level: str) -> None:
+            self.level = level
+            super().__init__()
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._get_now: Callable[[], float] = time.monotonic
@@ -325,6 +376,7 @@ class ChatPanel(Vertical):
             yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         yield SlashCommandSuggestions(id="slash-suggestions")
         yield ModeSuggestions(id="mode-suggestions")
+        yield ReasoningSuggestions(id="reasoning-suggestions")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
@@ -343,11 +395,13 @@ class ChatPanel(Vertical):
         if not chat_input.has_focus:
             return
 
-        # Bypass history navigation if suggestions or mode popups are visible
+        # Bypass history navigation if suggestions, mode, or reasoning popups are visible
         try:
             if self.query_one(SlashCommandSuggestions).display:
                 return
             if self.query_one(ModeSuggestions).display:
+                return
+            if self.query_one(ReasoningSuggestions).display:
                 return
         except Exception:
             pass
@@ -428,16 +482,33 @@ class ChatPanel(Vertical):
 
     def open_mode_menu(self, modes: List[str], current: str) -> None:
         """Opens the lightweight mode selection popup."""
-        # Ensure mutual exclusivity: hide slash suggestions and close the input container's open state
+        # Ensure mutual exclusivity: hide other popups and close the input container's open state
         self.query_one(SlashCommandSuggestions).display = False
+        self.query_one(ReasoningSuggestions).display = False
         self.query_one("#chat-input-container").remove_class("autocomplete-open")
 
         ms = self.query_one(ModeSuggestions)
         ms.update_modes(modes, current)
         ms.display = True
 
+    def open_reasoning_menu(self, levels: List[str], current: str) -> None:
+        """Opens the lightweight reasoning selection popup."""
+        # Ensure mutual exclusivity: hide other popups and close the input container's open state
+        self.query_one(SlashCommandSuggestions).display = False
+        self.query_one(ModeSuggestions).display = False
+        self.query_one("#chat-input-container").remove_class("autocomplete-open")
+
+        rs = self.query_one(ReasoningSuggestions)
+        rs.update_levels(levels, current)
+        rs.display = True
+
     def on_mode_suggestions_mode_selected(self, event: ModeSuggestions.ModeSelected) -> None:
         self.post_message(self.ModeSelected(event.mode))
+
+    def on_reasoning_suggestions_level_selected(
+        self, event: ReasoningSuggestions.LevelSelected
+    ) -> None:
+        self.post_message(self.ReasoningLevelSelected(event.level))
 
     def on_slash_command_suggestions_command_selected(
         self, event: SlashCommandSuggestions.CommandSelected

@@ -812,6 +812,22 @@ class BrokkApp(App):
     def on_chat_panel_mode_selected(self, message: ChatPanel.ModeSelected) -> None:
         self._set_mode(message.mode.upper())
 
+    def on_chat_panel_reasoning_level_selected(
+        self, message: ChatPanel.ReasoningLevelSelected
+    ) -> None:
+        self.reasoning_level = message.level
+        # Persist choice
+        try:
+            self.settings.last_reasoning_level = message.level
+            self.settings.save()
+        except Exception:
+            logger.exception("Failed to persist reasoning level")
+
+        chat = self._maybe_chat()
+        if chat:
+            chat.add_system_message_markup(f"Reasoning level changed to: [bold]{message.level}[/]")
+        self._update_statusline()
+
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
         Handles user input from the chat panel.
@@ -1059,7 +1075,12 @@ class BrokkApp(App):
                 )
                 self._update_statusline()
             else:
-                self.run_worker(self.action_select_reasoning())
+                # Open the inline reasoning menu when /reasoning is submitted without arguments
+                levels = ["disable", "low", "medium", "high"]
+                current = str(self.reasoning_level or "low").strip() or "low"
+                if current not in levels:
+                    current = "low"
+                chat.open_reasoning_menu(levels, current)
         elif base == "/reasoning-code" and len(parts) > 1:
             self.reasoning_level_code = parts[1]
             # Persist code reasoning preference
@@ -1357,6 +1378,16 @@ class BrokkApp(App):
         chat = self._maybe_chat()
         if chat:
             chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
+
+    def action_select_reasoning_inline(self) -> None:
+        """Action to trigger the inline reasoning menu (e.g. from keybinding)."""
+        chat = self._maybe_chat()
+        if chat:
+            levels = ["disable", "low", "medium", "high"]
+            current = str(self.reasoning_level or "low").strip() or "low"
+            if current not in levels:
+                current = "low"
+            chat.open_reasoning_menu(levels, current)
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):

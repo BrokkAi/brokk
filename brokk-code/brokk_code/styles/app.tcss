@@ -261,7 +261,7 @@ ChatPanel {
     content-align: left middle;
 }
 
-SlashCommandSuggestions, ModeSuggestions {
+SlashCommandSuggestions, ModeSuggestions, ReasoningSuggestions {
     background: $panel;
     border: none;
     color: $text;
@@ -275,12 +275,12 @@ SlashCommandSuggestions, ModeSuggestions {
     dock: bottom;
 }
 
-SlashCommandSuggestions > ListItem:focus, ModeSuggestions > ListItem:focus {
+SlashCommandSuggestions > ListItem:focus, ModeSuggestions > ListItem:focus, ReasoningSuggestions > ListItem:focus {
     background: $surface-lighten-1;
     color: $accent;
 }
 
-SlashCommandSuggestions ListItem, ModeSuggestions ListItem {
+SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions ListItem {
     padding: 0 1;
 }
 
