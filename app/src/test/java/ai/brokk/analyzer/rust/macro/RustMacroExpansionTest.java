@@ -21,6 +21,48 @@ import org.treesitter.TreeSitterRust;
 class RustMacroExpansionTest {
 
     @Test
+    void testIsMacroExpanderSupports() throws IOException {
+        String codeWithAttr = "#[derive(is_macro::Is)] enum Target {}";
+        String codeWithoutAttr = "#[derive(Debug)] enum Other {}";
+
+        try (IProject project =
+                InlineTestProjectCreator.code(codeWithAttr, "src/lib.rs").build()) {
+            IsMacroExpander expander = new IsMacroExpander();
+
+            // Test matching
+            SourceContent sourceWith = SourceContent.of(codeWithAttr);
+            TSParser parser = new TSParser();
+            parser.setLanguage(new TreeSitterRust());
+            TSTree treeWith = parser.parseString(null, codeWithAttr);
+            TSNode enumWith = findNodeByType(treeWith.getRootNode(), "enum_item");
+            assertTrue(
+                    enumWith != null && expander.supports(enumWith, sourceWith),
+                    "Should support enum with Is attribute");
+
+            // Test non-matching
+            SourceContent sourceWithout = SourceContent.of(codeWithoutAttr);
+            TSTree treeWithout = parser.parseString(null, codeWithoutAttr);
+            TSNode enumWithout = findNodeByType(treeWithout.getRootNode(), "enum_item");
+            assertTrue(
+                    enumWithout != null && !expander.supports(enumWithout, sourceWithout),
+                    "Should not support enum without Is attribute");
+        }
+    }
+
+    private org.treesitter.TSNode findNodeByType(org.treesitter.TSNode root, String type) {
+        if (type.equals(root.getType())) {
+            return root;
+        }
+        for (int i = 0; i < root.getChildCount(); i++) {
+            org.treesitter.TSNode found = findNodeByType(root.getChild(i), type);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    @Test
     void testIsMacroExpander() throws IOException {
         String code =
                 """
@@ -38,8 +80,8 @@ class RustMacroExpansionTest {
             TSParser parser = new TSParser();
             parser.setLanguage(new TreeSitterRust());
             TSTree tree = parser.parseString(null, code);
-            TSNode root = tree.getRootNode();
-            TSNode enumNode = root.getChild(0); // enum_item
+            TSNode enumNode = findNodeByType(tree.getRootNode(), "enum_item");
+            assertTrue(enumNode != null);
 
             IsMacroExpander expander = new IsMacroExpander();
             SourceContent source = SourceContent.of(code);
