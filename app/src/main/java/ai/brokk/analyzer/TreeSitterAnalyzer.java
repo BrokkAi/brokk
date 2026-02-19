@@ -2957,22 +2957,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
 
             case ALIAS_LIKE: {
-                String typeParamsText = "";
-                if (!profile.typeParametersFieldName().isEmpty()) {
-                    TSNode tp = nodeForContent.getChildByFieldName(profile.typeParametersFieldName());
-                    if (tp != null && !tp.isNull())
-                        typeParamsText = sourceContent.substringFrom(tp).strip();
+                String aliasSig =
+                        renderAliasSignature(nodeForContent, sourceContent, exportPrefix, simpleName, profile, file);
+                if (!aliasSig.isBlank()) {
+                    signatureLines.add(aliasSig);
                 }
-                TSNode valueNode = nodeForContent.getChildByFieldName("value");
-                String valueText = (valueNode != null && !valueNode.isNull())
-                        ? sourceContent.substringFrom(valueNode).strip()
-                        : "";
-                if (valueText.isEmpty()) valueText = "any";
-                String aliasSig = (exportPrefix.stripTrailing() + " type " + simpleName + typeParamsText + " = "
-                                + valueText)
-                        .strip();
-                if (!aliasSig.endsWith(";") && requiresSemicolons()) aliasSig += ";";
-                signatureLines.add(aliasSig);
                 break;
             }
 
@@ -3160,6 +3149,46 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return The string marker to append in skeleton rendering (e.g., "{...}", "...", "= {...}")
      */
     protected abstract String bodyPlaceholder();
+
+    /**
+     * Renders a type alias or similar construct.
+     *
+     * @param node           The node representing the alias.
+     * @param sourceContent  The source content.
+     * @param exportPrefix   The export/visibility prefix.
+     * @param simpleName     The simple name of the alias.
+     * @param profile        The language syntax profile.
+     * @param file           The project file.
+     * @return The rendered signature string.
+     */
+    protected String renderAliasSignature(
+            TSNode node,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String simpleName,
+            LanguageSyntaxProfile profile,
+            ProjectFile file) {
+        String typeParamsText = "";
+        if (!profile.typeParametersFieldName().isEmpty()) {
+            TSNode tp = node.getChildByFieldName(profile.typeParametersFieldName());
+            if (tp != null && !tp.isNull()) {
+                typeParamsText = sourceContent.substringFrom(tp).strip();
+            }
+        }
+        TSNode valueNode = node.getChildByFieldName("value");
+        String valueText = (valueNode != null && !valueNode.isNull())
+                ? sourceContent.substringFrom(valueNode).strip()
+                : "";
+        if (valueText.isEmpty()) {
+            valueText = "any";
+        }
+        String aliasSig =
+                (exportPrefix.stripTrailing() + " type " + simpleName + typeParamsText + " = " + valueText).strip();
+        if (!aliasSig.endsWith(";") && requiresSemicolons()) {
+            aliasSig += ";";
+        }
+        return aliasSig;
+    }
 
     /**
      * Renders the complete declaration line for a function, including any prefixes, name, parameters, return type, and
