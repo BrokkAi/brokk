@@ -390,7 +390,8 @@ class ChatPanel(Vertical):
         chat_input = self.query_one("#chat-input", ChatInput)
         command = event.command
 
-        # Append a space for commands that typically require arguments
+        # Append a space for commands that typically require arguments.
+        # Commands like /mode and /settings open modals/menus and should not have a trailing space.
         needs_arg = command in ("/model", "/model-code", "/reasoning", "/reasoning-code", "/task")
         # Also check for command group prefixes like "/task "
         if command.startswith(("/task ", "/autocommit ")):

@@ -215,6 +215,21 @@ async def test_autocomplete_tab_regression_no_crash():
 
 
 @pytest.mark.asyncio
+async def test_autocomplete_mode_does_not_append_space():
+    """Verify /mode does not append a trailing space as it opens a menu."""
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        chat_input = app.query_one(ChatInput)
+
+        # Type /mo and select /mode (which should be a match)
+        await pilot.press(*list("/mode"))
+        await pilot.press("enter")
+
+        # /mode should NOT have a trailing space
+        assert chat_input.text == "/mode"
+
+
+@pytest.mark.asyncio
 async def test_autocomplete_ui_hidden_after_selection_even_if_prefix_matches_others():
     """
     Regression test: accepting /model should hide the UI even if /model-code exists.
