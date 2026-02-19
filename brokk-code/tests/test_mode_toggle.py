@@ -83,6 +83,12 @@ def test_ctrl_p_binding_is_settings():
     assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
 
 
+def test_shift_tab_binding_toggles_mode():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: b.action for b in app.BINDINGS}
+    assert bindings["shift+tab"] == "toggle_mode"
+
+
 def test_model_and_reasoning_bindings_do_not_exist():
     app = BrokkApp(executor=MagicMock())
     # Verify shortcuts no longer exist in app bindings.
