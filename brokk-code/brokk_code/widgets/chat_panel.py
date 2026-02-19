@@ -52,21 +52,6 @@ class SlashCommandSuggestions(ListView):
 
     show_vertical_scrollbar = True
 
-    DEFAULT_CSS = """
-    SlashCommandSuggestions, ModeSuggestions {
-        display: none;
-        height: auto;
-        max-height: 20;
-        width: 1fr;
-        margin: 0 2 0 2;
-        dock: bottom;
-        layer: top;
-    }
-    SlashCommandSuggestions ListItem, ModeSuggestions ListItem {
-        padding: 0 1;
-    }
-    """
-
     class CommandSelected(Message):
         def __init__(self, command: str) -> None:
             self.command = command
