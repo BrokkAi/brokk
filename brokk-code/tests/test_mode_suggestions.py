@@ -1,7 +1,9 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from brokk_code.app import BrokkApp
-from brokk_code.widgets.chat_panel import ModeSuggestions, ChatInput
+from brokk_code.widgets.chat_panel import ChatInput, ModeSuggestions
 
 
 @pytest.mark.asyncio

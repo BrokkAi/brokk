@@ -3,8 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from brokk_code.app import BrokkApp
-
-
 from brokk_code.widgets.chat_panel import ReasoningSuggestions
 
 

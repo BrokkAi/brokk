@@ -67,7 +67,7 @@ class ReasoningSuggestions(ListView):
 
         # Focus current or first
         try:
-            idx = [l.lower() for l in levels].index(current.lower())
+            idx = [level.lower() for level in levels].index(current.lower())
             self.index = idx
         except ValueError:
             self.index = 0
