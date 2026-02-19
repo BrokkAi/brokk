@@ -322,3 +322,25 @@ async def test_slash_triggers_menu_from_app_commands():
         await pilot.press("escape")
         assert suggestions.display is False
         assert not container.has_class("autocomplete-open")
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_hides_mode_menu():
+    """Verify that typing a slash to show autocomplete hides the mode menu if it was open."""
+    from brokk_code.widgets.chat_panel import ModeSuggestions
+
+    app = AutocompleteTestApp()
+    async with app.run_test() as pilot:
+        mode_suggestions = app.query_one(ModeSuggestions)
+        slash_suggestions = app.query_one(SlashCommandSuggestions)
+
+        # Manually show mode menu
+        mode_suggestions.display = True
+        assert mode_suggestions.display is True
+        assert slash_suggestions.display is False
+
+        # Type slash
+        await pilot.press("/")
+
+        assert slash_suggestions.display is True
+        assert mode_suggestions.display is False

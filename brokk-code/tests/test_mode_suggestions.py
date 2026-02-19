@@ -71,7 +71,7 @@ async def test_mode_menu_exclusivity_with_slash_commands():
             assert mode_suggestions.display is True
 
             # 3. Typing something else (or backspacing and typing slash) should flip it back
-            await pilot.press("backspace")  # Clear slash
+            # The input was cleared by the previous /mode submission.
             await pilot.press("/")
             await pilot.pause()
 

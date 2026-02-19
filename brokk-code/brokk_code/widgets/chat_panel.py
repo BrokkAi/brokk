@@ -228,8 +228,10 @@ class ChatInput(TextArea):
             suggestions = self.app.query_one(SlashCommandSuggestions)
             is_any = suggestions.update_suggestions(text, commands)
             if is_any:
-                # Hide mode menu if it was open
-                self.app.query_one(ModeSuggestions).display = False
+                # Hide mode menu if it was open to ensure exclusivity
+                mode_suggestions = self.app.query_one(ModeSuggestions)
+                if mode_suggestions.display:
+                    mode_suggestions.display = False
             self._set_autocomplete_open(is_any)
         except Exception:
             pass
@@ -441,7 +443,7 @@ class ChatPanel(Vertical):
 
     def open_mode_menu(self, modes: List[str], current: str) -> None:
         """Opens the lightweight mode selection popup."""
-        # Ensure mutual exclusivity
+        # Ensure mutual exclusivity: hide slash suggestions and close the input container's open state
         self.query_one(SlashCommandSuggestions).display = False
         self.query_one("#chat-input-container").remove_class("autocomplete-open")
 
