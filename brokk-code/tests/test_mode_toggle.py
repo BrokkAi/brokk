@@ -23,14 +23,14 @@ def test_action_toggle_mode_cycles_correctly():
         "Mode changed to: [bold]ASK[/]", level="WARNING"
     )
 
-    # Cycle 2: ASK -> SEARCH
+    # Cycle 2: ASK -> CODE
     app.action_toggle_mode()
-    assert app.agent_mode == "SEARCH"
+    assert app.agent_mode == "CODE"
     mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]SEARCH[/]", level="WARNING"
+        "Mode changed to: [bold]CODE[/]", level="WARNING"
     )
 
-    # Cycle 3: SEARCH -> LUTZ
+    # Cycle 3: CODE -> LUTZ
     app.action_toggle_mode()
     assert app.agent_mode == "LUTZ"
     mock_chat.add_system_message_markup.assert_called_with(
@@ -50,11 +50,11 @@ def test_handle_command_updates_agent_mode():
         "Mode changed to: [bold]ASK[/]", level="WARNING"
     )
 
-    # Test /search
-    app._handle_command("/search")
-    assert app.agent_mode == "SEARCH"
+    # Test /code
+    app._handle_command("/code")
+    assert app.agent_mode == "CODE"
     mock_chat.add_system_message_markup.assert_called_with(
-        "Mode changed to: [bold]SEARCH[/]", level="WARNING"
+        "Mode changed to: [bold]CODE[/]", level="WARNING"
     )
 
     # Test /lutz
