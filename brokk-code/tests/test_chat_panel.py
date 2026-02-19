@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from rich.text import Text
 from textual.widgets import Static
 
 from brokk_code.widgets.chat_panel import ChatPanel
@@ -248,6 +249,13 @@ async def test_no_ctrl_u_e_bindings_in_chat_input():
     assert "ctrl+e" not in bindings
 
 
+def _static_rendered_text(widget: Static) -> str:
+    rendered = widget.render()
+    if isinstance(rendered, Text):
+        return rendered.plain
+    return str(rendered)
+
+
 @pytest.mark.asyncio
 async def test_chat_panel_composition_success():
     """
@@ -270,6 +278,25 @@ async def test_chat_panel_composition_success():
         # Verify #help-elapsed (Static) exists - this would have failed with NameError
         help_elapsed = chat.query_one("#help-elapsed", Static)
         assert help_elapsed is not None
+
+
+@pytest.mark.asyncio
+async def test_chat_help_line_includes_shift_tab_mode_after_history() -> None:
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one("#chat", ChatPanel)
+        help_line = chat.query_one("#chat-help", Static)
+        rendered = _static_rendered_text(help_line)
+
+        assert "Up/Down: History" in rendered
+        assert "Shift+Tab: Mode" in rendered
+        assert rendered.index("Up/Down: History") < rendered.index("Shift+Tab: Mode")
 
 
 @pytest.mark.asyncio
