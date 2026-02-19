@@ -231,7 +231,9 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
 
         try:
             if message.list_view.id == "model-select-list":
-                idx = int(message.item.id.split("-")[1])
+                # IDs are 'm-0', 'm-1', etc.
+                idx_str = message.item.id.split("-")[-1]
+                idx = int(idx_str)
                 self.selected_model = self.models[idx]
                 # Update markers in model list
                 for i, item in enumerate(message.list_view.query(ListItem)):
@@ -249,7 +251,9 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
                 r_list.focus()
 
             elif message.list_view.id == "reasoning-select-list":
-                idx = int(message.item.id.split("-")[1])
+                # IDs are 'r-0', 'r-1', etc.
+                idx_str = message.item.id.split("-")[-1]
+                idx = int(idx_str)
                 self.selected_reasoning = self.reasoning_levels[idx]
                 # Dismiss immediately upon reasoning selection
                 self.dismiss((self.selected_model, self.selected_reasoning))

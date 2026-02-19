@@ -64,9 +64,11 @@ async def test_combined_modal_navigation_updates_both_settings():
     app = BrokkApp(executor=executor)
     app._executor_ready = True
 
-    # Force planner reasoning to 'low' so navigation is deterministic and
+    # Force planner reasoning and model so navigation is deterministic and
     # independent of any persisted ~/.brokk/settings.json.
+    app.current_model = "alpha-model"
     app.reasoning_level = "low"
+    app.settings.last_model = "alpha-model"
     app.settings.last_reasoning_level = "low"
 
     with (
@@ -325,7 +327,8 @@ async def test_code_model_modal_navigation_updates_code_settings():
     app = BrokkApp(executor=executor)
     app._executor_ready = True
 
-    # Initialize code reasoning
+    # Initialize code settings to known state
+    app.code_model = "code-alpha"
     app.reasoning_level_code = "disable"
 
     with (
