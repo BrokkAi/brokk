@@ -51,12 +51,29 @@ def test_handle_command_updates_agent_mode():
     )
 
 
-def test_mode_toggle_bindings_exist():
+def test_mode_toggle_command_updates_agent_mode():
     app = BrokkApp(executor=MagicMock())
-    # Verify the bindings are present and mapped to toggle_mode
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    # Initial state is LUTZ
+    assert app.agent_mode == "LUTZ"
+
+    # Test /mode toggles to ASK
+    app._handle_command("/mode")
+    assert app.agent_mode == "ASK"
+
+    # Test /mode toggles back to LUTZ
+    app._handle_command("/mode")
+    assert app.agent_mode == "LUTZ"
+
+
+def test_mode_toggle_bindings_removed():
+    app = BrokkApp(executor=MagicMock())
+    # Verify the bindings are no longer present
     bindings = {b.key: b.action for b in app.BINDINGS}
-    assert bindings["ctrl+g"] == "toggle_mode"
-    assert bindings["f3"] == "toggle_mode"
+    assert "ctrl+g" not in bindings
+    assert "f3" not in bindings
 
 
 def test_no_f2_settings_binding():

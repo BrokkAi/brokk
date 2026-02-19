@@ -220,8 +220,7 @@ class BrokkApp(App):
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
-        # Footer/help-bar ordering: Mode, Context, Tasks, Notifications, Settings
-        Binding("ctrl+g", "toggle_mode", "Mode", show=True),
+        # Footer/help-bar ordering: Context, Tasks, Notifications, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
@@ -230,7 +229,6 @@ class BrokkApp(App):
         Binding("ctrl+j", "task_next", "Task Next", show=False),
         Binding("ctrl+k", "task_prev", "Task Prev", show=False),
         Binding("ctrl+space", "task_toggle", "Task Toggle", show=False),
-        Binding("f3", "toggle_mode", "Mode", show=False),
     ]
 
     def __init__(
@@ -946,6 +944,7 @@ class BrokkApp(App):
         return [
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
             {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
+            {"command": "/mode", "description": "Toggle between LUTZ and ASK modes"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
             {"command": "/reasoning", "description": "Set reasoning level for planner"},
@@ -1072,6 +1071,8 @@ class BrokkApp(App):
             self.action_command_palette()
         elif base in ("/ask", "/lutz"):
             self._set_mode(base[1:].upper())
+        elif base == "/mode":
+            self.action_toggle_mode()
         elif base == "/info":
             self._render_info()
         elif base == "/history":
