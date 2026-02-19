@@ -349,6 +349,7 @@ class BrokkApp(App):
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
+        self._reasoning_target: str = "planner"
 
         # Shutdown coordination flags and lock
         self._shutting_down: bool = False
@@ -815,17 +816,30 @@ class BrokkApp(App):
     def on_chat_panel_reasoning_level_selected(
         self, message: ChatPanel.ReasoningLevelSelected
     ) -> None:
-        self.reasoning_level = message.level
-        # Persist choice
-        try:
-            self.settings.last_reasoning_level = message.level
-            self.settings.save()
-        except Exception:
-            logger.exception("Failed to persist reasoning level")
-
         chat = self._maybe_chat()
-        if chat:
-            chat.add_system_message_markup(f"Reasoning level changed to: [bold]{message.level}[/]")
+        if self._reasoning_target == "code":
+            self.reasoning_level_code = message.level
+            try:
+                self.settings.last_code_reasoning_level = message.level
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist code reasoning level")
+            if chat:
+                chat.add_system_message_markup(
+                    f"Code reasoning level changed to: [bold]{message.level}[/]"
+                )
+        else:
+            self.reasoning_level = message.level
+            try:
+                self.settings.last_reasoning_level = message.level
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist reasoning level")
+            if chat:
+                chat.add_system_message_markup(
+                    f"Reasoning level changed to: [bold]{message.level}[/]"
+                )
+
         self._update_statusline()
 
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
@@ -1075,18 +1089,22 @@ class BrokkApp(App):
                 )
                 self._update_statusline()
             else:
-                self.action_select_reasoning()
-        elif base == "/reasoning-code" and len(parts) > 1:
-            self.reasoning_level_code = parts[1]
-            # Persist code reasoning preference
-            try:
-                self.settings.last_code_reasoning_level = self.reasoning_level_code
-                self.settings.save()
-            except Exception:
-                logger.exception("Failed to persist last_code_reasoning_level setting")
-            chat.add_system_message_markup(
-                f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
-            )
+                self.action_select_reasoning(target="planner")
+        elif base == "/reasoning-code":
+            if len(parts) > 1:
+                self.reasoning_level_code = parts[1]
+                # Persist code reasoning preference
+                try:
+                    self.settings.last_code_reasoning_level = self.reasoning_level_code
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_code_reasoning_level setting")
+                chat.add_system_message_markup(
+                    f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
+                )
+                self._update_statusline()
+            else:
+                self.action_select_reasoning(target="code")
         elif base == "/autocommit":
             if len(parts) == 1:
                 state = "ON" if self.auto_commit else "OFF"
@@ -1343,11 +1361,13 @@ class BrokkApp(App):
             if chat:
                 chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
 
-    def action_select_reasoning(self) -> None:
+    def action_select_reasoning(self, target: str = "planner") -> None:
         chat = self._maybe_chat()
         if chat:
+            self._reasoning_target = target
             levels = ["disable", "low", "medium", "high"]
-            current = str(self.reasoning_level or "low").strip() or "low"
+            current_val = self.reasoning_level_code if target == "code" else self.reasoning_level
+            current = str(current_val or "low").strip() or "low"
             if current not in levels:
                 current = "low"
             chat.open_reasoning_menu(levels, current)

@@ -99,10 +99,10 @@ async def test_reasoning_menu_exclusivity():
             # 1. Open mode menu
             app._handle_command("/mode")
             await pilot.pause()
-            
+
             mode_suggestions = app.query_one("#mode-suggestions")
             reasoning_suggestions = app.query_one(ReasoningSuggestions)
-            
+
             assert mode_suggestions.display is True
             assert reasoning_suggestions.display is False
 
