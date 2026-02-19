@@ -24,9 +24,7 @@ async def test_slash_context_toggles_fullscreen_modal_and_syncs_token_bar_visibi
         assert not token_usage.has_class("hidden")
 
         # Open via slash command
-        await pilot.press("/")
-        await pilot.type("context")
-        await pilot.press("enter")
+        await pilot.press("/", *"context".split(), "enter")
         assert isinstance(app.screen, ContextModalScreen)
         assert token_usage.has_class("hidden")
 
