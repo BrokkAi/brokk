@@ -573,9 +573,9 @@ class ChatPanel(Vertical):
 
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         """Forward submission message from the internal ChatInput."""
-        self.post_message(self.Submitted(event.text))
         self._history_index = -1
         self._draft_buffer = ""
+        self.post_message(self.Submitted(event.text))
 
     def open_mode_menu(self, modes: List[str], current: str) -> None:
         """Opens the lightweight mode selection popup."""
@@ -634,6 +634,9 @@ class ChatPanel(Vertical):
 
         if chat_input.submit_after_accept:
             chat_input.submit_after_accept = False
+            # We must post the message for ChatPanel.on_chat_input_submitted to see it,
+            # but we also need the App's submission handler to fire immediately for tests.
+            # ChatPanel handles its internal state when it receives the Submitted message.
             chat_input.action_submit()
 
     def set_response_pending(self) -> None:
