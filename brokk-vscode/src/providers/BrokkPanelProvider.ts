@@ -11,6 +11,8 @@ import type {
   StateHintData,
   JobEvent,
   DiffEntry,
+  FavoriteModelInfo,
+  ModelInfo,
 } from "../types";
 import { DiffContentProvider, parseUnifiedDiff } from "./DiffContentProvider";
 import { getPanelHtml } from "./panelHtml";
@@ -37,7 +39,8 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
   private activityRefreshInFlight = false;
   private readonly extensionUri: vscode.Uri;
   private readonly diffProvider: DiffContentProvider;
-  private cachedModels: string[] = [];
+  private cachedModels: ModelInfo[] = [];
+  private cachedFavorites: FavoriteModelInfo[] = [];
 
   constructor(extensionUri: vscode.Uri, diffProvider: DiffContentProvider) {
     this.extensionUri = extensionUri;
@@ -59,12 +62,21 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
   private async refreshModels() {
     if (!this.client) return;
     try {
-      const resp = await this.client.getModels();
-      const modelNames = resp.models.map((m) =>
-        typeof m === "string" ? m : m.name
+      const [modelsResp, favoritesResp] = await Promise.all([
+        this.client.getModels(),
+        this.client.getFavorites().catch(() => ({ favorites: [] })),
+      ]);
+      const modelInfos: ModelInfo[] = modelsResp.models.map((m) =>
+        typeof m === "string"
+          ? { name: m, location: "", supportsReasoningEffort: false, supportsReasoningDisable: false }
+          : m
       );
-      this.cachedModels = modelNames;
-      this.sendToWebview("modelsUpdate", { models: modelNames });
+      this.cachedModels = modelInfos;
+      this.cachedFavorites = favoritesResp.favorites;
+      this.sendToWebview("modelsUpdate", {
+        models: modelInfos,
+        favorites: favoritesResp.favorites,
+      });
     } catch (e) {
       this.log?.(`Failed to fetch models: ${e}`);
     }
@@ -146,6 +158,7 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
       webviewView.webview.postMessage({
         type: "modelsUpdate",
         models: this.cachedModels,
+        favorites: this.cachedFavorites,
       });
     }
   }
@@ -292,6 +305,19 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
           await vscode.window.showTextDocument(doc, { preview: false });
         } catch {
           vscode.window.showWarningMessage(`Could not open file: ${filePath}`);
+        }
+      }
+      return;
+    }
+
+    // Autocomplete messages require client
+    if (msg.type === "autocomplete") {
+      if (this.client) {
+        try {
+          const results = await this.client.getCompletions(msg.query as string);
+          this.sendToWebview("autocompleteResults", { completions: results.completions });
+        } catch (err: unknown) {
+          this.log?.(`[Autocomplete] error: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       return;
@@ -484,6 +510,8 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
           const plannerModel = msg.plannerModel as string;
           const codeModel = msg.codeModel as string | undefined;
           const mode = (msg.mode as string) || "LUTZ";
+          const reasoningLevel = msg.reasoningLevel as string | undefined;
+          const reasoningLevelCode = msg.reasoningLevelCode as string | undefined;
 
           const opts: Record<string, unknown> = {};
           if (mode === "LUTZ") {
@@ -492,6 +520,13 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
             opts.codeModel = plannerModel;
           } else if (mode === "SEARCH") {
             opts.scanModel = plannerModel;
+          }
+
+          if (reasoningLevel) {
+            opts.reasoningLevel = reasoningLevel;
+          }
+          if (reasoningLevelCode) {
+            opts.reasoningLevelCode = reasoningLevelCode;
           }
 
           const result = await this.client.submitJob(
@@ -740,34 +775,82 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
   }
 
   private async promptAddClass() {
-    if (!this.client) return;
-    const input = await vscode.window.showInputBox({
-      placeHolder: "com.example.MyClass",
-      prompt: "Enter fully-qualified class name",
-    });
-    if (!input) return;
-    try {
-      await this.client.addClasses([input.trim()]);
-      this.refreshContext();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`Brokk: ${message}`);
-    }
+    await this.promptAddSymbol(
+      "Type to search classes... (Space to select, OK to confirm)",
+      "class",
+      (names) => this.client!.addClasses(names)
+    );
   }
 
   private async promptAddMethod() {
+    await this.promptAddSymbol(
+      "Type to search methods... (Space to select, OK to confirm)",
+      "function",
+      (names) => this.client!.addMethods(names)
+    );
+  }
+
+  private async promptAddSymbol(
+    placeholder: string,
+    typeFilter: string,
+    addFn: (names: string[]) => Promise<unknown>
+  ) {
     if (!this.client) return;
-    const input = await vscode.window.showInputBox({
-      placeHolder: "com.example.MyClass.myMethod",
-      prompt: "Enter fully-qualified method name",
+    const client = this.client;
+
+    const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { fqName: string }>();
+    qp.placeholder = placeholder;
+    qp.canSelectMany = true;
+    qp.matchOnDescription = true;
+
+    let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+    qp.onDidChangeValue((value) => {
+      if (searchTimer) clearTimeout(searchTimer);
+      if (!value || value.length < 2) {
+        qp.items = [];
+        return;
+      }
+      searchTimer = setTimeout(async () => {
+        qp.busy = true;
+        try {
+          const results = await client.getCompletions(value, 30);
+          qp.items = results.completions
+            .filter((c) => c.type === typeFilter)
+            .map((c) => ({
+              label: c.name,
+              description: c.detail,
+              fqName: c.detail,
+            }));
+        } catch {
+          // ignore search errors
+        }
+        qp.busy = false;
+      }, 200);
     });
-    if (!input) return;
-    try {
-      await this.client.addMethods([input.trim()]);
-      this.refreshContext();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`Brokk: ${message}`);
+
+    const result = await new Promise<(vscode.QuickPickItem & { fqName: string })[]>((resolve) => {
+      qp.onDidAccept(() => {
+        if (qp.selectedItems.length > 0) {
+          resolve([...qp.selectedItems]);
+          qp.dispose();
+        }
+      });
+      qp.onDidHide(() => {
+        resolve([]);
+        qp.dispose();
+      });
+      qp.show();
+    });
+
+    if (result.length > 0) {
+      try {
+        await addFn(result.map((r) => r.fqName));
+        this.refreshContext();
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Brokk: ${message}`);
+      }
     }
   }
 

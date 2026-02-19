@@ -47,6 +47,8 @@ export interface JobSpecRequest {
   codeModel?: string;
   scanModel?: string;
   preScan?: boolean;
+  reasoningLevel?: string;
+  reasoningLevelCode?: string;
   contextText?: string[];
   tags: {
     mode: ExecutionMode;
@@ -264,6 +266,31 @@ export interface ModelInfo {
 
 export interface ModelsResponse {
   models: (ModelInfo | string)[];
+}
+
+// ── Favorites ────────────────────────────────────────
+
+export interface FavoriteModelInfo {
+  alias: string;
+  modelName: string;
+  reasoning: string;  // "DEFAULT" | "LOW" | "MEDIUM" | "HIGH" | "DISABLE"
+  tier: string;       // "DEFAULT" | "PRIORITY" | "FLEX"
+}
+
+export interface FavoritesResponse {
+  favorites: FavoriteModelInfo[];
+}
+
+// ── Completions ───────────────────────────────────────────
+
+export interface CompletionItem {
+  type: "file" | "class" | "function" | "field" | "module";
+  name: string;
+  detail: string;
+}
+
+export interface CompletionsResponse {
+  completions: CompletionItem[];
 }
 
 // ── Errors ─────────────────────────────────────────────

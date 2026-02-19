@@ -31,6 +31,32 @@ Context management and AI chat for the [Brokk](https://brokk.ai) coding assistan
 
 On activation, the extension auto-spawns the headless executor from the shadow JAR using a random port and auth token. The status bar item at the bottom shows the connection state.
 
+## Installing as a .vsix
+
+To package the extension into a `.vsix` file and install it in VS Code:
+
+1. **Build the extension** (if you haven't already):
+   ```bash
+   cd brokk-vscode
+   npm install
+   npm run compile
+   ```
+
+2. **Package the `.vsix`:**
+   ```bash
+   npx @vscode/vsce package --no-dependencies
+   ```
+   This creates a file like `vscode-brokk-0.0.1.vsix` in the current directory.
+
+3. **Install the `.vsix` in VS Code:**
+   ```bash
+   code --install-extension vscode-brokk-0.0.1.vsix
+   ```
+   Or in VS Code: `Extensions` sidebar → `...` menu → `Install from VSIX...` and select the file.
+
+4. **Reload VS Code** to activate the extension.
+
+
 ## Configuration
 
 | Setting | Type | Default | Description |

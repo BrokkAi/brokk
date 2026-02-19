@@ -96,6 +96,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
   </div>
   <div id="fragments"></div>
   <div id="context-menu" class="context-menu hidden"></div>
+  <div id="autocomplete-dropdown" class="autocomplete-dropdown hidden"></div>
   <div id="input-area">
     <div id="input-drag-handle"></div>
     <div id="instructions-header">
