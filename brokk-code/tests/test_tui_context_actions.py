@@ -62,6 +62,7 @@ async def test_context_panel_shows_clear_selection_state():
             # Basic keys from _get_shortcuts_text()
             assert "Space" in help_text
             assert "Enter" in help_text
+            assert "Esc" in help_text
             assert "Drop" in help_text
             assert "U" in help_text  # clear_selection
             assert "CTRL+A" in help_text  # select_all

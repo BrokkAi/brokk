@@ -96,6 +96,7 @@ class TaskListPanel(Vertical):
             "[b]Up/Down[/b] Move",
             "[b]Space[/b] Toggle",
             "[b]Enter[/b] Toggle",
+            "[b]Esc[/b] Close",
         ]
         return "  ".join(manual + shortcuts)
 

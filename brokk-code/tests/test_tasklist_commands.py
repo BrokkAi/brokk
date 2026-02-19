@@ -147,6 +147,7 @@ async def test_tasklist_panel_help_line_contains_expected_keybindings() -> None:
 
         assert "Space" in rendered
         assert "Enter" in rendered
+        assert "Esc" in rendered
         assert "A" in rendered
         assert "E" in rendered
         assert "D" in rendered
