@@ -2244,10 +2244,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
             }
 
-            ctx = ctx.withHasBody(cu, computeHasBody(node, primaryCaptureName, sourceContent));
-
             String signature = buildSignatureString(
                     node, simpleName, sourceContent, primaryCaptureName, defInfo.modifierKeywords(), file);
+
+            // Use the already-resolved content node (from signature building) for hasBody computation
+            SkeletonType refined = refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
+            ctx = ctx.withHasBody(cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
 
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
@@ -2467,21 +2470,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return String.join(".", segments);
     }
 
-    protected boolean computeHasBody(TSNode node, String captureName, SourceContent sourceContent) {
+    /**
+     * Computes whether the given node (already resolved/unwrapped for content) has a body.
+     *
+     * @param nodeForBody    the resolved content node (e.g. variable_declarator or function_declaration)
+     * @param captureName    the primary capture name
+     * @param sourceContent  the source content
+     */
+    protected boolean computeHasBody(TSNode nodeForBody, String captureName, SourceContent sourceContent) {
         SkeletonType primarySkeletonType = getSkeletonTypeForCapture(captureName);
-        if (primarySkeletonType != SkeletonType.FUNCTION_LIKE && primarySkeletonType != SkeletonType.CLASS_LIKE) {
+        // Field-likes (variables) can have initializers which are treated as "bodies" for content purposes.
+        if (primarySkeletonType != SkeletonType.FUNCTION_LIKE
+                && primarySkeletonType != SkeletonType.CLASS_LIKE
+                && primarySkeletonType != SkeletonType.FIELD_LIKE) {
             return false;
         }
 
         var langProfile = getLanguageSyntaxProfile();
-        TSNode nodeForBody = node;
-
-        if (shouldUnwrapExportStatements() && "export_statement".equals(nodeForBody.getType())) {
-            TSNode declarationInExport = nodeForBody.getChildByFieldName("declaration");
-            if (declarationInExport != null && !declarationInExport.isNull()) {
-                nodeForBody = declarationInExport;
-            }
-        }
 
         if (hasWrappingDecoratorNode()) {
             nodeForBody = extractContentFromDecoratedNode(nodeForBody, new ArrayList<>(), sourceContent, langProfile);
