@@ -250,11 +250,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         FileAnalysisContext withChild(CodeUnit parent, CodeUnit child) {
-            PVector<CodeUnit> kids =
-                    children.getOrDefault(parent, TreePVector.empty()).plus(child);
+            PVector<CodeUnit> kids = children.getOrDefault(parent, TreePVector.empty());
+            boolean alreadyPresent = kids.contains(child);
+            PVector<CodeUnit> updatedKids = alreadyPresent ? kids : kids.plus(child);
             return new FileAnalysisContext(
                     topLevelCUs,
-                    children.plus(parent, kids),
+                    children.plus(parent, updatedKids),
                     signatures,
                     sourceRanges,
                     hasBody,
@@ -310,6 +311,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     sourceRanges,
                     hasBody,
                     codeUnitsBySymbol.plus(symbol, cus),
+                    cuByFqName);
+        }
+
+        FileAnalysisContext withoutChildren(CodeUnit parent) {
+            if (!children.containsKey(parent)) {
+                return this;
+            }
+            return new FileAnalysisContext(
+                    topLevelCUs,
+                    children.minus(parent),
+                    signatures,
+                    sourceRanges,
+                    hasBody,
+                    codeUnitsBySymbol,
                     cuByFqName);
         }
 
@@ -1966,6 +1981,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (current.hasBody().getOrDefault(source, false)) {
             current = current.withHasBody(target, true);
         }
+
+        // Detach the source children mapping so withoutCodeUnit does not recursively delete moved nodes
+        current = current.withoutChildren(source);
 
         // Purge source to avoid orphaned references or duplicate index entries
         return current.withoutCodeUnit(source);
