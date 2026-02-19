@@ -162,19 +162,6 @@ ChatPanel {
     background: $accent 22%;
 }
 
-.context-chip.is-active {
-    border: round $accent;
-    background: $accent 28%;
-    text-style: bold;
-}
-
-.context-chip.is-selected {
-    border: round $warning;
-    background: $warning 35%;
-    color: $warning-lighten-3;
-    text-style: bold;
-}
-
 .context-chip-empty {
     border: none;
     padding: 0;
@@ -209,6 +196,20 @@ ChatPanel {
 }
 
 .context-chip.is-pinned {
+    text-style: bold;
+}
+
+.context-chip.is-active {
+    border: round $accent-lighten-2;
+    background: $accent 45%;
+    color: $text;
+    text-style: bold;
+}
+
+.context-chip.is-selected {
+    border: round $success-lighten-2;
+    background: $success 65%;
+    color: $text;
     text-style: bold;
 }
 

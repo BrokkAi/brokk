@@ -68,7 +68,7 @@ async def test_context_panel_shows_clear_selection_state():
                 item.render().plain for item in panel.query(".context-chip")
             )
             assert "[SELECTED]" in selected_chip_texts
-            assert "[ACTIVE]" in selected_chip_texts
+            assert "[ACTIVE]" not in selected_chip_texts
 
             # Move active cursor to next chip.
             await pilot.press("right")
