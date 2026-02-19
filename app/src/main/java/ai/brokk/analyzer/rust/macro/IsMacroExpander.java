@@ -7,6 +7,7 @@ import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.ENUM_VARIANT;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceContent;
+import ai.brokk.util.CaseUtil;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -84,7 +85,7 @@ public class IsMacroExpander implements RustMacroExpander {
                     TSNode variantNameNode = child.getChildByFieldName("name");
                     if (variantNameNode != null && !variantNameNode.isNull()) {
                         String variantName = source.substringFrom(variantNameNode);
-                        String methodName = "is_" + toSnakeCase(variantName);
+                        String methodName = "is_" + CaseUtil.toSnakeCase(variantName);
                         // Function CodeUnit: EnumName.is_variant
                         expanded.add(CodeUnit.fn(file, packageName, enumName + "." + methodName));
                     }
@@ -93,21 +94,5 @@ public class IsMacroExpander implements RustMacroExpander {
         }
 
         return expanded;
-    }
-
-    private String toSnakeCase(String input) {
-        StringBuilder result = new StringBuilder();
-        for (int i = 0; i < input.length(); i++) {
-            char c = input.charAt(i);
-            if (Character.isUpperCase(c)) {
-                if (i > 0) {
-                    result.append('_');
-                }
-                result.append(Character.toLowerCase(c));
-            } else {
-                result.append(c);
-            }
-        }
-        return result.toString();
     }
 }
