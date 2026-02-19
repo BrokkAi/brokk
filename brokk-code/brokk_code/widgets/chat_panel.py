@@ -690,7 +690,7 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                "Enter: Submit  Shift+Enter: Newline  Up/Down: History  Shift+Tab: Mode  /commands",
+                "Enter: Submit  Shift+Enter: Newline  Up/Down: History  Shift+Tab: Mode",
                 id="chat-help",
             )
 
