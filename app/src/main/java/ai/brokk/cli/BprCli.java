@@ -706,6 +706,8 @@ public final class BprCli implements Callable<Integer> {
                         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS && cachedRec.isPresent()) {
                             // on failure, take the union of our original recommendations and where we ended up, so we
                             // don't accidentally make it worse
+                            // TODO: this is broken, we will never remove fragments because the first callCodeAgent
+                            // will be with the starting fragments, so we just add them back immediately
                             discoveredContext.set(requireNonNull(discoveredContext.get())
                                     .addAsSummaries(cachedRec.get().fragments()));
                         }
