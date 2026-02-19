@@ -717,6 +717,7 @@ async def run_acp_server(
 
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
     logger.info("Starting ACP server with IDE profile: %s", ide)
+    ide_profile = ide.strip().lower() if isinstance(ide, str) else "intellij"
 
     # Note: The ExecutorManager launches the Java HeadlessExecutorMain with a dedicated
     # stdin pipe. HeadlessExecutorMain monitors System.in for EOF and will initiate a
@@ -730,6 +731,7 @@ async def run_acp_server(
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
         vendor=vendor,
+        exit_on_stdin_eof=ide_profile == "intellij",
     )
     bridge = BrokkAcpBridge(executor)
 
@@ -756,8 +758,6 @@ async def run_acp_server(
         acp_agent_router._brokk_session_config_patch = True
 
     _patch_acp_router_for_session_config_option()
-
-    ide_profile = ide.strip().lower() if isinstance(ide, str) else "intellij"
 
     class BrokkAcpAgent(Agent):
         def __init__(self) -> None:

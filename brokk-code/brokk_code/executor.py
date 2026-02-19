@@ -29,12 +29,14 @@ class ExecutorManager:
         executor_version: Optional[str] = None,
         executor_snapshot: bool = True,
         vendor: Optional[str] = None,
+        exit_on_stdin_eof: bool = False,
     ):
         self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
         self.jar_override = jar_path
         self.executor_version = executor_version
         self.use_snapshot = executor_snapshot
         self.vendor = vendor
+        self.exit_on_stdin_eof = exit_on_stdin_eof
         self.auth_token = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
@@ -314,6 +316,8 @@ class ExecutorManager:
 
         if self.vendor is not None and str(self.vendor).strip():
             cmd.extend(["--vendor", str(self.vendor).strip()])
+        if self.exit_on_stdin_eof:
+            cmd.append("--exit-on-stdin-eof")
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
 

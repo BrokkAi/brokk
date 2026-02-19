@@ -165,6 +165,68 @@ async def test_executor_start_includes_vendor_flag(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_executor_start_includes_exit_on_stdin_eof_flag_when_enabled(monkeypatch, tmp_path):
+    dummy_jar = tmp_path / "brokk.jar"
+    dummy_jar.write_text("dummy")
+    captured_cmd = None
+
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+        nonlocal captured_cmd
+        captured_cmd = list(cmd)
+
+        class FakeStdout:
+            def __init__(self):
+                self._lines = [
+                    b"Executor listening on http://127.0.0.1:12345\n",
+                    b"",
+                ]
+                self._idx = 0
+
+            async def readline(self):
+                if self._idx < len(self._lines):
+                    ln = self._lines[self._idx]
+                    self._idx += 1
+                    await asyncio.sleep(0)
+                    return ln
+                return b""
+
+        class FakeStdin:
+            def close(self):
+                pass
+
+            async def wait_closed(self):
+                pass
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = FakeStdout()
+                self.stdin = FakeStdin() if stdin is not None else None
+                self.returncode = None
+
+            async def wait(self):
+                return 0
+
+            def terminate(self):
+                pass
+
+            def kill(self):
+                pass
+
+        return FakeProcess()
+
+    monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    manager = ExecutorManager(workspace_dir=tmp_path, exit_on_stdin_eof=True)
+    await manager.start()
+
+    assert captured_cmd is not None
+    assert "--exit-on-stdin-eof" in captured_cmd
+
+    await manager.stop()
+
+
+@pytest.mark.asyncio
 async def test_executor_exits_when_stdin_closed(monkeypatch, tmp_path):
     """Regression: closing the subprocess stdin should allow the child to exit.
 
