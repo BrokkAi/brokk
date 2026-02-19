@@ -61,6 +61,28 @@ class ModeSuggestions(ListView):
             self.display = False
             self.post_message(self.ModeSelected(mode))
 
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            self.display = False
+            try:
+                self.app.query_one("#chat-input").focus()
+            except Exception:
+                pass
+            event.stop()
+            return
+
+        # If it's a character key (length 1), hide the menu and forward to input
+        if event.character and len(event.character) == 1:
+            self.display = False
+            try:
+                chat_input = self.app.query_one("#chat-input")
+                chat_input.focus()
+                # Re-post the key to the newly focused input
+                chat_input.post_message(event)
+            except Exception:
+                pass
+            event.stop()
+
 
 class ReasoningSuggestions(ListView):
     """A popup list for selecting reasoning levels."""
@@ -107,6 +129,26 @@ class ReasoningSuggestions(ListView):
             level = getattr(message.item, "level_name", "")
             self.display = False
             self.post_message(self.LevelSelected(level))
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            self.display = False
+            try:
+                self.app.query_one("#chat-input").focus()
+            except Exception:
+                pass
+            event.stop()
+            return
+
+        if event.character and len(event.character) == 1:
+            self.display = False
+            try:
+                chat_input = self.app.query_one("#chat-input")
+                chat_input.focus()
+                chat_input.post_message(event)
+            except Exception:
+                pass
+            event.stop()
 
 
 class SlashCommandSuggestions(ListView):
@@ -234,11 +276,15 @@ class ChatInput(TextArea):
         """Hides the popup suggestions."""
         self._set_autocomplete_open(False)
         try:
-            self.app.query_one(ModeSuggestions).display = False
+            mode_sug = self.app.query_one(ModeSuggestions)
+            if mode_sug.display:
+                mode_sug.display = False
         except Exception:
             pass
         try:
-            self.app.query_one(ReasoningSuggestions).display = False
+            reason_sug = self.app.query_one(ReasoningSuggestions)
+            if reason_sug.display:
+                reason_sug.display = False
         except Exception:
             pass
 
