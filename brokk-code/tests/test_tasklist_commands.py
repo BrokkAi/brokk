@@ -78,48 +78,6 @@ def test_task_command_closes_modal_and_restores_focus() -> None:
     modal.dismiss.assert_called_once_with(None)
 
 
-def test_task_command_next_moves_selection() -> None:
-    app = BrokkApp(executor=MagicMock())
-    mock_chat = MagicMock(spec=ChatPanel)
-    mock_panel = MagicMock(spec=TaskListPanel)
-    mock_panel.move_selection.return_value = True
-
-    def query_one(target, *args, **kwargs):
-        if target is ChatPanel:
-            return mock_chat
-        if target == "#side-tasklist":
-            return mock_panel
-        raise AssertionError(f"Unexpected query target: {target}")
-
-    app.query_one = MagicMock(side_effect=query_one)
-    app.run_worker = MagicMock(side_effect=_close_coro)
-
-    app._handle_command("/task next")
-
-    mock_panel.move_selection.assert_called_once_with(1)
-
-
-def test_task_command_toggle_dispatches_worker() -> None:
-    app = BrokkApp(executor=MagicMock())
-    mock_chat = MagicMock(spec=ChatPanel)
-    mock_panel = MagicMock(spec=TaskListPanel)
-
-    def query_one(target, *args, **kwargs):
-        if target is ChatPanel:
-            return mock_chat
-        if target == "#side-tasklist":
-            return mock_panel
-        raise AssertionError(f"Unexpected query target: {target}")
-
-    app.query_one = MagicMock(side_effect=query_one)
-    app.run_worker = MagicMock(side_effect=_close_coro)
-
-    app._handle_command("/task toggle")
-
-    # Toggling dispatches a background worker to update the selected task
-    assert app.run_worker.call_count == 1
-
-
 @pytest.mark.asyncio
 async def test_tasklist_panel_keybindings_call_app_actions() -> None:
     class TestApp(App):

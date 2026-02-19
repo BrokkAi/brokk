@@ -1308,13 +1308,7 @@ class BrokkApp(App):
             {"command": "/settings", "description": "Open settings"},
             {"command": "/history", "description": "Show recent prompt history"},
             {"command": "/history-clear", "description": "Clear prompt history"},
-            {"command": "/task", "description": "Toggle and focus task panel"},
-            {"command": "/task next", "description": "Select next task"},
-            {"command": "/task prev", "description": "Select previous task"},
-            {"command": "/task toggle", "description": "Toggle selected task done state"},
-            {"command": "/task add", "description": "Add a new task"},
-            {"command": "/task edit", "description": "Edit selected task title"},
-            {"command": "/task delete", "description": "Delete selected task"},
+            {"command": "/task", "description": "Open/close the task list"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
@@ -1455,35 +1449,13 @@ class BrokkApp(App):
         elif base == "/context":
             self.action_toggle_context()
         elif base == "/task":
-            if len(parts) == 1:
-                self.action_toggle_tasklist()
-            elif len(parts) >= 2:
-                action = parts[1].lower()
-                panel = self._active_tasklist_panel()
-                if action == "next":
-                    if not panel.move_selection(1):
-                        chat.add_system_message("No next task.")
-                elif action == "prev":
-                    if not panel.move_selection(-1):
-                        chat.add_system_message("No previous task.")
-                elif action == "toggle":
-                    self.run_worker(self._toggle_selected_task())
-                elif action == "delete":
-                    self.run_worker(self._delete_selected_task())
-                elif action == "add":
-                    if len(parts) < 3:
-                        chat.add_system_message("Usage: /task add <title>")
-                    else:
-                        self.run_worker(self._add_task(" ".join(parts[2:])))
-                elif action == "edit":
-                    if len(parts) < 3:
-                        chat.add_system_message("Usage: /task edit <title>")
-                    else:
-                        self.run_worker(self._edit_selected_task(" ".join(parts[2:])))
-                else:
-                    chat.add_system_message(
-                        "Unknown /task command. Use: next, prev, toggle, delete, add, edit."
-                    )
+            if len(parts) != 1:
+                chat.add_system_message(
+                    "Usage: /task (task actions are available via task list keybindings).",
+                    level="WARNING",
+                )
+                return
+            self.action_toggle_tasklist()
         elif base == "/help":
             commands = self.get_slash_commands()
             # Calculate padding based on longest command

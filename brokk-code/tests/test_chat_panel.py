@@ -294,7 +294,7 @@ async def test_slash_command_catalog_stability():
     # Verify key commands exist
     cmds_only = {c["command"] for c in commands}
     assert "/ask" in cmds_only
-    assert "/task next" in cmds_only
+    assert "/task" in cmds_only
     assert "/help" in cmds_only
 
 
