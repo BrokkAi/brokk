@@ -2544,7 +2544,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 mChildren,
                 mCodeUnitsBySymbol);
 
-        return new FileAnalysisContext(
+        FileAnalysisContext updated = new FileAnalysisContext(
                 TreePVector.from(mTopLevelCUs),
                 HashTreePMap.from(mChildren.entrySet().stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, e -> TreePVector.from(e.getValue())))),
@@ -2558,6 +2558,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                 Map.Entry::getKey, e -> org.pcollections.HashTreePSet.from(e.getValue())))),
                 HashTreePMap.from(mCuByFqName),
                 ctx.lookupKeys());
+
+        for (Map.Entry<String, CodeUnit> entry : mCuByFqName.entrySet()) {
+            updated = updated.withLookupKey(entry.getKey(), entry.getValue());
+        }
+        return updated;
     }
 
     private Map<CodeUnit, CodeUnitProperties> finalizeCodeUnitProperties(FileAnalysisContext ctx) {
