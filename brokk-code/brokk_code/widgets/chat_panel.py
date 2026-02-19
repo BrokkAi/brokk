@@ -19,6 +19,21 @@ class ModeSuggestions(ListView):
     """A popup list for selecting agent modes."""
 
     show_vertical_scrollbar = True
+    DEFAULT_CSS = """
+    ModeSuggestions {
+        background: $panel;
+        border: none;
+        color: $text;
+        scrollbar-gutter: stable;
+        /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
+        margin: 0 2 6 2;
+        max-height: 20;
+        width: 1fr;
+        display: none;
+        layer: top;
+        dock: bottom;
+    }
+    """
 
     class ModeSelected(Message):
         def __init__(self, mode: str) -> None:
@@ -51,6 +66,21 @@ class ReasoningSuggestions(ListView):
     """A popup list for selecting reasoning levels."""
 
     show_vertical_scrollbar = True
+    DEFAULT_CSS = """
+    ReasoningSuggestions {
+        background: $panel;
+        border: none;
+        color: $text;
+        scrollbar-gutter: stable;
+        /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
+        margin: 0 2 6 2;
+        max-height: 20;
+        width: 1fr;
+        display: none;
+        layer: top;
+        dock: bottom;
+    }
+    """
 
     class LevelSelected(Message):
         def __init__(self, level: str) -> None:
@@ -83,6 +113,21 @@ class SlashCommandSuggestions(ListView):
     """A popup list for slash command autocomplete."""
 
     show_vertical_scrollbar = True
+    DEFAULT_CSS = """
+    SlashCommandSuggestions {
+        background: $panel;
+        border: none;
+        color: $text;
+        scrollbar-gutter: stable;
+        /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
+        margin: 0 2 6 2;
+        max-height: 20;
+        width: 1fr;
+        display: none;
+        layer: top;
+        dock: bottom;
+    }
+    """
 
     class CommandSelected(Message):
         def __init__(self, command: str) -> None:
