@@ -136,7 +136,10 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
         return ctx.withTopLevelCu(moduleCU)
                 .withSignature(moduleCU, importBlockSignature)
-                .withRange(moduleCU, moduleRange);
+                .withRange(moduleCU, moduleRange)
+                .withHasBody(moduleCU, true)
+                .withSymbolIndex(moduleCU.identifier(), moduleCU)
+                .withSymbolIndex(moduleCU.shortName(), moduleCU);
     }
 
     @Override

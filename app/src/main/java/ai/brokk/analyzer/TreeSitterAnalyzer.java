@@ -253,6 +253,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return updated.withLookupKey(cu.fqName(), cu);
         }
 
+        FileAnalysisContext withoutTopLevelCu(CodeUnit cu) {
+            if (!topLevelCUs.contains(cu)) {
+                return this;
+            }
+            return new FileAnalysisContext(
+                    topLevelCUs.minus(cu),
+                    children,
+                    signatures,
+                    sourceRanges,
+                    hasBody,
+                    codeUnitsBySymbol,
+                    cuByFqName,
+                    lookupKeys);
+        }
+
         FileAnalysisContext withChild(CodeUnit parent, CodeUnit child) {
             PVector<CodeUnit> kids = children.getOrDefault(parent, TreePVector.empty());
             boolean alreadyPresent = kids.contains(child);

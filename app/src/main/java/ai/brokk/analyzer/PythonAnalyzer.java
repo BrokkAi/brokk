@@ -881,18 +881,28 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
 
-        List<CodeUnit> children = ctx.topLevelCUs().stream()
+        // If the module CodeUnit already exists in context (e.g. from another file in the same package),
+        // we should still associate this file's TLDs with it.
+        CodeUnit existing = ctx.cuByFqName().get(moduleCu.fqName());
+        CodeUnit targetCu = (existing != null && existing.isModule()) ? existing : moduleCu;
+
+        FileAnalysisContext updated = ctx;
+        if (existing == null) {
+            updated = updated.withLookupKey(targetCu.fqName(), targetCu);
+        }
+
+        updated = updated.withSignature(targetCu, "# module " + modulePackageName)
+                .withHasBody(targetCu, true)
+                .withSymbolIndex(targetCu.identifier(), targetCu)
+                .withSymbolIndex(targetCu.shortName(), targetCu);
+
+        List<CodeUnit> children = updated.topLevelCUs().stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
-                .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
+                .filter(cu -> !cu.isModule())
                 .toList();
 
-        FileAnalysisContext updated =
-                ctx.withTopLevelCu(moduleCu).withSignature(moduleCu, "# module " + modulePackageName);
-
-        // withTopLevelCu already registers identifiers in symbolIndex and fqName in cuByFqName/lookupKeys.
-
         for (CodeUnit child : children) {
-            updated = updated.withChild(moduleCu, child);
+            updated = updated.withChild(targetCu, child);
         }
 
         return updated;
