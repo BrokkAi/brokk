@@ -155,17 +155,22 @@ async def test_autocomplete_accept_with_tab_does_not_submit():
 
 
 @pytest.mark.asyncio
-async def test_autocomplete_task_next_does_not_double_space():
+async def test_autocomplete_task_next_clears_on_enter():
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
+
+        # Track submissions
+        submissions = []
+        app.on_chat_panel_submitted = lambda msg: submissions.append(msg.text)
 
         # User types /task n
         await pilot.press(*list("/task n"))
         await pilot.press("enter")
 
-        # "/task next" already has internal spaces/is complete, shouldn't get extra space
-        assert chat_input.text == "/task next"
+        # Now clears on enter because it submits
+        assert chat_input.text == ""
+        assert submissions[0] == "/task next"
 
 
 @pytest.mark.asyncio
@@ -180,6 +185,10 @@ async def test_autocomplete_tab_regression_no_crash():
         chat_input = app.query_one(ChatInput)
         suggestions = app.query_one(SlashCommandSuggestions)
 
+        # Track submissions
+        submissions = []
+        app.on_chat_panel_submitted = lambda msg: submissions.append(msg.text)
+
         # 1. Type to show suggestions
         await pilot.press("/", "m", "o")
         assert suggestions.display is True
@@ -192,21 +201,27 @@ async def test_autocomplete_tab_regression_no_crash():
         assert suggestions.display is False
         # /model is the first match and requires args, so expect trailing space
         assert chat_input.text == "/model "
+        assert len(submissions) == 0
 
 
 @pytest.mark.asyncio
-async def test_autocomplete_mode_does_not_append_space():
-    """Verify /mode does not append a trailing space as it opens a menu."""
+async def test_autocomplete_mode_submits_on_enter():
+    """Verify /mode submits on enter."""
     app = AutocompleteTestApp()
     async with app.run_test() as pilot:
         chat_input = app.query_one(ChatInput)
+
+        # Track submissions
+        submissions = []
+        app.on_chat_panel_submitted = lambda msg: submissions.append(msg.text)
 
         # Type /mo and select /mode (which should be a match)
         await pilot.press(*list("/mode"))
         await pilot.press("enter")
 
-        # /mode should NOT have a trailing space
-        assert chat_input.text == "/mode"
+        # /mode should be submitted and cleared
+        assert chat_input.text == ""
+        assert submissions[0] == "/mode"
 
 
 @pytest.mark.asyncio
