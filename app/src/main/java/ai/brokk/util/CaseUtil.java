@@ -6,7 +6,6 @@ import org.jspecify.annotations.NullMarked;
 /**
  * Utility for string case conversions, leveraging Jackson's naming strategies.
  */
-@NullMarked
 public final class CaseUtil {
 
     private static final ExposedSnakeCaseStrategy SNAKE_CASE_STRATEGY = new ExposedSnakeCaseStrategy();
