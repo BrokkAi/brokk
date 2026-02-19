@@ -929,13 +929,40 @@ class BrokkApp(App):
             unique_tokens.append(norm)
         return unique_tokens
 
-    async def _attach_mentions_to_context(self, task_input: str) -> None:
-        """Resolves @mentions and attaches matching entities to context before job submission."""
+    @staticmethod
+    def _extract_fragment_ids_from_add_context_response(resp: Any) -> List[str]:
+        if not isinstance(resp, dict):
+            return []
+
+        added = resp.get("added")
+        if not isinstance(added, list):
+            return []
+
+        ids: List[str] = []
+        for item in added:
+            if not isinstance(item, dict):
+                continue
+            raw_id = item.get("id", item.get("fragmentId"))
+            if raw_id is None:
+                continue
+            frag_id = str(raw_id).strip()
+            if frag_id:
+                ids.append(frag_id)
+
+        return list(dict.fromkeys(ids))
+
+    async def _attach_mentions_to_context(self, task_input: str) -> List[str]:
+        """Resolves @mentions and attaches matching entities to context before job submission.
+
+        Returns fragment IDs for any newly-attached context fragments when the executor's
+        add_context_* endpoints include them in their payload. If the executor does not
+        return fragment IDs, rollback-on-submit-failure is not possible.
+        """
         mentions = self._extract_at_mentions(task_input)
         if not mentions:
-            return
+            return []
         if not hasattr(self.executor, "get_completions"):
-            return
+            return []
 
         file_paths: List[str] = []
         class_names: List[str] = []
@@ -995,21 +1022,32 @@ class BrokkApp(App):
         method_names = list(dict.fromkeys(method_names))
 
         attached_parts: List[str] = []
+        attached_fragment_ids: List[str] = []
+
         if file_paths and hasattr(self.executor, "add_context_files"):
             try:
-                await self.executor.add_context_files(file_paths)
+                resp = await self.executor.add_context_files(file_paths)
+                attached_fragment_ids.extend(
+                    self._extract_fragment_ids_from_add_context_response(resp)
+                )
                 attached_parts.append(f"files={len(file_paths)}")
             except Exception:
                 logger.exception("Failed attaching @mentions as context files")
         if class_names and hasattr(self.executor, "add_context_classes"):
             try:
-                await self.executor.add_context_classes(class_names)
+                resp = await self.executor.add_context_classes(class_names)
+                attached_fragment_ids.extend(
+                    self._extract_fragment_ids_from_add_context_response(resp)
+                )
                 attached_parts.append(f"classes={len(class_names)}")
             except Exception:
                 logger.exception("Failed attaching @mentions as context classes")
         if method_names and hasattr(self.executor, "add_context_methods"):
             try:
-                await self.executor.add_context_methods(method_names)
+                resp = await self.executor.add_context_methods(method_names)
+                attached_fragment_ids.extend(
+                    self._extract_fragment_ids_from_add_context_response(resp)
+                )
                 attached_parts.append(f"methods={len(method_names)}")
             except Exception:
                 logger.exception("Failed attaching @mentions as context methods")
@@ -1020,13 +1058,16 @@ class BrokkApp(App):
                 details = ", ".join(attached_parts)
                 chat.add_system_message(f"Attached @mentions to context: {details}")
 
+        return list(dict.fromkeys(attached_fragment_ids))
+
     async def _run_job(self, task_input: str) -> None:
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
         chat.set_job_running(True)
         chat.set_response_pending()
+        attached_fragment_ids: List[str] = []
         try:
-            await self._attach_mentions_to_context(task_input)
+            attached_fragment_ids = await self._attach_mentions_to_context(task_input)
             self.current_job_id = await self.executor.submit_job(
                 task_input,
                 self.current_model,
@@ -1039,6 +1080,19 @@ class BrokkApp(App):
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
         except Exception as e:
+            if (
+                self.current_job_id is None
+                and attached_fragment_ids
+                and hasattr(self.executor, "drop_context_fragments")
+            ):
+                try:
+                    await self.executor.drop_context_fragments(attached_fragment_ids)
+                except Exception:
+                    logger.exception(
+                        "Failed to rollback context fragments after submit_job failure: %s",
+                        attached_fragment_ids,
+                    )
+
             chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
         finally:
             chat.set_response_finished()

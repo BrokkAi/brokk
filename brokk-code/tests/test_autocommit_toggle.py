@@ -163,3 +163,33 @@ async def test_run_job_skips_non_matching_at_mentions(tmp_path):
 
     mock_chat.add_system_message.assert_any_call("No exact match for @DoesNotMatch")
     executor.submit_job.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_job_rolls_back_attached_mention_fragments_on_submit_failure(tmp_path):
+    executor = MagicMock()
+    executor.workspace_dir = tmp_path
+    executor.get_completions = AsyncMock(
+        return_value={
+            "completions": [
+                {
+                    "type": "file",
+                    "name": "app.py",
+                    "detail": "brokk_code/app.py",
+                }
+            ]
+        }
+    )
+    executor.add_context_files = AsyncMock(return_value={"added": [{"id": "frag-1"}]})
+    executor.drop_context_fragments = AsyncMock(return_value={"dropped": ["frag-1"]})
+    executor.submit_job = AsyncMock(side_effect=RuntimeError("submit failed"))
+
+    app = BrokkApp(executor=executor)
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    await app._run_job("Use @brokk_code/app.py")
+
+    executor.add_context_files.assert_awaited_once_with(["brokk_code/app.py"])
+    executor.drop_context_fragments.assert_awaited_once_with(["frag-1"])
+    assert executor.submit_job.await_count == 1
