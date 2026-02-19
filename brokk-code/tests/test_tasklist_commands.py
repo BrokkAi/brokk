@@ -122,6 +122,36 @@ async def test_tasklist_panel_keybindings_call_app_actions() -> None:
         app.action_task_toggle.assert_called_once()
 
 
+@pytest.mark.asyncio
+async def test_tasklist_panel_help_line_contains_expected_keybindings() -> None:
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield TaskListPanel(id="tl")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#tl", TaskListPanel)
+        panel.update_tasklist_details(
+            {
+                "bigPicture": "x",
+                "tasks": [
+                    {"id": "1", "title": "One", "text": "One", "done": False},
+                ],
+            }
+        )
+        await pilot.pause()
+
+        help_line = panel.query_one("#tasklist-help-line", Static)
+        rendered = str(help_line.renderable)
+
+        assert "Space" in rendered
+        assert "Enter" in rendered
+        assert "A" in rendered
+        assert "E" in rendered
+        assert "D" in rendered
+        assert "Toggle" in rendered
+
+
 def test_app_task_add_opens_modal_and_dispatches_add_worker_on_submit() -> None:
     app = BrokkApp(executor=MagicMock())
     app.run_worker = MagicMock(side_effect=_close_coro)

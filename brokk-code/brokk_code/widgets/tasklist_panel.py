@@ -75,6 +75,7 @@ class TaskListPanel(Vertical):
     def compose(self) -> ComposeResult:
         yield Label("Task List", id="tasklist-header")
         yield Label("Selected: none", id="tasklist-selection")
+        yield Static(self._get_shortcuts_text(), id="tasklist-help-line")
         with VerticalScroll(id="tasklist-container"):
             yield Static("No task list active", id="tasklist-content")
 
