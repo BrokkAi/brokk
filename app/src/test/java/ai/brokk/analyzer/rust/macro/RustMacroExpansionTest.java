@@ -5,11 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.analyzer.SourceContent;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
@@ -55,6 +57,82 @@ class RustMacroExpansionTest {
 
             assertEquals("my_crate.ScopeKind.is_class", results.get(2).fqName());
             assertEquals("my_crate.ScopeKind.is_function", results.get(3).fqName());
+        }
+    }
+
+    @Test
+    void testRustAnalyzerIntegration() throws IOException {
+        String code =
+                """
+            #[derive(is_macro::Is)]
+            enum ScopeKind {
+                Module,
+            }
+
+            impl ScopeKind {
+                pub fn manual_method(&self) {}
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "src/lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            ProjectFile file = project.getAllFiles().iterator().next();
+
+            Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+            // Verify synthetic methods exist
+            assertTrue(
+                    declarations.stream().anyMatch(cu -> cu.fqName().equals("ScopeKind.is_module")),
+                    "Should contain synthetic is_module method");
+
+            // Verify manual methods exist
+            assertTrue(
+                    declarations.stream().anyMatch(cu -> cu.fqName().equals("ScopeKind.manual_method")),
+                    "Should contain manual method");
+        }
+    }
+
+    @Test
+    void testCollisionHandling() throws IOException {
+        String code =
+                """
+            #[derive(is_macro::Is)]
+            enum ScopeKind {
+                Module,
+            }
+
+            impl ScopeKind {
+                pub fn is_module(&self) -> bool { true }
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "src/lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            ProjectFile file = project.getAllFiles().iterator().next();
+
+            // Find the is_module method
+            CodeUnit isModule =
+                    analyzer.getDefinitions("ScopeKind.is_module").iterator().next();
+
+            // In TreeSitterAnalyzer, signatures are added for each occurrence.
+            // If our collision check works, we should only see the manual one (with its specific signature)
+            // or at least ensure we didn't duplicate the CU if they are identical.
+            // Our expandMacros checks localCuByFqName before adding.
+
+            List<CodeUnit> topLevel = analyzer.getTopLevelDeclarations(file);
+            CodeUnit scopeKindImpl = topLevel.stream()
+                    .filter(cu -> cu.isClass() && cu.fqName().equals("ScopeKind"))
+                    .findFirst()
+                    .orElseThrow();
+
+            List<CodeUnit> children = analyzer.getDirectChildren(scopeKindImpl);
+            long count = children.stream()
+                    .filter(c -> c.identifier().equals("is_module"))
+                    .count();
+
+            assertEquals(1, count, "Should only have one is_module method despite macro");
         }
     }
 }

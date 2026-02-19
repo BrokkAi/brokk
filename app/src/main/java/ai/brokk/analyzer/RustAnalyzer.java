@@ -3,6 +3,8 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.rust.macro.IsMacroExpander;
+import ai.brokk.analyzer.rust.macro.RustMacroExpander;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -448,7 +450,166 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             Map<CodeUnit, Boolean> localHasBody,
             Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
         log.trace("RustAnalyzer.expandMacros: file={}", file);
-        // Expansion logic will be implemented here
+
+        TSNode root = tree.getRootNode();
+        String packageName = determinePackageName(file, root, root, sourceContent);
+
+        // We use a simple tree walk to find enums with the specific attribute.
+        // In Rust, attributes are preceding siblings or children depending on the node type.
+        // For enum_item, they are often children of the enum_item node or preceding siblings.
+        // The treesitter-rust grammar usually has attribute_item as a child of the enum_item.
+        processMacrosRecursive(
+                root,
+                file,
+                sourceContent,
+                packageName,
+                localChildren,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges,
+                localHasBody,
+                localCodeUnitsBySymbol);
+    }
+
+    private void processMacrosRecursive(
+            TSNode node,
+            ProjectFile file,
+            SourceContent sourceContent,
+            String packageName,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody,
+            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+
+        if (ENUM_ITEM.equals(node.getType())) {
+            if (hasIsMacroAttribute(node, sourceContent)) {
+                RustMacroExpander expander = new IsMacroExpander();
+                List<CodeUnit> expanded = expander.expand(node, sourceContent, file, packageName);
+                if (!expanded.isEmpty()) {
+                    // First element is the synthetic impl block (Class CU)
+                    CodeUnit implCu = expanded.get(0);
+
+                    // Find or create the impl block.
+                    // For classes (impl blocks), fqName is the primary key.
+                    CodeUnit existingImpl = localCuByFqName.get(implCu.fqName());
+                    if (existingImpl == null) {
+                        localTopLevelCUs.add(implCu);
+                        localCuByFqName.put(implCu.fqName(), implCu);
+                        localChildren.put(implCu, new ArrayList<>());
+                        localSignatures.put(implCu, List.of("impl " + implCu.identifier() + " {"));
+                        // Fallback range for synthetic impl based on enum location
+                        localSourceRanges.put(
+                                implCu,
+                                new ArrayList<>(List.of(new Range(
+                                        node.getStartByte(),
+                                        node.getEndByte(),
+                                        node.getStartPoint().getRow(),
+                                        node.getEndPoint().getRow(),
+                                        node.getStartByte()))));
+                        localCodeUnitsBySymbol
+                                .computeIfAbsent(implCu.identifier(), k -> new HashSet<>())
+                                .add(implCu);
+                        if (!implCu.shortName().equals(implCu.identifier())) {
+                            localCodeUnitsBySymbol
+                                    .computeIfAbsent(implCu.shortName(), k -> new HashSet<>())
+                                    .add(implCu);
+                        }
+                        existingImpl = implCu;
+                    }
+
+                    List<CodeUnit> implChildren = localChildren.get(existingImpl);
+                    if (implChildren == null) {
+                        implChildren = new ArrayList<>();
+                        localChildren.put(existingImpl, implChildren);
+                    }
+
+                    // Add generated methods
+                    for (int i = 1; i < expanded.size(); i++) {
+                        CodeUnit methodCu = expanded.get(i);
+
+                        // Collision check: skip if method already exists in this impl block or by FQN.
+                        // We check the children of the existing impl block.
+                        boolean collision = implChildren.stream()
+                                        .anyMatch(c -> c.identifier().equals(methodCu.identifier()))
+                                || localCuByFqName.containsKey(methodCu.fqName());
+
+                        if (!collision) {
+                            implChildren.add(methodCu);
+                            localCuByFqName.put(methodCu.fqName(), methodCu);
+                            localHasBody.put(methodCu, true);
+                            localSignatures.put(
+                                    methodCu,
+                                    List.of("pub fn " + methodCu.identifier() + "(&self) -> bool { " + bodyPlaceholder()
+                                            + " }"));
+                            localCodeUnitsBySymbol
+                                    .computeIfAbsent(methodCu.identifier(), k -> new HashSet<>())
+                                    .add(methodCu);
+                            if (!methodCu.shortName().equals(methodCu.identifier())) {
+                                localCodeUnitsBySymbol
+                                        .computeIfAbsent(methodCu.shortName(), k -> new HashSet<>())
+                                        .add(methodCu);
+                            }
+
+                            // Ensure entries exist for the synthetic unit itself
+                            localChildren.putIfAbsent(methodCu, new ArrayList<>());
+                            localSourceRanges.put(methodCu, new ArrayList<>(localSourceRanges.get(existingImpl)));
+
+                            log.trace("Added synthetic method {} to {}", methodCu.fqName(), existingImpl.fqName());
+                        }
+                    }
+                }
+            }
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            processMacrosRecursive(
+                    node.getChild(i),
+                    file,
+                    sourceContent,
+                    packageName,
+                    localChildren,
+                    localCuByFqName,
+                    localTopLevelCUs,
+                    localSignatures,
+                    localSourceRanges,
+                    localHasBody,
+                    localCodeUnitsBySymbol);
+        }
+    }
+
+    private boolean hasIsMacroAttribute(TSNode node, SourceContent sourceContent) {
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (ATTRIBUTE_ITEM.equals(child.getType())) {
+                String attrText = sourceContent.substringFrom(child);
+                // Matches #[derive(Is)], #[derive(is_macro::Is)], or just #[Is].
+                // We check for "Is" as a whole identifier or the final segment of a path.
+                // Regex matches:
+                // 1. Standalone Is: #[Is]
+                // 2. Scoped Is: is_macro::Is
+                // 3. Within derive: #[derive(Is)], #[derive(is_macro::Is)], #[derive(..., Is, ...)]
+                if (attrText.matches("(?s).*(?::|\\(|\\b)Is(?:\\b|\\)|,).*")) {
+                    return true;
+                }
+            }
+        }
+        // Also check preceding siblings (attributes can be siblings of the enum_item in some grammar versions)
+        TSNode prev = node.getPrevSibling();
+        while (prev != null && !prev.isNull()) {
+            if (ATTRIBUTE_ITEM.equals(prev.getType())) {
+                if (sourceContent.substringFrom(prev).matches("(?s).*(?::|\\(|\\b)Is(?:\\b|\\)|,).*")) {
+                    return true;
+                }
+            } else if (!isWhitespaceOnlyNode(prev) && !isCommentNode(prev)) {
+                break;
+            }
+            prev = prev.getPrevSibling();
+        }
+        return false;
     }
 
     @Override
