@@ -128,6 +128,50 @@ class ReasoningSelectModal(ModalScreen[str]):
             self.dismiss(level)
 
 
+class ModeSelectModal(ModalScreen[str]):
+    """A modal for selecting the agent mode."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, modes: List[str], current: str) -> None:
+        super().__init__()
+        self.modes = modes
+        self.current = current
+        self._item_id_to_mode: Dict[str, str] = {
+            f"mode-{idx}": mode for idx, mode in enumerate(modes)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="mode-select-container"):
+            yield Static("Select Mode", id="mode-select-title")
+            with VerticalScroll(id="mode-select-list-wrap"):
+                yield ListView(
+                    *[
+                        ListItem(
+                            Static(
+                                f"{'[x]' if mode == self.current else '[ ]'} {mode}",
+                                markup=False,
+                            ),
+                            id=item_id,
+                        )
+                        for item_id, mode in self._item_id_to_mode.items()
+                    ],
+                    id="mode-select-list",
+                )
+
+    def on_mount(self) -> None:
+        self.query_one("#mode-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        mode = self._item_id_to_mode.get(message.item.id)
+        if mode:
+            self.dismiss(mode)
+
+
 class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
     """A combined modal for selecting both model and reasoning level side-by-side."""
 
@@ -945,7 +989,7 @@ class BrokkApp(App):
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
             {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
-            {"command": "/mode", "description": "Cycle between CODE, ASK, and LUTZ modes"},
+            {"command": "/mode", "description": "Select agent mode (CODE, ASK, or LUTZ)"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
             {"command": "/reasoning", "description": "Set reasoning level for planner"},
@@ -1073,7 +1117,10 @@ class BrokkApp(App):
         elif base in ("/code", "/ask", "/lutz"):
             self._set_mode(base[1:].upper())
         elif base == "/mode":
-            self.action_toggle_mode()
+            if len(parts) > 1:
+                self._set_mode(parts[1].upper())
+            else:
+                self.action_select_mode()
         elif base == "/info":
             self._render_info()
         elif base == "/history":
@@ -1279,6 +1326,18 @@ class BrokkApp(App):
                     pass
 
         self.push_screen(ReasoningSelectModal(levels, current), update_level)
+
+    def action_select_mode(self) -> None:
+        modes = ["CODE", "ASK", "LUTZ"]
+        current = self.agent_mode.upper()
+        if current not in modes:
+            current = "LUTZ"
+
+        def update_mode(mode: str | None) -> None:
+            if mode:
+                self._set_mode(mode)
+
+        self.push_screen(ModeSelectModal(modes, current), update_mode)
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):
