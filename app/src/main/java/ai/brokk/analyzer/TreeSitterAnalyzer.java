@@ -2546,81 +2546,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected FileAnalysisContext expandMacros(
             ProjectFile file, TSTree tree, SourceContent sourceContent, FileAnalysisContext ctx) {
-        // 1) Create mutable copies of ctx maps/vectors
-        Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
-        ctx.children().forEach((k, v) -> localChildren.put(k, new ArrayList<>(v)));
-
-        Map<String, CodeUnit> localCuByFqName = new HashMap<>(ctx.cuByFqName());
-        List<CodeUnit> localTopLevelCUs = new ArrayList<>(ctx.topLevelCUs());
-
-        Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
-        ctx.signatures().forEach((k, v) -> localSignatures.put(k, new ArrayList<>(v)));
-
-        Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
-        ctx.sourceRanges().forEach((k, v) -> localSourceRanges.put(k, new ArrayList<>(v)));
-
-        Map<CodeUnit, Boolean> localHasBody = new HashMap<>(ctx.hasBody());
-
-        Map<String, Set<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
-        ctx.codeUnitsBySymbol().forEach((k, v) -> localCodeUnitsBySymbol.put(k, new HashSet<>(v)));
-
-        // 2) Call existing legacy expandMacros
-        expandMacros(
-                file,
-                tree,
-                sourceContent,
-                localChildren,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges,
-                localHasBody,
-                localCodeUnitsBySymbol);
-
-        // 3) Rebuild lookupKeys from localCuByFqName
-        PMap<CodeUnit, PVector<String>> nextLookupKeys = HashTreePMap.empty();
-        for (var entry : localCuByFqName.entrySet()) {
-            String key = entry.getKey();
-            CodeUnit cu = entry.getValue();
-            PVector<String> keys = nextLookupKeys.getOrDefault(cu, TreePVector.empty());
-            nextLookupKeys = nextLookupKeys.plus(cu, keys.plus(key));
-        }
-
-        // 4) Convert mutable collections back to PMaps/PVectors
-        PMap<CodeUnit, PVector<CodeUnit>> nextChildren = HashTreePMap.empty();
-        for (var e : localChildren.entrySet()) {
-            nextChildren = nextChildren.plus(e.getKey(), TreePVector.from(e.getValue()));
-        }
-
-        PMap<CodeUnit, PVector<String>> nextSignatures = HashTreePMap.empty();
-        for (var e : localSignatures.entrySet()) {
-            nextSignatures = nextSignatures.plus(e.getKey(), TreePVector.from(e.getValue()));
-        }
-
-        PMap<CodeUnit, PVector<Range>> nextSourceRanges = HashTreePMap.empty();
-        for (var e : localSourceRanges.entrySet()) {
-            nextSourceRanges = nextSourceRanges.plus(e.getKey(), TreePVector.from(e.getValue()));
-        }
-
-        PMap<String, PSet<CodeUnit>> nextSymbolIndex = HashTreePMap.empty();
-        for (var e : localCodeUnitsBySymbol.entrySet()) {
-            PSet<CodeUnit> pset = org.pcollections.HashTreePSet.empty();
-            for (CodeUnit cu : e.getValue()) {
-                pset = pset.plus(cu);
-            }
-            nextSymbolIndex = nextSymbolIndex.plus(e.getKey(), pset);
-        }
-
-        // 5) Return new FileAnalysisContext
-        return new FileAnalysisContext(
-                TreePVector.from(localTopLevelCUs),
-                nextChildren,
-                nextSignatures,
-                nextSourceRanges,
-                HashTreePMap.from(localHasBody),
-                nextSymbolIndex,
-                HashTreePMap.from(localCuByFqName),
-                nextLookupKeys);
+        return ctx;
     }
 
     private FileAnalysisContext wrapModulesFromImports(
@@ -4325,34 +4251,5 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
         return null;
-    }
-
-    /**
-     * Hook for subclasses to perform macro expansion or other synthetic CodeUnit injection.
-     * Called at the end of {@code analyzeFileContent} before the final state is frozen.
-     *
-     * @param file                   The file being analyzed.
-     * @param tree                   The parsed Tree-sitter tree.
-     * @param sourceContent          The source content.
-     * @param localChildren          Mutable map of parent to child CodeUnits.
-     * @param localCuByFqName        Mutable map of FQ name (with signature/offset suffix) to CodeUnit.
-     * @param localTopLevelCUs       Mutable list of top-level CodeUnits for the file.
-     * @param localSignatures        Mutable map of CodeUnit to its signature list.
-     * @param localSourceRanges      Mutable map of CodeUnit to its source ranges.
-     * @param localHasBody           Mutable map of CodeUnit to its hasBody flag.
-     * @param localCodeUnitsBySymbol Mutable map of symbol identifiers to CodeUnits.
-     */
-    protected void expandMacros(
-            ProjectFile file,
-            TSTree tree,
-            SourceContent sourceContent,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, Boolean> localHasBody,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
-        // No-op by default
     }
 }
