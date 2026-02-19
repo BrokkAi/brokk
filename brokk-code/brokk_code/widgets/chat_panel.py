@@ -348,8 +348,12 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
             if event.key in ("tab", "enter"):
+                # Flag that we want to submit immediately if Enter was used on slash suggestions
                 if event.key == "enter" and active_popup == suggestions:
                     self.submit_after_accept = True
+                else:
+                    self.submit_after_accept = False
+
                 self.action_accept_suggestion()
                 event.stop()
                 event.prevent_default()
@@ -565,6 +569,8 @@ class ChatPanel(Vertical):
     ) -> None:
         chat_input = self.query_one("#chat-input", ChatInput)
         command = event.command
+        should_submit = chat_input.submit_after_accept
+        chat_input.submit_after_accept = False
 
         # Append a space for commands that typically require arguments.
         # Commands like /mode and /settings open modals/menus and should not have a trailing space.
@@ -583,8 +589,7 @@ class ChatPanel(Vertical):
         chat_input.move_cursor(chat_input.document.end)
         chat_input.focus()
 
-        if chat_input.submit_after_accept:
-            chat_input.submit_after_accept = False
+        if should_submit:
             chat_input.action_submit()
 
     def set_response_pending(self) -> None:
