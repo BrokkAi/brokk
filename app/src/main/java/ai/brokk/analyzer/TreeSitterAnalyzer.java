@@ -2182,7 +2182,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         decoratorNodesForMatch,
                                         definitionNode.getParent())); // Cache parent to avoid repeated lookups
 
-                        ctx = ctx.withSymbolIndex(simpleName, null); // Placeholder for resolution
                     } else {
                         if (simpleName == null) {
                             if (!isNullNameAllowed(
@@ -2547,6 +2546,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         Map<CodeUnit, CodeUnitProperties> localStates = new HashMap<>();
         var unionKeys = new HashSet<CodeUnit>();
         unionKeys.addAll(ctx.children().keySet());
+        ctx.children().values().forEach(unionKeys::addAll);
         unionKeys.addAll(ctx.signatures().keySet());
         unionKeys.addAll(ctx.sourceRanges().keySet());
         for (var cu : unionKeys) {
