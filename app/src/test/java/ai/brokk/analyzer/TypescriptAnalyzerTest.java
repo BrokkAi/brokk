@@ -3364,4 +3364,32 @@ public class TypescriptAnalyzerTest {
             assertTrue(signatures.get(0).contains("log(message: string): void"), "Signature text should be correct");
         }
     }
+
+    @Test
+    void testAliasSignatureFormatting() throws IOException {
+        // Verifies that renderAliasSignature includes semicolons for type aliases.
+        String code = "export type Foo = string | number;";
+
+        try (var testProject = ai.brokk.testutil.InlineTestProjectCreator.code(code, "AliasTest.ts")
+                .build()) {
+            var tsAnalyzer = new TypescriptAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "AliasTest.ts");
+
+            // Find the 'Foo' type alias CodeUnit
+            CodeUnit fooAlias = tsAnalyzer.getDeclarations(file).stream()
+                    .filter(cu -> cu.shortName().contains("Foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            List<String> signatures = tsAnalyzer.signaturesOf(fooAlias);
+
+            assertFalse(signatures.isEmpty(), "Signatures should not be empty for type alias");
+            String signature = signatures.get(0);
+
+            // Assert formatting: should start with export, include the name and assignment, and end with semicolon.
+            assertTrue(signature.startsWith("export type Foo ="), "Signature should start with 'export type Foo ='");
+            assertTrue(signature.endsWith(";"), "Signature should end with a semicolon");
+            assertEquals("export type Foo = string | number;", signature);
+        }
+    }
 }
