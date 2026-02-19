@@ -832,7 +832,8 @@ class ChatPanel(Vertical):
         command = event.command
 
         # Append a space for commands that typically require arguments.
-        # Commands like /mode, /settings, /task open modals/menus and should not have a trailing space.
+        # Commands like /mode, /settings, /task open modals/menus and
+        # should not have a trailing space.
         needs_arg = command in ("/model", "/model-code", "/reasoning", "/reasoning-code")
 
         if needs_arg:
