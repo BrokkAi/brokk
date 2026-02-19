@@ -28,7 +28,6 @@ class ContextModalScreen(ModalScreen[None]):
 
     BINDINGS = [
         Binding("escape", "close_context", "Close", show=False),
-        Binding("ctrl+l", "close_context", "Close", show=False),
     ]
 
     def __init__(self, on_close: Callable[[], None]) -> None:
@@ -266,7 +265,6 @@ class BrokkApp(App):
     BINDINGS = [
         # Footer/help-bar ordering: Context, Tasks, Notifications, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
-        Binding("ctrl+l", "toggle_context", "Context", show=True),
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+j", "task_next", "Task Next", show=False),
