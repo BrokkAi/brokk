@@ -20,6 +20,9 @@ def test_task_command_opens_panel():
             return mock_chat
         if target is TaskListPanel:
             return mock_panel
+        # Match string-based ID lookups as well
+        if target == "#side-tasklist":
+            return mock_panel
         raise AssertionError(f"Unexpected query target: {target}")
 
     app.query_one = MagicMock(side_effect=query_one)
