@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from textual.app import App, ComposeResult
+from textual.widgets import Static
 
 from brokk_code.app import BrokkApp, TaskListModalScreen, TaskTitleModalScreen
 from brokk_code.widgets.chat_panel import ChatPanel
@@ -225,10 +226,9 @@ def test_task_command_open_when_executor_ready_triggers_immediate_tasklist_fetch
 
     assert app.push_screen.call_count == 1
     assert app.run_worker.call_count == 2
-    worker_names = {
-        app.run_worker.call_args_list[0].args[0].__name__,
-        app.run_worker.call_args_list[1].args[0].__name__,
-    }
+
+    worker_coros = [c.args[0] for c in app.run_worker.call_args_list]
+    worker_names = {coro.__name__ for coro in worker_coros}
     assert worker_names == {"_ensure_tasklist_data", "_refresh_context_panel"}
 
 
