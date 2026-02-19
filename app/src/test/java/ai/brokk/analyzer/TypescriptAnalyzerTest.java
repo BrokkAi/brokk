@@ -6,6 +6,7 @@ import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -3338,8 +3339,8 @@ public class TypescriptAnalyzerTest {
                 }
                 """;
 
-        try (var testProject = ai.brokk.testutil.InlineTestProjectCreator.code(code, "IdenticalOverloads.ts")
-                .build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "IdenticalOverloads.ts").build()) {
             var tsAnalyzer = new TypescriptAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "IdenticalOverloads.ts");
             Set<CodeUnit> declarations = tsAnalyzer.getDeclarations(file);
@@ -3370,8 +3371,8 @@ public class TypescriptAnalyzerTest {
         // Verifies that renderAliasSignature includes semicolons for type aliases.
         String code = "export type Foo = string | number;";
 
-        try (var testProject = ai.brokk.testutil.InlineTestProjectCreator.code(code, "AliasTest.ts")
-                .build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "AliasTest.ts").build()) {
             var tsAnalyzer = new TypescriptAnalyzer(testProject);
             ProjectFile file = new ProjectFile(testProject.getRoot(), "AliasTest.ts");
 
