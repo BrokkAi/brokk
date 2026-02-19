@@ -151,15 +151,24 @@ async def test_mode_command_submission_behavior():
     ):
         async with app.run_test() as pilot:
             chat_input = app.query_one(ChatInput)
+            mode_suggestions = app.query_one(ModeSuggestions)
 
-            # 1. Test /mode submission cycles (LUTZ -> CODE)
+            # 1. Test /mode submission opens menu instead of cycling
             assert app.agent_mode == "LUTZ"
+            assert mode_suggestions.display is False
+
             await pilot.press(*list("/mode"))
             await pilot.press("enter")
             await pilot.pause()
 
-            assert app.agent_mode == "CODE"
+            # Mode remains unchanged, but the menu is now visible
+            assert app.agent_mode == "LUTZ"
+            assert mode_suggestions.display is True
             assert chat_input.text == ""  # Input cleared on submit
+
+            # Close menu for next part of test
+            await pilot.press("escape")
+            await pilot.pause()
 
             # 2. Test /mode <MODE> submission sets directly
             await pilot.press(*list("/mode ask"))
