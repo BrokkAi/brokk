@@ -273,9 +273,6 @@ class BrokkApp(App):
         Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False),
-        Binding("ctrl+j", "task_next", "Task Next", show=False),
-        Binding("ctrl+k", "task_prev", "Task Prev", show=False),
-        Binding("ctrl+space", "task_toggle", "Task Toggle", show=False),
     ]
 
     def __init__(

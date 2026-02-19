@@ -9,6 +9,13 @@ def _close_coro(coro):
     coro.close()
 
 
+def test_app_has_no_global_tasklist_bindings() -> None:
+    keys = {b.key for b in BrokkApp.BINDINGS}
+    assert "ctrl+j" not in keys
+    assert "ctrl+k" not in keys
+    assert "ctrl+space" not in keys
+
+
 def test_task_command_toggles_panel():
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
