@@ -9,17 +9,94 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 
 
+class SlashCommandSuggestions(ListView):
+    """A popup list for slash command autocomplete."""
+
+    show_vertical_scrollbar = True
+
+    DEFAULT_CSS = """
+    SlashCommandSuggestions {
+        display: none;
+        height: auto;
+        max-height: 20;
+        width: 1fr;
+        margin: 0 2 0 2;
+        dock: bottom;
+        layer: top;
+    }
+    SlashCommandSuggestions ListItem {
+        padding: 0 1;
+    }
+    """
+
+    class CommandSelected(Message):
+        def __init__(self, command: str) -> None:
+            self.command = command
+            super().__init__()
+
+    def update_suggestions(self, query: str, commands: List[Dict[str, str]]) -> bool:
+        """Filters suggestions based on query. Returns True if there are matches."""
+        self.clear()
+        # Ensure we don't show for multi-line or non-slash inputs
+        if not query.startswith("/") or "\n" in query:
+            return False
+
+        query_stripped = query.strip().lower()
+        matches = []
+        for c in commands:
+            cmd_name = c["command"].lower()
+            # Direct prefix match for the command
+            if cmd_name.startswith(query_stripped):
+                matches.append(c)
+            # For multi-word commands like /task next, if user typed "/task n"
+            elif query_stripped.startswith("/task ") and cmd_name.startswith(query_stripped):
+                matches.append(c)
+
+        if not matches:
+            self.display = False
+            return False
+
+        for m in matches:
+            li = ListItem(Static(f"{m['command']} - {m['description']}", markup=False))
+            # Store the raw command on the ListItem for easier retrieval
+            li.command_name = m["command"]
+            self.append(li)
+
+        self.index = 0
+        self.display = True
+        return True
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if message.item:
+            cmd_text = getattr(message.item, "command_name", "")
+            if not cmd_text:
+                # Fallback to parsing if attribute missing
+                cmd_text = str(message.item.query_one(Static).renderable).split(" - ")[0]
+            self.display = False
+            self.post_message(self.CommandSelected(cmd_text))
+
+
 class ChatInput(TextArea):
     """A multiline text area for chat input that submits on Enter."""
 
+    DEFAULT_CSS = """
+    ChatInput {
+        height: 3;
+    }
+    """
+
+    suppress_autocomplete_once: bool = False
+
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
+        Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
+        Binding("escape", "hide_autocomplete", "Hide Autocomplete", show=False),
     ]
 
     class Submitted(Message):
@@ -38,11 +115,81 @@ class ChatInput(TextArea):
     def action_submit(self) -> None:
         text = self.text
         if text.strip():
+            # Suppress re-showing during the clear operation
+            self.suppress_autocomplete_once = True
+            self._set_autocomplete_open(False)
             self.post_message(self.Submitted(text))
             self.text = ""
 
     def action_insert_newline(self) -> None:
         self.insert("\n")
+
+    def _set_autocomplete_open(self, is_open: bool) -> None:
+        """Synchronizes suggestions visibility and container styling."""
+        try:
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+            container = self.app.query_one("#chat-input-container")
+            if suggestions.display != is_open:
+                suggestions.display = is_open
+            container.set_class(is_open, "autocomplete-open")
+        except Exception:
+            pass
+
+    def action_hide_autocomplete(self) -> None:
+        """Hides the popup suggestions."""
+        self._set_autocomplete_open(False)
+
+    def action_accept_suggestion(self) -> None:
+        """Accepts the highlighted popup suggestion."""
+        app = self.app
+        try:
+            suggestions = app.query_one(SlashCommandSuggestions)
+            if suggestions.display:
+                suggestions.action_select_cursor()
+                return
+        except Exception:
+            pass
+
+    def watch_text(self, old_text: str, new_text: str) -> None:
+        """Watch for programmatic text changes."""
+        self._sync_autocomplete(new_text)
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """Triggered whenever text changes via typing or backspace."""
+        # Note: self.text is already updated when this event fires
+        self._sync_autocomplete(self.text)
+
+    def on_focus(self, event: events.Focus) -> None:
+        """Re-check autocomplete when input gains focus."""
+        self._sync_autocomplete(self.text)
+
+    def on_blur(self, event: events.Blur) -> None:
+        """Hide autocomplete when input loses focus."""
+        self._set_autocomplete_open(False)
+
+    def _sync_autocomplete(self, text: str) -> None:
+        """Drives autocomplete visibility based on current text and focus state."""
+        if self.suppress_autocomplete_once:
+            self._set_autocomplete_open(False)
+            self.suppress_autocomplete_once = False
+            return
+
+        # Always hide if text is empty, contains newlines, or focus is lost
+        if not text or not self.has_focus or "\n" in text or not text.startswith("/"):
+            self._set_autocomplete_open(False)
+            return
+
+        app = self.app
+        commands = []
+        if hasattr(app, "get_slash_commands"):
+            commands = app.get_slash_commands()
+
+        try:
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+            is_any = suggestions.update_suggestions(text, commands)
+            self._set_autocomplete_open(is_any)
+        except Exception:
+            pass
 
     async def _on_key(self, event: events.Key) -> None:
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
@@ -54,6 +201,40 @@ class ChatInput(TextArea):
             event.prevent_default()
             self.action_quit()
             return
+
+        try:
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+        except Exception:
+            suggestions = None
+
+        if suggestions and suggestions.display:
+            if event.key == "up":
+                suggestions.action_cursor_up()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "down":
+                suggestions.action_cursor_down()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "tab":
+                self.action_accept_suggestion()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "enter":
+                # Accept the suggestion without submitting (same as Tab)
+                self.action_accept_suggestion()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "escape":
+                self.action_hide_autocomplete()
+                event.stop()
+                event.prevent_default()
+                return
+
         if event.key == "enter":
             event.stop()
             event.prevent_default()
@@ -64,6 +245,7 @@ class ChatInput(TextArea):
             event.prevent_default()
             self.action_insert_newline()
             return
+
         await super()._on_key(event)
 
 
@@ -99,7 +281,9 @@ class ChatPanel(Vertical):
         yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
-        yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
+        with Vertical(id="chat-input-container"):
+            yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
+        yield SlashCommandSuggestions(id="slash-suggestions")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
@@ -117,6 +301,14 @@ class ChatPanel(Vertical):
         chat_input = self.query_one("#chat-input", ChatInput)
         if not chat_input.has_focus:
             return
+
+        # Bypass history navigation if suggestions are visible
+        try:
+            suggestions = self.query_one(SlashCommandSuggestions)
+            if suggestions.display:
+                return
+        except Exception:
+            pass
 
         # Only trigger history navigation if there is no selection
         if not chat_input.selection.is_empty:
@@ -138,7 +330,7 @@ class ChatPanel(Vertical):
     def _navigate_history(self, delta: int) -> None:
         """
         Logic for cycling through history:
-        - Up (delta -1): Moves towards older entries.
+        - Up (delta -1): Moves towards older entries (towards index 0).
         - Down (delta 1): Moves towards newer entries and eventually the draft.
         - Commands (/) are not in the history.
         - Restores draft_buffer when moving past the newest entry.
@@ -148,31 +340,28 @@ class ChatPanel(Vertical):
 
         chat_input = self.query_one("#chat-input", ChatInput)
 
-        # If starting navigation, save the current text
+        # If starting navigation, save the current text and start at the end of history
         if self._history_index == -1:
+            if delta == 1:
+                return  # Down from draft does nothing
             self._draft_buffer = chat_input.text
+            new_index = len(self._history) - 1
+        else:
+            new_index = self._history_index + delta
 
-        new_index = self._history_index + delta
-
-        # Boundaries
-        if delta == -1:  # Up
-            if self._history_index == -1:
-                new_index = len(self._history) - 1
-            else:
-                new_index = max(0, self._history_index - 1)
-        else:  # Down
-            if self._history_index == -1:
-                return  # Already at draft
-            new_index = self._history_index + 1
-
-        if new_index >= len(self._history):
+        if new_index < 0:
+            # Stay at the oldest entry
+            new_index = 0
+        elif new_index >= len(self._history):
             # Move back to draft
             chat_input.text = self._draft_buffer
             self._history_index = -1
-        else:
-            # Load from history
-            self._history_index = new_index
-            chat_input.text = self._history[self._history_index]
+            chat_input.move_cursor(chat_input.document.end)
+            return
+
+        # Load from history
+        self._history_index = new_index
+        chat_input.text = self._history[self._history_index]
 
         # Keep cursor at end so subsequent Up/Down gating checks behave correctly.
         chat_input.move_cursor(chat_input.document.end)
@@ -194,6 +383,28 @@ class ChatPanel(Vertical):
         self.post_message(self.Submitted(event.text))
         self._history_index = -1
         self._draft_buffer = ""
+
+    def on_slash_command_suggestions_command_selected(
+        self, event: SlashCommandSuggestions.CommandSelected
+    ) -> None:
+        chat_input = self.query_one("#chat-input", ChatInput)
+        command = event.command
+
+        # Append a space for commands that typically require arguments
+        needs_arg = command in ("/model", "/model-code", "/reasoning", "/reasoning-code", "/task")
+        # Also check for command group prefixes like "/task "
+        if command.startswith(("/task ", "/autocommit ")):
+            needs_arg = False  # Already has a sub-command or space
+
+        if needs_arg:
+            command += " "
+
+        # Suppress re-showing autocomplete when we programmatically update the text
+        chat_input.suppress_autocomplete_once = True
+
+        chat_input.text = command
+        chat_input.move_cursor(chat_input.document.end)
+        chat_input.focus()
 
     def set_response_pending(self) -> None:
         """Called when a job is submitted and we are waiting for the first token."""

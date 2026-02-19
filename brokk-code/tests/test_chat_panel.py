@@ -1,4 +1,5 @@
 import pytest
+from textual.widgets import Static
 
 from brokk_code.widgets.chat_panel import ChatPanel
 
@@ -49,8 +50,6 @@ async def test_job_progress_in_chat_panel():
     """
     from textual.app import App, ComposeResult
 
-    from brokk_code.widgets.status_line import StatusLine
-
     class TestApp(App):
         def compose(self) -> ComposeResult:
             yield ChatPanel(id="chat")
@@ -58,22 +57,21 @@ async def test_job_progress_in_chat_panel():
     app = TestApp()
     async with app.run_test():
         chat = app.query_one(ChatPanel)
-        status_line = chat.query_one(StatusLine)
-        timer_wrap = status_line.query_one("#status-timer-wrap")
+        help_elapsed = chat.query_one("#help-elapsed")
         help_spinner = chat.query_one("#help-spinner")
 
         # Initially hidden
-        assert timer_wrap.has_class("hidden")
+        assert help_elapsed.has_class("hidden")
         assert help_spinner.has_class("hidden")
 
         # Start job
         chat.set_job_running(True)
-        assert not timer_wrap.has_class("hidden")
+        assert not help_elapsed.has_class("hidden")
         assert not help_spinner.has_class("hidden")
 
         # Stop job
         chat.set_job_running(False)
-        assert timer_wrap.has_class("hidden")
+        assert help_elapsed.has_class("hidden")
         assert help_spinner.has_class("hidden")
 
 
@@ -270,3 +268,66 @@ async def test_chat_panel_composition_success():
         # Verify #help-elapsed (Static) exists - this would have failed with NameError
         help_elapsed = chat.query_one("#help-elapsed", Static)
         assert help_elapsed is not None
+
+
+@pytest.mark.asyncio
+async def test_slash_command_catalog_stability():
+    """Verify the slash command catalog is stable and follows rules."""
+    from unittest.mock import MagicMock
+
+    from brokk_code.app import BrokkApp
+
+    app = BrokkApp(executor=MagicMock())
+    commands = app.get_slash_commands()
+
+    assert len(commands) > 0
+    seen = set()
+    for cmd_entry in commands:
+        cmd = cmd_entry["command"]
+        assert cmd.startswith("/"), f"Command {cmd} must start with /"
+        assert cmd not in seen, f"Duplicate command found: {cmd}"
+        assert "description" in cmd_entry
+        seen.add(cmd)
+
+    # Verify key commands exist
+    cmds_only = {c["command"] for c in commands}
+    assert "/ask" in cmds_only
+    assert "/task next" in cmds_only
+    assert "/help" in cmds_only
+
+
+@pytest.mark.asyncio
+async def test_slash_autocomplete_filtering():
+    """Verify slash suggestions filter correctly."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatPanel, SlashCommandSuggestions
+
+    class TestApp(App):
+        def get_slash_commands(self):
+            return [
+                {"command": "/ask", "description": "d"},
+                {"command": "/ask-more", "description": "d"},
+                {"command": "/help", "description": "d"},
+            ]
+
+        def compose(self) -> ComposeResult:
+            yield ChatPanel()
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        suggestions = app.query_one(SlashCommandSuggestions)
+
+        # Type /a
+        await pilot.press(*list("/a"))
+        assert suggestions.display is True
+        assert len(suggestions.children) == 2
+
+        # Type sk-
+        await pilot.press(*list("sk-"))
+        assert len(suggestions.children) == 1
+        assert "/ask-more" in str(suggestions.children[0].query_one(Static).render())
+
+        # Esc hides
+        await pilot.press("escape")
+        assert suggestions.display is False

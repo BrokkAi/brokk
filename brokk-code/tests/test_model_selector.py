@@ -110,3 +110,61 @@ def test_help_command_no_shortcuts_for_model_reasoning():
     # Verify the commands themselves are still documented
     assert "/model" in help_text
     assert "/reasoning" in help_text
+
+
+def test_help_output_matches_command_catalog():
+    """Ensure every command in the catalog is present in the /help output."""
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    app._handle_command("/help")
+
+    args, _ = mock_chat.append_message.call_args
+    help_text = args[1]
+
+    for cmd_entry in app.get_slash_commands():
+        cmd = cmd_entry["command"]
+        assert cmd in help_text, f"Command {cmd} missing from /help output"
+
+
+@pytest.mark.asyncio
+async def test_slash_autocomplete_filtering():
+    """Verify slash suggestions filter correctly."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.widgets.chat_panel import ChatPanel, SlashCommandSuggestions
+
+    class TestApp(App):
+        def get_slash_commands(self):
+            return [
+                {"command": "/ask", "description": "d"},
+                {"command": "/ask-more", "description": "d"},
+                {"command": "/help", "description": "d"},
+            ]
+
+        def compose(self) -> ComposeResult:
+            yield ChatPanel()
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        suggestions = app.query_one(SlashCommandSuggestions)
+
+        # Initially hidden
+        assert suggestions.display is False
+
+        # Type /a
+        await pilot.press(*list("/a"))
+        assert suggestions.display is True
+        # matches /ask and /ask-more
+        assert len(suggestions.children) == 2
+
+        # Type sk-
+        await pilot.press(*list("sk-"))
+        assert len(suggestions.children) == 1
+        assert "/ask-more" in str(suggestions.children[0].query_one(Static).render())
+
+        # Esc hides
+        await pilot.press("escape")
+        assert suggestions.display is False

@@ -212,6 +212,17 @@ ChatPanel {
     text-style: bold;
 }
 
+#chat-input-container {
+    height: auto;
+    width: 100%;
+    layout: vertical;
+}
+
+#chat-input-container.autocomplete-open {
+    /* Prompt no longer moves when autocomplete is open */
+    margin-bottom: 0;
+}
+
 #chat-input {
     margin: 0 2 1 2;
     background: $panel;
@@ -219,7 +230,9 @@ ChatPanel {
     height: 3;
     border: none;
     content-align: left middle;
+    layer: base;
 }
+
 
 #notification-panel {
     height: 4;
@@ -233,6 +246,10 @@ ChatPanel {
     height: 1;
 }
 
+#status-spinner {
+    display: none;
+}
+
 /* Ensure the Textual `.hidden` class continues to hide the status line cleanly. */
 .hidden {
     display: none;
@@ -244,9 +261,24 @@ ChatPanel {
     content-align: left middle;
 }
 
+SlashCommandSuggestions {
+    background: $panel;
+    border: none;
+    color: $text;
+    scrollbar-gutter: stable;
+    /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
+    margin: 0 2 6 2;
+    max-height: 20;
+}
+
+SlashCommandSuggestions > ListItem:focus {
+    background: $surface-lighten-1;
+    color: $accent;
+}
+
 #chat-help-row {
     height: 1;
-    margin: 0 2 0 2;
+    margin: 0 2 1 2;
 }
 
 #help-spinner {

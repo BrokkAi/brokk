@@ -1,6 +1,9 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+from textual.app import App, ComposeResult
+
 from brokk_code.widgets.status_line import StatusLine
 
 
@@ -123,3 +126,31 @@ def test_status_line_rendering_windows_path_normalization(monkeypatch):
     # Expected: Home abbreviation + forward slashes
     expected_home_sub = "LUTZ • gpt-4 (high) • ~/projects/brokk • main"
     mock_metadata.update.assert_called_with(expected_home_sub)
+
+
+class StatusLineTestApp(App):
+    def compose(self) -> ComposeResult:
+        yield StatusLine(id="status-line")
+
+
+@pytest.mark.asyncio
+async def test_status_line_no_timer_regression():
+    """
+    Ensure StatusLine does not contain legacy timer or progress widgets.
+    The timer logic was moved to ChatPanel.
+    """
+    app = StatusLineTestApp()
+    async with app.run_test() as pilot:
+        status_line = app.query_one("#status-line", StatusLine)
+
+        # 1. Assert legacy timer/progress widgets are absent
+        legacy_selectors = ["#status-timer", "#status-timer-wrap", "#status-progress"]
+        for selector in legacy_selectors:
+            matches = status_line.query(selector)
+            assert len(matches) == 0, f"Found legacy widget {selector} in StatusLine"
+
+        # 2. Verify set_job_running is a safe no-op
+        # This ensures that even if called (e.g. from ChatPanel), it doesn't crash
+        status_line.set_job_running(True)
+        status_line.set_job_running(False)
+        await pilot.pause()

@@ -940,6 +940,34 @@ class BrokkApp(App):
         )
         chat.add_system_message_markup(info_markup)
 
+    @staticmethod
+    def get_slash_commands() -> List[Dict[str, str]]:
+        """Returns the structured catalog of supported slash commands."""
+        return [
+            {"command": "/ask", "description": "Set mode to ASK (questions only)"},
+            {"command": "/search", "description": "Set mode to SEARCH (read-only code search)"},
+            {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
+            {"command": "/model", "description": "Change the planner LLM model"},
+            {"command": "/model-code", "description": "Change the code LLM model"},
+            {"command": "/reasoning", "description": "Set reasoning level for planner"},
+            {"command": "/reasoning-code", "description": "Set reasoning level for code model"},
+            {"command": "/autocommit", "description": "Toggle auto-commit for submitted jobs"},
+            {"command": "/settings", "description": "Open settings"},
+            {"command": "/history", "description": "Show recent prompt history"},
+            {"command": "/history-clear", "description": "Clear prompt history"},
+            {"command": "/task", "description": "Show task info"},
+            {"command": "/task next", "description": "Select next task"},
+            {"command": "/task prev", "description": "Select previous task"},
+            {"command": "/task toggle", "description": "Toggle selected task done state"},
+            {"command": "/task add", "description": "Add a new task"},
+            {"command": "/task edit", "description": "Edit selected task title"},
+            {"command": "/task delete", "description": "Delete selected task"},
+            {"command": "/info", "description": "Show current configuration and status"},
+            {"command": "/help", "description": "Show help message"},
+            {"command": "/quit", "description": "Exit the application"},
+            {"command": "/exit", "description": "Exit the application"},
+        ]
+
     def _handle_command(self, cmd: str) -> None:
         chat = self.query_one(ChatPanel)
         parts = cmd.split()
@@ -1098,30 +1126,13 @@ class BrokkApp(App):
                         "Unknown /task command. Use: next, prev, toggle, delete, add, edit."
                     )
         elif base == "/help":
-            help_text = (
-                "Available commands:\n"
-                "  /ask                  - Set mode to ASK (questions only)\n"
-                "  /search               - Set mode to SEARCH (read-only code search)\n"
-                "  /lutz                 - Set mode to LUTZ (default; full agent access)\n"
-                "  /model <name>         - Change the planner LLM model\n"
-                "  /model-code <name>    - Change the code LLM model\n"
-                "  /reasoning <level>    - Set reasoning level for planner\n"
-                "  /reasoning-code <level> - Set reasoning level for code model\n"
-                "  /autocommit [on|off|toggle] - Toggle auto-commit for submitted jobs\n"
-                "  /settings             - Open settings\n"
-                "  /history              - Show recent prompt history\n"
-                "  /history-clear        - Clear prompt history\n"
-                "  /task                 - Show selected task info / task command help\n"
-                "  /task next|prev       - Navigate selected task\n"
-                "  /task toggle          - Toggle selected task done state\n"
-                "  /task add <title>     - Add a task\n"
-                "  /task edit <title>    - Edit selected task title\n"
-                "  /task delete          - Delete selected task\n"
-                "  /info                 - Show current configuration and status\n"
-                "  /help                 - Show this help message\n"
-                "  /quit, /exit          - Exit the application"
-            )
-            chat.append_message("System", help_text)
+            commands = self.get_slash_commands()
+            # Calculate padding based on longest command
+            max_cmd_len = max(len(c["command"]) for c in commands)
+            lines = ["Available commands:"]
+            for c in commands:
+                lines.append(f"  {c['command']: <{max_cmd_len}} - {c['description']}")
+            chat.append_message("System", "\n".join(lines))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:

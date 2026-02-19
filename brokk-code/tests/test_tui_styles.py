@@ -19,9 +19,10 @@ def test_chat_input_no_border():
     )
     assert "background:" in chat_input_body, "#chat-input should have a background."
     assert "padding:" in chat_input_body, "#chat-input should have padding for spacing."
-    assert "content-align: left middle;" in chat_input_body, (
-        "#chat-input should have 'content-align: left middle;' for vertical centering."
-    )
+    assert (
+        "content-align: left middle;" in chat_input_body
+        or "content-align: left middle !important;" in chat_input_body
+    ), "#chat-input should have 'content-align: left middle;' for vertical centering."
 
     focus_match = re.search(r"#chat-input:focus\s*\{([^}]*)\}", css_content)
     assert focus_match, "Could not find #chat-input:focus rule in app.tcss"
@@ -87,9 +88,7 @@ def test_context_panel_height_regression():
     scroll_match = re.search(r"#context-chip-scroll\s*\{([^}]*)\}", css_content)
     assert scroll_match, "Could not find #context-chip-scroll rule in app.tcss"
     scroll_body = scroll_match.group(1)
-    assert "height: 1fr" in scroll_body, (
-        "#context-chip-scroll should use 1fr to fill panel space"
-    )
+    assert "height: 1fr" in scroll_body, "#context-chip-scroll should use 1fr to fill panel space"
 
 
 def test_combined_selector_modal_dimensions():
@@ -103,9 +102,7 @@ def test_combined_selector_modal_dimensions():
     assert combined_match, "Could not find #model-reasoning-combined-container rule in app.tcss"
 
     body = combined_match.group(1)
-    assert "width: 100;" in body, (
-        "Combined modal should have a width of 100 for side-by-side lists"
-    )
+    assert "width: 100;" in body, "Combined modal should have a width of 100 for side-by-side lists"
     assert "max-height: 90%;" in body, "Combined modal should allow up to 90% screen height"
 
     # Verify centering rule exists
@@ -207,14 +204,16 @@ def test_help_menu_layout_contract():
     help_row_margins = help_row_margin_match.group(1).strip().split()
 
     same_margins = (
-        input_margins[1] == help_row_margins[1]
-        and input_margins[3] == help_row_margins[3]
+        input_margins[1] == help_row_margins[1] and input_margins[3] == help_row_margins[3]
     )
     assert same_margins, (
         f"#chat-help-row horizontal margins ({help_row_margins[1]}, {help_row_margins[3]}) "
         f"should match #chat-input ({input_margins[1]}, {input_margins[3]}) for alignment."
     )
-    assert help_row_margins[2] == "0", "#chat-help-row should have 0 bottom margin."
+    # Ensure there is a bottom margin to provide breathing room at the bottom of the screen
+    assert int(help_row_margins[2]) >= 1, (
+        f"#chat-help-row should have at least 1 bottom margin. Found: {help_row_margins[2]}"
+    )
 
     help_match = re.search(r"#chat-help\s*\{([^}]*)\}", css_content)
     assert help_match, "Could not find #chat-help rule in app.tcss"
@@ -243,7 +242,50 @@ def test_help_menu_layout_contract():
         "Textual TCSS does not support 'flex-shrink' property; using it causes a crash."
     )
 
-    # 5. Ensure legacy help widgets are not active/visible
+    # 5. Ensure no invalid scrollbar properties exist (Textual uses scrollbar-x/y or show-scrollbar)
+    # We allow the substring in comments or documentation, but check for
+    # the pattern in property definitions.
+    assert not re.search(r"show-vertical-scrollbar\s*:", css_content), (
+        "Textual TCSS does not support 'show-vertical-scrollbar'; "
+        + "use 'show-scrollbar' or 'scrollbar-y'."
+    )
+    assert "show-horizontal-scrollbar" not in css_content
+
+    # 6. Ensure autocomplete footprint is constrained and prompt visibility is maintained
+    suggestions_match = re.search(r"SlashCommandSuggestions\s*\{([^}]*)\}", css_content)
+    if suggestions_match:
+        suggestions_body = suggestions_match.group(1)
+        # Check max-height is constrained but large enough for all commands
+        mh_match = re.search(r"max-height:\s*(\d+)\s*;", suggestions_body)
+        if mh_match:
+            assert int(mh_match.group(1)) <= 20, (
+                "SlashCommandSuggestions max-height should be 20 or less"
+            )
+
+        # Check margin to match chat-input horizontal alignment and cover status line
+        m_match = re.search(r"margin:\s*([^;]+);", suggestions_body)
+        if m_match:
+            margins = m_match.group(1).strip().split()
+            if len(margins) == 4:
+                assert margins[1] == "2" and margins[3] == "2", (
+                    "Suggestions should match input horizontal margins"
+                )
+                assert margins[2] == "6", (
+                    "Suggestions should have bottom margin 6 to overlay "
+                    + "above the 3-high prompt + 1-high help row"
+                )
+
+    # Ensure container does NOT raise up when autocomplete is open
+    container_open_match = re.search(
+        r"#chat-input-container\.autocomplete-open\s*\{([^}]*)\}", css_content
+    )
+    assert container_open_match, "Could not find #chat-input-container.autocomplete-open rule"
+    assert "margin-bottom: 0;" in container_open_match.group(1), (
+        "Container should have margin-bottom: 0 as the prompt "
+        + "should not move when autocomplete is open"
+    )
+
+    # 7. Ensure legacy help widgets are not active/visible
     # (If they were removed from the file entirely, these regexes should fail to find active rules)
     for legacy_id in ["#tasklist-help", "#context-help", "#status-spinner"]:
         match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
