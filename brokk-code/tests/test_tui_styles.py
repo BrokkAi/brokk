@@ -302,4 +302,7 @@ def test_help_menu_layout_contract():
         match = re.search(rf"{legacy_id}\s*\{{([^}}]*)\}}", css_content)
         if match:
             body = match.group(1)
-            assert "display: none;" in body, f"Legacy help {legacy_id} should be display: none;"
+            assert "display: none;" in body, f"Legacy widget {legacy_id} should be display: none;"
+
+    # 9. Ensure notification panel CSS is removed from main rules
+    assert "#notification-panel" not in css_content

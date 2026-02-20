@@ -85,6 +85,13 @@ def test_ctrl_p_binding_is_settings():
     assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
 
 
+def test_no_notification_binding():
+    app = BrokkApp(executor=MagicMock())
+    # Verify ctrl+n is no longer in the app-level bindings
+    bindings = {b.key for b in app.BINDINGS}
+    assert "ctrl+n" not in bindings
+
+
 def test_shift_tab_binding_toggles_mode():
     app = BrokkApp(executor=MagicMock())
     bindings = {b.key: b.action for b in app.BINDINGS}
@@ -159,9 +166,6 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     # Replace the status widget with a mock that records updates.
     mock_status = MagicMock(spec=StatusLine)
     app.query_one = MagicMock(return_value=mock_status)
-
-    # Change mode and ensure the status line receives an update containing the new mode.
-    app._set_mode("ASK", announce=False)
 
     # Since StatusLine is nested in ChatPanel, we need to ensure the query works.
     # We mock _maybe_chat to return a mock ChatPanel which returns our mock status.

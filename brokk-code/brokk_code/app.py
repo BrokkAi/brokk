@@ -324,9 +324,8 @@ class BrokkApp(App):
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
-        # Footer/help-bar ordering: Context, Tasks, Notifications, Settings
+        # Footer/help-bar ordering: Context, Tasks, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
-        Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
@@ -1249,11 +1248,9 @@ class BrokkApp(App):
         elif event_type == "NOTIFICATION":
             level = data.get("level", "INFO")
             msg = data.get("message", "")
-            chat.add_notification(msg, level=level)
+            chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
             msg = data.get("message", "Unknown error")
-            chat.add_notification(msg, level="ERROR")
-            # Also keep error in chat for visibility in logs
             chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
         elif event_type == "STATE_HINT":
@@ -1742,10 +1739,6 @@ class BrokkApp(App):
 
         next_index = (current_index + 1) % len(modes)
         self._set_mode(modes[next_index])
-
-    def action_toggle_notifications(self) -> None:
-        panel = self.query_one("#notification-panel")
-        panel.toggle_class("hidden")
 
     def _set_theme(self, theme_name: str) -> None:
         normalized_theme = normalize_theme_name(theme_name.lower())
