@@ -96,6 +96,8 @@ public class OnboardingOrchestrator {
             var gitignoreFile = new ProjectFile(configRoot, ".gitignore");
             boolean gitignoreConfigured = GitIgnoreUtils.isBrokkIgnored(gitignoreFile);
 
+            boolean gitConfigDeclined = project.isGitConfigDeclined();
+
             // Check if onboarding was already completed (property in workspace.properties)
             var workspacePropsPath =
                     configRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.WORKSPACE_PROPERTIES_FILE);
@@ -142,6 +144,7 @@ public class OnboardingOrchestrator {
                     gitignoreExists,
                     gitignoreConfigured,
                     onboardingCompleted,
+                    gitConfigDeclined,
                     styleGuideFuture,
                     buildDetailsFuture);
 
@@ -162,6 +165,7 @@ public class OnboardingOrchestrator {
                     false,
                     false,
                     true, // onboardingCompleted: assume true on error to be conservative
+                    false,
                     styleGuideFuture,
                     buildDetailsFuture);
         }
