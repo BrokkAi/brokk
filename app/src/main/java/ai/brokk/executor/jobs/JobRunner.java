@@ -473,7 +473,7 @@ public final class JobRunner {
                                                     requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for LUTZ jobs"),
-                                                    requireNonNull(architectCodeModel),
+                                                    architectCodeModel,
                                                     scope,
                                                     cancelled::get);
                                         }
@@ -1247,7 +1247,7 @@ public final class JobRunner {
     void runLutzFromSearchResult(
             LutzContext lutzContext,
             StreamingChatModel plannerModel,
-            StreamingChatModel codeModel,
+            @Nullable StreamingChatModel codeModel,
             BooleanSupplier isCancelled)
             throws InterruptedException {
         var generatedTasks = lutzContext.getTasks();
@@ -1276,7 +1276,10 @@ public final class JobRunner {
 
             logger.info("LUTZ orchestration: executing generated task: {}", generatedTask.text());
             try {
-                lutzContext.executeTask(generatedTask, plannerModel, codeModel);
+                lutzContext.executeTask(
+                        generatedTask,
+                        plannerModel,
+                        requireNonNull(codeModel, "code model unavailable for LUTZ task execution"));
             } catch (Exception e) {
                 logger.warn("LUTZ orchestration: generated task execution failed: {}", e.getMessage());
                 throw e;
@@ -1293,7 +1296,7 @@ public final class JobRunner {
     void runLutzOrchestration(
             String taskInput,
             StreamingChatModel plannerModel,
-            StreamingChatModel codeModel,
+            @Nullable StreamingChatModel codeModel,
             ContextManager.TaskScope scope,
             BooleanSupplier isCancelled)
             throws InterruptedException {

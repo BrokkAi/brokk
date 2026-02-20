@@ -283,7 +283,10 @@ class JobRunnerTest {
             }
         };
 
-        runner.runLutzFromSearchResult(fakeContext, null, null, () -> false);
+        // We provide a dummy model because tasks exist and require execution
+        StreamingChatModel mockModel = new StreamingChatModel() {};
+
+        runner.runLutzFromSearchResult(fakeContext, null, mockModel, () -> false);
 
         assertEquals(2, executedTasks.size(), "Two tasks should have been executed");
         assertEquals("2", executedTasks.get(0).id());
