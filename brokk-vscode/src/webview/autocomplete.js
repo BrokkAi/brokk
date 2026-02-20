@@ -196,18 +196,31 @@ export function initAutocomplete(vscode) {
     const text = textarea.value;
     const cursorPos = textarea.selectionStart;
 
-    // Replace @query with `detail` (full path or fqName) for unambiguous references
+    // Remove the @query from the textarea
     const before = text.substring(0, atStartPos);
     const after = text.substring(cursorPos);
-    const insertion = "`" + item.detail + "` ";
+    textarea.value = before + after;
 
-    textarea.value = before + insertion + after;
-
-    // Position cursor after insertion
-    const newPos = atStartPos + insertion.length;
-    textarea.selectionStart = newPos;
-    textarea.selectionEnd = newPos;
+    // Position cursor where the @query was
+    textarea.selectionStart = atStartPos;
+    textarea.selectionEnd = atStartPos;
     textarea.focus();
+
+    // Add to context via the extension
+    const detail = item.detail || item.name;
+    switch (item.type) {
+      case "file":
+        vscode.postMessage({ type: "addFiles", paths: [detail] });
+        break;
+      case "class":
+      case "module":
+        vscode.postMessage({ type: "addClasses", names: [detail] });
+        break;
+      case "function":
+      case "field":
+        vscode.postMessage({ type: "addMethods", names: [detail] });
+        break;
+    }
 
     hide();
   }
