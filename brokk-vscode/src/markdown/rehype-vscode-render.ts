@@ -1,14 +1,64 @@
 import {visit} from 'unist-util-visit';
-import type {Root, Element, Text} from 'hast';
+import type {Root, Element, ElementContent} from 'hast';
 import type {EditBlockProperties} from './types';
-import {buildUnifiedDiff} from './diff-utils';
+import {getMdLanguageTag} from './diff-utils';
+import {createLowlight} from 'lowlight';
+import {common} from 'lowlight';
+
+const lowlight = createLowlight(common);
+
+/**
+ * Split lowlight's flat HAST children on '\n' boundaries into per-line groups.
+ * Each group is an array of HAST children representing one line.
+ */
+function splitHastByLine(children: ElementContent[]): ElementContent[][] {
+    const lines: ElementContent[][] = [[]];
+    for (const child of children) {
+        if (child.type === 'text') {
+            const parts = child.value.split('\n');
+            for (let i = 0; i < parts.length; i++) {
+                if (i > 0) lines.push([]);
+                if (parts[i]) {
+                    lines[lines.length - 1].push({type: 'text', value: parts[i]});
+                }
+            }
+        } else if (child.type === 'element') {
+            // Element may contain text with newlines — need to split recursively
+            const textContent = getTextContent(child);
+            if (textContent.includes('\n')) {
+                // Split the element's text content across lines
+                const subLines = splitHastByLine(child.children as ElementContent[]);
+                for (let i = 0; i < subLines.length; i++) {
+                    if (i > 0) lines.push([]);
+                    if (subLines[i].length > 0) {
+                        lines[lines.length - 1].push({
+                            ...child,
+                            children: subLines[i] as any
+                        });
+                    }
+                }
+            } else {
+                lines[lines.length - 1].push(child);
+            }
+        } else {
+            lines[lines.length - 1].push(child);
+        }
+    }
+    return lines;
+}
+
+function getTextContent(node: any): string {
+    if (node.type === 'text') return node.value;
+    if (node.children) return node.children.map(getTextContent).join('');
+    return '';
+}
 
 /**
  * Rehype plugin that transforms custom HAST nodes into standard HTML elements
  * that rehype-stringify can serialize. Specifically:
  *
  * 1. `<edit-block>` → `<details class="edit-block">` with filename header,
- *    +/- stats, and diff body
+ *    +/- stats, and syntax-highlighted diff body
  * 2. `<pre data-tool-headline="...">` → `<details class="tool-call">` with
  *    headline summary and YAML body
  * 3. Strips `<img>` tags to avoid CSP issues
@@ -16,7 +66,7 @@ import {buildUnifiedDiff} from './diff-utils';
 export function rehypeVscodeRender() {
     return (tree: Root) => {
         // Pass 1: Transform edit-block nodes
-        visit(tree, (n: any) => n.tagName === 'edit-block', (node: any, index: number, parent: any) => {
+        visit(tree, (n: any) => n.tagName === 'edit-block', (node: any, index: number | undefined, parent: any) => {
             if (!parent || index == null) return;
 
             const p: EditBlockProperties = node.properties ?? {};
@@ -98,59 +148,62 @@ export function rehypeVscodeRender() {
                 return;
             }
 
-            // Build body content
-            let bodyChildren: any[];
-            if (p.isExpanded && node.children && node.children.length > 0 &&
-                !(node.children.length === 1 && node.children[0].type === 'text' && node.children[0].value === '')) {
-                // Shiki-highlighted diff content from rehype-edit-diff-simple
-                bodyChildren = [{
-                    type: 'element',
-                    tagName: 'div',
-                    properties: {className: ['edit-block-body']},
-                    children: node.children
-                }];
-            } else {
-                // Plain text fallback diff — use buildUnifiedDiff to compute
-                // actual added/removed lines instead of naively marking everything
-                const diffLines: any[] = [];
-                const search = (p.search ?? '').replace(/^\n+|\n+$/g, '');
-                const replace = (p.replace ?? '').replace(/^\n+|\n+$/g, '');
-                const {text, added, removed} = buildUnifiedDiff(search, replace);
-                const lines = text.split('\n');
+            // Build body content with syntax-highlighted diff
+            // Use pre-computed diff from rehypeEditDiffSimple
+            let bodyChildren: any[] = [];
+
+            const text = p.diffText ?? '';
+            const added = p.diffAdded ?? [];
+            const removed = p.diffRemoved ?? [];
+
+            if (added.length > 0 || removed.length > 0) {
                 const addedSet = new Set(added);
                 const removedSet = new Set(removed);
-                const hasDiff = added.length > 0 || removed.length > 0;
-                for (let i = 0; i < lines.length; i++) {
-                    const lineNum = i + 1; // 1-indexed
-                    const cls = addedSet.has(lineNum) ? 'diff-add'
-                              : removedSet.has(lineNum) ? 'diff-del'
-                              : null;
-                    // Only changed lines get 'diff-line' — context lines get no class
-                    // so they're hidden by the font-size:0 trick on pre.has-diff
-                    const classNames = cls ? ['diff-line', cls] : [];
+
+                // Highlight the full diff text
+                const lang = getMdLanguageTag(p.filename || '');
+                let highlighted;
+                try {
+                    highlighted = lang && lowlight.listLanguages().includes(lang)
+                        ? lowlight.highlight(lang, text)
+                        : lowlight.highlightAuto(text);
+                } catch {
+                    highlighted = lowlight.highlightAuto(text);
+                }
+
+                // Split highlighted HAST into per-line groups
+                const hastLines = splitHastByLine(highlighted.children as ElementContent[]);
+
+                // Only emit diff-add and diff-del lines (skip context)
+                const diffLines: any[] = [];
+                for (let i = 0; i < hastLines.length; i++) {
+                    const lineNum = i + 1;
+                    const isAdd = addedSet.has(lineNum);
+                    const isDel = removedSet.has(lineNum);
+                    if (!isAdd && !isDel) continue;
+
+                    const cls = isAdd ? 'diff-add' : 'diff-del';
                     diffLines.push({
                         type: 'element',
                         tagName: 'span',
-                        properties: classNames.length > 0 ? {className: classNames} : {},
-                        children: [{type: 'text', value: lines[i]}]
+                        properties: {className: ['diff-line', cls]},
+                        children: hastLines[i].length > 0 ? hastLines[i] : [{type: 'text', value: ''}]
                     });
-                    if (i < lines.length - 1) {
-                        diffLines.push({type: 'text', value: '\n'});
-                    }
                 }
-                const preClasses = ['edit-block-diff'];
-                if (hasDiff) preClasses.push('has-diff');
-                bodyChildren = diffLines.length > 0 ? [{
-                    type: 'element',
-                    tagName: 'div',
-                    properties: {className: ['edit-block-body']},
-                    children: [{
+
+                if (diffLines.length > 0) {
+                    bodyChildren = [{
                         type: 'element',
-                        tagName: 'pre',
-                        properties: {className: preClasses},
-                        children: diffLines
-                    }]
-                }] : [];
+                        tagName: 'div',
+                        properties: {className: ['edit-block-body']},
+                        children: [{
+                            type: 'element',
+                            tagName: 'pre',
+                            properties: {className: ['edit-block-diff']},
+                            children: diffLines
+                        }]
+                    }];
+                }
             }
 
             // Build the <details> element
@@ -178,23 +231,11 @@ export function rehypeVscodeRender() {
         // Pass 2: Transform tool-call annotated <pre> elements
         visit(tree, (n: any) => {
             if (n.type !== 'element') return false;
-            // Check for Shiki fragments (root node wrapping a single <pre>)
-            if (n.type === 'root' && Array.isArray(n.children) && n.children.length === 1) {
-                const child = n.children[0];
-                return child?.type === 'element' && child?.tagName === 'pre' && child?.properties?.['data-tool-headline'];
-            }
             return n.tagName === 'pre' && n.properties?.['data-tool-headline'];
-        }, (node: any, index: number, parent: any) => {
+        }, (node: any, index: number | undefined, parent: any) => {
             if (!parent || index == null) return;
 
-            // Get the actual <pre> element (might be inside a Shiki fragment root)
-            let pre: Element;
-            if (node.type === 'root' && Array.isArray(node.children)) {
-                pre = node.children[0] as Element;
-            } else {
-                pre = node as Element;
-            }
-
+            const pre = node as Element;
             const headline = String(pre.properties?.['data-tool-headline'] || '');
             if (!headline) return;
 
@@ -226,7 +267,7 @@ export function rehypeVscodeRender() {
         });
 
         // Pass 3: Remove <img> elements (CSP safety)
-        visit(tree, {type: 'element', tagName: 'img'} as any, (node: any, index: number, parent: any) => {
+        visit(tree, {type: 'element', tagName: 'img'} as any, (node: any, index: number | undefined, parent: any) => {
             if (parent && index != null) {
                 parent.children.splice(index, 1);
                 return index; // Re-visit this index since we removed an element

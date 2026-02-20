@@ -9,14 +9,6 @@ const statusBar = document.getElementById("status-bar");
 const submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById("submit-btn"));
 const cancelBtn = document.getElementById("cancel-btn");
 
-// ── Shiki Web Worker ─────────────────────────────────
-
-let shikiWorker = null;
-let workerReady = false;
-let renderSeq = 0;
-/** @type {Map<number, {el: HTMLElement, text: string}>} */
-const pendingRenders = new Map();
-
 // ── Chat State ───────────────────────────────────────
 
 let isRunning = false;
@@ -30,148 +22,32 @@ let reasoningStartTime = 0;
 let streamRenderTimer = null;
 const STREAM_RENDER_INTERVAL_MS = 80;
 
+// ── Reasoning Render State ───────────────────────────
+
+let reasoningRenderTimer = null;
+const REASONING_RENDER_INTERVAL_MS = 120;
+
+// ── Elapsed Timer State ──────────────────────────────
+
+let jobStartTime = null;
+let elapsedTimerId = null;
+let stateHintText = "";
+let stateHintClearTimer = null;
+
 // ── Init ─────────────────────────────────────────────
 
-/**
- * Initialize the Shiki web worker for syntax highlighting.
- * @param {string} workerUrl
- */
-export function initChat(workerUrl) {
-  if (!workerUrl) return;
-  fetch(workerUrl)
-    .then((r) => r.text())
-    .then((code) => {
-      const blob = new Blob([code], { type: "text/javascript" });
-      const blobUrl = URL.createObjectURL(blob);
-      shikiWorker = new Worker(blobUrl);
-      shikiWorker.onmessage = (ev) => {
-        const msg = ev.data;
-        if (msg.type === "ready") {
-          workerReady = true;
-          console.log("[Brokk] Shiki worker ready");
-          const seqs = [...pendingRenders.keys()].sort((a, b) => b - a);
-          for (const seq of seqs) {
-            const { el, text } = pendingRenders.get(seq);
-            if (!el.isConnected) {
-              pendingRenders.delete(seq);
-              continue;
-            }
-            shikiWorker.postMessage({ type: "render", seq, text });
-          }
-        } else if (msg.type === "result") {
-          const pending = pendingRenders.get(msg.seq);
-          if (msg.error) {
-            console.warn("[Brokk] Worker render error for seq", msg.seq, ":", msg.error);
-          } else if (pending && msg.html) {
-            if (pending.el.isConnected) {
-              pending.el.innerHTML = msg.html;
-            }
-          }
-          pendingRenders.delete(msg.seq);
-        } else if (msg.type === "error") {
-          console.warn("[Brokk] Shiki worker init error:", msg.message);
-        }
-      };
-      shikiWorker.onerror = (err) => {
-        console.warn("[Brokk] Shiki worker error:", err);
-      };
-    })
-    .catch((err) => {
-      console.warn("[Brokk] Failed to fetch worker script:", err);
-    });
-}
-
-// ── Full Render (Shiki Worker) ───────────────────────
-
-/**
- * Request a full render from the Shiki worker.
- * Falls back to fast render if worker isn't available.
- * @param {HTMLElement} el  Target element
- * @param {string} text     Markdown text
- */
-function requestFullRender(el, text) {
-  const seq = ++renderSeq;
-  pendingRenders.set(seq, { el, text });
-  if (shikiWorker && workerReady) {
-    shikiWorker.postMessage({ type: "render", seq, text });
-  } else {
-    el.innerHTML = renderMarkdownFast(text);
-  }
+export function initChat() {
+  // No worker initialization needed — highlight.js runs synchronously
 }
 
 // ── Streaming Renderer ───────────────────────────────
-
-/**
- * Lightweight streaming renderer — replaces the unified/remark pipeline during streaming.
- * @param {string} text  Raw markdown
- * @returns {string} HTML string
- */
-function renderStreamingFast(text) {
-  const lines = text.split("\n");
-  const parts = [];
-  let inFence = false;
-  let fenceLang = "";
-  let codeLines = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (line.startsWith("```")) {
-      if (!inFence) {
-        inFence = true;
-        fenceLang = line.slice(3).trim();
-        codeLines = [];
-      } else {
-        parts.push(
-          `<pre><code class="language-${escapeHtml(fenceLang)}">${escapeHtml(codeLines.join("\n"))}</code></pre>`
-        );
-        inFence = false;
-        fenceLang = "";
-        codeLines = [];
-      }
-      continue;
-    }
-
-    if (inFence) {
-      codeLines.push(line);
-      continue;
-    }
-
-    if (line.trim() === "") {
-      parts.push("<br>");
-      continue;
-    }
-
-    parts.push(`<p>${formatInline(escapeHtml(line))}</p>`);
-  }
-
-  if (inFence && codeLines.length > 0) {
-    parts.push(
-      `<pre><code class="language-${escapeHtml(fenceLang)}">${escapeHtml(codeLines.join("\n"))}</code></pre>`
-    );
-  }
-
-  return parts.join("\n");
-}
-
-/**
- * Apply inline markdown formatting to an already-escaped HTML line.
- * @param {string} escaped
- * @returns {string}
- */
-function formatInline(escaped) {
-  escaped = escaped.replace(/`([^`]+)`/g, "<code>$1</code>");
-  escaped = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  escaped = escaped.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  return escaped;
-}
 
 function scheduleStreamRender() {
   if (streamRenderTimer) return;
   streamRenderTimer = setTimeout(() => {
     streamRenderTimer = null;
     if (!currentContentEl) return;
-    currentContentEl.innerHTML = renderStreamingFast(accumulatedContent);
+    currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
     scrollToBottom();
   }, STREAM_RENDER_INTERVAL_MS);
 }
@@ -183,16 +59,41 @@ function flushStreamRender() {
   }
 }
 
+// ── Reasoning Render ─────────────────────────────────
+
+function scheduleReasoningRender() {
+  if (reasoningRenderTimer) return;
+  reasoningRenderTimer = setTimeout(() => {
+    reasoningRenderTimer = null;
+    if (!currentReasoningEl) return;
+    const contentArea = currentReasoningEl.querySelector(".reasoning-content");
+    if (contentArea) {
+      contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+    }
+    scrollToBottom();
+  }, REASONING_RENDER_INTERVAL_MS);
+}
+
+function flushReasoningRender() {
+  if (reasoningRenderTimer) {
+    clearTimeout(reasoningRenderTimer);
+    reasoningRenderTimer = null;
+  }
+}
+
 // ── Reasoning ────────────────────────────────────────
 
 function finalizeReasoning() {
   if (!currentReasoningEl || !reasoningHeader) return;
+  flushReasoningRender();
+
   const elapsed = ((Date.now() - reasoningStartTime) / 1000).toFixed(1);
   reasoningHeader.textContent = `Thought for ${elapsed}s`;
   reasoningHeader.classList.add("clickable");
 
   const contentArea = currentReasoningEl.querySelector(".reasoning-content");
   if (contentArea) {
+    contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
     contentArea.classList.add("collapsed");
   }
 
@@ -205,6 +106,57 @@ function finalizeReasoning() {
 
   accumulatedReasoning = "";
   reasoningStartTime = 0;
+}
+
+// ── Elapsed Timer ────────────────────────────────────
+
+export function startJobTimer() {
+  jobStartTime = Date.now();
+  stateHintText = "";
+  statusBar.classList.add("running");
+  updateElapsedDisplay();
+  elapsedTimerId = setInterval(updateElapsedDisplay, 200);
+}
+
+export function stopJobTimer() {
+  if (elapsedTimerId) {
+    clearInterval(elapsedTimerId);
+    elapsedTimerId = null;
+  }
+  if (stateHintClearTimer) {
+    clearTimeout(stateHintClearTimer);
+    stateHintClearTimer = null;
+  }
+  jobStartTime = null;
+  stateHintText = "";
+  statusBar.classList.remove("running");
+}
+
+export function setStateHint(text) {
+  stateHintText = text || "";
+  if (stateHintClearTimer) {
+    clearTimeout(stateHintClearTimer);
+  }
+  stateHintClearTimer = setTimeout(() => {
+    stateHintText = "";
+    stateHintClearTimer = null;
+    if (jobStartTime) updateElapsedDisplay();
+  }, 8000);
+  if (jobStartTime) updateElapsedDisplay();
+}
+
+function updateElapsedDisplay() {
+  if (!jobStartTime) return;
+  const elapsed = Math.floor((Date.now() - jobStartTime) / 1000);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  const timeStr = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  let display = `Running... ${timeStr}`;
+  if (stateHintText) {
+    display += ` \u2014 ${stateHintText}`;
+  }
+  statusBar.textContent = display;
+  statusBar.classList.remove("hidden");
 }
 
 // ── Exported Functions ───────────────────────────────
@@ -248,11 +200,12 @@ export function startAssistantMessage() {
 
 export function finalizeAssistantMessage() {
   flushStreamRender();
+  flushReasoningRender();
   if (accumulatedReasoning && currentReasoningEl && reasoningHeader) {
     finalizeReasoning();
   }
   if (currentContentEl && accumulatedContent) {
-    requestFullRender(currentContentEl, accumulatedContent);
+    currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
   } else if (currentAssistantEl && !accumulatedContent && !accumulatedReasoning) {
     currentAssistantEl.remove();
   }
@@ -271,10 +224,17 @@ export function handleToken(msg) {
     accumulatedReasoning += msg.token;
     if (currentReasoningEl) {
       currentReasoningEl.style.display = "block";
-      const contentArea = currentReasoningEl.querySelector(".reasoning-content");
-      if (contentArea) {
-        contentArea.textContent = accumulatedReasoning;
+    }
+    if (msg.isTerminal) {
+      flushReasoningRender();
+      if (currentReasoningEl) {
+        const contentArea = currentReasoningEl.querySelector(".reasoning-content");
+        if (contentArea) {
+          contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+        }
       }
+    } else {
+      scheduleReasoningRender();
     }
   } else {
     if (accumulatedReasoning && currentReasoningEl && reasoningHeader) {
@@ -285,7 +245,15 @@ export function handleToken(msg) {
       startAssistantMessage();
     }
     accumulatedContent += msg.token;
-    scheduleStreamRender();
+    if (msg.isTerminal) {
+      flushStreamRender();
+      if (currentContentEl) {
+        currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
+        scrollToBottom();
+      }
+    } else {
+      scheduleStreamRender();
+    }
   }
 }
 
@@ -297,6 +265,7 @@ export function resetChat(message) {
   messagesEl.innerHTML = "";
 
   flushStreamRender();
+  flushReasoningRender();
   currentAssistantEl = null;
   currentContentEl = null;
   currentReasoningEl = null;
@@ -337,7 +306,7 @@ export function replayConversation(entries) {
 
       const contentEl = document.createElement("div");
       contentEl.className = "message-content";
-      requestFullRender(contentEl, entry.summary);
+      contentEl.innerHTML = renderMarkdownFast(entry.summary);
       summaryEl.appendChild(contentEl);
 
       messagesEl.appendChild(summaryEl);
@@ -365,7 +334,7 @@ export function replayConversation(entries) {
 
             const rContent = document.createElement("div");
             rContent.className = "reasoning-content collapsed";
-            rContent.textContent = msg.reasoning;
+            rContent.innerHTML = renderMarkdownFast(msg.reasoning);
             reasoningWrap.appendChild(rContent);
 
             rHeader.addEventListener("click", () => {
@@ -378,7 +347,7 @@ export function replayConversation(entries) {
 
           const contentEl = document.createElement("div");
           contentEl.className = "message-content";
-          requestFullRender(contentEl, msg.text);
+          contentEl.innerHTML = renderMarkdownFast(msg.text);
           el.appendChild(contentEl);
 
           messagesEl.appendChild(el);
@@ -394,7 +363,7 @@ export function replayConversation(entries) {
 
             const contentEl = document.createElement("div");
             contentEl.className = "message-content";
-            requestFullRender(contentEl, msg.text);
+            contentEl.innerHTML = renderMarkdownFast(msg.text);
             el.appendChild(contentEl);
 
             messagesEl.appendChild(el);
@@ -431,7 +400,7 @@ export function addMessage(role, content) {
   if (role === "user") {
     contentEl.textContent = content;
   } else {
-    requestFullRender(contentEl, content);
+    contentEl.innerHTML = renderMarkdownFast(content);
   }
   el.appendChild(contentEl);
 
@@ -450,18 +419,18 @@ export function addNotification(text) {
 
 /** @param {object} msg */
 export function addCommandResult(msg) {
-  const details = document.createElement("details");
-  details.className = "command-result";
+  const wrapper = document.createElement("div");
+  wrapper.className = "command-result";
 
-  const summary = document.createElement("summary");
-  summary.className = "command-result-header";
+  const header = document.createElement("div");
+  header.className = "command-result-header";
   const icon = msg.success ? "\u2713" : "\u2717";
   const statusClass = msg.success ? "success" : "failure";
-  summary.innerHTML = `<span class="command-status ${statusClass}">${icon}</span> <strong>${escapeHtml(msg.stage)}</strong>: <code>${escapeHtml(msg.command)}</code>`;
+  header.innerHTML = `<span class="command-status ${statusClass}">${icon}</span> <strong>${escapeHtml(msg.stage)}</strong>: <code>${escapeHtml(msg.command)}</code>`;
   if (msg.skipped) {
-    summary.innerHTML += ` <em>(skipped: ${escapeHtml(msg.skipReason || "unknown")})</em>`;
+    header.innerHTML += ` <em>(skipped: ${escapeHtml(msg.skipReason || "unknown")})</em>`;
   }
-  details.appendChild(summary);
+  wrapper.appendChild(header);
 
   if (msg.output) {
     const body = document.createElement("div");
@@ -472,17 +441,17 @@ export function addCommandResult(msg) {
       pre.textContent += "\n... (truncated)";
     }
     body.appendChild(pre);
-    details.appendChild(body);
+    wrapper.appendChild(body);
   }
 
   if (msg.exception) {
     const errDiv = document.createElement("div");
     errDiv.className = "command-result-error";
     errDiv.textContent = msg.exception;
-    details.appendChild(errDiv);
+    wrapper.appendChild(errDiv);
   }
 
-  messagesEl.appendChild(details);
+  messagesEl.appendChild(wrapper);
   scrollToBottom();
 }
 

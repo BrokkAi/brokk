@@ -1,5 +1,5 @@
 // @ts-check
-import { initChat, startAssistantMessage, finalizeAssistantMessage, handleToken, resetChat, replayConversation, addMessage, addNotification, addCommandResult, setButtonState, getIsRunning, setStatus, dismissWelcome } from "./chat.js";
+import { initChat, startAssistantMessage, finalizeAssistantMessage, handleToken, resetChat, replayConversation, addMessage, addNotification, addCommandResult, setButtonState, getIsRunning, setStatus, dismissWelcome, startJobTimer, stopJobTimer, setStateHint } from "./chat.js";
 import { initCustomSelect, closeAllDropdowns, populateModelSelects } from "./custom-select.js";
 import { initContext, renderContext, renderTaskList } from "./context.js";
 import { initActivity, renderActivity } from "./activity.js";
@@ -13,7 +13,7 @@ const vscode = acquireVsCodeApi();
 
 // ── Init Modules ─────────────────────────────────────
 
-initChat(document.body.dataset.workerUrl);
+initChat();
 initContext(vscode);
 initActivity(vscode);
 const { onSettingsLoaded, onSettingsSaved, onBalanceResult, onSettingsError } = initSettings(vscode);
@@ -160,7 +160,7 @@ window.addEventListener("message", (event) => {
     // Chat events
     case "jobStarted":
       setButtonState(true);
-      setStatus("Running...");
+      startJobTimer();
       startAssistantMessage();
       break;
 
@@ -174,22 +174,25 @@ window.addEventListener("message", (event) => {
 
     case "stateHint":
       if (msg.value && typeof msg.value === "string") {
-        setStatus(String(msg.value));
+        setStateHint(String(msg.value));
       }
       break;
 
     case "jobFinished":
       finalizeAssistantMessage();
+      stopJobTimer();
       setButtonState(false);
       setStatus(msg.state === "COMPLETED" ? "Done" : msg.state, 3000);
       break;
 
     case "jobCancelled":
+      stopJobTimer();
       setButtonState(false);
       setStatus("Cancelled", 3000);
       break;
 
     case "error":
+      stopJobTimer();
       addNotification(
         msg.title
           ? `Error: ${msg.title} — ${msg.message}`

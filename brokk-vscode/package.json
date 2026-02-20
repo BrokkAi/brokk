@@ -49,7 +49,12 @@
         "brokk.launchMode": {
           "type": "string",
           "default": "auto",
-          "enum": ["auto", "jbang", "local", "external"],
+          "enum": [
+            "auto",
+            "jbang",
+            "local",
+            "external"
+          ],
           "enumDescriptions": [
             "Auto-detect: use external if port/token are set, otherwise detect local vs jbang",
             "Launch via jbang (requires jbang installed)",
@@ -103,18 +108,19 @@
     "@types/vscode": "^1.106.0",
     "esbuild": "^0.19.0",
     "micromark-util-types": "^2.0.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@shikijs/rehype": "^3.22.0",
     "diff": "^7.0.0",
+    "highlight.js": "^11.11.0",
     "lang-map": "^0.4.0",
+    "lowlight": "^3.3.0",
+    "rehype-highlight": "^7.0.2",
     "rehype-stringify": "^10.0.0",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.0",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.0.0",
-    "shiki": "^1.0.0",
     "unified": "^11.0.0",
     "unist-util-visit": "^5.0.0"
   }

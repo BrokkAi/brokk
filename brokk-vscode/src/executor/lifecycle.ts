@@ -57,6 +57,46 @@ export async function findJar(repoRoot: string, explicitJar?: string): Promise<s
 }
 
 /**
+ * Resolve a Java binary by checking common locations in order:
+ * $JAVA_HOME/bin/java → ~/.gradle/jdks/ (highest version) → ~/.jbang/currentjdk/bin/java → bare "java"
+ */
+export function resolveJavaBinary(): string {
+  // 1. $JAVA_HOME
+  const javaHome = process.env.JAVA_HOME;
+  if (javaHome) {
+    const candidate = path.join(javaHome, "bin", "java");
+    if (existsSync(candidate)) return candidate;
+  }
+
+  // 2. ~/.gradle/jdks/ — pick highest version directory
+  const gradleJdks = path.join(os.homedir(), ".gradle", "jdks");
+  try {
+    const dirs = readdirSync(gradleJdks)
+      .filter((d) => {
+        try {
+          return statSync(path.join(gradleJdks, d)).isDirectory();
+        } catch {
+          return false;
+        }
+      })
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    for (const dir of dirs) {
+      const candidate = path.join(gradleJdks, dir, "bin", "java");
+      if (existsSync(candidate)) return candidate;
+    }
+  } catch {
+    // directory doesn't exist
+  }
+
+  // 3. ~/.jbang/currentjdk/bin/java
+  const jbangJdk = path.join(os.homedir(), ".jbang", "currentjdk", "bin", "java");
+  if (existsSync(jbangJdk)) return jbangJdk;
+
+  // 4. Bare "java" on PATH
+  return "java";
+}
+
+/**
  * Spawn the headless executor Java process.
  * Returns the port, auth token, and process handle.
  */
@@ -68,7 +108,7 @@ export async function spawnExecutor(
   const execId = randomUUID();
 
   const child = spawn(
-    "java",
+    resolveJavaBinary(),
     [
       "-cp",
       jarPath,
