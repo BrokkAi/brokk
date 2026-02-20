@@ -279,4 +279,96 @@ The explorer expects a directory containing the three JSON files produced by `Us
 - **Selection-based preview**: Selecting a code unit in the tree instantly loads all associated usage snippets.
 - **Metadata display**: Each snippet includes comments showing the usage location (FQN) and file path.
 - **Standalone operation**: Can be run independently without the full Brokk application.
+
+---
+
+## RmShadingEval (RefactoringMiner-shading evaluation)
+
+A three-phase harness to evaluate whether masking detected refactorings from the review diff (RM-shading) helps or obscures information for reviewers.
+
+### Purpose
+
+1. **Phase 1 (Runner)**: For a dataset of commit ranges, produce both vanilla and RM-shaded diffs and write a corpus JSON.
+2. **Phase 2 (Judge)**: For each corpus item, ask an LLM (e.g. Claude 5.2) which representation is more useful for a reviewer; record winner and reasoning.
+3. **Phase 3 (Aggregate)**: Compute overall preference and breakdowns by refactoring count and diff size; support manual pattern review.
+
+### Dataset format
+
+Create a JSON file with commit ranges for the repo you will run against:
+
+```json
+{
+  "entries": [
+    { "id": "pr-1", "fromRef": "merge-base-sha", "toRef": "HEAD" },
+    { "id": "pr-2", "fromRef": "abc123", "toRef": "def456" }
+  ]
+}
+```
+
+- `id`: Unique identifier for the item.
+- `fromRef`: Base ref (e.g. merge base, or `HEAD~1`).
+- `toRef`: Target ref (e.g. `HEAD`, or `WORKING` for uncommitted changes).
+
+### Usage
+
+All commands are run from the **project root**. Paths like `build/reports/rm-shading-eval` and `app/src/test/resources/...` are relative to the root.
+
+```bash
+# Phase 1: Generate diff corpus (run first; wait for it to finish).
+# RefactoringMiner is CPU-heavy: 40 entries can take 3–6+ hours. Use --limit for a quick test.
+./gradlew :app:runRmShadingEvalRunner -Pargs="--dataset app/src/test/resources/rm-shading-eval/sample-dataset.json --output build/reports/rm-shading-eval"
+
+# Phase 1 quick run (e.g. first 5 entries only, ~20–40 min depending on diff size).
+# Note: --limit must be inside -Pargs="..."; options outside -Pargs are passed to Gradle, not the Runner.
+./gradlew :app:runRmShadingEvalRunner -Pargs="--dataset app/src/test/resources/rm-shading-eval/sample-dataset.json --output build/reports/rm-shading-eval --limit 5"
+
+# Phase 2: Run judge with OpenAI (GPT-5.2 recommended for this eval). Set OPENAI_API_KEY or pass --openai-api-key.
+export OPENAI_API_KEY="sk-..."
+./gradlew :app:runRmShadingEvalJudge -Pargs="--corpus build/reports/rm-shading-eval/corpus.json --output build/reports/rm-shading-eval"
+
+# Or pass the key on the command line (no --project-dir needed when using OpenAI)
+./gradlew :app:runRmShadingEvalJudge -Pargs="--corpus build/reports/rm-shading-eval/corpus.json --output build/reports/rm-shading-eval --openai-api-key sk-..."
+
+# Phase 2: Test with one item only
+./gradlew :app:runRmShadingEvalJudge -Pargs="--corpus build/reports/rm-shading-eval/corpus.json --output build/reports/rm-shading-eval --limit 1"
+
+# Phase 3: Aggregate and print breakdowns
+./gradlew :app:runRmShadingEvalAggregate -Pargs="--corpus-with-judgments build/reports/rm-shading-eval/corpus-with-judgments.json"
+```
+
+If you run Phase 2 without setting `OPENAI_API_KEY`, the Judge falls back to Brokk’s configured model (see Configuration below); for this eval, **OpenAI GPT-5.2 is the intended judge**.
+
+### Output files
+
+- **Phase 1**: `corpus.json` – one entry per dataset item with `vanillaDiff`, `rmShadedDiff`, `refactoringSummary`, counts.
+- **Phase 2**: `corpus-with-judgments.json` (corpus + `winner`, `reasoning`), `summary.json` (counts for A / B / TIE).
+- **Phase 3**: Console output only (overall rates and breakdown by refactoring count and diff size).
+
+### Configuration and behavior
+
+- **Judge = OpenAI (GPT-5.2), recommended**: For this eval the judge is meant to be an external LLM comparing the two diff representations. Use **OpenAI** (e.g. GPT-5.2): set the `OPENAI_API_KEY` environment variable or pass `--openai-api-key sk-...`. The Judge then uses the OpenAI Java SDK; `--project-dir` is not required. Optionally set `--openai-model` (default: `gpt-5.2`).
+
+- **Brokk as judge (fallback)**: If you do *not* set `OPENAI_API_KEY` or `--openai-api-key`, the Judge uses Brokk’s config: whatever model is configured as ARCHITECT in Brokk, called via Brokk’s proxy. That means “Brokk as judge” = the same model and API you use in the Brokk app (e.g. Claude via Brokk). For the eval harness, **OpenAI GPT-5.2 is the intended judge**; Brokk is only a fallback.
+
+- **Single-item test**: Pass `--limit 1` (or `--limit N`) to process only the first N corpus items. Useful to verify setup before running the full corpus.
+
+- **Guided Review**: The eval does **not** run full Guided Review (Overview, Key Changes, Design Notes, etc.). It only compares two diff representations (vanilla vs RM-shaded) and asks the LLM which is more useful for a reviewer.
+
+- **How commit ranges are loaded**: All data comes from your **local Git clone**. The Runner resolves `fromRef` and `toRef` with JGit and reads file contents from the repo’s object database. Nothing is fetched from GitHub or any remote; ensure the refs in your dataset exist in the clone (e.g. run a fetch first if the dataset uses branch names or PR refs).
+
+- **Progress and ETA**: The Runner and Judge print one line per item with `[k/n]` and, after the first few items, an estimated time remaining (e.g. `est. 2 min remaining`).
+
+- **Phase 1 duration**: RefactoringMiner runs AST/UML diff per commit range and is CPU-intensive. With 40 entries and large diffs, Phase 1 can take **3–6+ hours**. Use `--limit 5` (or similar) to process only the first N entries for a quick pipeline test; then run without `--limit` for the full eval.
+
+- **RefactoringMiner failures**: On some commits RefactoringMiner can throw internally (e.g. NPE in extract-method detection). The Runner catches this, logs a short “falling back to text diff” message, and continues with the full vanilla diff for that item (`refactoringCount=0`). You may also see the library log “Ignored revision … due to error”; both are expected and harmless.
+
+### Pattern report (Phase 3 follow-up)
+
+After aggregation, review a sample of `reasoning` strings in `corpus-with-judgments.json` (e.g. 20–30 items) and note recurring themes, e.g.:
+
+- RM-shaded preferred when there are many renames or extract-method changes.
+- Vanilla preferred when the change is small and refactorings are few.
+- TIE when refactorings are minimal or the diff is already readable.
+
+Document findings in a short report and use them to decide: keep RM-shading as default, make it optional, or refine which refactoring types to mask.
 ```

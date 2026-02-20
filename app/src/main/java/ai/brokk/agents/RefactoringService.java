@@ -117,7 +117,10 @@ public class RefactoringService {
             return new RefactoringResult(detected, summary);
 
         } catch (Exception e) {
-            logger.warn("RefactoringMiner analysis failed, falling back to text diff", e);
+            logger.warn("RefactoringMiner analysis failed, falling back to text diff: {}", e.getMessage());
+            if (logger.isDebugEnabled()) {
+                logger.debug("RefactoringMiner failure details", e);
+            }
             return RefactoringResult.empty();
         }
     }

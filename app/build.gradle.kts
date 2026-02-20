@@ -130,6 +130,7 @@ dependencies {
 
     // RefactoringMiner for semantic diff and refactoring detection
     implementation(libs.refactoring.miner)
+    implementation(libs.openai.java)
 
     // Java Decompiler
     implementation(libs.java.decompiler)
@@ -696,6 +697,41 @@ tasks.register<JavaExec>("runUsageResultsExplorer") {
     }
 }
 
+// Run from root project so paths like "app/src/test/resources/..." and "build/reports/..." work
+val rmShadingEvalWorkingDir = rootProject.layout.projectDirectory.asFile
+tasks.register<JavaExec>("runRmShadingEvalRunner") {
+    group = "application"
+    description = "Produces vanilla and RM-shaded diff corpus for eval dataset (Phase 1)"
+    mainClass.set("ai.brokk.tools.RmShadingEvalRunner")
+    classpath = sourceSets.test.get().runtimeClasspath
+    workingDir = rmShadingEvalWorkingDir
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
+}
+
+tasks.register<JavaExec>("runRmShadingEvalJudge") {
+    group = "application"
+    description = "Runs LLM judge on corpus to compare vanilla vs RM-shaded (Phase 2)"
+    mainClass.set("ai.brokk.tools.RmShadingEvalJudge")
+    classpath = sourceSets.test.get().runtimeClasspath
+    workingDir = rmShadingEvalWorkingDir
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
+}
+
+tasks.register<JavaExec>("runRmShadingEvalAggregate") {
+    group = "application"
+    description = "Aggregates judge results by refactoring count and diff size (Phase 3)"
+    mainClass.set("ai.brokk.tools.RmShadingEvalAggregate")
+    classpath = sourceSets.test.get().runtimeClasspath
+    workingDir = rmShadingEvalWorkingDir
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
+}
+
 tasks.shadowJar {
     archiveBaseName.set("brokk")
     archiveClassifier.set("")
@@ -720,8 +756,14 @@ tasks.named("compileJava") {
     dependsOn("generateBuildConfig")
 }
 
+// Eval tools (RmShadingEval*) need main+test classpath but not the frontend; skip frontendBuild so nodeSetup isn't required
+val isRmShadingEvalOnly = gradle.startParameter.taskNames.any { name ->
+    name.contains("runRmShadingEvalRunner") || name.contains("runRmShadingEvalJudge") || name.contains("runRmShadingEvalAggregate")
+}
 tasks.named("processResources") {
-    dependsOn("frontendBuild")
+    if (!isRmShadingEvalOnly) {
+        dependsOn("frontendBuild")
+    }
 }
 
 tasks.named("clean") {
