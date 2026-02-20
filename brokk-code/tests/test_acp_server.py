@@ -242,6 +242,37 @@ def test_map_executor_reasoning_token_event() -> None:
     }
 
 
+def test_map_executor_reasoning_token_event_strict_parsing() -> None:
+    # Truthy strings
+    for val in ["true", "True", " 1 ", "yes"]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_thought_chunk",
+            "text": "t",
+        }
+
+    # Falsy strings (previously incorrectly treated as True by bool())
+    for val in ["false", "0", "no", ""]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_message_chunk",
+            "text": "t",
+        }
+
+    # Booleans
+    event_true = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": True}}
+    assert map_executor_event_to_session_update(event_true, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_thought_chunk",
+        "text": "t",
+    }
+
+    event_false = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": False}}
+    assert map_executor_event_to_session_update(event_false, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "t",
+    }
+
+
 def test_map_executor_error_event() -> None:
     event = {"type": "ERROR", "data": {"message": "boom"}}
     assert map_executor_event_to_session_update(event, _text_block) == {

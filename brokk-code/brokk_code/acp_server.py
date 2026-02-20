@@ -319,7 +319,12 @@ def map_executor_event_to_session_update(
         token = data.get("token", "")
         if not token:
             return None
-        is_reasoning = bool(data.get("isReasoning", False))
+        is_reasoning_raw = data.get("isReasoning", False)
+        if isinstance(is_reasoning_raw, str):
+            is_reasoning = is_reasoning_raw.strip().lower() in ("true", "1", "yes")
+        else:
+            is_reasoning = bool(is_reasoning_raw)
+
         if is_reasoning and update_agent_thought_text:
             return update_agent_thought_text(token)
         return update_agent_message_text(token)
