@@ -5,15 +5,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.project.IProject;
-import ai.brokk.testutil.FuzzyUsageFinderTestUtil;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.UsageFinderTestUtil;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 public class JavaUsagesTest {
 
     @Test
-    public void testFuzzyUsagesFilteringForJava() throws Exception {
+    public void testUsagesFilteringForJava() throws Exception {
         String targetCode =
                 """
                 package com.example;
@@ -52,7 +52,7 @@ public class JavaUsagesTest {
                 .build()) {
 
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
-            FuzzyUsageFinder finder = FuzzyUsageFinderTestUtil.newFinder(project, analyzer);
+            UsageFinder finder = UsageFinderTestUtil.createForTest(project, analyzer);
 
             // 1. Test usages of the class 'com.example.Target'
             FuzzyResult classResult = finder.findUsages("com.example.Target");

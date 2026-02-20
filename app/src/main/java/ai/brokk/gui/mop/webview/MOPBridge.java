@@ -229,7 +229,7 @@ public final class MOPBridge {
 
         // Convert messages from log when available
         List<BrokkEvent.HistoryTask.Message> messages = new ArrayList<>();
-        var taskFragment = entry.log();
+        var taskFragment = entry.mopLog();
 
         if (taskFragment != null) {
             var msgs = taskFragment.messages();

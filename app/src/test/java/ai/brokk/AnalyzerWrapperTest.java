@@ -2,7 +2,12 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.IGitRepo;
+import ai.brokk.git.TestRepo;
+import ai.brokk.testutil.TestAnalyzerWrapper;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.FileUtil;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
@@ -11,11 +16,14 @@ import ai.brokk.watchservice.JavaProjectWatchService;
 import ai.brokk.watchservice.NoopWatchService;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -257,6 +265,196 @@ class AnalyzerWrapperTest {
         assertFalse(analyzerWrapper.isPause(), "Should not be paused after calling resume()");
     }
 
+    @Test
+    void testOnFilesChangedSkipsUpdateWhenTrackedFilesStale() throws Exception {
+        var projectRoot = tempDir.resolve("project-stale-deterministic");
+        Files.createDirectories(projectRoot);
+        Path aPath = projectRoot.resolve("pkg/A.java");
+        Files.createDirectories(aPath.getParent());
+        Files.writeString(aPath, "package pkg; public class A { void a() {} }");
+
+        TestRepo backingRepo = new TestRepo(projectRoot);
+        CachingRepoWrapper cachingRepo = new CachingRepoWrapper(backingRepo);
+
+        class ProjectWithCachingRepo extends TestProject {
+            ProjectWithCachingRepo(Path root) {
+                super(root, Languages.JAVA);
+            }
+
+            @Override
+            public IGitRepo getRepo() {
+                return cachingRepo;
+            }
+        }
+
+        var project = new TrackingProject(projectRoot, cachingRepo);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
+
+        // 1. Wait for initial analyzer (currently empty project)
+        IAnalyzer initialAnalyzer = analyzerWrapper.get();
+        assertNotNull(initialAnalyzer);
+
+        // 2. Explicitly seed the cache while it's empty
+        Set<ProjectFile> initialTracked = cachingRepo.getTrackedFiles();
+        assertTrue(initialTracked.isEmpty(), "Cache should be seeded with empty set");
+
+        // 3. Add the file to backing repo - now cachingRepo is STALE
+        ProjectFile pf = new ProjectFile(projectRoot, "pkg/A.java");
+        backingRepo.add(pf);
+
+        // Verify the stale state: backing repo has it, caching repo (cache) does not
+        assertTrue(backingRepo.getTrackedFiles().contains(pf));
+        assertFalse(cachingRepo.getTrackedFiles().contains(pf), "CachingRepo should still return empty stale set");
+
+        // 4. Trigger onFilesChanged.
+        // AnalyzerWrapper MUST call cachingRepo.invalidateCaches() for this to work.
+        EventBatch batch = new EventBatch();
+        batch.getFiles().add(pf);
+        analyzerWrapper.onFilesChanged(batch);
+
+        // 5. Assert the analyzer snapshot reflects the new file and project caches are invalidated.
+        // Poll because updates are async and invalidations happen during processing.
+        boolean updated = false;
+        boolean invalidated = false;
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            IAnalyzer current = analyzerWrapper.get();
+            if (AnalyzerUtil.getSkeleton(current, "pkg.A").isPresent()) {
+                updated = true;
+            }
+            if (project.invalidationCount.get() > 0) {
+                invalidated = true;
+            }
+
+            if (updated && invalidated) {
+                break;
+            }
+            Thread.sleep(100);
+        }
+
+        assertTrue(
+                updated,
+                "Analyzer should have found pkg.A because it should invalidate git caches before filtering relevant files");
+
+        // Verify that invalidateAllFiles was called because the file was untracked in the stale cache
+        assertTrue(invalidated, "Project caches should have been invalidated");
+    }
+
+    @Test
+    void testOnFilesChangedSkipsInvalidationForKnownTrackedFiles() throws Exception {
+        var projectRoot = tempDir.resolve("project-no-invalidation");
+        Files.createDirectories(projectRoot);
+        Path aPath = projectRoot.resolve("A.java");
+        Files.writeString(aPath, "public class A {}");
+
+        TestRepo repo = new TestRepo(projectRoot);
+        ProjectFile pf = new ProjectFile(projectRoot, "A.java");
+        repo.add(pf);
+
+        var project = new TrackingProject(projectRoot, repo);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
+        analyzerWrapper.get(); // wait for initial build
+
+        int initialInvalidations = project.invalidationCount.get();
+
+        // Trigger onFilesChanged with a file that is ALREADY in the tracked set
+        EventBatch batch = new EventBatch();
+        batch.getFiles().add(pf);
+        analyzerWrapper.onFilesChanged(batch);
+
+        // Verify no new invalidations occurred
+        assertEquals(
+                initialInvalidations,
+                project.invalidationCount.get(),
+                "Project caches should NOT be invalidated for changes to known tracked files");
+    }
+
+    @Test
+    void testOnFilesChangedInvalidatesWhenNewFileDetected() throws Exception {
+        var projectRoot = tempDir.resolve("project-with-invalidation");
+        Files.createDirectories(projectRoot);
+
+        TestRepo backingRepo = new TestRepo(projectRoot);
+        CachingRepoWrapper cachingRepo = new CachingRepoWrapper(backingRepo);
+        var project = new TrackingProject(projectRoot, cachingRepo);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
+
+        // 1. Wait for initial build to complete to establish a clean baseline
+        analyzerWrapper.get();
+
+        // 2. Seed the cache with current (empty) state
+        cachingRepo.getTrackedFiles();
+        int baselineInvalidations = project.invalidationCount.get();
+
+        // 3. Add new file to backing repo - cachingRepo remains stale
+        ProjectFile pf = new ProjectFile(projectRoot, "New.java");
+        backingRepo.add(pf);
+
+        // 4. Trigger batch containing the new file.
+        // AnalyzerWrapper should detect pf is missing from cachingRepo.getTrackedFiles()
+        // and trigger invalidation.
+        EventBatch batch = new EventBatch();
+        batch.getFiles().add(pf);
+        analyzerWrapper.onFilesChanged(batch);
+
+        // Verify invalidation occurred because pf was not in the previous tracked set
+        assertTrue(
+                project.invalidationCount.get() > baselineInvalidations,
+                "Project caches should be invalidated when a previously untracked file is detected. " + "Baseline: "
+                        + baselineInvalidations + ", Current: " + project.invalidationCount.get());
+    }
+
+    /**
+     * Contrast test for #1575: demonstrates that an explicit update via TestAnalyzerWrapper
+     * DOES work when provided the correct file set, even if the watcher path might skip it.
+     */
+    @Test
+    void testExplicitUpdateViaTestAnalyzerWrapperUpdatesAnalyzer() throws Exception {
+        var projectRoot = tempDir.resolve("project-explicit");
+        Files.createDirectories(projectRoot);
+        Path aPath = projectRoot.resolve("pkg/A.java");
+        Files.createDirectories(aPath.getParent());
+        Files.writeString(aPath, "package pkg; public class A { void a() {} }");
+
+        TestRepo repo = new TestRepo(projectRoot);
+        ProjectFile pf = new ProjectFile(projectRoot, "pkg/A.java");
+        repo.add(pf);
+
+        class ProjectWithTestRepo extends TestProject {
+            ProjectWithTestRepo(Path root) {
+                super(root, Languages.JAVA);
+            }
+
+            @Override
+            public TestRepo getRepo() {
+                return repo;
+            }
+        }
+
+        var project = new ProjectWithTestRepo(projectRoot);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
+
+        // 1. Wait for initial analyzer to be built
+        var initialAnalyzer = analyzerWrapper.get();
+        assertNotNull(initialAnalyzer);
+
+        // 2. Modify the file on disk to add method 'b'
+        Files.writeString(aPath, "package pkg; public class A { void a() {} void b() {} }");
+
+        // 3. Wrap current snapshot in TestAnalyzerWrapper for explicit update
+        try (TestAnalyzerWrapper taw = new TestAnalyzerWrapper(initialAnalyzer)) {
+
+            // 4. Perform explicit update
+            IAnalyzer updatedAnalyzer = taw.updateFiles(Set.of(pf)).get(5, TimeUnit.SECONDS);
+
+            // 5. Assert the result contains 'b'
+            String skeleton = AnalyzerUtil.getSkeleton(updatedAnalyzer, "pkg.A").orElse("");
+            assertTrue(
+                    skeleton.contains("void b()"),
+                    "Explicitly updated analyzer should include method 'b' from modified file content");
+        }
+    }
+
     /**
      * Test helper class for tracking analyzer lifecycle events.
      */
@@ -272,6 +470,30 @@ class AnalyzerWrapperTest {
     }
 
     /**
+     * Test helper project that tracks how many times invalidateAllFiles is called.
+     */
+    private static class TrackingProject extends TestProject {
+        final AtomicInteger invalidationCount = new AtomicInteger(0);
+        private final IGitRepo repo;
+
+        TrackingProject(Path root, IGitRepo repo) {
+            super(root, Languages.JAVA);
+            this.repo = repo;
+        }
+
+        @Override
+        public IGitRepo getRepo() {
+            return repo;
+        }
+
+        @Override
+        public void invalidateAllFiles() {
+            invalidationCount.incrementAndGet();
+            super.invalidateAllFiles();
+        }
+    }
+
+    /**
      * Test helper class for tracking file watch events.
      */
     private static class TestFileWatchListener implements Listener {
@@ -283,5 +505,91 @@ class AnalyzerWrapperTest {
             filesChangedCount.incrementAndGet();
             filesChangedLatch.countDown();
         }
+    }
+
+    /**
+     * A decorator for {@link IGitRepo} that simulates a stale cache for {@code getTrackedFiles()}.
+     * <p>
+     * This wrapper intentionally uses composition rather than extending {@link TestRepo} because {@code TestRepo}
+     * manages its own internal state (in-memory sets), whereas this wrapper must reflect and delegate to a backing
+     * repository while specifically controlling the caching behavior of tracked files.
+     */
+    private static class CachingRepoWrapper implements IGitRepo {
+        private final IGitRepo delegate;
+        private Set<ProjectFile> cachedTrackedFiles = null;
+
+        CachingRepoWrapper(IGitRepo delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public synchronized Set<ProjectFile> getTrackedFiles() {
+            if (cachedTrackedFiles != null) {
+                return cachedTrackedFiles;
+            }
+            // Defensive copy to ensure staleness is preserved even if delegate returns a mutable/live set
+            cachedTrackedFiles = Set.copyOf(delegate.getTrackedFiles());
+            return cachedTrackedFiles;
+        }
+
+        @Override
+        public synchronized void invalidateCaches() {
+            cachedTrackedFiles = null;
+            delegate.invalidateCaches();
+        }
+
+        @Override
+        public void add(Collection<ProjectFile> files) throws GitAPIException {
+            delegate.add(files);
+        }
+
+        @Override
+        public void add(ProjectFile file) throws GitAPIException {
+            delegate.add(file);
+        }
+
+        @Override
+        public void remove(ProjectFile file) throws GitAPIException {
+            delegate.remove(file);
+        }
+
+        @Override
+        public Path getWorkTreeRoot() {
+            return delegate.getWorkTreeRoot();
+        }
+
+        @Override
+        public List<Path> getFixedGitignoreFiles() {
+            return delegate.getFixedGitignoreFiles();
+        }
+
+        @Override
+        public String getCurrentCommitId() throws GitAPIException {
+            return delegate.getCurrentCommitId();
+        }
+    }
+
+    @Test
+    void testCachingRepoWrapperBehavesStalelyUntilInvalidated() throws Exception {
+        var projectRoot = tempDir.resolve("caching-repo-unit");
+        Files.createDirectories(projectRoot);
+        TestRepo backingRepo = new TestRepo(projectRoot);
+        CachingRepoWrapper cachingRepo = new CachingRepoWrapper(backingRepo);
+
+        ProjectFile pf = new ProjectFile(projectRoot, "File.java");
+
+        // 1. Initially empty
+        assertTrue(cachingRepo.getTrackedFiles().isEmpty());
+
+        // 2. Add to backing repo - cachingRepo should remain empty due to staleness
+        backingRepo.add(pf);
+        assertTrue(
+                cachingRepo.getTrackedFiles().isEmpty(),
+                "CachingRepoWrapper should return stale empty set until invalidated");
+
+        // 3. Invalidate - now it should reflect the backing repo
+        cachingRepo.invalidateCaches();
+        assertEquals(1, cachingRepo.getTrackedFiles().size());
+        assertTrue(cachingRepo.getTrackedFiles().contains(pf));
     }
 }

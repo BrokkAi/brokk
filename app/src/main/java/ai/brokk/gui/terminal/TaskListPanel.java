@@ -5,9 +5,9 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.TaskResult;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
+import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.SwingUtil;
@@ -44,6 +44,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private final TaskListModel model;
     private final JList<TaskList.TaskItem> list;
+    private final JScrollPane listScrollPane;
     private final MarkdownOutputPanel bigPicturePanel;
     private final JScrollPane bigPictureScroll;
     private final JTextField input = new JTextField();
@@ -74,9 +75,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private long runningAnimStartMs = 0L;
 
     private @Nullable Integer runningIndex = null;
-    private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
-    private boolean queueActive = false;
-    private @Nullable List<Integer> currentRunOrder = null;
+    private boolean batchRunning = false;
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 0));
@@ -245,7 +244,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
 
                 boolean includesRunning = false;
-                boolean includesPending = false;
                 int[] sel = list.getSelectedIndices();
                 if (runningIndex != null) {
                     for (int si : sel) {
@@ -255,18 +253,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         }
                     }
                 }
-                for (int si : sel) {
-                    if (pendingQueue.contains(si)) {
-                        includesPending = true;
-                        break;
-                    }
-                }
-                boolean block = includesRunning || includesPending;
+
+                boolean block = includesRunning || batchRunning;
                 toggleItem.setEnabled(!block);
                 editItem.setEnabled(!block);
                 boolean exactlyOne = sel.length == 1;
                 editItem.setEnabled(!block && exactlyOne);
-                splitItem.setEnabled(!block && exactlyOne && !queueActive);
+                splitItem.setEnabled(!block && exactlyOne && !batchRunning);
                 combineItem.setEnabled(!block && sel.length >= 2);
                 deleteItem.setEnabled(!block);
                 runItem.setEnabled(!block && sel.length > 0);
@@ -466,8 +459,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             add(topToolbar, BorderLayout.NORTH);
         }
 
-        var scroll =
+        this.listScrollPane =
                 new JScrollPane(list, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        BorderUtils.addFocusBorder(listScrollPane, list);
 
         JPanel centerPanel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -480,12 +474,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         gbc.gridy = 1;
         gbc.weighty = 1.0;
-        centerPanel.add(scroll, gbc);
+        centerPanel.add(listScrollPane, gbc);
 
         add(centerPanel, BorderLayout.CENTER);
 
         // Recompute wrapping and ellipsis when the viewport/list width changes
-        var vp = scroll.getViewport();
+        var vp = listScrollPane.getViewport();
         vp.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
@@ -559,6 +553,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             Toolkit.getDefaultToolkit().beep();
             return;
         }
+        if (batchRunning) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         var raw = input.getText();
         if (raw == null) return;
         var lines = Splitter.on(Pattern.compile("\\R+")).split(raw.strip());
@@ -587,12 +585,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             Toolkit.getDefaultToolkit().beep();
             return;
         }
+
+        if (batchRunning) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot remove tasks while a batch is running.",
+                    "Action Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
             int deletableCount = 0;
             for (int idx : indices) {
                 if (runningIndex != null && idx == runningIndex) continue;
-                if (pendingQueue.contains(idx)) continue;
                 if (idx >= 0 && idx < model.getSize()) deletableCount++;
             }
 
@@ -607,7 +614,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             for (int i = indices.length - 1; i >= 0; i--) {
                 int idx = indices[i];
                 if (runningIndex != null && idx == runningIndex) continue;
-                if (pendingQueue.contains(idx)) continue;
                 if (idx >= 0 && idx < items.size()) {
                     items.remove(idx);
                     removedAny = true;
@@ -627,13 +633,22 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             Toolkit.getDefaultToolkit().beep();
             return;
         }
+
+        if (batchRunning) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot toggle tasks while a batch is running.",
+                    "Action Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
             boolean changed = false;
             var items = new ArrayList<>(cm.getTaskList().tasks());
             for (int idx : indices) {
                 if (runningIndex != null && idx == runningIndex) continue;
-                if (pendingQueue.contains(idx)) continue;
                 if (idx >= 0 && idx < items.size()) {
                     var it = items.get(idx);
                     items.set(idx, new TaskList.TaskItem(it.title(), it.text(), !it.done()));
@@ -671,10 +686,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        if (pendingQueue.contains(idx)) {
+        if (batchRunning) {
             JOptionPane.showMessageDialog(
                     this,
-                    "Cannot edit a task that is queued for running.",
+                    "Cannot edit tasks while a batch is running.",
                     "Edit Disabled",
                     JOptionPane.INFORMATION_MESSAGE);
             return;
@@ -854,19 +869,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         boolean hasSelection = list.getSelectedIndex() >= 0;
         boolean selectionIncludesRunning = false;
-        boolean selectionIncludesPending = false;
         int[] selIndices = list.getSelectedIndices();
         for (int si : selIndices) {
             if (runningIndex != null && si == runningIndex) {
                 selectionIncludesRunning = true;
-            }
-            if (pendingQueue.contains(si)) {
-                selectionIncludesPending = true;
+                break;
             }
         }
 
-        // Remove/Toggle disabled if no selection OR selection includes running/pending
-        boolean blockEdits = selectionIncludesRunning || selectionIncludesPending;
+        // Remove/Toggle disabled if no selection OR selection includes running OR batch is running
+        boolean blockEdits = selectionIncludesRunning || batchRunning;
         removeBtn.setEnabled(hasSelection && !blockEdits);
         toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
 
@@ -920,11 +932,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     }
                     goStopButton.setBackground(defaultBg);
                     goStopButton.setForeground(Color.WHITE);
-                    goStopButton.setEnabled(anyTasks && !queueActive);
+                    goStopButton.setEnabled(anyTasks && !batchRunning);
                     if (!anyTasks) {
                         goStopButton.setToolTipText("Add a task to get started");
-                    } else if (queueActive) {
-                        goStopButton.setToolTipText("A task queue is already running");
+                    } else if (batchRunning) {
+                        goStopButton.setToolTipText("A task batch is already running");
                     } else {
                         goStopButton.setToolTipText("Run Architect on all tasks in order");
                     }
@@ -939,7 +951,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             Toolkit.getDefaultToolkit().beep();
             return;
         }
-        if (chrome.getContextManager().isLlmTaskInProgress() || queueActive) {
+        if (chrome.getContextManager().isLlmTaskInProgress() || batchRunning) {
             // A run is already in progress, do not start another.
             // The UI should prevent this, but this is a safeguard for the keyboard shortcut.
             Toolkit.getDefaultToolkit().beep();
@@ -976,16 +988,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void runArchitectOnIndices(int[] selected) {
         Arrays.sort(selected);
-        var toRun = new ArrayList<Integer>(selected.length);
+        var tasksToRun = new ArrayList<TaskList.TaskItem>();
+        var indicesToRun = new ArrayList<Integer>();
+
         for (int idx : selected) {
             if (idx >= 0 && idx < model.getSize()) {
                 TaskList.TaskItem it = model.getElementAt(idx);
                 if (!it.done()) {
-                    toRun.add(idx);
+                    tasksToRun.add(it);
+                    indicesToRun.add(idx);
                 }
             }
         }
-        if (toRun.isEmpty()) {
+
+        if (tasksToRun.isEmpty()) {
             JOptionPane.showMessageDialog(
                     this, "All selected tasks are already done.", "Nothing to run", JOptionPane.INFORMATION_MESSAGE);
             return;
@@ -994,60 +1010,61 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         goStopButton.setEnabled(false);
         goStopButton.setToolTipText("Preparing to run tasks...");
 
-        currentRunOrder = List.copyOf(toRun);
+        var planModel = chrome.getInstructionsPanel().getSelectedModel();
+        var codeModel = cm.getCodeModel();
 
-        int first = toRun.getFirst();
-        pendingQueue.clear();
-        if (toRun.size() > 1) {
-            for (int i = 1; i < toRun.size(); i++) pendingQueue.add(toRun.get(i));
-            queueActive = true;
-        } else {
-            queueActive = false;
-        }
-
-        list.repaint();
-
-        var cm = chrome.getContextManager();
         chrome.showOutputSpinner("Compressing history...");
         var cf = cm.compressHistoryAsync();
         cf.whenComplete((v, ex) -> SwingUtilities.invokeLater(() -> {
             chrome.hideOutputSpinner();
-            startRunForIndex(first);
+
+            cm.submitLlmAction(() -> {
+                SwingUtilities.invokeLater(() -> {
+                    batchRunning = true;
+                    updateButtonStates();
+                });
+
+                try {
+                    cm.executeTasks(tasksToRun, planModel, codeModel, new ContextManager.TaskProgressListener() {
+                        @Override
+                        public void onTaskStarting(int batchIndex, TaskList.TaskItem task) {
+                            int modelIndex = indicesToRun.get(batchIndex);
+                            SwingUtilities.invokeLater(() -> {
+                                runningIndex = modelIndex;
+                                runningAnimStartMs = System.currentTimeMillis();
+                                if (!runningFadeTimer.isRunning()) {
+                                    runningFadeTimer.start();
+                                }
+                                chrome.showNotification(
+                                        IConsoleIO.NotificationRole.INFO,
+                                        "Running task " + (batchIndex + 1) + " of " + tasksToRun.size() + "...");
+                                list.repaint();
+                                updateButtonStates();
+                            });
+                        }
+
+                        @Override
+                        public void onBatchFinished(int completed) {
+                            SwingUtilities.invokeLater(() -> {
+                                batchRunning = false;
+                                runningIndex = null;
+                                runningFadeTimer.stop();
+                                list.repaint();
+                                updateButtonStates();
+                            });
+                        }
+                    });
+                } finally {
+                    SwingUtilities.invokeLater(() -> {
+                        batchRunning = false;
+                        runningIndex = null;
+                        runningFadeTimer.stop();
+                        updateButtonStates();
+                        list.repaint();
+                    });
+                }
+            });
         }));
-    }
-
-    private void startRunForIndex(int idx) {
-        if (idx < 0 || idx >= model.getSize()) {
-            startNextIfAny();
-            return;
-        }
-        TaskList.TaskItem item = model.getElementAt(idx);
-        if (item.done()) {
-            startNextIfAny();
-            return;
-        }
-
-        String originalPrompt = item.text();
-        if (originalPrompt.isBlank()) {
-            startNextIfAny();
-            return;
-        }
-
-        runningIndex = idx;
-        updateButtonStates();
-        runningAnimStartMs = System.currentTimeMillis();
-        runningFadeTimer.start();
-        list.repaint();
-
-        int totalToRun = currentRunOrder != null ? currentRunOrder.size() : 1;
-        int pos = (currentRunOrder != null) ? currentRunOrder.indexOf(idx) : -1;
-        final int numTask = (pos >= 0) ? pos + 1 : 1;
-        SwingUtilities.invokeLater(() -> chrome.showNotification(
-                IConsoleIO.NotificationRole.INFO, "Running task " + numTask + " of " + totalToRun + "..."));
-
-        var cm = chrome.getContextManager();
-
-        runArchitectOnTaskAsync(idx, cm);
     }
 
     private void startRunWithCommitGate(int[] indices) {
@@ -1121,69 +1138,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } else if (choice[0] == 1) {
             action.run();
         }
-    }
-
-    void runArchitectOnTaskAsync(int idx, ContextManager cm) {
-        cm.submitLlmAction(() -> {
-            chrome.showOutputSpinner("Executing Task command...");
-            final TaskResult result;
-            try {
-                result = cm.executeTask(cm.getTaskList().tasks().get(idx));
-            } catch (InterruptedException e) {
-                logger.debug("Task execution interrupted by user");
-                SwingUtilities.invokeLater(this::finishQueueOnError);
-                return;
-            } catch (RuntimeException ex) {
-                logger.error("Internal error running architect", ex);
-                SwingUtilities.invokeLater(this::finishQueueOnError);
-                return;
-            } finally {
-                chrome.hideOutputSpinner();
-                cm.checkBalanceAndNotify();
-            }
-
-            // UI refresh happens automatically via contextChanged() when markTaskDone pushes a new context
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                        finishQueueOnError();
-                        return;
-                    }
-                } finally {
-                    runningIndex = null;
-                    runningFadeTimer.stop();
-                    list.repaint();
-                    updateButtonStates();
-                    startNextIfAny();
-                }
-            });
-        });
-    }
-
-    private void startNextIfAny() {
-        if (pendingQueue.isEmpty()) {
-            // Queue finished
-            queueActive = false;
-            currentRunOrder = null;
-            list.repaint();
-            updateButtonStates();
-            return;
-        }
-        // Get next pending index in insertion order and start it
-        int next = pendingQueue.getFirst();
-        pendingQueue.remove(next);
-        list.repaint();
-        startRunForIndex(next);
-    }
-
-    private void finishQueueOnError() {
-        runningIndex = null;
-        runningFadeTimer.stop();
-        pendingQueue.clear();
-        queueActive = false;
-        currentRunOrder = null;
-        list.repaint();
-        updateButtonStates();
     }
 
     @Override
@@ -1505,19 +1459,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     }
                 }
             }
-            if (queueActive) {
+            if (batchRunning) {
                 Toolkit.getDefaultToolkit().beep();
                 indices = null;
                 return null;
-            }
-            if (indices != null) {
-                for (int i : indices) {
-                    if (pendingQueue.contains(i)) {
-                        Toolkit.getDefaultToolkit().beep();
-                        indices = null;
-                        return null;
-                    }
-                }
             }
             addIndex = -1;
             addCount = 0;
@@ -1527,17 +1472,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         @Override
         public boolean canImport(TransferSupport support) {
             if (!taskListEditable) return false;
-            if (queueActive) return false;
+            if (batchRunning) return false;
             if (indices != null && runningIndex != null) {
                 for (int i : indices) {
                     if (i == runningIndex) {
                         return false;
                     }
-                }
-            }
-            if (indices != null) {
-                for (int i : indices) {
-                    if (pendingQueue.contains(i)) return false;
                 }
             }
             return support.isDrop();
@@ -1549,17 +1489,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (!support.isDrop()) {
                 return false;
             }
-            if (queueActive) return false;
+            if (batchRunning) return false;
             if (indices != null && runningIndex != null) {
                 for (int i : indices) {
                     if (i == runningIndex) {
                         return false;
                     }
-                }
-            }
-            if (indices != null) {
-                for (int i : indices) {
-                    if (pendingQueue.contains(i)) return false;
                 }
             }
             var dl = (JList.DropLocation) support.getDropLocation();
@@ -1632,19 +1567,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        if (batchRunning) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot combine tasks while a batch is running.",
+                    "Combine Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
         for (int idx : indices) {
             if (runningIndex != null && idx == runningIndex) {
                 JOptionPane.showMessageDialog(
                         this,
                         "Cannot combine tasks while one is currently running.",
-                        "Combine Disabled",
-                        JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            if (pendingQueue.contains(idx)) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Cannot combine tasks while one is queued for running.",
                         "Combine Disabled",
                         JOptionPane.INFORMATION_MESSAGE);
                 return;
@@ -1709,19 +1645,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        if (pendingQueue.contains(idx)) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Cannot split a task that is queued for running.",
-                    "Split Disabled",
-                    JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
 
-        if (queueActive) {
+        if (batchRunning) {
             JOptionPane.showMessageDialog(
                     this,
-                    "Cannot split tasks while a run is in progress.",
+                    "Cannot split tasks while a batch is running.",
                     "Split Disabled",
                     JOptionPane.INFORMATION_MESSAGE);
             return;
@@ -1844,6 +1772,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             Toolkit.getDefaultToolkit().beep();
             return;
         }
+
+        if (batchRunning) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot clear tasks while a batch is running.",
+                    "Action Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
         if (model.getSize() == 0) {
             return;
         }
@@ -1985,6 +1923,22 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return goStopButton;
     }
 
+    public JScrollPane getTaskListScrollPane() {
+        return listScrollPane;
+    }
+
+    public MaterialButton getRemoveButton() {
+        return removeBtn;
+    }
+
+    public MaterialButton getToggleDoneButton() {
+        return toggleDoneBtn;
+    }
+
+    public MaterialButton getClearCompletedButton() {
+        return clearCompletedBtn;
+    }
+
     @Override
     public void contextChanged(Context newCtx) {
         Context selected = requireNonNull(cm.selectedContext());
@@ -2026,16 +1980,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             boolean isRunningRow = (!value.done()
                     && TaskListPanel.this.runningIndex != null
                     && TaskListPanel.this.runningIndex == index);
-            boolean isPendingRow = (!value.done() && TaskListPanel.this.pendingQueue.contains(index));
 
-            // Icon logic: running takes precedence, then pending, then done/undone
+            // Icon logic: running takes precedence, then done/undone
             if (isRunningRow) {
                 check.setSelected(false);
                 check.setIcon(Icons.ARROW_UPLOAD_READY);
-                check.setSelectedIcon(null);
-            } else if (isPendingRow) {
-                check.setSelected(false);
-                check.setIcon(Icons.PENDING);
                 check.setSelectedIcon(null);
             } else {
                 check.setIcon(Icons.CIRCLE);

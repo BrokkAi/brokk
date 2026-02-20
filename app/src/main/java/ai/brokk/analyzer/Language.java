@@ -77,7 +77,7 @@ public interface Language {
         try {
             if (analyzer instanceof TreeSitterAnalyzer tsa) {
                 Path file = getStoragePath(project);
-                TreeSitterStateIO.save(tsa.snapshotState(), file);
+                TreeSitterStateIO.save(tsa.snapshotState(), file, this);
                 logger.debug("Saved analyzer state for {} to {}", name(), file);
             } else {
                 logger.trace("saveAnalyzer: analyzer for {} is not TreeSitter-backed; skipping", name());
@@ -158,6 +158,14 @@ public interface Language {
     default boolean importDependency(
             Chrome chrome, DependencyCandidate pkg, @Nullable DependenciesPanel.DependencyLifecycleListener lifecycle) {
         return false;
+    }
+
+    /**
+     * Checks if this language is equivalent to, or contains, the other language.
+     * Default implementation delegates to equals().
+     */
+    default boolean contains(Language other) {
+        return this.equals(other);
     }
 
     /**
@@ -245,6 +253,12 @@ public interface Language {
         @Override
         public ImportSupport getDependencyImportSupport() {
             throw new UnsupportedOperationException(); // should only be called on single languages
+        }
+
+        @Override
+        public boolean contains(Language other) {
+            if (this.equals(other)) return true;
+            return languages.stream().anyMatch(l -> l.contains(other));
         }
 
         @Override

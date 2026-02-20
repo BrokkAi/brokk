@@ -104,23 +104,23 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     private void submitInitialAnalyzerBuild() {
         analyzerExecutor.submit(() -> {
             long start = System.currentTimeMillis();
-            currentAnalyzer = loadOrCreateAnalyzer();
+            IAnalyzer analyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
 
-            analyzerExecutor.submit(() -> {
-                readyForWatcherEvents = true;
-                processQueuedWatcherEvents();
-            });
+            // Update currentAnalyzer and mark readiness in the same task to avoid races
+            currentAnalyzer = analyzer;
+            readyForWatcherEvents = true;
+            processQueuedWatcherEvents();
 
             // debug logging
-            final var metrics = currentAnalyzer.getMetrics();
+            final var metrics = analyzer.getMetrics();
             logger.debug(
                     "Initial analyzer has {} declarations across {} files and took {} ms",
                     metrics.numberOfDeclarations(),
                     metrics.numberOfCodeUnits(),
                     durationMs);
 
-            return currentAnalyzer;
+            return analyzer;
         });
     }
 
@@ -159,6 +159,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         // 1) Handle overflow - trigger full analyzer rebuild
         if (batch.isOverflowed()) {
             logger.debug("Event batch overflowed, triggering full analyzer rebuild");
+            project.getRepo().invalidateCaches();
+            project.invalidateAllFiles();
             refresh(prev -> {
                 long startTime = System.currentTimeMillis();
                 IAnalyzer result = prev.update();
@@ -169,13 +171,37 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             return; // No need to process individual files after full rebuild
         }
 
-        // 2) Filter for analyzer-relevant files.
-        var trackedFiles = project.getRepo().getTrackedFiles();
+        // 2) Determine if cache invalidation is necessary before filtering
+        final var trackedFilesBefore = project.getRepo().getTrackedFiles();
+        boolean untrackedGitignoreChanged = batch.isUntrackedGitignoreChanged();
+        boolean hasUntrackedFiles = batch.getFiles().stream().anyMatch(f -> !trackedFilesBefore.contains(f));
+
+        final Set<ProjectFile> finalTrackedFiles;
+        if (untrackedGitignoreChanged || hasUntrackedFiles) {
+            logger.debug(
+                    "Refreshing project caches (untrackedGitignoreChanged={}, hasUntrackedFiles={})",
+                    untrackedGitignoreChanged,
+                    hasUntrackedFiles);
+
+            project.getRepo().invalidateCaches();
+            var trackedFilesAfter = project.getRepo().getTrackedFiles();
+
+            // If gitignore changed or the set of tracked files actually changed after repo refresh,
+            // we must invalidate the project's file-system-view cache.
+            if (untrackedGitignoreChanged || !trackedFilesAfter.equals(trackedFilesBefore)) {
+                project.invalidateAllFiles();
+            }
+            finalTrackedFiles = trackedFilesAfter;
+        } else {
+            finalTrackedFiles = trackedFilesBefore;
+        }
+
+        // 3) Filter for analyzer-relevant files.
         var projectLanguages = requireNonNull(currentAnalyzer).languages();
 
         // Only consider tracked files that match our analyzer's language extensions
         var relevantFiles = batch.getFiles().stream()
-                .filter(trackedFiles::contains) // Must be tracked by git
+                .filter(finalTrackedFiles::contains) // Must be tracked by git
                 .filter(pf -> projectLanguages.stream()
                         .anyMatch(L -> L.getExtensions().contains(pf.extension())))
                 .collect(Collectors.toSet());

@@ -54,9 +54,37 @@ brokk-code
 python -m brokk_code
 ```
 
+### Resuming Sessions
+
+Brokk automatically saves your session state (fragments, history, etc.) when you exit.
+
+**Resume the last session in the current workspace:**
+```bash
+brokk-code --resume
+```
+
+**Resume a specific session by ID:**
+```bash
+brokk-code resume <session_id>
+```
+*Note: When you exit `brokk-code`, it prints a convenient "resume hint" command for the session you just finished, for example:*
+`brokk-code resume <session_id>`
+
+### ACP Mode
+
+Run the official ACP server mode over stdio:
+
+```bash
+uv run brokk-code acp
+```
+
+This mode is headless and intended for ACP-compatible clients. The default `brokk-code` command still launches the interactive TUI.
+
 ### Options
 
 - `--workspace <path>`: Specify the workspace directory (defaults to current directory).
+- `--resume`: Resume the last used session in the current workspace.
+- `--session <id>`: Attempt to resume a specific session ID (similar to the `resume` command).
 - `--executor-version <tag>`: Specify a version/tag of the executor to download (e.g., `v0.1.0`).
 - `--executor-snapshot`: Download the latest snapshot release instead of the stable release (ignored if `--executor-version` is set).
 - `--jar <path>`: Specify a custom path to `brokk.jar`. This **overrides** all version/download logic.
@@ -76,13 +104,22 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 | Key | Action |
 |-----|--------|
 | `Ctrl+L` | Toggle context panel |
-| `Ctrl+T` | Toggle task list panel |
 | `Ctrl+N` | Toggle notifications panel |
+| `Shift+Tab` | Toggle mode (CODE/ASK/LUTZ) |
+| `Ctrl+D` | Exit immediately |
 | `Ctrl+C` | Cancel job / quit |
-| `Ctrl+G` | Toggle mode (LUTZ/ASK/SEARCH) |
-| `F3` | Toggle mode (LUTZ/ASK/SEARCH) |
-| `F2` | Open the theme palette |
-| `Ctrl+P` | Open command palette |
+| `Ctrl+P` | Open settings |
+
+### Task List Key Bindings (when the task list is open)
+
+| Key | Action |
+|-----|--------|
+| `Up/Down` | Move selection |
+| `Enter` or `Space` | Toggle selected task done |
+| `A` | Add task |
+| `E` | Edit selected task title |
+| `D` | Delete selected task |
+| `Esc` | Close task list |
 
 ## Theming
 
@@ -94,14 +131,19 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 
 ### Persistence & Interaction
 - **Settings**: The current theme is persisted in `~/.brokk/settings.json` under the `theme` key.
-- **Theme Picker**: Use `F2`, or `Ctrl+P` then select `Change theme` to open the full theme palette (including options like solarized).
-- **Command**: You can also use `/theme` (or `/palette`) to open the same theme picker.
+- **Settings Picker**: Use `Ctrl+P` then select `Change theme` to open settings (including theme options like solarized).
+- **Command**: You can use `/settings` to open the same picker.
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
+| `/code` | Set mode to CODE (direct implementation) |
+| `/ask` | Set mode to ASK (questions only) |
+| `/lutz` | Set mode to LUTZ (default; full agent access) |
+| `/mode` | Cycle between CODE, ASK, and LUTZ modes |
 | `/model <name>` | Switch the LLM model |
+| `/task` | Open/close the task list |
 | `/help` | Show available commands |
 | `/quit` | Exit the application |
 

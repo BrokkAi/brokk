@@ -8,6 +8,8 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import Label, Static
 
+from brokk_code.token_format import format_token_count
+
 
 class ContextFragmentItem(Static):
     """A compact chip-like widget representing a single context fragment."""
@@ -51,12 +53,10 @@ class ContextFragmentItem(Static):
         text = Text()
         if self.has_class("is-selected"):
             text.append("[SELECTED] ", style="bold")
-        if self.has_class("is-active"):
-            text.append("[ACTIVE] ", style="bold")
         text.append(f"{chip_kind} ", style="bold")
         text.append(description)
         if tokens > 0:
-            text.append(f"  {tokens:,}t", style="dim")
+            text.append(f"  {format_token_count(tokens)}t", style="dim")
         if self.fragment.get("pinned"):
             text.append("  PIN", style="bold")
 
@@ -97,6 +97,7 @@ class ContextPanel(Vertical):
         Binding("ctrl+a", "select_all", "Select All", show=False),
         Binding("u", "clear_selection", "Unselect", show=False),
         Binding("d", "drop_selected", "Drop", show=False),
+        Binding("o", "drop_others", "Drop Others", show=False),
         Binding("shift+d", "drop_all", "Drop All", show=False),
         Binding("p", "toggle_pin_selected", "Pin", show=False),
         Binding("r", "toggle_readonly_selected", "Readonly", show=False),
@@ -124,16 +125,33 @@ class ContextPanel(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(id="context-header"):
             yield Label("Context", id="context-title")
-            yield Label("0 / 200,000 tokens", id="context-token-usage")
+            yield Label("100.0% context remaining", id="context-token-usage")
         yield Label("Selected: 0", id="context-selection-status")
         yield Label("Active: none", id="context-active-status")
-        yield Label(
-            "Arrows: Move  Enter: Select  Space: Toggle  D: Drop  Shift+D: Drop All  "
-            "P: Pin  R: Readonly  H: Compress History  X: Clear History",
-            id="context-help",
-        )
+        yield Static(self._get_shortcuts_text(), id="context-help-line")
         with VerticalScroll(id="context-chip-scroll"):
             yield Vertical(id="context-chip-wrap")
+
+    def _get_shortcuts_text(self) -> str:
+        """Derive a concise help line from BINDINGS."""
+        shortcuts = []
+        for binding in self.BINDINGS:
+            # Skip navigation and internal-only keys
+            if binding.key in ("left,up", "right,down", "enter", "space"):
+                continue
+            # Format keys nicely (e.g. shift+d -> D)
+            key_display = binding.key.upper()
+            if "SHIFT+" in key_display:
+                key_display = key_display.replace("SHIFT+", "")
+            shortcuts.append(f"[b]{key_display}[/b] {binding.description}")
+
+        # Add manual entries for the ones we skipped above but want to show
+        manual = [
+            "[bold bright_magenta]Esc[/] Close",
+            "[b]Space[/b] Toggle",
+            "[b]Enter[/b] Select",
+        ]
+        return "  ".join(manual + shortcuts)
 
     def refresh_context(self, context_data: Dict[str, Any]) -> None:
         """Updates token usage and fragment chips from /v1/context."""
@@ -143,7 +161,12 @@ class ContextPanel(Vertical):
         max_tokens = context_data.get("maxTokens", 200_000)
 
         token_label = self.query_one("#context-token-usage", Label)
-        token_label.update(f"{used:,} / {max_tokens:,} tokens")
+        if max_tokens > 0:
+            pct = max(0.0, min(100.0, 100 * (1 - used / max_tokens)))
+            usage_str = f"{pct:.1f}% context remaining"
+        else:
+            usage_str = f"{format_token_count(used)} tokens"
+        token_label.update(usage_str)
         self._render_fragments()
 
     def on_resize(self, event: events.Resize) -> None:
@@ -270,7 +293,7 @@ class ContextPanel(Vertical):
 
         tokens = fragment.get("tokens", 0)
         if isinstance(tokens, int) and tokens > 0:
-            text += f"  {tokens:,}t"
+            text += f"  {format_token_count(tokens)}t"
         if fragment.get("pinned"):
             text += "  PIN"
 
@@ -336,6 +359,10 @@ class ContextPanel(Vertical):
         fragment_ids = self._selected_fragment_ids()
         if fragment_ids:
             self.post_message(self.ActionRequested("drop_selected", fragment_ids))
+
+    def action_drop_others(self) -> None:
+        # Drop everything except selected/active, handled by App logic
+        self.post_message(self.ActionRequested("drop_others", []))
 
     def action_drop_all(self) -> None:
         self.post_message(self.ActionRequested("drop_all", []))

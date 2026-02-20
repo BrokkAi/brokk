@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -22,6 +23,15 @@ import org.treesitter.TreeSitterJava;
 public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
+
+    private static final ThreadLocal<TSQuery> IDENTIFIER_QUERY = ThreadLocal.withInitial(() -> {
+        try {
+            return new TSQuery(
+                    new org.treesitter.TreeSitterJava(), "[(type_identifier) (scoped_type_identifier)] @type");
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize Java identifier query", e);
+        }
+    });
 
     public JavaAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
@@ -380,8 +390,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
                     if (targetPackage.equals(candidatePackage)) {
                         // Check if the candidate actually uses any of target's identifiers
-                        Set<String> candidateSymbols =
-                                extractTypeIdentifiers(candidate.read().orElse(""));
+                        Set<String> candidateSymbols = typeIdentifiersOf(candidate);
                         if (candidateSymbols.stream().anyMatch(targetIdentifiers::contains)) {
                             result.add(candidate);
                         }
@@ -807,36 +816,33 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected void createModulesFromImports(
+    protected FileAnalysisContext createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+            FileAnalysisContext ctx) {
         if (modulePackageName.isBlank()) {
-            return;
+            return ctx;
         }
 
-        // Look up the module in localCuByFqName (created via captures).
+        // Look up the module in cuByFqName (created via captures).
         // Only use modules that are already present; do not create new ones.
-        CodeUnit moduleCu = localCuByFqName.get(modulePackageName);
+        CodeUnit moduleCu = ctx.cuByFqName().get(modulePackageName);
         if (moduleCu == null || !moduleCu.isModule()) {
-            return;
+            return ctx;
         }
 
-        // Filter localTopLevelCUs to find top-level classes in this package.
-        List<CodeUnit> classesInPackage = localTopLevelCUs.stream()
+        // Find top-level classes in this package.
+        List<CodeUnit> classesInPackage = ctx.topLevelCUs().stream()
                 .filter(cu -> cu.isClass() && modulePackageName.equals(cu.packageName()))
                 .toList();
 
-        // Always record the module's children (even if empty) so callers can distinguish
-        // "known module with no children" from "no relationship recorded".
-        localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
+        FileAnalysisContext updated = ctx;
+        for (CodeUnit child : classesInPackage) {
+            updated = updated.withChild(moduleCu, child);
+        }
+        return updated;
     }
 
     /**
@@ -850,35 +856,38 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         try {
             TSTree tree = getTSParser().parseString(null, source);
             TSNode root = tree.getRootNode();
-            if (root.isNull()) {
-                return Set.of();
-            }
-
-            org.treesitter.TSQuery identifierQuery =
-                    new org.treesitter.TSQuery(getTSLanguage(), "[(type_identifier) (scoped_type_identifier)] @type");
-            TSQueryCursor cursor = new TSQueryCursor();
-            cursor.exec(identifierQuery, root);
-
-            SourceContent sourceContent = SourceContent.of(source);
-            Set<String> identifiers = new HashSet<>();
-            TSQueryMatch match = new TSQueryMatch();
-
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    if (node != null && !node.isNull()) {
-                        String text = sourceContent.substringFrom(node);
-                        if (!text.isEmpty()) {
-                            identifiers.add(text);
-                        }
-                    }
-                }
-            }
-            return identifiers;
+            return performIdentifierExtraction(root, source);
         } catch (Exception e) {
             log.warn("Failed to extract type identifiers using Tree-Sitter query", e);
             return Set.of();
         }
+    }
+
+    private Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
+        if (root == null || root.isNull()) {
+            return Set.of();
+        }
+
+        TSQuery query = IDENTIFIER_QUERY.get();
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, root);
+
+        SourceContent sourceContent = SourceContent.of(source);
+        Set<String> identifiers = new HashSet<>();
+        TSQueryMatch match = new TSQueryMatch();
+
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                TSNode node = capture.getNode();
+                if (node != null && !node.isNull()) {
+                    String text = sourceContent.substringFrom(node);
+                    if (!text.isEmpty()) {
+                        identifiers.add(text);
+                    }
+                }
+            }
+        }
+        return identifiers;
     }
 
     @Override
@@ -1327,6 +1336,96 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     @Override
     protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
         return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
+    }
+
+    /** Extracts parameter type signature for method/constructor overload distinction. */
+    @Override
+    protected @Nullable String extractSignature(
+            String captureName, TSNode definitionNode, SourceContent sourceContent) {
+        if (!CaptureNames.METHOD_DEFINITION.equals(captureName)
+                && !CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName)) {
+            return null;
+        }
+
+        TSNode parametersNode =
+                definitionNode.getChildByFieldName(getLanguageSyntaxProfile().parametersFieldName());
+        if (parametersNode == null || parametersNode.isNull()) {
+            return "()";
+        }
+
+        List<String> params = new ArrayList<>();
+        for (int i = 0; i < parametersNode.getNamedChildCount(); i++) {
+            TSNode param = parametersNode.getNamedChild(i);
+            if (param == null || param.isNull()) {
+                continue;
+            }
+
+            String paramType = param.getType();
+            TSNode typeNode = null;
+            if (FORMAL_PARAMETER.equals(paramType)) {
+                typeNode = param.getChildByFieldName("type");
+            } else if (SPREAD_PARAMETER.equals(paramType)) {
+                // In tree-sitter-java, spread_parameter doesn't have a 'type' field.
+                // The type node is the first named child that isn't 'modifiers'.
+                for (int j = 0; j < param.getNamedChildCount(); j++) {
+                    TSNode child = param.getNamedChild(j);
+                    if (child != null && !child.isNull() && !"modifiers".equals(child.getType())) {
+                        typeNode = child;
+                        break;
+                    }
+                }
+            }
+
+            if (typeNode != null && !typeNode.isNull()) {
+                String typeText = sourceContent.substringFrom(typeNode).strip();
+
+                // Varargs are arrays at bytecode level; normalize to array notation for signature distinction.
+                boolean isVarargsParam = SPREAD_PARAMETER.equals(paramType)
+                        || sourceContent.substringFrom(param).contains("...")
+                        || typeText.endsWith("...");
+
+                if (isVarargsParam) {
+                    if (typeText.endsWith("...")) {
+                        typeText = typeText.substring(0, typeText.length() - 3).strip();
+                    }
+                    typeText += "[]";
+                }
+                params.add(stripGenericTypeArguments(typeText));
+            }
+        }
+
+        return params.stream().collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    @Override
+    protected boolean shouldAttachToParent(
+            CodeUnit cu, TSNode node, String captureName, String classChain, List<ScopeSegment> scopeChain) {
+        return super.shouldAttachToParent(cu, node, captureName, classChain, scopeChain)
+                || CaptureNames.LAMBDA_DEFINITION.equals(captureName);
+    }
+
+    @Override
+    protected @Nullable CodeUnit findParentForCodeUnit(
+            CodeUnit cu,
+            TSNode node,
+            String captureName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            TreeSitterAnalyzer.FileAnalysisContext ctx,
+            SourceContent sourceContent) {
+        if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
+            var enclosingFnNameOpt = findEnclosingJavaMethodOrClassName(node, sourceContent);
+            if (enclosingFnNameOpt.isPresent()) {
+                String enclosingFnName = enclosingFnNameOpt.get();
+                String methodFqName = classChain.isEmpty() ? enclosingFnName : (classChain + "." + enclosingFnName);
+                // Prepend package if present
+                if (!cu.packageName().isEmpty()) {
+                    methodFqName = cu.packageName() + "." + methodFqName;
+                }
+                return ctx.cuByFqName().get(methodFqName);
+            }
+        }
+        return super.findParentForCodeUnit(cu, node, captureName, classChain, scopeChain, ctx, sourceContent);
     }
 
     @Override

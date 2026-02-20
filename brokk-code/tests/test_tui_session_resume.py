@@ -33,10 +33,10 @@ class SessionStubExecutor(StubExecutor):
 
 
 @pytest.mark.asyncio
-async def test_startup_creates_new_session_when_no_resume(tmp_path):
+async def test_startup_creates_new_session_by_default(tmp_path):
     workspace = tmp_path
     stub = SessionStubExecutor()
-    # --no-resume
+    # Default behavior is no resume
     app = BrokkApp(executor=stub, workspace_dir=workspace, resume_session=False)
 
     with patch("brokk_code.app.ChatPanel"):
@@ -105,3 +105,111 @@ async def test_shutdown_exports_session(tmp_path):
     zip_path = get_session_zip_path(workspace, "active-789")
     assert zip_path.exists()
     assert zip_path.read_bytes() == b"fake-zip-data"
+
+
+@pytest.mark.asyncio
+async def test_resume_command_launches_with_correct_id(tmp_path):
+    """
+    Verifies that the 'resume <id>' command correctly initializes BrokkApp
+    with the specified session_id.
+    """
+    from brokk_code.__main__ import _build_parser
+
+    workspace = tmp_path
+    session_id = "manual-resume-id"
+
+    # Simulate: brokk-code resume manual-resume-id --workspace <tmp_path>
+    parser = _build_parser()
+    args = parser.parse_args(["resume", session_id, "--workspace", str(workspace)])
+
+    assert args.command == "resume"
+    assert args.session_id == session_id
+
+    stub = SessionStubExecutor()
+    # We simulate what main() does
+    app = BrokkApp(
+        executor=stub,
+        workspace_dir=workspace,
+        session_id=args.session_id,
+        resume_session=False,
+    )
+
+    assert app.requested_session_id == session_id
+    assert app.resume_session is False
+
+    with patch("brokk_code.app.ChatPanel"):
+        # We need to set a valid zip for the stub to "resume" it
+        get_session_zip_path(workspace, session_id).write_bytes(b"resumed-zip")
+        await asyncio.wait_for(app._start_executor(), timeout=3.0)
+
+    assert len(stub.import_calls) == 1
+    assert stub.import_calls[0][1] == session_id
+
+
+def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
+    """
+    Verifies that main() prints the resume hint after the app finishes running,
+    if a last session ID exists AND has history tasks in contexts.jsonl.
+    """
+    import json
+    import zipfile
+
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "hint-session-789"
+    save_last_session_id(workspace, session_id)
+
+    # Create a zip with history tasks in contexts.jsonl so the hint prints
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr(
+            "contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}) + "\n"
+        )
+
+    # Patch BrokkApp.run so it doesn't actually start the TUI
+    # and sys.argv so main() uses our temp workspace.
+    with (
+        patch("brokk_code.app.BrokkApp.run", return_value=None),
+        patch(
+            "sys.argv",
+            ["brokk-code", "--workspace", str(workspace)],
+        ),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    expected_hint = f"brokk-code resume {session_id}"
+    assert expected_hint in captured.out
+
+
+def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
+    """
+    Verifies that main() does NOT print the resume hint if the session exists
+    but has no qualifying history tasks.
+    """
+    import json
+    import zipfile
+
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "no-tasks-session"
+    save_last_session_id(workspace, session_id)
+
+    # Create a zip with contexts.jsonl but NO qualifying tasks (missing meta or sequence)
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("contexts.jsonl", json.dumps({"tasks": [{"sequence": 1}]}) + "\n")
+
+    with (
+        patch("brokk_code.app.BrokkApp.run", return_value=None),
+        patch(
+            "sys.argv",
+            ["brokk-code", "--workspace", str(workspace)],
+        ),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    assert "brokk-code resume" not in captured.out

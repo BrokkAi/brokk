@@ -1,0 +1,348 @@
+import * as vscode from "vscode";
+import { ChildProcess, spawn } from "child_process";
+import { createInterface } from "readline";
+import { randomUUID } from "crypto";
+import { execSync } from "child_process";
+import { existsSync, readdirSync, statSync } from "fs";
+import os from "os";
+import path from "path";
+
+export type LaunchMode = "auto" | "jbang" | "local" | "external";
+
+export interface ExecutorHandle {
+  port: number;
+  authToken: string;
+  process: ChildProcess | null;
+}
+
+/**
+ * Find the newest brokk JAR in app/build/libs/, filtering out -sources JARs.
+ * If explicitJar is provided and exists, use it directly.
+ */
+export async function findJar(repoRoot: string, explicitJar?: string): Promise<string> {
+  if (explicitJar) {
+    if (existsSync(explicitJar)) return explicitJar;
+    throw new Error(`Configured JAR not found: ${explicitJar}`);
+  }
+
+  const libsDir = path.join(repoRoot, "app", "build", "libs");
+
+  const matches: { path: string; mtime: number }[] = [];
+  let entries: string[];
+  try {
+    entries = readdirSync(libsDir);
+  } catch {
+    entries = [];
+  }
+  for (const name of entries) {
+    if (!name.startsWith("brokk-") || !name.endsWith(".jar")) continue;
+    if (name.includes("-sources")) continue;
+    const fullPath = path.join(libsDir, name);
+    try {
+      const stat = statSync(fullPath);
+      matches.push({ path: fullPath, mtime: stat.mtimeMs });
+    } catch {
+      // skip files we can't stat
+    }
+  }
+
+  if (matches.length === 0) {
+    throw new Error(
+      `No brokk JAR found in ${libsDir}. Run ./gradlew :app:shadowJar first.`
+    );
+  }
+
+  matches.sort((a, b) => b.mtime - a.mtime);
+  return matches[0].path;
+}
+
+/**
+ * Spawn the headless executor Java process.
+ * Returns the port, auth token, and process handle.
+ */
+export async function spawnExecutor(
+  workspaceDir: string,
+  jarPath: string
+): Promise<ExecutorHandle> {
+  const authToken = randomUUID();
+  const execId = randomUUID();
+
+  const child = spawn(
+    "java",
+    [
+      "-cp",
+      jarPath,
+      "ai.brokk.executor.HeadlessExecutorMain",
+      "--listen-addr",
+      "127.0.0.1:0",
+      "--auth-token",
+      authToken,
+      "--workspace-dir",
+      workspaceDir,
+      "--exec-id",
+      execId,
+    ],
+    {
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd: workspaceDir,
+    }
+  );
+
+  const port = await waitForPort(child);
+  return { port, authToken, process: child };
+}
+
+/**
+ * Detect whether we're running inside the brokk repo (local mode)
+ * or as a packaged extension (jbang mode).
+ */
+export function detectLaunchMode(extensionDir: string): "local" | "jbang" {
+  const repoRoot = path.dirname(extensionDir);
+  const libsDir = path.join(repoRoot, "app", "build", "libs");
+  return existsSync(libsDir) ? "local" : "jbang";
+}
+
+/**
+ * Check common locations for the jbang binary.
+ * Returns the full path if found, null otherwise.
+ */
+export function resolveJbangBinary(): string | null {
+  // Check PATH first
+  try {
+    const which = process.platform === "win32" ? "where" : "which";
+    const result = execSync(`${which} jbang`, { stdio: "pipe" }).toString().trim();
+    if (result) return result.split("\n")[0];
+  } catch {
+    // not on PATH
+  }
+
+  // Check default install location
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, ".jbang", "bin", "jbang"),
+    // Homebrew on Apple Silicon / Intel
+    "/opt/homebrew/bin/jbang",
+    "/usr/local/bin/jbang",
+  ];
+  if (process.platform === "win32") {
+    candidates.push(path.join(home, ".jbang", "bin", "jbang.cmd"));
+  }
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+/**
+ * Install jbang via the official install script.
+ * Returns the path to the installed binary.
+ */
+export async function installJbang(): Promise<string> {
+  const isWindows = process.platform === "win32";
+
+  const INSTALL_TIMEOUT_MS = 120_000; // 2 minutes
+
+  const child = isWindows
+    ? spawn("powershell", ["-Command", `iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"`], { stdio: "pipe" })
+    : spawn("bash", ["-c", "curl -Ls https://sh.jbang.dev | bash -s - app setup"], { stdio: "pipe" });
+
+  await new Promise<void>((resolve, reject) => {
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error("jbang installation timed out after 2 minutes"));
+    }, INSTALL_TIMEOUT_MS);
+
+    // Drain both stdout and stderr to prevent pipe buffer from filling
+    child.stdout?.on("data", () => {});
+    child.stderr?.on("data", (data: Buffer) => { stderr += data.toString(); });
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(new Error(`Failed to run jbang installer: ${err.message}`));
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) resolve();
+      else reject(new Error(`jbang installer exited with code ${code}${stderr ? `: ${stderr.trim()}` : ""}`));
+    });
+  });
+
+  // Trust the brokk catalog
+  const jbangPath = resolveJbangBinary();
+  if (!jbangPath) {
+    throw new Error("jbang was installed but could not be found. You may need to restart VS Code.");
+  }
+
+  execSync(`"${jbangPath}" trust add https://github.com/BrokkAi/brokk-releases`, { stdio: "pipe" });
+
+  return jbangPath;
+}
+
+/**
+ * Spawn the executor via jbang.
+ * If jbangBinary is provided, use it; otherwise look up jbang on PATH.
+ */
+export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Promise<ExecutorHandle> {
+  const jbang = jbangBinary ?? "jbang";
+
+  const authToken = randomUUID();
+  const execId = randomUUID();
+
+  const child = spawn(
+    jbang,
+    [
+      "brokk-headless@brokkai/brokk-releases",
+      "--listen-addr",
+      "127.0.0.1:0",
+      "--auth-token",
+      authToken,
+      "--workspace-dir",
+      workspaceDir,
+      "--exec-id",
+      execId,
+    ],
+    {
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd: workspaceDir,
+    }
+  );
+
+  const port = await waitForPort(child);
+  return { port, authToken, process: child };
+}
+
+/**
+ * Parse the port from the executor's stdout output.
+ * Looks for "Executor listening on http://127.0.0.1:<port>"
+ */
+function waitForPort(child: ChildProcess): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("Timed out waiting for executor to report its port"));
+    }, 60_000);
+
+    if (!child.stdout) {
+      clearTimeout(timeout);
+      reject(new Error("No stdout on executor process"));
+      return;
+    }
+
+    const rl = createInterface({ input: child.stdout });
+
+    rl.on("line", (line) => {
+      console.log(`[executor stdout] ${line}`);
+      const port = extractPort(line);
+      if (port !== null) {
+        clearTimeout(timeout);
+        rl.close();
+        resolve(port);
+      }
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(new Error(`Executor process error: ${err.message}`));
+    });
+
+    child.on("exit", (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Executor exited with code ${code} before reporting port`));
+    });
+
+    // Pipe stderr to the output channel for debugging
+    child.stderr?.on("data", (data: Buffer) => {
+      const msg = data.toString();
+      if (msg.trim()) {
+        console.log(`[executor stderr] ${msg.trimEnd()}`);
+      }
+    });
+  });
+}
+
+/**
+ * Extract port from a line of output.
+ * Matches "Executor listening on http://127.0.0.1:<port>"
+ */
+function extractPort(line: string): number | null {
+  // Match URL pattern: http://host:port
+  const urlMatch = line.match(/https?:\/\/[^:]+:(\d+)/);
+  if (urlMatch) {
+    const port = parseInt(urlMatch[1], 10);
+    if (port > 0 && port <= 65535) return port;
+  }
+  return null;
+}
+
+/**
+ * Poll /health/live, create a session via POST /v1/sessions, then poll /health/ready.
+ * The sessionLoaded flag in the executor is only set by SessionsRouter,
+ * so we must create a session before readiness will resolve.
+ */
+export async function waitForReady(
+  port: number,
+  authToken: string,
+  cancelToken?: vscode.CancellationToken
+): Promise<string> {
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  // Wait for liveness
+  await poll(
+    async () => {
+      const res = await fetch(`${baseUrl}/health/live`);
+      return res.ok;
+    },
+    500,
+    30_000,
+    cancelToken
+  );
+
+  // Create a session — this sets sessionLoaded=true in the executor
+  await fetch(`${baseUrl}/v1/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({ name: "New Session" }),
+  });
+
+  // Wait for readiness
+  let sessionId = "";
+  await poll(
+    async () => {
+      const res = await fetch(`${baseUrl}/health/ready`);
+      if (!res.ok) return false;
+      const data = (await res.json()) as { status: string; sessionId: string };
+      sessionId = data.sessionId;
+      return true;
+    },
+    500,
+    60_000,
+    cancelToken
+  );
+
+  return sessionId;
+}
+
+async function poll(
+  check: () => Promise<boolean>,
+  intervalMs: number,
+  timeoutMs: number,
+  cancelToken?: vscode.CancellationToken
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (cancelToken?.isCancellationRequested) {
+      throw new Error("Cancelled");
+    }
+    try {
+      if (await check()) return;
+    } catch {
+      // keep polling
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error("Timed out waiting for executor");
+}

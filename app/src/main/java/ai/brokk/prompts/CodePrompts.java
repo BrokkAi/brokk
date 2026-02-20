@@ -48,7 +48,7 @@ public class CodePrompts {
     @Blocking
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
         return instructionsFlags(ctx.getEditableFragments()
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet()));
     }
 
@@ -282,7 +282,11 @@ public class CodePrompts {
      * @return An ApplyRetryMessages containing the tagged AiMessage and retry UserMessage.
      */
     public static ApplyRetryMessages buildApplyRetryMessages(
-            String originalAiText, List<EditBlock.ApplyResult> blockResults, String buildError, int startingIndex) {
+            String originalAiText,
+            List<EditBlock.ApplyResult> blockResults,
+            String buildError,
+            int startingIndex,
+            boolean isLastApplyRetryBeforeAbort) {
         var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
         assert !failures.isEmpty();
 
@@ -335,7 +339,8 @@ public class CodePrompts {
         var data = new ApplyRetryData(
                 successIndices.isEmpty() ? "None" : String.join(", ", successIndices),
                 fileDetails,
-                !buildError.isBlank() && successIndices.isEmpty());
+                !buildError.isBlank() && successIndices.isEmpty(),
+                isLastApplyRetryBeforeAbort);
 
         try {
             return new ApplyRetryMessages(taggedAiMessage, new UserMessage(APPLY_RETRY_TEMPLATE.apply(data)));
@@ -393,7 +398,10 @@ public class CodePrompts {
             @org.jetbrains.annotations.Nullable String goal) {}
 
     private record ApplyRetryData(
-            String successIndices, List<FileFailure> failuresByFile, boolean showBuildFailureReminder) {
+            String successIndices,
+            List<FileFailure> failuresByFile,
+            boolean showBuildFailureReminder,
+            boolean showFullFileReplacementReminder) {
         public record FileFailure(String filename, String failedBlocksList) {}
     }
 
@@ -597,6 +605,13 @@ public class CodePrompts {
                 </failed_blocks>
                 </target_file>
                 {{~/each}}
+                {{#if showFullFileReplacementReminder~}}
+                <reminder>
+                  Apply has failed repeatedly, and the next apply failure will abort the task.
+                  Strongly prefer BRK_ENTIRE_FILE full-file replacements for affected file(s), instead of the kinds of line-based edits that have not worked so far.
+                  In BRK_ENTIRE_FILE, the REPLACE section must contain the complete final updated contents of the file.
+                </reminder>
+                {{~/if}}
                 {{#if showBuildFailureReminder~}}
                 <reminder>
                   The build is currently failing; the details are in the conversation history.

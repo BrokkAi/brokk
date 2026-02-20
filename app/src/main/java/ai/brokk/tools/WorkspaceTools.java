@@ -708,7 +708,7 @@ public class WorkspaceTools {
 
         Set<ProjectFile> filesInWorkspace = fragments.stream()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
 
         Set<ProjectFile> fileSummariesInWorkspace = new HashSet<>();
@@ -762,7 +762,7 @@ public class WorkspaceTools {
     private Set<ProjectFile> currentWorkspaceFiles() {
         return context.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
     }
 

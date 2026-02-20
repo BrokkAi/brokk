@@ -8,7 +8,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
-import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -20,7 +19,6 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.concurrent.UserActionManager;
 import ai.brokk.concurrent.UserActionManager.ThrowingRunnable;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextFragments.PathFragment;
@@ -1144,7 +1142,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             var last = history.getLast();
-            var log = last.log();
+            var log = last.mopLog();
             if (log != null) {
                 addFragments(log);
                 return;
@@ -1260,7 +1258,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return false;
         }
 
-        List<ContextFragments.SummaryFragment> marshalledSummaries = new ArrayList<>();
+        List<ContextFragments.SummaryFragment> marshalledSummaries = toSummaries(files, classes);
+
+        if (marshalledSummaries.isEmpty()) {
+            io.toolError("No files or classes provided to summarize.");
+            return false;
+        }
+
+        // Atomic update to context
+        addFragments(marshalledSummaries);
+
+        // Notifications
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + marshalledSummaries.size() + " entities");
+
+        return true;
+    }
+
+    public List<ContextFragments.SummaryFragment> toSummaries(Set<ProjectFile> files, Set<CodeUnit> classes) {
+        var marshalledSummaries = new ArrayList<ContextFragments.SummaryFragment>();
 
         // Marshall SummaryFragments for files
         if (!files.isEmpty()) {
@@ -1279,31 +1294,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
 
-        if (marshalledSummaries.isEmpty()) {
-            io.toolError("No files or classes provided to summarize.");
-            return false;
-        }
-
-        // Atomic update to context
-        addFragments(marshalledSummaries);
-
-        // Notifications
-        if (!files.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinFilesForOutput(files));
-        }
-        if (!classFqns.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Summarize " + joinClassesForOutput(classFqns));
-        }
-
-        return true;
-    }
-
-    private static String joinClassesForOutput(List<String> classFqns) {
-        var toJoin = classFqns.stream().sorted().toList();
-        if (toJoin.size() <= 2) {
-            return String.join(", ", toJoin);
-        }
-        return "%d classes".formatted(toJoin.size());
+        return marshalledSummaries;
     }
 
     /**
@@ -1325,14 +1316,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .collect(Collectors.joining(", "));
         }
         return count + " fragments";
-    }
-
-    private static String joinFilesForOutput(Collection<? extends BrokkFile> files) {
-        var toJoin = files.stream().map(BrokkFile::getFileName).sorted().toList();
-        if (files.size() <= 2) {
-            return joinClassesForOutput(toJoin);
-        }
-        return "%d files".formatted(files.size());
     }
 
     public List<ChatMessage> getHistoryMessagesForCopy() {
@@ -1522,16 +1505,66 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
+    public interface TaskProgressListener {
+        void onTaskStarting(int batchIndex, TaskList.TaskItem task);
+
+        default void onTaskSuccess(int batchIndex, TaskList.TaskItem task, TaskResult result) {}
+
+        default void onTaskFailure(int batchIndex, TaskList.TaskItem task, Throwable error) {}
+
+        default void onBatchFinished(int completed) {}
+    }
+
     /**
-     * Execute a single task using ArchitectAgent with explicit options.
-     *
-     * @param task Task to execute (non-blank text).
-     * @return TaskResult from ArchitectAgent execution.
+     * Executes a batch of tasks sequentially.
      */
-    public TaskResult executeTask(TaskList.TaskItem task) throws InterruptedException {
-        var planningModel = io.getInstructionsPanel().getSelectedModel();
-        var codeModel = getCodeModel();
-        return executeTask(task, planningModel, codeModel);
+    public void executeTasks(
+            List<TaskList.TaskItem> tasks,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            TaskProgressListener listener)
+            throws InterruptedException {
+        List<TaskList.TaskItem> tasksToRun =
+                tasks.stream().filter(t -> !t.done()).toList();
+        int completed = 0;
+        for (int i = 0; i < tasks.size(); i++) {
+            TaskList.TaskItem task = tasks.get(i);
+            if (task.done()) {
+                continue;
+            }
+            listener.onTaskStarting(i, task);
+            TaskResult result = executeTask(task, planningModel, codeModel);
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                listener.onTaskSuccess(i, task, result);
+                completed++;
+            } else {
+                listener.onTaskFailure(
+                        i, task, new RuntimeException(result.stopDetails().explanation()));
+                logger.debug(
+                        "Batch execution stopped early: task failed with reason {}",
+                        result.stopDetails().reason());
+                break;
+            }
+        }
+
+        if (completed == tasksToRun.size() && !tasksToRun.isEmpty()) {
+            BuildDetails details = project.awaitBuildDetails();
+            String afterCmd = details.afterTaskListCommand();
+            if (!afterCmd.isBlank()) {
+                var context = BuildAgent.runExplicitCommand(liveContext(), afterCmd, details);
+                if (!context.getBuildError().isBlank()) {
+                    pushContext(ctx -> context);
+                    String goal = "The post-task-list verification command failed. Fix the build errors.";
+                    try (var scope = beginTask(goal, true, "Post-task verification fix")) {
+                        ArchitectAgent agent = new ArchitectAgent(this, planningModel, codeModel, goal, scope);
+                        agent.setVerifyCommand(afterCmd);
+                        agent.executeWithScan();
+                    }
+                }
+            }
+        }
+
+        listener.onBatchFinished(completed);
     }
 
     public TaskResult executeTask(
@@ -1639,7 +1672,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Set<ProjectFile> allReferenced = new HashSet<>();
         for (var f : fragments) {
             try {
-                var files = f.files().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
+                var files = f.referencedFiles().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
                 allReferenced.addAll(files);
             } catch (TimeoutException te) {
                 logger.warn("Timed out waiting for files() of fragment {}", f.id());
@@ -1664,7 +1697,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var newLiveContext = ch.push(contextGenerator);
         if (oldLiveContext.equals(newLiveContext)) {
             // No change occurred
-            return newLiveContext;
+            return oldLiveContext;
         }
 
         contextPushed(ch, newLiveContext);
@@ -2158,14 +2191,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         String summary = result.text();
-        if (summary.isBlank()) {
-            logger.warn("History compression resulted in empty summary for entry: {}", entry);
-            return entry;
-        }
-
+        assert !summary.isBlank(); // llm checks for this
         logger.debug("Compressed summary:\n{}", summary);
         // Create new entry with both original log and new summary
         return entry.withSummary(summary);
+    }
+
+    @Blocking
+    @Override
+    public String compressHistory(String history) throws InterruptedException {
+        var msgs = SummarizerPrompts.instance.compressHistory(history);
+        Llm.StreamingResult result = getLlm(
+                        serviceProvider.get().summarizeModel(), "Compress history entry", TaskResult.Type.SUMMARIZE)
+                .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
+        return result.error() == null ? result.text() : history;
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
@@ -2174,7 +2213,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
-        var taskFragment = new ContextFragments.TaskFragment(this, messages, input);
+        var taskFragment = new ContextFragments.TaskFragment(messages, input);
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, taskFragment, null));
 
         // rename the session if needed
@@ -2217,72 +2256,34 @@ public class ContextManager implements IContextManager, AutoCloseable {
             requireNonNull(analyzerWrapper).pause();
         }
 
-        /**
-         * Appends a TaskResult to the context history and returns updated local context, optionally attaching metadata.
-         * If meta is provided and the TaskResult does not already carry metadata, the metadata is attached before
-         * creating the TaskEntry to ensure persistence in history.
-         *
-         * @param result   The TaskResult to append.
-         */
         @Blocking
-        public Context append(TaskResult result) throws InterruptedException {
-            assert !closed.get() : "TaskScope already closed";
-
-            // If interrupted before any LLM output, skip
-            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
-                    && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
-                logger.debug("Command cancelled before LLM responded — skipping publish");
-                return result.context();
-            }
-
-            // If there is literally nothing to record (no messages and no content changes)
-            if (result.output().messages().isEmpty()) {
-                // Treat result.context() as new (right) and current topContext() as old (left)
-                Context other = liveContext();
-                var delta = ContextDelta.between(result.context(), other).join();
-                if (delta.isEmpty()) {
-                    logger.debug("Empty TaskResult delta, skipping publish");
-                    return result.context();
-                } else {
-                    // This is the "content-only change, no messages" path.
-                    // We record the checkpoint but skip conversation history.
-                    return publish(result.context());
-                }
-            }
-
-            assert !closed.get() : "TaskScope already closed";
-            // push context
-            logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
-            var updated = result.context();
-            TaskEntry entry = updated.createTaskEntry(result);
-            var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(entry);
-            });
-
-            if (group) {
-                UUID contextId = updatedContext.id();
-                // UI-level session locking should keep contextHistory stable between push and add-to-group
-                contextHistory.addContextToGroup(contextId, groupId, groupLabel);
-            }
+        public void append(TaskResult result) throws InterruptedException {
+            publish(result.context());
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
-            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
+            io.prepareOutputForNextStream(result.context().getTaskHistory());
+        }
 
-            return updatedContext;
+        @Blocking
+        public void append(Context context) throws InterruptedException {
+            publish(context);
+
+            // prepare MOP to display new history with the next streamed message
+            // needed because after the last append (before close) the MOP should not update
+            io.prepareOutputForNextStream(context.getTaskHistory());
         }
 
         /**
          * Publishes an intermediate Context snapshot to history without finalizing a TaskResult.
          * This allows capturing checkpoints during long-running tasks.
          */
-        public Context publish(Context context) {
+        public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
             var newId = pushContext(currentLiveCtx -> context).id();
             if (group) {
                 contextHistory.addContextToGroup(newId, groupId, groupLabel);
             }
-            return context;
         }
 
         public Context compressTop() {
@@ -2331,14 +2332,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         @Override
-        public Context append(TaskResult result) throws InterruptedException {
-            return result.context();
-        }
+        public void append(TaskResult result) throws InterruptedException {}
 
         @Override
-        public Context publish(Context context) {
-            return context;
-        }
+        public void publish(Context context) {}
 
         @Override
         public void closeInternal() {}
@@ -2822,7 +2819,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
             List<Future<TaskEntry>> futures =
                     new ArrayList<>(ctx.getTaskHistory().size());
-            try (var exec = ExecutorsUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
+            try (var exec = ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5)) {
                 // Submit all compression tasks
                 for (TaskEntry entry : ctx.getTaskHistory()) {
                     futures.add(exec.submit(() -> compressHistory(entry)));

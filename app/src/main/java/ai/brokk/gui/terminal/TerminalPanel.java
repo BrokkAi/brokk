@@ -3,6 +3,7 @@ package ai.brokk.gui.terminal;
 import ai.brokk.IConsoleIO;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
@@ -54,15 +55,21 @@ import org.jetbrains.annotations.Nullable;
 
 /** Settings provider that allows runtime modification of terminal colors. */
 class MutableSettingsProvider extends DefaultSettingsProvider {
-    // Use an explicit deep-black background and bright white foreground to ensure
-    // unstyled terminal output appears with dark background and light text.
-    private TerminalColor bg = new TerminalColor(0, 0, 0);
-    private TerminalColor fg = new TerminalColor(255, 255, 255);
+    private TerminalColor bg;
+    private TerminalColor fg;
+    private TerminalColor selBg;
+    private TerminalColor selFg;
 
-    // Selection colors: defaults chosen to be visible on dark background
-    // Use a noticeable blue-ish selection background with white text.
-    private TerminalColor selBg = new TerminalColor(60, 100, 170);
-    private TerminalColor selFg = new TerminalColor(255, 255, 255);
+    public MutableSettingsProvider(Color bg, Color fg, Color selBg, Color selFg) {
+        this.bg = toTerminalColor(bg);
+        this.fg = toTerminalColor(fg);
+        this.selBg = toTerminalColor(selBg);
+        this.selFg = toTerminalColor(selFg);
+    }
+
+    private static TerminalColor toTerminalColor(Color c) {
+        return new TerminalColor(c.getRed(), c.getGreen(), c.getBlue());
+    }
 
     @Override
     public @NotNull TerminalColor getDefaultBackground() {
@@ -74,6 +81,12 @@ class MutableSettingsProvider extends DefaultSettingsProvider {
     @Override
     public @NotNull TerminalColor getDefaultForeground() {
         return fg;
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    public @NotNull TextStyle getDefaultStyle() {
+        return new TextStyle(fg, bg);
     }
 
     @Override
@@ -169,32 +182,15 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             add(header, BorderLayout.NORTH);
         }
 
+        // Resolve initial colors to avoid hard-coded defaults in the provider
+        var colors = resolveThemeColors();
+
         // Create the terminal widget with mutable settings for runtime theme changes
-        terminalSettings = new MutableSettingsProvider();
+        terminalSettings = new MutableSettingsProvider(colors.bg(), colors.fg(), colors.selBg(), colors.selFg());
         widget = new BrokkJediTermWidget(terminalSettings);
         add(widget, BorderLayout.CENTER);
 
-        // Ensure the Swing components used by the widget default to dark theme as well.
-        // Some JediTerm components may paint their own background; explicitly set them here
-        // so they do not pick up any light-default UIManager colors.
-        try {
-            var display = widget.getTerminalDisplay();
-            if (display instanceof java.awt.Component comp) {
-                comp.setBackground(Color.BLACK);
-                comp.setForeground(Color.WHITE);
-                if (comp instanceof javax.swing.JComponent jc) {
-                    jc.setOpaque(true);
-                }
-            }
-            widget.setBackground(Color.BLACK);
-            widget.setForeground(Color.WHITE);
-            widget.setOpaque(true);
-        } catch (Exception ignored) {
-            // If JediTerm internals are not fully initialized yet, we'll rely on applyTerminalColors()
-            // to set the colors once ready. Silently ignore any early-access errors.
-        }
-
-        // Apply initial dark terminal colors
+        // Apply theme colors to the widget components immediately
         applyTerminalColors();
         startProcessAsync(cmd);
     }
@@ -382,8 +378,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                         if (Environment.isMacOs()) {
                             try {
                                 newConnector.write("printf '\\033[0m\\033[39;49m'; clear\r\n");
-                            } catch (Exception ignore2) {
-                                logger.debug("Failed to write delayed SGR reset via printf", ignore2);
+                            } catch (Exception e) {
+                                logger.debug("Failed to write delayed SGR reset via printf: {}", e.getMessage(), e);
                             }
                         }
                     }
@@ -462,7 +458,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             try {
                 c.write(text.getBytes(StandardCharsets.UTF_8));
             } catch (Exception ex) {
-                logger.debug("Error pasting text into terminal", ex);
+                logger.error("Error pasting text into terminal: {}", ex.getMessage(), ex);
             }
         }
     }
@@ -485,58 +481,116 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         }
     }
 
+    private record ColorPair(Color bg, Color fg, Color selBg, Color selFg) {}
+
+    private ColorPair resolveThemeColors() {
+        Color bg = ThemeColors.getUIManagerColorDirect("Editor.background");
+        if (bg == null) {
+            bg = ThemeColors.getColor(ThemeColors.RSYNTAX_BACKGROUND);
+        }
+
+        Color fg = ThemeColors.getUIManagerColorDirect("*.foreground");
+        if (fg == null) {
+            fg = ThemeColors.getColor(ThemeColors.PLAIN_TEXT_FOREGROUND);
+        }
+
+        // Validate contrast for primary colors
+        if (!isContrastSufficient(bg, fg)) {
+            var pair = pickHighContrastPair(bg);
+            bg = pair.bg();
+            fg = pair.fg();
+        }
+
+        // Try getting selection colors from UIManager first
+        Color selBg = ThemeColors.getUIManagerColorDirect("TextField.selectionBackground");
+        if (selBg == null) {
+            selBg = ThemeColors.getUIManagerColorDirect("*.selectionBackground");
+        }
+
+        Color selFg = ThemeColors.getUIManagerColorDirect("TextField.selectionForeground");
+        if (selFg == null) {
+            selFg = ThemeColors.getUIManagerColorDirect("*.selectionForeground");
+        }
+
+        // Fallback if selection colors are missing or have poor contrast with background
+        if (selBg == null || !isContrastSufficient(bg, selBg)) {
+            selBg = isDark(bg) ? bg.brighter() : bg.darker();
+        }
+        if (selFg == null || !isContrastSufficient(selBg, selFg)) {
+            selFg = isDark(selBg) ? Color.WHITE : Color.BLACK;
+        }
+
+        return new ColorPair(bg, fg, selBg, selFg);
+    }
+
+    private boolean isContrastSufficient(Color c1, Color c2) {
+        return Math.abs(getLuminance(c1) - getLuminance(c2)) > 0.15;
+    }
+
+    private ColorPair pickHighContrastPair(Color bg) {
+        if (isDark(bg)) {
+            return new ColorPair(Color.BLACK, Color.WHITE, Color.GRAY, Color.WHITE);
+        } else {
+            return new ColorPair(Color.WHITE, Color.BLACK, Color.LIGHT_GRAY, Color.BLACK);
+        }
+    }
+
+    private boolean isDark(Color c) {
+        return getLuminance(c) < 0.5;
+    }
+
     private void applyTerminalColors() {
         var settings = terminalSettings;
         if (settings == null) {
             return;
         }
 
-        // Use a true black background and bright white foreground so that any text
-        // without ANSI styling is rendered as white-on-black. Selection colors remain
-        // clearly visible against the dark background.
-        TerminalColor bg = new TerminalColor(0, 0, 0);
-        TerminalColor fg = new TerminalColor(255, 255, 255);
-        TerminalColor selBg = new TerminalColor(60, 100, 170);
-        TerminalColor selFg = new TerminalColor(255, 255, 255);
+        var colors = resolveThemeColors();
 
         // Apply colors through JediTerm's settings system
-        settings.setBackground(bg);
-        settings.setForeground(fg);
-        settings.setSelectionBackground(selBg);
-        settings.setSelectionForeground(selFg);
+        settings.setBackground(new TerminalColor(
+                colors.bg().getRed(), colors.bg().getGreen(), colors.bg().getBlue()));
+        settings.setForeground(new TerminalColor(
+                colors.fg().getRed(), colors.fg().getGreen(), colors.fg().getBlue()));
+        settings.setSelectionBackground(new TerminalColor(
+                colors.selBg().getRed(),
+                colors.selBg().getGreen(),
+                colors.selBg().getBlue()));
+        settings.setSelectionForeground(new TerminalColor(
+                colors.selFg().getRed(),
+                colors.selFg().getGreen(),
+                colors.selFg().getBlue()));
 
-        // Also ensure the Swing components that host the terminal reflect the same colors.
-        // Some JediTerm rendering paths may paint row backgrounds independently; forcing
-        // the component background helps avoid accidental white row backgrounds.
+        // Update Swing host components
         var w = widget;
         if (w != null) {
             try {
                 var termPanel = w.getTerminalPanel();
                 if (termPanel != null) {
-                    termPanel.setBackground(new Color(0, 0, 0));
-                    termPanel.setForeground(new Color(255, 255, 255));
+                    termPanel.setBackground(colors.bg());
+                    termPanel.setForeground(colors.fg());
                     termPanel.setOpaque(true);
-
-                    // Force the terminal to pick up the new colors. Adjusting cursor shape is
-                    // used historically to ensure JediTerm refreshes its internal rendering.
                     termPanel.setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
                 }
                 var display = w.getTerminalDisplay();
                 if (display instanceof java.awt.Component comp) {
-                    comp.setBackground(new Color(0, 0, 0));
-                    comp.setForeground(new Color(255, 255, 255));
+                    comp.setBackground(colors.bg());
+                    comp.setForeground(colors.fg());
                     if (comp instanceof javax.swing.JComponent jc) {
                         jc.setOpaque(true);
                     }
                 }
-            } catch (Exception ignored) {
-                // Be tolerant of JediTerm internals changing; settings provider is authoritative.
+            } catch (Exception e) {
+                logger.error("Failed to apply theme colors to terminal components: {}", e.getMessage(), e);
             }
-
             w.repaint();
-            // Also request a revalidation to be safe across LookAndFeel/theme swaps.
             w.revalidate();
         }
+    }
+
+    private double getLuminance(Color c) {
+        // Simple relative luminance calculation
+        return 0.2126 * (c.getRed() / 255.0) + 0.7152 * (c.getGreen() / 255.0) + 0.0722 * (c.getBlue() / 255.0);
     }
 
     private static String trimTrailingFromLines(String text) {
@@ -550,7 +604,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 try {
                     c.close();
                 } catch (Exception e) {
-                    logger.debug("Error closing TtyConnector", e);
+                    logger.debug("Error closing TtyConnector: {}", e.getMessage(), e);
                 }
             }
             var p = process;
@@ -558,7 +612,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 try {
                     p.destroy();
                 } catch (Exception e) {
-                    logger.debug("Error destroying PTY process", e);
+                    logger.debug("Error destroying PTY process: {}", e.getMessage(), e);
                 }
             }
         } finally {
@@ -569,7 +623,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 try {
                     w.close();
                 } catch (Exception e) {
-                    logger.debug("Error disposing terminal widget", e);
+                    logger.debug("Error disposing terminal widget: {}", e.getMessage(), e);
                 }
             }
         }

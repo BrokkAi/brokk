@@ -724,15 +724,18 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     private @Nullable ProjectFile resolveModuleFile(String modulePath) {
         var basePath = modulePath.replace('.', '/');
 
-        // Try module.py first
-        var moduleFilePath = basePath + ".py";
-        var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
-        if (Files.exists(moduleFile.absPath())) {
-            return moduleFile;
+        // Try module.py first (only if modulePath is not empty, e.g. "pkg.mod")
+        if (!basePath.isEmpty()) {
+            var moduleFilePath = basePath + ".py";
+            var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
+            if (Files.exists(moduleFile.absPath())) {
+                return moduleFile;
+            }
         }
 
         // Fall back to package __init__.py
-        var initFilePath = basePath + "/__init__.py";
+        // If basePath is empty, result is "__init__.py". If not, "path/to/__init__.py"
+        var initFilePath = basePath.isEmpty() ? "__init__.py" : basePath + "/__init__.py";
         var initFile = new ProjectFile(getProject().getRoot(), initFilePath);
         if (Files.exists(initFile.absPath())) {
             return initFile;
@@ -861,20 +864,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected void createModulesFromImports(
+    protected FileAnalysisContext createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+            FileAnalysisContext ctx) {
 
         if (modulePackageName.isBlank()) {
-            return;
+            return ctx;
         }
 
         int idx = modulePackageName.lastIndexOf('.');
@@ -883,25 +881,31 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
 
-        // Register module in symbol index for getDefinitions() lookup
-        localCodeUnitsBySymbol
-                .computeIfAbsent(moduleCu.identifier(), k -> new HashSet<>())
-                .add(moduleCu);
-        if (!moduleCu.shortName().equals(moduleCu.identifier())) {
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(moduleCu.shortName(), k -> new HashSet<>())
-                    .add(moduleCu);
+        // If the module CodeUnit already exists in context (e.g. from another file in the same package),
+        // we should still associate this file's TLDs with it.
+        CodeUnit existing = ctx.cuByFqName().get(moduleCu.fqName());
+        CodeUnit targetCu = (existing != null && existing.isModule()) ? existing : moduleCu;
+
+        FileAnalysisContext updated = ctx;
+        if (existing == null) {
+            updated = updated.withLookupKey(targetCu.fqName(), targetCu);
         }
 
-        List<CodeUnit> children = localTopLevelCUs.stream()
+        updated = updated.withSignature(targetCu, "# module " + modulePackageName)
+                .withHasBody(targetCu, true)
+                .withSymbolIndex(targetCu.identifier(), targetCu)
+                .withSymbolIndex(targetCu.shortName(), targetCu);
+
+        List<CodeUnit> children = updated.topLevelCUs().stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
-                .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
+                .filter(cu -> !cu.isModule())
                 .toList();
 
-        localChildren.put(moduleCu, children);
-        localCuByFqName.put(moduleCu.fqName(), moduleCu);
+        for (CodeUnit child : children) {
+            updated = updated.withChild(targetCu, child);
+        }
 
-        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("# module " + modulePackageName);
+        return updated;
     }
 
     @Override

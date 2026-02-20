@@ -237,7 +237,7 @@ class SearchModeSearchAgentTest {
         assertNotNull(jobId);
         assertFalse(jobId.isBlank());
 
-        var store = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
+        var store = new JobStore(workspaceDir.resolve(".brokk"));
         var persisted = store.loadSpec(jobId);
         assertNotNull(persisted);
 

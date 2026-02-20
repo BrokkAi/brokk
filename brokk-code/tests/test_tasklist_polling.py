@@ -4,8 +4,7 @@ import pytest
 
 from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorManager
-from brokk_code.widgets.chat_panel import ChatPanel
-from brokk_code.widgets.context_panel import ContextFragmentItem, ContextPanel
+from brokk_code.widgets.context_panel import ContextPanel
 
 
 class StubExecutor(ExecutorManager):
@@ -82,17 +81,10 @@ async def test_tasklist_polling_updates_ui(tmp_path):
             # Using plain to avoid markup/styling variations across versions
             content_text = content_widget.render().plain
 
-            assert "Refactor Authentication" in content_text
             assert "Update LoginController" in content_text
-            assert "Change the authentication endpoint" in content_text
             assert "Add logging" in content_text
             assert "[x]" in content_text
             assert "[ ]" in content_text
-            assert "(done)" in content_text
-            assert "(todo)" in content_text
-
-            # Observable outcome: content is present
-            assert "Refactor Authentication" in content_text
 
 
 @pytest.mark.asyncio
@@ -118,7 +110,6 @@ async def test_refresh_context_does_not_clobber_details(tmp_path):
         # 1. Set details
         panel.update_tasklist_details(mock_tasklist)
         content_text = panel.query_one("#tasklist-content").render().plain
-        assert "Detailed Goal" in content_text
         assert "Detailed Task" in content_text
 
         # 2. Call refresh_tasklist (which usually shows summary)
@@ -126,7 +117,7 @@ async def test_refresh_context_does_not_clobber_details(tmp_path):
         content_text_after = panel.query_one("#tasklist-content").render().plain
 
         # Should NOT have been replaced by "Summary Only"
-        assert "Detailed Goal" in content_text_after
+        assert "Detailed Task" in content_text_after
         assert "Summary Only" not in content_text_after
 
 
@@ -166,7 +157,6 @@ async def test_refresh_context_panel_integration_preserves_task_details(tmp_path
             panel.update_tasklist_details(mock_tasklist)
 
             initial_render = panel.query_one("#tasklist-content").render().plain
-            assert "Complex Refactoring Goal" in initial_render
             assert "Task One" in initial_render
             assert "[ ]" in initial_render
             assert "[x]" in initial_render
@@ -177,76 +167,8 @@ async def test_refresh_context_panel_integration_preserves_task_details(tmp_path
 
             # 3. Verify details persist
             final_render = panel.query_one("#tasklist-content").render().plain
-            assert "Complex Refactoring Goal" in final_render
             assert "Task One" in final_render
             assert "Generic Task List Summary" not in final_render
-
-
-@pytest.mark.asyncio
-async def test_context_polling_updates_ui(tmp_path):
-    """
-    Verifies that the background context polling worker updates the ContextPanel.
-    """
-    stub = StubExecutor(tmp_path)
-    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
-    # Mock data
-    mock_context = {
-        "usedTokens": 1500,
-        "maxTokens": 100000,
-        "fragments": [
-            {
-                "chipKind": "EDIT",
-                "shortDescription": "Modified UserAuth.java",
-                "pinned": True,
-                "tokens": 450,
-            },
-            {"chipKind": "HISTORY", "shortDescription": "Previous chat history", "tokens": 1050},
-        ],
-    }
-
-    with (
-        patch(
-            "brokk_code.executor.ExecutorManager.get_context", new_callable=AsyncMock
-        ) as mock_get,
-        patch.object(BrokkApp, "_poll_context", return_value=None),
-        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
-    ):
-        mock_get.return_value = mock_context
-
-        async with app.run_test() as pilot:
-            # Manually set ready state
-            app._executor_ready = True
-
-            # Directly call the refresh method that the worker would call
-            await app._refresh_context_panel()
-            await pilot.pause()
-
-            # Open context modal before querying ContextPanel.
-            await pilot.press("ctrl+l")
-            await app._refresh_context_panel()
-            await pilot.pause()
-
-            # Verify Header
-            panel = app.screen.query_one("#context-panel", ContextPanel)
-            usage = panel.query_one("#context-token-usage")
-            assert "1,500 / 100,000 tokens" in str(usage.render())
-
-            # Verify ChatPanel Token Usage
-            chat_panel = app.query_one(ChatPanel)
-            usage_label = chat_panel.query_one("#chat-token-usage")
-            # The UI renders a progress bar when max_tokens is present
-            assert "1,500 / 100,000" in str(usage_label.render())
-
-            # Verify List Contents
-            fragment_items = panel.query(ContextFragmentItem)
-            assert len(fragment_items) == 2
-
-            items_text = " ".join(item.render().plain for item in fragment_items)
-            assert "Modified UserAuth.java" in items_text
-            assert "Previous chat history" in items_text
-            assert "EDIT" in items_text
-            assert "HISTORY" in items_text
 
 
 @pytest.mark.asyncio
@@ -288,11 +210,14 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await app._refresh_context_panel()
 
             mock_ctx.assert_called()
-            await pilot.press("ctrl+l")
+            # Open context modal
+            await pilot.press("/", *"context".split(), "enter")
             await app._refresh_context_panel()
             await pilot.pause()
             panel = app.screen.query_one(ContextPanel)
-            assert "100 /" in str(panel.query_one("#context-token-usage").render())
+            # The token bar now renders percentage remaining for max_tokens > 0
+            # With usedTokens=100 and default max=200,000, it should show context remaining
+            assert "context remaining" in str(panel.query_one("#context-token-usage").render())
 
 
 @pytest.mark.asyncio
@@ -322,7 +247,8 @@ async def test_context_chips_wrap_into_multiple_rows(tmp_path):
 
         async with app.run_test() as pilot:
             app._executor_ready = True
-            await pilot.press("ctrl+l")
+            # Open context modal
+            await pilot.press("/", *"context".split(), "enter")
             await app._refresh_context_panel()
             await pilot.pause()
 

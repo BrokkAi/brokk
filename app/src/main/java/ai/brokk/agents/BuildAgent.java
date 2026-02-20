@@ -237,7 +237,7 @@ public class BuildAgent {
             // 4. Add tools
             // Get specifications for ALL tools the agent might use in this turn, from the local registry.
             var tools = new ArrayList<>(tr.getTools(List.of(
-                    "listTrackedFiles", "listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
+                    "listTrackedFiles", "listFiles", "findFilenames", "findFilesContaining", "getFileContents")));
             if (chatHistory.size() > 1) {
                 // allow terminal tools
                 tools.addAll(tr.getTools(List.of("reportBuildDetails", "abortBuildDetails")));
@@ -561,7 +561,13 @@ public class BuildAgent {
         logger.debug("Final exclusionPatterns (existing + LLM, deduplicated): {}", deduplicatedPatterns);
         logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
-                buildLintCommand, testAllCommand, testSomeCommand, deduplicatedPatterns, defaultEnvForProject());
+                buildLintCommand,
+                testAllCommand,
+                testSomeCommand,
+                deduplicatedPatterns,
+                defaultEnvForProject(),
+                null,
+                "");
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
@@ -661,12 +667,14 @@ public class BuildAgent {
                     Set<String> exclusionPatterns,
             @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables,
-            @Nullable Integer maxBuildAttempts) {
+            @Nullable Integer maxBuildAttempts,
+            // blank = do nothing
+            String afterTaskListCommand) {
 
         @VisibleForTesting
         public BuildDetails(
                 String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null);
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null, "");
         }
 
         public BuildDetails(
@@ -675,10 +683,10 @@ public class BuildAgent {
                 String testSomeCommand,
                 Set<String> exclusionPatterns,
                 Map<String, String> environmentVariables) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null);
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null, "");
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null);
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null, "");
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
@@ -692,7 +700,8 @@ public class BuildAgent {
                 @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
                 @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables,
-                @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts) {
+                @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts,
+                @JsonProperty("afterTaskListCommand") @Nullable String afterTaskListCommand) {
             // Migrate legacy excludedDirectories to exclusionPatterns
             Set<String> patterns = new LinkedHashSet<>();
             if (exclusionPatterns != null) {
@@ -707,7 +716,8 @@ public class BuildAgent {
                     testSomeCommand != null ? testSomeCommand : "",
                     patterns,
                     environmentVariables != null ? environmentVariables : Map.of(),
-                    maxBuildAttempts);
+                    maxBuildAttempts,
+                    afterTaskListCommand != null ? afterTaskListCommand : "");
         }
     }
 
@@ -747,12 +757,12 @@ public class BuildAgent {
         // Get ProjectFiles from editable and read-only fragments
         var projectFilesFromEditableOrReadOnly = ctx.allFragments()
                 .filter(f -> f.getType().isPath())
-                .flatMap(fragment -> fragment.files().join().stream()); // No analyzer
+                .flatMap(fragment -> fragment.sourceFiles().join().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
         var projectFilesFromSkeletons = ctx.allFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(skeletonFragment -> skeletonFragment.files().join().stream()); // No analyzer
+                .flatMap(skeletonFragment -> skeletonFragment.sourceFiles().join().stream()); // No analyzer
 
         // Combine all relevant ProjectFiles into a single set for checking against test files
         var workspaceFiles = Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)
@@ -829,14 +839,11 @@ public class BuildAgent {
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
         boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
 
-        // Template is defined but misconfigured - warn the user
         if (!isFilesBased && !isClassesBased && !isModulesBased) {
-            cm.getIo()
-                    .systemNotify(
-                            "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, or {{#modules}}). Please update the build configuration in Settings.",
-                            "Build Configuration Warning",
-                            JOptionPane.WARNING_MESSAGE);
-            return details.buildLintCommand();
+            // Template is defined but may be misconfigured
+            logger.debug(
+                    "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, or {{#modules}})");
+            return testSomeTemplate;
         }
 
         final Path projectRoot = cm.getProject().getRoot();
@@ -1095,33 +1102,6 @@ public class BuildAgent {
                 return runVerification(ctx, override);
             } catch (InterruptedException e) {
                 // Preserve interrupt status and defer propagation until after pushContext returns
-                Thread.currentThread().interrupt();
-                interrupted.set(e);
-                return ctx;
-            }
-        });
-        var ie = interrupted.get();
-        if (ie != null) {
-            throw ie;
-        }
-        return updated.getBuildError();
-    }
-
-    /**
-     * Run a caller-specified command (intended for ISSUE-mode gates, but reusable), stream output to the console, and
-     * update the session's Build Results fragment.
-     *
-     * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
-     * text.
-     */
-    @Blocking
-    public static String runExplicitCommand(IContextManager cm, String command, @Nullable BuildDetails override)
-            throws InterruptedException {
-        var interrupted = new AtomicReference<InterruptedException>(null);
-        var updated = cm.pushContext(ctx -> {
-            try {
-                return runExplicitCommand(ctx, command, override);
-            } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 interrupted.set(e);
                 return ctx;

@@ -6,8 +6,11 @@ import tarfile
 import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
+
+from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +28,24 @@ class ExecutorManager:
         jar_path: Optional[Path] = None,
         executor_version: Optional[str] = None,
         executor_snapshot: bool = True,
+        vendor: Optional[str] = None,
+        exit_on_stdin_eof: bool = False,
     ):
-        self.workspace_dir = (workspace_dir or Path.cwd()).resolve()
+        self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
         self.jar_override = jar_path
         self.executor_version = executor_version
         self.use_snapshot = executor_snapshot
+        self.vendor = vendor
+        self.exit_on_stdin_eof = exit_on_stdin_eof
         self.auth_token = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
         self.resolved_jar_path: Optional[Path] = None
 
         self._process: Optional[asyncio.subprocess.Process] = None
+        # The stdin stream for the subprocess (when created with PIPE).
+        # Stored so we can close it on shutdown.
+        self._stdin: Optional[asyncio.StreamWriter] = None
         self._http_client: Optional[httpx.AsyncClient] = None
 
     def _sanitize_tag_for_filename(self, tag: str) -> str:
@@ -289,6 +299,8 @@ class ExecutorManager:
 
         cmd = [
             "java",
+            "-Djava.awt.headless=true",
+            "-Dapple.awt.UIElement=true",
             "-cp",
             str(jar_path),
             "ai.brokk.executor.HeadlessExecutorMain",
@@ -302,12 +314,36 @@ class ExecutorManager:
             str(self.workspace_dir),
         ]
 
+        if self.vendor is not None and str(self.vendor).strip():
+            cmd.extend(["--vendor", str(self.vendor).strip()])
+        if self.exit_on_stdin_eof:
+            cmd.append("--exit-on-stdin-eof")
+
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
         try:
+            # Create subprocess with a dedicated stdin pipe so the Java
+            # executor can detect parent death.
+            #
+            # Implementation note / lifecycle guarantee:
+            # - We intentionally open the child's stdin as a PIPE and retain the StreamWriter
+            #   (self._stdin) reference. The Java HeadlessExecutorMain watches System.in for EOF
+            #   and treats that as a parent-death signal, initiating a controlled shutdown.
+            # - IDEs like IntelliJ will close the child's stdin when the run/debug profile is
+            #   terminated or the parent process is killed. Relying on stdin EOF allows the Java
+            #   executor to exit even when the Python process's 'finally' cleanup does not run,
+            #   preventing lingering brokk.jar/HeadlessExecutorMain processes.
+            #
+            # See HeadlessExecutorMain's stdin monitor for more details.
             self._process = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
             )
+            # Store the stdin stream for later closure in stop()
+            # Note: Process.stdin is a StreamWriter-like object when stdin=PIPE.
+            self._stdin = self._process.stdin  # type: ignore[attr-defined]
         except FileNotFoundError:
             raise ExecutorError(
                 "Java executable not found. "
@@ -432,8 +468,15 @@ class ExecutorManager:
         reasoning_level_code: Optional[str] = None,
         mode: str = "LUTZ",
         tags: Optional[Dict[str, str]] = None,
+        session_id: Optional[str] = None,
+        auto_commit: bool = True,
     ) -> str:
-        """Submits a new job to the executor."""
+        """Submits a new job to the executor.
+
+        Backwards-compatible: session_id is optional. If provided (or if
+        self.session_id was previously set via create_session/import_session_zip),
+        the header 'X-Session-Id' will be included on the POST to /v1/jobs.
+        """
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
@@ -444,7 +487,7 @@ class ExecutorManager:
         payload = {
             "taskInput": task_input,
             "plannerModel": planner_model,
-            "autoCommit": True,
+            "autoCommit": auto_commit,
             "autoCompress": True,
             "tags": job_tags,
         }
@@ -458,6 +501,11 @@ class ExecutorManager:
             payload["reasoningLevelCode"] = reasoning_level_code
 
         headers = {"Idempotency-Key": str(uuid.uuid4())}
+        # Prefer explicit argument, fall back to manager-level session_id if present.
+        effective_session_id = session_id or self.session_id
+        if effective_session_id:
+            headers["X-Session-Id"] = effective_session_id
+
         resp = await self._http_client.post("/v1/jobs", json=payload, headers=headers)
         resp.raise_for_status()
         return resp.json()["jobId"]
@@ -572,6 +620,55 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/context")
             raise  # Should not be reached
 
+    async def get_context_fragment(self, fragment_id: str) -> Dict[str, Any]:
+        """Returns embedded-resource content for a context fragment by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not fragment_id or not fragment_id.strip():
+            raise ExecutorError("fragment_id must not be blank")
+
+        endpoint = f"/v1/context/fragments/{quote(fragment_id, safe='')}"
+        try:
+            resp = await self._http_client.get(endpoint)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, endpoint)
+            raise  # Should not be reached
+
+    async def get_models(self) -> Dict[str, Any]:
+        """Returns runtime-available model information from the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/models")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/models")
+            raise  # Should not be reached
+
+    async def get_completions(self, query: str, limit: int = 20) -> Dict[str, Any]:
+        """Returns file/symbol completions for a query string."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        query_text = query.strip()
+        if not query_text:
+            return {"completions": []}
+
+        bounded_limit = max(1, min(limit, 50))
+        try:
+            resp = await self._http_client.get(
+                "/v1/completions", params={"query": query_text, "limit": str(bounded_limit)}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/completions")
+            raise  # Should not be reached
+
     async def drop_context_fragments(self, fragment_ids: List[str]) -> Dict[str, Any]:
         """Drops specific fragments from context by ID."""
         if not self._http_client:
@@ -677,6 +774,67 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/tasklist")
             raise  # Should not be reached
 
+    async def add_context_files(self, relative_paths: List[str]) -> Dict[str, Any]:
+        """Adds files to context by workspace-relative paths."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not relative_paths:
+            return {"added": []}
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/files", json={"relativePaths": relative_paths}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/files (status={status}): {e}") from e
+
+    async def add_context_classes(self, class_names: List[str]) -> Dict[str, Any]:
+        """Adds class summaries to context by fully-qualified class names."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not class_names:
+            return {"added": []}
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/classes", json={"classNames": class_names}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/classes (status={status}): {e}") from e
+
+    async def add_context_methods(self, method_names: List[str]) -> Dict[str, Any]:
+        """Adds method sources to context by fully-qualified method names."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not method_names:
+            return {"added": []}
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/methods", json={"methodNames": method_names}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/methods (status={status}): {e}") from e
+
+    async def set_tasklist(self, tasklist_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Replaces the current task list data."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/tasklist", json=tasklist_data)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/tasklist")
+            raise  # Should not be reached
+
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:
@@ -698,6 +856,37 @@ class ExecutorManager:
 
         if self._process:
             logger.info("Stopping executor subprocess...")
+            # First, attempt to close stdin so the child process can
+            # observe EOF and exit if it chooses.
+            if self._stdin is not None:
+                try:
+                    # StreamWriter.close() is synchronous; wait for wait_closed() if available.
+                    #
+                    # Closing the child's stdin is the preferred first step for shutdown because
+                    # HeadlessExecutorMain treats stdin EOF as a signal to perform a controlled
+                    # shutdown. This helps ensure the Java process exits even if the Python
+                    # interpreter is killed abruptly by the IDE and its own cleanup handlers
+                    # do not run.
+                    self._stdin.close()
+                    wait_closed = getattr(self._stdin, "wait_closed", None)
+                    if callable(wait_closed):
+                        try:
+                            await wait_closed()
+                        except (BrokenPipeError, ConnectionResetError):
+                            # Child already gone or closed the pipe;
+                            # ignore these expected conditions.
+                            pass
+                        except Exception:
+                            logger.exception("Unexpected error while waiting for stdin to close")
+                    # Clear reference
+                except (BrokenPipeError, ConnectionResetError):
+                    # Expected if the child has already exited or closed the pipe.
+                    pass
+                except Exception:
+                    logger.exception("Unexpected error while closing subprocess stdin")
+                finally:
+                    self._stdin = None
+
             try:
                 self._process.terminate()
                 try:

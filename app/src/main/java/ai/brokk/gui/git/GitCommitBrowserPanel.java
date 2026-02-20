@@ -603,7 +603,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         var ctx = chrome.getContextManager().selectedContext();
         boolean hasProjectFilesInContext = ctx != null
                 && ctx.getAllFragmentsInDisplayOrder().stream()
-                        .anyMatch(f -> !f.files().renderNowOr(Set.of()).isEmpty());
+                        .anyMatch(f -> !f.sourceFiles().renderNowOr(Set.of()).isEmpty());
 
         viewChangesItem.setEnabled(selectedRows.length == 1);
         reviewCommitsItem.setEnabled(selectedRows.length >= 1 && !isStash);
@@ -708,7 +708,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             var projectFilesInContext = (ctx == null)
                     ? Set.<ProjectFile>of()
                     : ctx.getAllFragmentsInDisplayOrder().stream()
-                            .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                            .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                             .collect(Collectors.toSet());
 
             if (projectFilesInContext.isEmpty()) {

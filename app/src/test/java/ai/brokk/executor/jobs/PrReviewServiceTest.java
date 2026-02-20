@@ -9,6 +9,8 @@ import ai.brokk.executor.jobs.PrReviewService.PrDetails;
 import ai.brokk.executor.jobs.PrReviewService.Severity;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.UserMessage;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -373,10 +375,48 @@ class PrReviewServiceTest {
     }
 
     @Test
+    void testParsePrReviewResponse_MessageWrappedTranscriptWithTrailingJson() {
+        String wrapped =
+                """
+                <message type=ai>
+                  **Brokk Context Engine** analyzing repository context...
+                  `Recommending context`
+                </message>
+                <message type=ai>
+                  I will output only JSON now.
+                  {
+                    "summaryMarkdown": "## Brokk PR Review\\n\\nPrompt formatting is now aligned and risk is low.",
+                    "comments": []
+                  }
+                </message>
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(wrapped);
+
+        assertEquals(
+                "## Brokk PR Review\n\nPrompt formatting is now aligned and risk is low.", response.summaryMarkdown());
+        assertTrue(response.comments().isEmpty());
+    }
+
+    @Test
     void testParsePrReviewResponse_EmptyInput() {
         assertNull(PrReviewService.parsePrReviewResponse(""));
         assertNull(PrReviewService.parsePrReviewResponse("   "));
         assertNull(PrReviewService.parsePrReviewResponse(null));
+    }
+
+    @Test
+    void testExtractAiTranscript_OnlyConcatenatesAiMessages() {
+        var messages = List.of(
+                UserMessage.from("ignore this user message"),
+                AiMessage.from("first ai chunk"),
+                AiMessage.from("{\"summaryMarkdown\":\"## Brokk PR Review\\n\\nDone.\",\"comments\":[]}"));
+
+        String transcript = PrReviewService.extractAiTranscript(messages);
+
+        assertTrue(transcript.contains("first ai chunk"));
+        assertTrue(transcript.contains("\"summaryMarkdown\""));
+        assertTrue(!transcript.contains("ignore this user message"));
     }
 
     @Test

@@ -382,7 +382,8 @@ public final class BrokkCli implements Callable<Integer> {
                 testSome,
                 existingDetails.exclusionPatterns(),
                 env,
-                existingDetails.maxBuildAttempts());
+                existingDetails.maxBuildAttempts(),
+                existingDetails.afterTaskListCommand());
 
         project.setBuildDetails(bd);
         project.saveBuildDetails(bd);
@@ -500,7 +501,7 @@ public final class BrokkCli implements Callable<Integer> {
         if (recommendations.success()) {
             var st = recommendations.fragments().stream();
             if (!includeTests) {
-                st = st.filter(f -> f.files().join().stream()
+                st = st.filter(f -> f.sourceFiles().join().stream()
                         .noneMatch(pf -> ContextManager.isTestFile(pf, cm.getAnalyzerUninterrupted())));
             }
             st.flatMap(f -> toSummaryFragments(cm, f).stream()).forEach(f -> {
@@ -518,7 +519,7 @@ public final class BrokkCli implements Callable<Integer> {
     private static List<SummaryFragment> toSummaryFragments(ContextManager cm, ContextFragment fragment) {
         var results = new ArrayList<SummaryFragment>();
 
-        var files = fragment.files().join();
+        var files = fragment.sourceFiles().join();
         for (var file : files) {
             results.add(new SummaryFragment(cm, file.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
         }

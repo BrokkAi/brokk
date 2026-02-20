@@ -153,9 +153,34 @@ public class EditBlock {
             ProjectFile file;
             try {
                 file = resolveProjectFile(ctx, rawFileName, block.beforeText.startsWith("BRK_ENTIRE_FILE"));
-            } catch (SymbolAmbiguousException | SymbolInvalidException e) {
+            } catch (SymbolAmbiguousException e) {
                 logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
-                blockResults.add(ApplyResult.failure(block, null, EditBlockFailureReason.FILE_NOT_FOUND, null));
+                blockResults.add(
+                        ApplyResult.failure(block, null, EditBlockFailureReason.AMBIGUOUS_MATCH, e.getMessage()));
+                continue;
+            } catch (SymbolInvalidException e) {
+                logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
+                String commentary;
+                if (rawFileName == null || rawFileName.isBlank()) {
+                    commentary =
+                            """
+                            This SEARCH/REPLACE block is missing a filename. Every SEARCH/REPLACE block must specify
+                            the full path of the file to be modified on a separate line immediately after the opening triple backticks.
+
+                            Correct format:
+                            ```
+                            path/to/file.java
+                            <<<<<<< SEARCH
+                            ...
+                            =======
+                            ...
+                            >>>>>>> REPLACE
+                            ```
+                            """;
+                } else {
+                    commentary = e.getMessage();
+                }
+                blockResults.add(ApplyResult.failure(block, null, EditBlockFailureReason.FILE_NOT_FOUND, commentary));
                 continue;
             }
 
@@ -222,13 +247,15 @@ public class EditBlock {
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert originalContentsThisBatch.containsKey(file);
                 var originalContent = originalContentsThisBatch.get(file);
-                String commentary = "";
+                String commentary = e instanceof NoMatchException
+                        ? "The SEARCH text was not found in the file."
+                        : "The SEARCH text occurs multiple times in the file.";
                 if (!block.beforeText().contains(block.afterText())) {
                     try {
                         replaceMostSimilarChunk(originalContent, block.afterText(), "");
                         commentary =
                                 """
-                        The replacement text is already present in the file. If we no longer need to apply
+                        The REPLACE text is already present in the file. If we no longer need to apply
                         this block, omit it from your reply.
                         """;
                     } catch (NoMatchException | AmbiguousMatchException e2) {
@@ -247,7 +274,7 @@ public class EditBlock {
                 if (e instanceof NoMatchException) {
                     List<String> matchesInOtherFiles = ctx.getEditableFragments()
                             .filter(cf -> cf.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                            .flatMap(cf -> cf.files().join().stream())
+                            .flatMap(cf -> cf.sourceFiles().join().stream())
                             .filter(f -> !f.equals(file))
                             .filter(f -> {
                                 String otherContent = f.read().orElse("");
@@ -303,8 +330,21 @@ public class EditBlock {
      * Simple record storing the parts of a search-replace block. If {@code rawFileName} is non-null, then this block
      * corresponds to a rawFileName’s search/replace. Note, {@code rawFileName} has not been checked for validity.
      */
-    public record SearchReplaceBlock(@Nullable String rawFileName, String beforeText, String afterText) {
+    public record SearchReplaceBlock(
+            @Nullable String rawFileName, String beforeText, String afterText, @Nullable String rawText) {
+
+        public SearchReplaceBlock {
+            assert rawText == null || !rawText.isBlank() : "rawText must be null or non-blank";
+        }
+
+        public SearchReplaceBlock(@Nullable String rawFileName, String beforeText, String afterText) {
+            this(rawFileName, beforeText, afterText, null);
+        }
+
         public String repr() {
+            if (rawText != null) {
+                return rawText;
+            }
             var beforeText = beforeText();
             var afterText = afterText();
             return """
@@ -855,9 +895,8 @@ public class EditBlock {
         } else {
             Set<String> sources = analyzer.getDefinitions(fqName).stream()
                     .filter(CodeUnit::isFunction)
-                    .findFirst()
-                    .map(cu -> analyzer.getSources(cu, true))
-                    .orElse(Set.of());
+                    .flatMap(cu -> analyzer.getSources(cu, true).stream())
+                    .collect(Collectors.toSet());
             if (sources.isEmpty()) {
                 var suggestions = analyzer.searchDefinitions(shortName).stream()
                         .map(CodeUnit::fqName)
@@ -912,7 +951,7 @@ public class EditBlock {
 
         // 2. Try to map the given filename to a filename in the Context
         var editableMatches = ctx.getEditableFragments()
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .filter(f -> f.getFileName().equals(file.getFileName()))
                 .toList();
         if (editableMatches.size() == 1) {
@@ -921,7 +960,8 @@ public class EditBlock {
         }
         if (editableMatches.size() > 1) {
             throw new SymbolAmbiguousException(
-                    "Filename '%s' matches multiple editable files: %s".formatted(filename, editableMatches));
+                    "Filename `%s` matches multiple editable files: %s. Specify the full path."
+                            .formatted(filename, editableMatches));
         }
 
         return file;

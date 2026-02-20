@@ -211,11 +211,10 @@ public class ContextHistoryTest {
         var history = new ContextHistory(initialContext);
 
         // Add task history only; no file changes
-        var taskFragment = new ContextFragments.TaskFragment(
-                contextManager, List.of(new UserMessage("Test task")), "Test Session");
+        var taskFragment = new ContextFragments.TaskFragment(List.of(new UserMessage("Test task")), "Test Session");
         var taskEntry = new TaskEntry(1, taskFragment, null);
         CompletableFuture.completedFuture("Action");
-        var contextWithHistory = initialContext.addHistoryEntry(taskEntry);
+        var contextWithHistory = initialContext.addHistoryEntryInternal(taskEntry);
         history.pushContext(contextWithHistory);
 
         var diffs = history.getDiffService().diff(contextWithHistory).join();
@@ -363,7 +362,7 @@ public class ContextHistoryTest {
         // Find the refreshed fragment for the same file
         var refreshedFrag = updated.allFragments()
                 .filter(f -> f.getType().isPath())
-                .filter(f -> f.files().join().contains(pf))
+                .filter(f -> f.referencedFiles().join().contains(pf))
                 .findFirst()
                 .orElseThrow();
 
