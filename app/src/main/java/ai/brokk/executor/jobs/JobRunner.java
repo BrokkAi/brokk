@@ -1269,10 +1269,13 @@ public final class JobRunner {
         var incompleteTasks = generatedTasks.stream().filter(t -> !t.done()).toList();
         logger.debug("LUTZ orchestration: will execute {} incomplete task(s)", incompleteTasks.size());
 
+        if (isCancelled.getAsBoolean()) {
+            throw new IssueCancelledException("LUTZ orchestration: execution cancelled before task execution");
+        }
+
         for (TaskList.TaskItem generatedTask : incompleteTasks) {
             if (isCancelled.getAsBoolean()) {
-                logger.info("LUTZ orchestration: execution cancelled during task iteration");
-                return;
+                throw new IssueCancelledException("LUTZ orchestration: execution cancelled during task iteration");
             }
 
             logger.info("LUTZ orchestration: executing generated task: {}", generatedTask.text());

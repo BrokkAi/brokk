@@ -303,4 +303,25 @@ class JobRunnerTest {
         assertEquals("2", executedTasks.get(0).id());
         assertEquals("3", executedTasks.get(1).id());
     }
+
+    @Test
+    void testLutz_cancellationPropagates() {
+        JobRunner runner = new JobRunner(null, null);
+
+        TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", false);
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of(task1);
+            }
+
+            @Override
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code) {}
+        };
+
+        org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
+            runner.runLutzFromSearchResult(fakeContext, null, null, () -> true);
+        });
+    }
 }
