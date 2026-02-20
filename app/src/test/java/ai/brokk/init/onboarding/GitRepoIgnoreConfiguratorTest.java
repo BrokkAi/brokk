@@ -146,7 +146,7 @@ class GitRepoIgnoreConfiguratorTest {
         String gitignoreContent = Files.readString(projectRoot.resolve(".gitignore"));
         assertTrue(gitignoreContent.contains("**/.brokk/**"));
         assertTrue(gitignoreContent.contains("!AGENTS.md"));
-        assertTrue(gitignoreContent.contains("!.brokk/style.md"));
+        assertTrue(gitignoreContent.contains("!**/.brokk/style.md"));
 
         // Verify .gitignore was staged
         assertTrue(
@@ -253,7 +253,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
 
-        // Verify pattern was recognized (no update needed)
+        // Verify pattern was recognized (no update needed) because GitIgnoreUtils handles leading /
         assertFalse(result.gitignoreUpdated(), "Should recognize /.brokk/** pattern");
     }
 

@@ -90,13 +90,13 @@ public class GitIgnoreConfigurator {
                 // Add Brokk entries
                 content += "\n### BROKK'S CONFIGURATION ###\n";
                 content += "**/.brokk/**\n";
-                content += "/.brokk/workspace.properties\n";
-                content += "/.brokk/sessions/\n";
-                content += "/.brokk/dependencies/\n";
-                content += "/.brokk/history.zip\n";
+                content += "**/.brokk/workspace.properties\n";
+                content += "**/.brokk/sessions/\n";
+                content += "**/.brokk/dependencies/\n";
+                content += "**/.brokk/history.zip\n";
                 content += "!AGENTS.md\n";
-                content += "!.brokk/style.md\n";
-                content += "!.brokk/project.properties\n";
+                content += "!**/.brokk/style.md\n";
+                content += "!**/.brokk/project.properties\n";
 
                 AtomicWrites.save(gitignorePf.absPath(), content);
                 gitignoreUpdated = true;
