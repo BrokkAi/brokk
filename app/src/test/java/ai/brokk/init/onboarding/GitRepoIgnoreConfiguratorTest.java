@@ -230,6 +230,20 @@ class GitRepoIgnoreConfiguratorTest {
     }
 
     @Test
+    void testGitignore_WildcardPattern_IsRecognized() throws Exception {
+        // Create .gitignore with wildcard patterns
+        Files.writeString(projectRoot.resolve(".gitignore"), "**/node_modules/\n**/.brokk/**\n");
+
+        var project = new TestProject(projectRoot, gitRepo);
+
+        // Execute
+        SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
+
+        // Verify pattern was recognized (no update needed)
+        assertFalse(result.gitignoreUpdated(), "Should recognize **/.brokk/** pattern");
+    }
+
+    @Test
     void testGitignore_PatternWithComment_IsRecognized() throws Exception {
         // Create .gitignore with pattern followed by comment
         Files.writeString(projectRoot.resolve(".gitignore"), ".brokk/** # Brokk configuration files\n");
