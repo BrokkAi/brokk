@@ -48,6 +48,7 @@ import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -244,6 +245,13 @@ public final class JobRunner {
         ISSUE,
         ISSUE_DIAGNOSE,
         ISSUE_WRITER
+    }
+
+    static SearchPrompts.Objective objectiveForMode(Mode mode) {
+        return switch (mode) {
+            case ASK, SEARCH, REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
+            case LUTZ, PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
+        };
     }
 
     public static Mode parseMode(JobSpec spec) {
@@ -457,75 +465,15 @@ public final class JobRunner {
                                                         "code model unavailable for ARCHITECT jobs"));
                                     }
                                     case LUTZ -> {
-                                        // Phase 1: Use SearchAgent to generate a task list from the initial task
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
-                                            var context = cm.liveContext();
-                                            var searchAgent = new SearchAgent(
-                                                    context,
+                                            runLutzOrchestration(
                                                     spec.taskInput(),
                                                     requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for LUTZ jobs"),
-                                                    SearchPrompts.Objective.TASKS_ONLY,
-                                                    scope);
-                                            var taskListResult = searchAgent.execute();
-                                            scope.append(taskListResult);
-                                        }
-                                        // Task list is now in the live context and persisted by the scope
-                                        logger.debug("LUTZ Phase 1 complete: task list generated");
-
-                                        // Phase 2: Check if task list was generated; if empty, mark job complete
-                                        var generatedTasks = cm.getTaskList().tasks();
-                                        if (generatedTasks.isEmpty()) {
-                                            var msg = "SearchAgent generated no tasks for: " + spec.taskInput();
-                                            logger.info("LUTZ job {}: {}", jobId, msg);
-                                            if (console != null) {
-                                                try {
-                                                    console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                                                } catch (Throwable ignore) {
-                                                    // Non-critical: event writing failed
-                                                }
-                                            }
-                                            // No tasks generated; outer loop will handle completion/progress
-                                        } else {
-                                            // Phase 3: Execute each generated incomplete task sequentially
-                                            logger.debug(
-                                                    "LUTZ Phase 2 complete: {} task(s) to execute",
-                                                    generatedTasks.size());
-                                            var incompleteTasks = generatedTasks.stream()
-                                                    .filter(t -> !t.done())
-                                                    .toList();
-                                            logger.debug(
-                                                    "LUTZ will execute {} incomplete task(s)", incompleteTasks.size());
-
-                                            for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                                                if (cancelled.get()) {
-                                                    logger.info(
-                                                            "LUTZ job {} execution cancelled during task iteration",
-                                                            jobId);
-                                                    return; // Cancelled: exit submitLlmAction early to prevent
-                                                    // further job completion handling in the outer loop
-                                                }
-
-                                                logger.info(
-                                                        "LUTZ job {} executing generated task: {}",
-                                                        jobId,
-                                                        generatedTask.text());
-                                                try {
-                                                    cm.executeTask(
-                                                            generatedTask,
-                                                            architectPlannerModel,
-                                                            requireNonNull(architectCodeModel));
-                                                } catch (Exception e) {
-                                                    logger.warn(
-                                                            "Generated task execution failed for job {}: {}",
-                                                            jobId,
-                                                            e.getMessage());
-                                                    throw e;
-                                                }
-                                            }
-
-                                            logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
+                                                    architectCodeModel,
+                                                    scope,
+                                                    cancelled::get);
                                         }
                                     }
                                     case PLAN -> {
@@ -538,7 +486,7 @@ public final class JobRunner {
                                                     Objects.requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for PLAN jobs"),
-                                                    SearchPrompts.Objective.TASKS_ONLY,
+                                                    objectiveForMode(Mode.PLAN),
                                                     scope);
                                             scope.append(searchAgent.execute());
                                         }
@@ -569,7 +517,7 @@ public final class JobRunner {
                                                         spec.taskInput(),
                                                         requireNonNull(
                                                                 askPlannerModel, "plannerModel required for ASK jobs"),
-                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        objectiveForMode(Mode.ASK),
                                                         scope);
 
                                                 String rawScanModel = spec.scanModel();
@@ -755,7 +703,7 @@ public final class JobRunner {
                                                     spec.taskInput(),
                                                     requireNonNull(
                                                             scanModelToUse, "scan model unavailable for SEARCH jobs"),
-                                                    SearchPrompts.Objective.ANSWER_ONLY,
+                                                    objectiveForMode(Mode.SEARCH),
                                                     scope,
                                                     cm.getIo(),
                                                     scanConfig);
@@ -878,7 +826,7 @@ public final class JobRunner {
                                                         requireNonNull(
                                                                 reviewScanModel,
                                                                 "scan model unavailable for REVIEW pre-scan"),
-                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        objectiveForMode(Mode.REVIEW),
                                                         scope);
 
                                                 context = searchAgent.scanContext();
@@ -1256,6 +1204,132 @@ public final class JobRunner {
         });
 
         return future;
+    }
+
+    /**
+     * Executes the search phase of a LUTZ job.
+     */
+    @Blocking
+    void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
+            throws InterruptedException {
+        var context = cm.liveContext();
+        // LUTZ mode always uses TASKS_ONLY for the search/planning phase to ensure
+        // a consistent task list structure for the subsequent execution loop.
+        var searchAgent = new SearchAgent(context, taskInput, plannerModel, SearchPrompts.Objective.TASKS_ONLY, scope);
+        var taskListResult = searchAgent.execute();
+        scope.append(taskListResult);
+    }
+
+    /**
+     * Executes a single task in a LUTZ job.
+     */
+    @Blocking
+    void runTaskExecutionPhase(TaskList.TaskItem task, StreamingChatModel plannerModel, StreamingChatModel codeModel)
+            throws InterruptedException {
+        cm.executeTask(task, plannerModel, codeModel);
+    }
+
+    /**
+     * Abstract context for LUTZ task orchestration, used to decouple from SearchAgent/LLM in tests.
+     */
+    interface LutzContext {
+        List<TaskList.TaskItem> getTasks();
+
+        @Blocking
+        void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                throws InterruptedException;
+    }
+
+    /**
+     * Core LUTZ orchestration loop that processes tasks after the search phase.
+     */
+    @Blocking
+    void runLutzFromSearchResult(
+            LutzContext lutzContext,
+            StreamingChatModel plannerModel,
+            @Nullable StreamingChatModel codeModel,
+            BooleanSupplier isCancelled)
+            throws InterruptedException {
+        var generatedTasks = lutzContext.getTasks();
+        if (generatedTasks.isEmpty()) {
+            var msg = "SearchAgent phase complete; no tasks to execute.";
+            logger.info("LUTZ orchestration: {}", msg);
+            if (console != null) {
+                try {
+                    console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                } catch (Throwable ignore) {
+                    // Non-critical: event writing failed
+                }
+            }
+            return;
+        }
+
+        logger.debug("LUTZ orchestration: {} task(s) to execute", generatedTasks.size());
+        var incompleteTasks = generatedTasks.stream().filter(t -> !t.done()).toList();
+        logger.debug("LUTZ orchestration: will execute {} incomplete task(s)", incompleteTasks.size());
+
+        if (isCancelled.getAsBoolean()) {
+            throw new IssueCancelledException("LUTZ orchestration: execution cancelled before task execution");
+        }
+
+        for (TaskList.TaskItem generatedTask : incompleteTasks) {
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("LUTZ orchestration: execution cancelled during task iteration");
+            }
+
+            logger.info("LUTZ orchestration: executing generated task: {}", generatedTask.text());
+            try {
+                lutzContext.executeTask(
+                        generatedTask,
+                        plannerModel,
+                        requireNonNull(codeModel, "code model unavailable for LUTZ task execution"));
+            } catch (Exception e) {
+                logger.warn("LUTZ orchestration: generated task execution failed: {}", e.getMessage());
+                throw e;
+            }
+
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("LUTZ orchestration: execution cancelled during task iteration");
+            }
+        }
+
+        if (isCancelled.getAsBoolean()) {
+            throw new IssueCancelledException("LUTZ orchestration: execution cancelled after final task execution");
+        }
+
+        logger.debug("LUTZ orchestration: all generated tasks executed");
+    }
+
+    /**
+     * High-level LUTZ orchestration seam for testing.
+     */
+    @Blocking
+    void runLutzOrchestration(
+            String taskInput,
+            StreamingChatModel plannerModel,
+            @Nullable StreamingChatModel codeModel,
+            ContextManager.TaskScope scope,
+            BooleanSupplier isCancelled)
+            throws InterruptedException {
+        // Phase 1: Search
+        runSearchPhase(taskInput, plannerModel, scope);
+
+        // Phase 2: Execution Loop
+        LutzContext adapter = new LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return cm.getTaskList().tasks();
+            }
+
+            @Override
+            @Blocking
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                    throws InterruptedException {
+                runTaskExecutionPhase(task, planner, code);
+            }
+        };
+
+        runLutzFromSearchResult(adapter, plannerModel, codeModel, isCancelled);
     }
 
     /**

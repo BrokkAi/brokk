@@ -194,6 +194,58 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
 
 
 @pytest.mark.asyncio
+async def test_no_notification_panel_widget():
+    """Verify that ChatPanel does not contain a notification panel widget."""
+    from textual.app import App, ComposeResult
+    from textual.css.query import NoMatches
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one("#chat", ChatPanel)
+        # It should not have a widget with id notification-panel
+        with pytest.raises(NoMatches):
+            chat.query_one("#notification-panel")
+
+
+@pytest.mark.asyncio
+async def test_notification_routing_to_chat_log():
+    """Verify that notifications are routed to the main chat log with styling."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+
+        # Test INFO notification (no prefix)
+        panel.add_system_message("Info message", level="INFO")
+        await pilot.pause()
+        # Ensure 'Info message' is present but NOT explicitly prefixed with '[INFO]'
+        assert any(
+            "Info message" in str(line) and not str(line).startswith("[INFO]") for line in log.lines
+        )
+
+        # Test ERROR notification (prefixed)
+        panel.add_system_message("Error message", level="ERROR")
+        await pilot.pause()
+        assert any("[ERROR] Error message" in str(line) for line in log.lines)
+
+        # Test COST notification (prefixed)
+        panel.add_system_message("Cost message", level="COST")
+        await pilot.pause()
+        assert any("[COST] Cost message" in str(line) for line in log.lines)
+
+
+@pytest.mark.asyncio
 async def test_action_handle_ctrl_c_no_input_widget():
     """
     Regression test: Verify action_handle_ctrl_c does not crash if _maybe_chat()

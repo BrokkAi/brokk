@@ -59,6 +59,7 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1277,11 +1278,13 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = cm.getProject().getShellConfig();
 
+            Duration timeout = resolveTimeout(cm.getProject().getRunCommandTimeoutSeconds());
+
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    Environment.UNLIMITED_TIMEOUT,
+                    timeout,
                     execCfg,
                     envVars);
 
@@ -1359,11 +1362,13 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = cm.getProject().getShellConfig();
 
+            Duration timeout = resolveTimeout(cm.getProject().getTestCommandTimeoutSeconds());
+
             var output = Environment.instance.runShellCommand(
                     command,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    Environment.UNLIMITED_TIMEOUT,
+                    timeout,
                     execCfg,
                     envVars);
             io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
@@ -1376,6 +1381,16 @@ public class BuildAgent {
             String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
             String processed = BuildOutputProcessor.processForLlm(rawBuild, cm);
             return ctx.withBuildResult(false, processed);
+        }
+    }
+
+    private static Duration resolveTimeout(long timeoutSeconds) {
+        if (timeoutSeconds == -1) {
+            return Environment.UNLIMITED_TIMEOUT;
+        } else if (timeoutSeconds <= 0) {
+            return Environment.DEFAULT_TIMEOUT;
+        } else {
+            return Duration.ofSeconds(timeoutSeconds);
         }
     }
 

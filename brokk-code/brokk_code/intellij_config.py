@@ -40,7 +40,7 @@ def configure_intellij_acp_settings(
 
     agent_servers["Brokk Code"] = {
         "command": "brokk-code",
-        "args": ["acp"],
+        "args": ["acp", "--ide", "intellij"],
         "env": {},
     }
 

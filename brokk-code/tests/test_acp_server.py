@@ -233,6 +233,46 @@ def test_map_executor_token_event() -> None:
     }
 
 
+def test_map_executor_reasoning_token_event() -> None:
+    event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": True}}
+    # Should use thought block when isReasoning is True
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_thought_chunk",
+        "text": "thinking",
+    }
+
+
+def test_map_executor_reasoning_token_event_strict_parsing() -> None:
+    # Truthy strings
+    for val in ["true", "True", " 1 ", "yes"]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_thought_chunk",
+            "text": "t",
+        }
+
+    # Falsy strings (previously incorrectly treated as True by bool())
+    for val in ["false", "0", "no", ""]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_message_chunk",
+            "text": "t",
+        }
+
+    # Booleans
+    event_true = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": True}}
+    assert map_executor_event_to_session_update(event_true, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_thought_chunk",
+        "text": "t",
+    }
+
+    event_false = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": False}}
+    assert map_executor_event_to_session_update(event_false, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "t",
+    }
+
+
 def test_map_executor_error_event() -> None:
     event = {"type": "ERROR", "data": {"message": "boom"}}
     assert map_executor_event_to_session_update(event, _text_block) == {
@@ -246,19 +286,47 @@ def test_map_executor_unknown_event() -> None:
     assert map_executor_event_to_session_update(event, _text_block) is None
 
 
-def test_map_executor_notification_event_to_thought_when_available() -> None:
+def test_map_executor_notification_event_surfaces_as_message() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_thought_chunk",
-        "text": "[INFO] planning",
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n\n[INFO] planning\n",
     }
 
 
-def test_map_executor_state_hint_to_thought_when_available() -> None:
+def test_map_executor_state_hint_surfaces_as_message() -> None:
     event = {"type": "STATE_HINT", "data": {"message": "indexing workspace"}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_warning_notification_event_surfaces_as_message() -> None:
+    event = {"type": "NOTIFICATION", "data": {"level": "WARN", "message": "slow network"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_thought_chunk",
-        "text": "indexing workspace",
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n\n[WARN] slow network\n",
+    }
+
+
+def test_map_executor_cost_notification_event_is_suppressed() -> None:
+    event = {"type": "NOTIFICATION", "data": {"level": "COST", "message": "$0.0012 for gpt"}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_status_token_is_passed_through() -> None:
+    token = "\n**Brokk** performing initial workspace review..."
+    event = {"type": "LLM_TOKEN", "data": {"token": token}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": token,
+    }
+
+
+def test_map_executor_status_token_mojibake_is_minimally_normalized() -> None:
+    token = "\n**Brokk** performing initial workspace reviewâ€¦"
+    event = {"type": "LLM_TOKEN", "data": {"token": token}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n**Brokk** performing initial workspace review...",
     }
 
 

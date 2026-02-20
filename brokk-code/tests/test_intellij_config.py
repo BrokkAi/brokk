@@ -15,7 +15,7 @@ def test_configure_intellij_acp_settings_creates_file(tmp_path) -> None:
     assert written_path == settings_path
     data = json.loads(settings_path.read_text(encoding="utf-8"))
     assert data["agent_servers"]["Brokk Code"]["command"] == "brokk-code"
-    assert data["agent_servers"]["Brokk Code"]["args"] == ["acp"]
+    assert data["agent_servers"]["Brokk Code"]["args"] == ["acp", "--ide", "intellij"]
     assert data["default_mcp_settings"] == {}
 
 

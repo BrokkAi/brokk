@@ -99,6 +99,7 @@ ChatPanel {
 }
 
 
+
 #help-elapsed {
     width: auto;
     min-width: 17;
@@ -281,13 +282,6 @@ ChatPanel {
     layer: base;
 }
 
-
-#notification-panel {
-    height: 4;
-    margin: 0 2;
-    background: $panel;
-    border: solid $primary-darken-2;
-}
 
 #status-line {
     margin: 1 2 0 2;

@@ -41,7 +41,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -165,7 +164,7 @@ public final class BprCli implements Callable<Integer> {
     private String favoriteModelsJson;
 
     @CommandLine.Option(
-            names = "--deepscan",
+            names = {"--deep-scan", "--deepscan"},
             arity = "0..1",
             fallbackValue = "true",
             description =
@@ -272,7 +271,9 @@ public final class BprCli implements Callable<Integer> {
         }
 
         // --- Action Validation ---
-        long actionCount = Stream.of(
+        boolean deepScan = deepScanGoal != null;
+
+        long nonDeepScanActionCount = Stream.of(
                         architectPrompt,
                         inferContextPrompt,
                         codePrompt,
@@ -281,18 +282,24 @@ public final class BprCli implements Callable<Integer> {
                         searchWorkspace)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
-        if (merge) actionCount++;
-        if (build) actionCount++;
-        boolean deepScan = deepScanGoal != null;
-        if (actionCount > 1) {
+        if (merge) nonDeepScanActionCount++;
+        if (build) nonDeepScanActionCount++;
+
+        if (nonDeepScanActionCount > 1) {
             System.err.println(
                     "At most one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace) can be specified.");
             return 1;
         }
-        if (deepScan) actionCount++;
+        if (deepScan && nonDeepScanActionCount > 0) {
+            System.err.println(
+                    "Deep Scan (--deep-scan/--deepscan) is a standalone action and cannot be combined with other actions.");
+            return 1;
+        }
+
+        long actionCount = nonDeepScanActionCount + (deepScan ? 1 : 0);
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "At least one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace, --deepscan) or --worktree is required.");
+                    "At least one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace, --deep-scan) or --worktree is required.");
             return 1;
         }
 
@@ -309,6 +316,7 @@ public final class BprCli implements Callable<Integer> {
         TaskFileInfo inferContextTaskInfo = null;
         TaskFileInfo searchAnswerTaskInfo = null, lutzTaskInfo = null;
         TaskFileInfo searchWorkspaceTaskInfo = null;
+        TaskFileInfo deepScanTaskInfo = null;
 
         try {
             if (architectPrompt != null) {
@@ -334,6 +342,10 @@ public final class BprCli implements Callable<Integer> {
             if (searchWorkspace != null) {
                 searchWorkspaceTaskInfo = maybeLoadFromFile(searchWorkspace);
                 searchWorkspace = searchWorkspaceTaskInfo.content;
+            }
+            if (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank()) {
+                deepScanTaskInfo = maybeLoadFromFile(deepScanGoal);
+                deepScanGoal = deepScanTaskInfo.content;
             }
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
@@ -521,18 +533,6 @@ public final class BprCli implements Callable<Integer> {
 
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();
-        var explicitContext = context;
-
-        // --- Deep Scan ------------------------------------------------------
-        boolean isStandaloneDeepScan = deepScan
-                && architectPrompt == null
-                && inferContextPrompt == null
-                && codePrompt == null
-                && searchAnswerPrompt == null
-                && lutzPrompt == null
-                && !merge
-                && !build
-                && searchWorkspace == null;
 
         if (deepScan) {
             if (planModel == null) {
@@ -545,31 +545,14 @@ public final class BprCli implements Callable<Integer> {
                     IConsoleIO.NotificationRole.INFO,
                     ContextFragment.describe(cm.liveContext().allFragments()));
 
-            String goalForScan;
-            if (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank()) {
-                goalForScan = deepScanGoal;
-            } else if (isStandaloneDeepScan) {
-                goalForScan = "Analyze the workspace and suggest relevant context";
-            } else {
-                goalForScan = Stream.of(architectPrompt, inferContextPrompt, codePrompt, searchAnswerPrompt, lutzPrompt)
-                        .filter(s -> s != null && !s.isBlank())
-                        .findFirst()
-                        .orElseThrow();
-            }
+            String goalForScan = (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank())
+                    ? deepScanGoal
+                    : "Analyze the workspace and suggest relevant context";
 
-            // Determine task file for cache
-            @Nullable
-            Path taskFile = Stream.of(
-                            architectTaskInfo, inferContextTaskInfo, codeTaskInfo, searchAnswerTaskInfo, lutzTaskInfo)
-                    .filter(Objects::nonNull)
-                    .map(info -> info.taskFile)
-                    .filter(Objects::nonNull)
-                    .findFirst()
-                    .orElse(null);
+            @Nullable Path deepScanCacheTaskFile = deepScanTaskInfo != null ? deepScanTaskInfo.taskFile : null;
 
-            // Attempt to serve recommendation from cache (properties file if available, otherwise JSON)
             ContextAgent.RecommendationResult recommendations;
-            var cached = readRecommendationFromCache(taskFile, cm);
+            var cached = readRecommendationFromCache(deepScanCacheTaskFile, cm, project);
             if (cached.isPresent()) {
                 recommendations = cached.get();
             } else {
@@ -577,9 +560,8 @@ public final class BprCli implements Callable<Integer> {
                 recommendations = agent.getRecommendations(cm.liveContext());
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
-                // Persist successful results to cache; failures are not cached.
                 if (recommendations.success() && getCacheMode().canWrite()) {
-                    writeRecommendationToCache(recommendations, taskFile);
+                    writeRecommendationToCache(recommendations, deepScanCacheTaskFile);
                 }
             }
 
@@ -590,15 +572,13 @@ public final class BprCli implements Callable<Integer> {
                                 + recommendations.fragments().stream()
                                         .map(ContextFragment::shortDescription)
                                         .toList());
-                context = cm.pushContext(ctx -> ctx.addAsSummaries(recommendations.fragments()));
+                cm.pushContext(ctx -> ctx.addAsSummaries(recommendations.fragments()));
             } else {
                 io.toolError("Deep Scan did not complete successfully");
             }
 
-            // Output metrics if BRK_COLLECT_METRICS is set
             if ("true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))) {
                 var metrics = SearchMetrics.tracking();
-                // Collect files added from recommendations
                 var filesAddedPaths = recommendations.fragments().stream()
                         .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                         .map(pf -> pf.getRelPath().toString())
@@ -608,7 +588,6 @@ public final class BprCli implements Callable<Integer> {
                         !recommendations.success(),
                         filesAddedPaths,
                         recommendations.metadata());
-                // Record outcome (no search turns for deepscan)
                 metrics.recordOutcome(
                         recommendations.success() ? TaskResult.StopReason.SUCCESS : TaskResult.StopReason.LLM_ERROR,
                         filesAddedPaths.size());
@@ -617,11 +596,26 @@ public final class BprCli implements Callable<Integer> {
                 System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
             }
 
-            // If deepscan is standalone, exit here with success
-            if (isStandaloneDeepScan || "true".equals(System.getenv().get("BRK_SCAN_ONLY"))) {
-                return 0;
-            }
+            return recommendations.success() ? 0 : 1;
         }
+
+        @Nullable Path cacheTaskFile = null;
+        if (architectPrompt != null) {
+            cacheTaskFile = architectTaskInfo != null ? architectTaskInfo.taskFile : null;
+        } else if (inferContextPrompt != null) {
+            cacheTaskFile = inferContextTaskInfo != null ? inferContextTaskInfo.taskFile : null;
+        } else if (codePrompt != null) {
+            cacheTaskFile = codeTaskInfo != null ? codeTaskInfo.taskFile : null;
+        } else if (searchAnswerPrompt != null) {
+            cacheTaskFile = searchAnswerTaskInfo != null ? searchAnswerTaskInfo.taskFile : null;
+        } else if (lutzPrompt != null) {
+            cacheTaskFile = lutzTaskInfo != null ? lutzTaskInfo.taskFile : null;
+        }
+
+        CacheApplication cacheApplication = applyContextCacheIfEnabled(cacheTaskFile, cm, project);
+        context = cacheApplication.context();
+        Optional<ContextAgent.RecommendationResult> cachedContextRec = cacheApplication.cachedRecommendation();
+        var explicitContext = context;
 
         // --- Run Action ---
         io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
@@ -653,8 +647,7 @@ public final class BprCli implements Callable<Integer> {
                 if (architectPrompt != null || inferContextPrompt != null) {
                     boolean isInfer = inferContextPrompt != null;
                     String prompt = castNonNull(isInfer ? inferContextPrompt : architectPrompt);
-                    Path taskFile =
-                            isInfer ? (inferContextTaskInfo != null ? inferContextTaskInfo.taskFile : null) : null;
+                    @Nullable Path taskFile = isInfer ? cacheTaskFile : null;
 
                     if (planModel == null) {
                         System.err.println("Error: --architect/--infer-context requires --planmodel to be specified.");
@@ -667,56 +660,41 @@ public final class BprCli implements Callable<Integer> {
 
                     ArchitectAgent agent;
 
-                    AtomicReference<Context> discoveredContext = new AtomicReference<>(new Context(cm));
-                    Optional<ContextAgent.RecommendationResult> cachedRec;
+                    AtomicReference<Context> discoveredContext = new AtomicReference<>(explicitContext);
                     if (isInfer) {
-                        if (!deepScan) {
-                            logger.warn("--infer-context is more effective when used with --deepscan.");
-                        }
+                        logger.info(
+                                "Using context cache mode {} for --infer-context (BRK_CONTEXT_CACHE={})",
+                                getCacheMode(),
+                                System.getenv("BRK_CONTEXT_CACHE"));
 
-                        // (1) Initial cache/context state
-                        cachedRec = readRecommendationFromCache(taskFile, cm);
-                        if (cachedRec.isPresent()) {
-                            context = context.addAsSummaries(cachedRec.get().fragments());
-                        }
-                        agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, context);
+                        agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, explicitContext);
                         if (testAllCmd != null) {
                             agent.setVerifyCommand(testAllCmd);
                         }
                         agent.setListener(codeContext -> {
-                            // (2) Listener invoked by CodeAgent completion
                             var delta = ContextDelta.between(explicitContext, codeContext)
                                     .join();
-                            var union = requireNonNull(discoveredContext.get()).addAsSummaries(delta.addedFragments());
-                            discoveredContext.set(union);
+                            discoveredContext.set(
+                                    requireNonNull(discoveredContext.get()).addAsSummaries(delta.addedFragments()));
                         });
                         result = agent.execute();
                     } else {
-                        agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, context);
-                        cachedRec = Optional.empty();
+                        agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, explicitContext);
                         result = agent.executeWithScan();
                     }
 
                     context = result.context();
                     scope.append(result);
 
-                    // (3) Final context state after execution
-                    if (isInfer && getCacheMode().canWrite()) {
-                        ContextAgent.RecommendationResult finalRec;
-                        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS && cachedRec.isPresent()) {
-                            // on failure, take the union of our original recommendations and where we ended up, so we
-                            // don't accidentally make it worse
-                            // TODO: this is broken, we will never remove fragments because the first callCodeAgent
-                            // will be with the starting fragments, so we just add them back immediately
-                            discoveredContext.set(requireNonNull(discoveredContext.get())
-                                    .addAsSummaries(cachedRec.get().fragments()));
-                        }
-                        var delta = ContextDelta.between(explicitContext, requireNonNull(discoveredContext.get()));
-                        finalRec = new ContextAgent.RecommendationResult(
-                                true, delta.join().addedFragments(), null);
+                    if (isInfer
+                            && getCacheMode().canWrite()
+                            && result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                        var delta = ContextDelta.between(explicitContext, requireNonNull(discoveredContext.get()))
+                                .join();
+                        var finalRec = new ContextAgent.RecommendationResult(true, delta.addedFragments(), null);
                         writeRecommendationToCache(finalRec, taskFile);
 
-                        var baseContext = cachedRec
+                        var baseContext = cachedContextRec
                                 .map(recommendationResult ->
                                         explicitContext.addAsSummaries(recommendationResult.fragments()))
                                 .orElse(explicitContext);
@@ -1042,6 +1020,19 @@ public final class BprCli implements Callable<Integer> {
      */
     private record ModelInfo(String alias, String model) {}
 
+    private record CacheApplication(
+            Context context, Optional<ContextAgent.RecommendationResult> cachedRecommendation) {}
+
+    private static CacheApplication applyContextCacheIfEnabled(
+            @Nullable Path taskFile, ContextManager cm, AbstractProject project) {
+        var cached = readRecommendationFromCache(taskFile, cm, project);
+        if (cached.isEmpty()) {
+            return new CacheApplication(cm.liveContext(), Optional.empty());
+        }
+        var updated = cm.pushContext(ctx -> ctx.addAsSummaries(cached.get().fragments()));
+        return new CacheApplication(updated, cached);
+    }
+
     // -------------------------
     // CA cache helpers (JSON)
     // -------------------------
@@ -1107,7 +1098,7 @@ public final class BprCli implements Callable<Integer> {
     }
 
     static Optional<ContextAgent.RecommendationResult> readRecommendationFromCache(
-            @Nullable Path taskFile, ContextManager cm) {
+            @Nullable Path taskFile, ContextManager cm, AbstractProject project) {
         CacheMode mode = getCacheMode();
         if (!mode.canRead()) {
             logger.debug(
@@ -1141,10 +1132,67 @@ public final class BprCli implements Callable<Integer> {
                                 propsFile);
 
                         var fileFragments = files.stream()
+                                .flatMap(fname -> {
+                                    var pf = cm.toFile(fname);
+                                    if (pf.exists()) {
+                                        return Stream.of(fname);
+                                    }
+                                    String bareName =
+                                            Path.of(fname).getFileName().toString();
+                                    var matches = project.getRepo().getTrackedFiles().parallelStream()
+                                            .filter(f -> f.getFileName().equals(bareName))
+                                            .map(ProjectFile::toString)
+                                            .toList();
+
+                                    if (matches.size() == 1) {
+                                        logger.debug(
+                                                "Resolved missing cached file '{}' to '{}'", fname, matches.getFirst());
+                                        return matches.stream();
+                                    } else if (matches.size() > 1) {
+                                        logger.warn(
+                                                "Ambiguous resolution for missing cached file '{}': {}",
+                                                fname,
+                                                matches);
+                                        return matches.stream();
+                                    } else {
+                                        logger.warn("Could not find replacement for missing cached file '{}'", fname);
+                                        return Stream.empty();
+                                    }
+                                })
                                 .map(fname -> (ContextFragment) new ContextFragments.SummaryFragment(
                                         cm, fname, ContextFragment.SummaryType.FILE_SKELETONS))
                                 .toList();
-                        var classFragments = classes.stream()
+
+                        var analyzer = cm.getAnalyzerUninterrupted();
+                        List<ContextFragment> classFragments;
+                        classFragments = classes.stream()
+                                .flatMap(fqcn -> {
+                                    if (!analyzer.getDefinitions(fqcn).isEmpty()) {
+                                        return Stream.of(fqcn);
+                                    }
+                                    String simpleName =
+                                            fqcn.contains(".") ? fqcn.substring(fqcn.lastIndexOf('.') + 1) : fqcn;
+                                    var matches = analyzer.searchDefinitions(simpleName, false).stream()
+                                            .filter(cu -> cu.isClass()
+                                                    && cu.shortName().equals(simpleName))
+                                            .map(CodeUnit::fqName)
+                                            .toList();
+
+                                    if (matches.size() == 1) {
+                                        logger.debug(
+                                                "Resolved missing cached class '{}' to '{}'", fqcn, matches.getFirst());
+                                        return matches.stream();
+                                    } else if (matches.size() > 1) {
+                                        logger.warn(
+                                                "Ambiguous resolution for missing cached class '{}': {}",
+                                                fqcn,
+                                                matches);
+                                        return matches.stream();
+                                    } else {
+                                        logger.warn("Could not find replacement for missing cached class '{}'", fqcn);
+                                        return Stream.empty();
+                                    }
+                                })
                                 .map(fqcn -> (ContextFragment) new ContextFragments.SummaryFragment(
                                         cm, fqcn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
                                 .toList();
