@@ -1,5 +1,4 @@
 import json
-import os
 import stat
 import sys
 from pathlib import Path
@@ -155,7 +154,9 @@ def test_configure_zed_acp_settings_default_path_darwin(monkeypatch, tmp_path) -
     assert written_path.exists()
 
 
-def test_configure_zed_acp_settings_default_path_windows_with_appdata(monkeypatch, tmp_path) -> None:
+def test_configure_zed_acp_settings_default_path_windows_with_appdata(
+    monkeypatch, tmp_path
+) -> None:
     fake_appdata = tmp_path / "AppData" / "Roaming"
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("APPDATA", str(fake_appdata))
@@ -175,7 +176,9 @@ def test_configure_zed_acp_settings_default_path_windows_no_appdata(monkeypatch,
     assert written_path.exists()
 
 
-def test_configure_zed_acp_settings_default_path_windows_blank_appdata(monkeypatch, tmp_path) -> None:
+def test_configure_zed_acp_settings_default_path_windows_blank_appdata(
+    monkeypatch, tmp_path
+) -> None:
     fake_home = tmp_path / "home"
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("APPDATA", "")
