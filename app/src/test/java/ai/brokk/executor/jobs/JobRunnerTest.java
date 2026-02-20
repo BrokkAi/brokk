@@ -6,7 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.IssueRewriterAgent;
+import ai.brokk.tasks.TaskList;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import org.jetbrains.annotations.Blocking;
 import org.junit.jupiter.api.Test;
 
 class JobRunnerTest {
@@ -229,5 +234,59 @@ class JobRunnerTest {
         var parsed = PrReviewService.parsePrReviewResponse(json);
         assertNotNull(parsed, "Valid review JSON should parse");
         assertEquals("## Review\nLooks good.", parsed.summaryMarkdown());
+    }
+
+    @Test
+    void testLutz_noTasks_doesNotExecuteTasks() throws InterruptedException {
+        JobRunner runner = new JobRunner(null, null);
+        List<TaskList.TaskItem> executedTasks = new ArrayList<>();
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of();
+            }
+
+            @Override
+            @Blocking
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                    throws InterruptedException {
+                executedTasks.add(task);
+            }
+        };
+
+        runner.runLutzFromSearchResult(fakeContext, null, null, () -> false);
+
+        assertTrue(executedTasks.isEmpty(), "No tasks should be executed when task list is empty");
+    }
+
+    @Test
+    void testLutz_tasksExist_executesEachIncompleteTask() throws InterruptedException {
+        JobRunner runner = new JobRunner(null, null);
+        List<TaskList.TaskItem> executedTasks = new ArrayList<>();
+
+        TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", true); // already done
+        TaskList.TaskItem task2 = new TaskList.TaskItem("2", "title2", "text2", false); // incomplete
+        TaskList.TaskItem task3 = new TaskList.TaskItem("3", "title3", "text3", false); // incomplete
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of(task1, task2, task3);
+            }
+
+            @Override
+            @Blocking
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                    throws InterruptedException {
+                executedTasks.add(task);
+            }
+        };
+
+        runner.runLutzFromSearchResult(fakeContext, null, null, () -> false);
+
+        assertEquals(2, executedTasks.size(), "Two tasks should have been executed");
+        assertEquals("2", executedTasks.get(0).id());
+        assertEquals("3", executedTasks.get(1).id());
     }
 }

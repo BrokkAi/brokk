@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -175,6 +176,14 @@ public final class TestContextManager implements IContextManager {
     public Context createOrReplaceTaskList(
             Context context, @Nullable String bigPicture, List<TaskList.TaskItem> tasks) {
         return context.withTaskList(new TaskList.TaskListData(bigPicture, List.copyOf(tasks)));
+    }
+
+    @Blocking
+    public ai.brokk.TaskResult executeTask(
+            TaskList.TaskItem task, StreamingChatModel planningModel, StreamingChatModel codeModel)
+            throws InterruptedException {
+        return new ai.brokk.TaskResult(
+                liveContext(), new ai.brokk.TaskResult.StopDetails(ai.brokk.TaskResult.StopReason.SUCCESS));
     }
 
     private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
