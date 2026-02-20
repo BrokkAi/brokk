@@ -1,4 +1,6 @@
 import json
+import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -225,8 +227,17 @@ def _atomic_write_zed_settings(path: Path, settings: dict[str, Any], *, prefix: 
     _atomic_write_settings_text(path, f"{prefix}{serialized}" if prefix else serialized)
 
 
+def _default_zed_settings_path() -> Path:
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "Zed" / "settings.json"
+        return Path.home() / "AppData" / "Roaming" / "Zed" / "settings.json"
+    return Path.home() / ".config" / "zed" / "settings.json"
+
+
 def configure_zed_acp_settings(*, force: bool = False, settings_path: Path | None = None) -> Path:
-    path = settings_path or Path.home() / ".config" / "zed" / "settings.json"
+    path = settings_path or _default_zed_settings_path()
     prefix = ""
 
     if path.exists():

@@ -1,5 +1,8 @@
 import json
+import os
 import stat
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -132,3 +135,32 @@ def test_configure_zed_acp_settings_parses_jsonc(tmp_path) -> None:
     assert data["telemetry"]["diagnostics"] is False
     assert data["theme"]["dark"] == "Gruvbox Dark"
     assert data["agent_servers"]["Brokk Code"]["command"] == "brokk-code"
+
+
+def test_configure_zed_acp_settings_default_path_linux(monkeypatch, tmp_path) -> None:
+    fake_home = tmp_path / "home"
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    written_path = configure_zed_acp_settings()
+    assert written_path == fake_home / ".config" / "zed" / "settings.json"
+    assert written_path.exists()
+
+
+def test_configure_zed_acp_settings_default_path_windows_with_appdata(monkeypatch, tmp_path) -> None:
+    fake_appdata = tmp_path / "AppData" / "Roaming"
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", str(fake_appdata))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    written_path = configure_zed_acp_settings()
+    assert written_path == fake_appdata / "Zed" / "settings.json"
+    assert written_path.exists()
+
+
+def test_configure_zed_acp_settings_default_path_windows_no_appdata(monkeypatch, tmp_path) -> None:
+    fake_home = tmp_path / "home"
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    written_path = configure_zed_acp_settings()
+    assert written_path == fake_home / "AppData" / "Roaming" / "Zed" / "settings.json"
+    assert written_path.exists()
