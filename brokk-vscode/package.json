@@ -115,6 +115,8 @@
     "highlight.js": "^11.11.0",
     "lang-map": "^0.4.0",
     "lowlight": "^3.3.0",
+    "micromark-util-character": "^2.1.1",
+    "micromark-util-symbol": "^2.0.1",
     "rehype-highlight": "^7.0.2",
     "rehype-stringify": "^10.0.0",
     "remark-breaks": "^4.0.0",
