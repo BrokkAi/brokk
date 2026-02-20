@@ -1215,8 +1215,7 @@ public final class JobRunner {
         var context = cm.liveContext();
         // LUTZ mode always uses TASKS_ONLY for the search/planning phase to ensure
         // a consistent task list structure for the subsequent execution loop.
-        var searchAgent =
-                new SearchAgent(context, taskInput, plannerModel, SearchPrompts.Objective.TASKS_ONLY, scope);
+        var searchAgent = new SearchAgent(context, taskInput, plannerModel, SearchPrompts.Objective.TASKS_ONLY, scope);
         var taskListResult = searchAgent.execute();
         scope.append(taskListResult);
     }
@@ -1288,6 +1287,14 @@ public final class JobRunner {
                 logger.warn("LUTZ orchestration: generated task execution failed: {}", e.getMessage());
                 throw e;
             }
+
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("LUTZ orchestration: execution cancelled during task iteration");
+            }
+        }
+
+        if (isCancelled.getAsBoolean()) {
+            throw new IssueCancelledException("LUTZ orchestration: execution cancelled after final task execution");
         }
 
         logger.debug("LUTZ orchestration: all generated tasks executed");

@@ -12,6 +12,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.jetbrains.annotations.Blocking;
 import org.junit.jupiter.api.Test;
 
@@ -322,6 +323,33 @@ class JobRunnerTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
             runner.runLutzFromSearchResult(fakeContext, null, null, () -> true);
+        });
+    }
+
+    @Test
+    void testLutz_cancellationDuringTaskExecutionPropagates() {
+        JobRunner runner = new JobRunner(null, null);
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+
+        TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", false);
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of(task1);
+            }
+
+            @Override
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code) {
+                // Simulate cancellation occurring during the execution of this task
+                cancelled.set(true);
+            }
+        };
+
+        StreamingChatModel mockModel = new StreamingChatModel() {};
+
+        org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
+            runner.runLutzFromSearchResult(fakeContext, null, mockModel, cancelled::get);
         });
     }
 }
