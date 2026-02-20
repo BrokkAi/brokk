@@ -677,7 +677,6 @@ class ChatPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
-        yield RichLog(highlight=True, markup=False, id="notification-panel", classes="hidden")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
@@ -962,7 +961,12 @@ class ChatPanel(Vertical):
     def add_system_message(self, text: str, level: str = "INFO") -> None:
         """Renders a system message styled by level. Treats text as plain text."""
         log = self.query_one("#chat-log", RichLog)
-        style_map = {"INFO": "italic grey50", "WARNING": "bold yellow", "ERROR": "bold red"}
+        style_map = {
+            "INFO": "italic grey50",
+            "WARNING": "bold yellow",
+            "ERROR": "bold red",
+            "COST": "bold green",
+        }
         style = style_map.get(level.upper(), "italic grey50")
 
         prefix = f"[{level}] " if level != "INFO" else ""
@@ -972,24 +976,16 @@ class ChatPanel(Vertical):
     def add_system_message_markup(self, text: str, level: str = "INFO") -> None:
         """Renders a system message and allows intentional Rich markup in 'text'."""
         log = self.query_one("#chat-log", RichLog)
-        style_map = {"INFO": "italic grey50", "WARNING": "bold yellow", "ERROR": "bold red"}
+        style_map = {
+            "INFO": "italic grey50",
+            "WARNING": "bold yellow",
+            "ERROR": "bold red",
+            "COST": "bold green",
+        }
         style = style_map.get(level.upper(), "italic grey50")
 
         prefix = f"[{level}] " if level != "INFO" else ""
         log.write(f"[{style}]{prefix}{text}[/]")
-
-    def add_notification(self, text: str, level: str = "INFO") -> None:
-        """Renders a notification in the notification panel using a Text object."""
-        try:
-            log = self.query_one("#notification-panel", RichLog)
-        except Exception:
-            return
-
-        style_map = {"INFO": "italic grey50", "WARNING": "bold yellow", "ERROR": "bold red"}
-        style = style_map.get(level.upper(), "italic grey50")
-
-        prefix = f"[{level}] " if level != "INFO" else ""
-        log.write(Text(f"{prefix}{text}", style=style))
 
     def append_message(self, author: str, text: str) -> None:
         """Legacy helper for simple messages."""
