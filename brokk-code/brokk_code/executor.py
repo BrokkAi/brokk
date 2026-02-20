@@ -2,6 +2,9 @@ import asyncio
 import io
 import logging
 import re
+import shutil
+import subprocess
+import sys
 import tarfile
 import uuid
 from pathlib import Path
@@ -13,6 +16,12 @@ import httpx
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
+
+_JBANG_CATALOG_URL = "https://github.com/BrokkAi/brokk-releases"
+_JBANG_APP_ALIAS = "brokk@brokkai/brokk-releases"
+_JBANG_EXECUTOR_ALIAS = "brokk-headless@brokkai/brokk-releases"
+_JBANG_INSTALL_TIMEOUT_SECONDS = 120
+_JBANG_COMMAND_TIMEOUT_SECONDS = 90
 
 
 class ExecutorError(Exception):
@@ -47,6 +56,8 @@ class ExecutorManager:
         # Stored so we can close it on shutdown.
         self._stdin: Optional[asyncio.StreamWriter] = None
         self._http_client: Optional[httpx.AsyncClient] = None
+        self._resolved_jbang: Optional[str] = None
+        self._jbang_bootstrapped: bool = False
 
     def _sanitize_tag_for_filename(self, tag: str) -> str:
         """Sanitize a git tag for use in a filename."""
@@ -291,69 +302,122 @@ class ExecutorManager:
                 f"Could not find a suitable Brokk JAR in {asset_name}. Found JARs: {member_names}"
             )
 
-    async def start(self):
-        """Starts the Java HeadlessExecutorMain subprocess."""
-        jar_path = self._find_jar()
-        self.resolved_jar_path = jar_path
-        exec_id = str(uuid.uuid4())
+    def _resolve_jbang_binary(self) -> Optional[str]:
+        path_binary = shutil.which("jbang")
+        if path_binary:
+            return path_binary
 
-        cmd = [
-            "java",
-            "-Djava.awt.headless=true",
-            "-Dapple.awt.UIElement=true",
-            "-cp",
-            str(jar_path),
-            "ai.brokk.executor.HeadlessExecutorMain",
-            "--exec-id",
-            exec_id,
-            "--listen-addr",
-            "127.0.0.1:0",
-            "--auth-token",
-            self.auth_token,
-            "--workspace-dir",
-            str(self.workspace_dir),
+        home = Path.home()
+        candidates = [
+            home / ".jbang" / "bin" / "jbang",
+            Path("/opt/homebrew/bin/jbang"),
+            Path("/usr/local/bin/jbang"),
         ]
+        if sys.platform.startswith("win"):
+            candidates.extend(
+                [
+                    home / ".jbang" / "bin" / "jbang.cmd",
+                    home / ".jbang" / "bin" / "jbang.exe",
+                ]
+            )
 
-        if self.vendor is not None and str(self.vendor).strip():
-            cmd.extend(["--vendor", str(self.vendor).strip()])
-        if self.exit_on_stdin_eof:
-            cmd.append("--exit-on-stdin-eof")
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
+        return None
 
-        logger.info(f"Starting executor: {' '.join(cmd)}")
+    def _install_jbang(self) -> str:
+        is_windows = sys.platform.startswith("win")
+        if is_windows:
+            command = [
+                "powershell",
+                "-Command",
+                'iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"',
+            ]
+        else:
+            command = ["bash", "-c", "curl -Ls https://sh.jbang.dev | bash -s - app setup"]
 
+        logger.info("Installing jbang...")
         try:
-            # Create subprocess with a dedicated stdin pipe so the Java
-            # executor can detect parent death.
-            #
-            # Implementation note / lifecycle guarantee:
-            # - We intentionally open the child's stdin as a PIPE and retain the StreamWriter
-            #   (self._stdin) reference. The Java HeadlessExecutorMain watches System.in for EOF
-            #   and treats that as a parent-death signal, initiating a controlled shutdown.
-            # - IDEs like IntelliJ will close the child's stdin when the run/debug profile is
-            #   terminated or the parent process is killed. Relying on stdin EOF allows the Java
-            #   executor to exit even when the Python process's 'finally' cleanup does not run,
-            #   preventing lingering brokk.jar/HeadlessExecutorMain processes.
-            #
-            # See HeadlessExecutorMain's stdin monitor for more details.
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=_JBANG_INSTALL_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            raise ExecutorError(f"Failed to run jbang installer: {e}") from e
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip() if result.stderr else ""
+            details = f": {stderr}" if stderr else ""
+            raise ExecutorError(f"jbang installer exited with code {result.returncode}{details}")
+
+        jbang_path = self._resolve_jbang_binary()
+        if not jbang_path:
+            raise ExecutorError(
+                "jbang was installed but could not be found on PATH. "
+                "Restart your terminal and retry."
+            )
+        return jbang_path
+
+    def _run_jbang_setup_command(self, jbang_binary: str, args: List[str]) -> None:
+        try:
+            result = subprocess.run(
+                [jbang_binary, *args],
+                capture_output=True,
+                text=True,
+                timeout=_JBANG_COMMAND_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            raise ExecutorError(f"Failed to run {' '.join(args)}: {e}") from e
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip() if result.stderr else ""
+            details = f": {stderr}" if stderr else ""
+            raise ExecutorError(
+                f"jbang {' '.join(args)} failed with code {result.returncode}{details}"
+            )
+
+    def _ensure_jbang_ready(self) -> str:
+        if self._jbang_bootstrapped and self._resolved_jbang:
+            return self._resolved_jbang
+
+        jbang_binary = self._resolve_jbang_binary()
+        if not jbang_binary:
+            jbang_binary = self._install_jbang()
+
+        self._run_jbang_setup_command(jbang_binary, ["trust", "add", _JBANG_CATALOG_URL])
+        self._run_jbang_setup_command(jbang_binary, ["app", "install", _JBANG_APP_ALIAS])
+
+        self._resolved_jbang = jbang_binary
+        self._jbang_bootstrapped = True
+        return jbang_binary
+
+    async def _spawn_executor(self, cmd: List[str], launcher_name: str) -> None:
+        logger.info("Starting executor via %s: %s", launcher_name, " ".join(cmd))
+        try:
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
-            # Store the stdin stream for later closure in stop()
-            # Note: Process.stdin is a StreamWriter-like object when stdin=PIPE.
             self._stdin = self._process.stdin  # type: ignore[attr-defined]
-        except FileNotFoundError:
+        except FileNotFoundError as e:
+            if launcher_name == "java":
+                raise ExecutorError(
+                    "Java executable not found. Please ensure JDK 21+ is installed "
+                    "and 'java' is in your PATH."
+                ) from e
             raise ExecutorError(
-                "Java executable not found. "
-                "Please ensure JDK 21+ is installed and 'java' is in your PATH."
-            )
+                f"{launcher_name} executable not found. "
+                "Please ensure it is installed and available on PATH."
+            ) from e
 
-        # Parse stdout for the listening URL
         port = None
-        # We use a timeout for the initial port readout to avoid hanging
-        # if the JAR crashes immediately
         while True:
             try:
                 line_bytes = await asyncio.wait_for(self._process.stdout.readline(), timeout=10.0)
@@ -362,10 +426,8 @@ class ExecutorManager:
             if not line_bytes:
                 break
             line = line_bytes.decode().strip()
-            logger.debug(f"Executor: {line}")
-
+            logger.debug("Executor: %s", line)
             if "Executor listening on http://" in line:
-                # Line format: "Executor listening on http://127.0.0.1:PORT"
                 try:
                     port = int(line.split(":")[-1])
                     break
@@ -382,7 +444,54 @@ class ExecutorManager:
             headers={"Authorization": f"Bearer {self.auth_token}"},
             timeout=30.0,
         )
-        logger.info(f"Executor started at {self.base_url}")
+        logger.info("Executor started at %s", self.base_url)
+
+    async def start(self):
+        """Starts the Java HeadlessExecutorMain subprocess."""
+        exec_id = str(uuid.uuid4())
+        common_args = [
+            "--exec-id",
+            exec_id,
+            "--listen-addr",
+            "127.0.0.1:0",
+            "--auth-token",
+            self.auth_token,
+            "--workspace-dir",
+            str(self.workspace_dir),
+        ]
+        if self.vendor is not None and str(self.vendor).strip():
+            common_args.extend(["--vendor", str(self.vendor).strip()])
+        if self.exit_on_stdin_eof:
+            common_args.append("--exit-on-stdin-eof")
+
+        if self.jar_override is None:
+            try:
+                jbang_binary = self._ensure_jbang_ready()
+                jbang_cmd = [
+                    jbang_binary,
+                    "--java-options",
+                    "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
+                    _JBANG_EXECUTOR_ALIAS,
+                    *common_args,
+                ]
+                self.resolved_jar_path = None
+                await self._spawn_executor(jbang_cmd, "jbang")
+                return
+            except ExecutorError as e:
+                logger.warning("jbang executor launch failed, falling back to local jar: %s", e)
+
+        jar_path = self._find_jar()
+        self.resolved_jar_path = jar_path
+        java_cmd = [
+            "java",
+            "-Djava.awt.headless=true",
+            "-Dapple.awt.UIElement=true",
+            "-cp",
+            str(jar_path),
+            "ai.brokk.executor.HeadlessExecutorMain",
+            *common_args,
+        ]
+        await self._spawn_executor(java_cmd, "java")
 
     async def get_health_live(self) -> Dict[str, Any]:
         """Fetches unauthenticated liveness info (version, protocol, execId)."""

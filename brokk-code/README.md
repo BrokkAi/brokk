@@ -9,9 +9,11 @@ This project is a Python (Textual) terminal UI client for Brokk that launches an
 ### Prerequisites
 
 - Python 3.11+
-- Java 21+ (for the Brokk executor)
+- Java 21+ (fallback mode only, when not launching via jbang)
+- jbang (auto-installed on first run when possible)
 
-The Brokk executor JAR will be **automatically downloaded** on first run to `~/.brokk/brokk.jar`.
+By default, Brokk bootstraps jbang and launches the headless executor through
+`brokk-headless@brokkai/brokk-releases`.
 
 For local development, you can build the JAR manually:
 ```bash
@@ -34,18 +36,24 @@ cd brokk-code
 pip install -e .
 ```
 
+**Using pipx (global command):**
+
+```bash
+pipx install .
+```
+
 ### Running
 
 **With uv:**
 
 ```bash
-uv run brokk-code
+uv run brokk
 ```
 
 **With pip installation:**
 
 ```bash
-brokk-code
+brokk
 ```
 
 **Or run directly:**
@@ -60,44 +68,32 @@ Brokk automatically saves your session state (fragments, history, etc.) when you
 
 **Resume the last session in the current workspace:**
 ```bash
-brokk-code --resume
+brokk --resume
 ```
 
 **Resume a specific session by ID:**
 ```bash
-brokk-code resume <session_id>
+brokk resume <session_id>
 ```
-*Note: When you exit `brokk-code`, it prints a convenient "resume hint" command for the session you just finished, for example:*
-`brokk-code resume <session_id>`
+*Note: When you exit `brokk`, it prints a convenient "resume hint" command for the session you just finished, for example:*
+`brokk resume <session_id>`
 
 ### ACP Mode
 
 Run the official ACP server mode over stdio:
 
 ```bash
-uv run brokk-code acp
+uv run brokk acp
 ```
 
-This mode is headless and intended for ACP-compatible clients. The default `brokk-code` command still launches the interactive TUI.
+This mode is headless and intended for ACP-compatible clients. The default `brokk` command still launches the interactive TUI.
 
 ### Options
 
 - `--workspace <path>`: Specify the workspace directory (defaults to current directory).
 - `--resume`: Resume the last used session in the current workspace.
 - `--session <id>`: Attempt to resume a specific session ID (similar to the `resume` command).
-- `--executor-version <tag>`: Specify a version/tag of the executor to download (e.g., `v0.1.0`).
-- `--executor-snapshot`: Download the latest snapshot release instead of the stable release (ignored if `--executor-version` is set).
-- `--jar <path>`: Specify a custom path to `brokk.jar`. This **overrides** all version/download logic.
-
-### Selecting an Executor Version
-
-By default, `brokk-code` downloads the latest stable release to `~/.brokk/brokk.jar`. You can pin a specific version using the `--executor-version` flag:
-
-```bash
-uv run brokk-code --executor-version v0.1.0
-```
-
-Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
+- `--jar <path>`: Specify a custom path to `brokk.jar`. This bypasses jbang launch and runs the local JAR directly.
 
 ### Key Bindings
 

@@ -32,27 +32,6 @@ def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Path to brokk.jar (default: auto-download to ~/.brokk/)",
     )
-    parser.add_argument(
-        "--executor-version",
-        type=str,
-        default=None,
-        help="Specific version/tag of the executor to download (default: latest snapshot)",
-    )
-    parser.add_argument(
-        "--executor-snapshot",
-        action="store_true",
-        default=True,
-        help=(
-            "Download the latest snapshot release if no specific version is provided "
-            "(default: True)"
-        ),
-    )
-    parser.add_argument(
-        "--executor-stable",
-        action="store_false",
-        dest="executor_snapshot",
-        help="Download the latest stable release instead of the snapshot",
-    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -148,8 +127,6 @@ def main():
             run_acp_server(
                 workspace_dir=workspace_path,
                 jar_path=jar_path,
-                executor_version=args.executor_version,
-                executor_snapshot=args.executor_snapshot,
                 ide=args.ide,
                 vendor=args.vendor,
             )
@@ -172,8 +149,6 @@ def main():
     app = BrokkApp(
         workspace_dir=workspace_path,
         jar_path=jar_path,
-        executor_version=args.executor_version,
-        executor_snapshot=args.executor_snapshot,
         session_id=session_id,
         resume_session=resume_session,
         vendor=args.vendor,

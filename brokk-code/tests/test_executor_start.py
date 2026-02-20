@@ -65,7 +65,7 @@ async def test_executor_start_includes_jvm_flags(monkeypatch, tmp_path):
     monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    manager = ExecutorManager(workspace_dir=tmp_path)
+    manager = ExecutorManager(workspace_dir=tmp_path, jar_path=dummy_jar)
 
     # Act: start (should read the listening line and complete)
     await manager.start()
@@ -97,6 +97,73 @@ async def test_executor_start_includes_jvm_flags(monkeypatch, tmp_path):
     assert idx1 < idx2 < cp_index, "JVM flags must appear in the correct order before -cp"
 
     # Cleanup
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_executor_start_prefers_jbang_when_no_jar_override(monkeypatch, tmp_path):
+    captured_cmd = None
+
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+        nonlocal captured_cmd
+        captured_cmd = list(cmd)
+
+        class FakeStdout:
+            def __init__(self):
+                self._lines = [
+                    b"Executor listening on http://127.0.0.1:12345\n",
+                    b"",
+                ]
+                self._idx = 0
+
+            async def readline(self):
+                if self._idx < len(self._lines):
+                    ln = self._lines[self._idx]
+                    self._idx += 1
+                    await asyncio.sleep(0)
+                    return ln
+                return b""
+
+        class FakeStdin:
+            def close(self):
+                pass
+
+            async def wait_closed(self):
+                pass
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = FakeStdout()
+                self.stdin = FakeStdin() if stdin is not None else None
+                self.returncode = None
+
+            async def wait(self):
+                return 0
+
+            def terminate(self):
+                pass
+
+            def kill(self):
+                pass
+
+        return FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr(ExecutorManager, "_ensure_jbang_ready", lambda self: "jbang")
+    monkeypatch.setattr(
+        ExecutorManager,
+        "_find_jar",
+        lambda self: (_ for _ in ()).throw(AssertionError("should not resolve jar in jbang mode")),
+    )
+
+    manager = ExecutorManager(workspace_dir=tmp_path)
+    await manager.start()
+
+    assert captured_cmd is not None
+    assert captured_cmd[0] == "jbang"
+    assert "brokk-headless@brokkai/brokk-releases" in captured_cmd
+    assert "--workspace-dir" in captured_cmd
+
     await manager.stop()
 
 
@@ -153,7 +220,7 @@ async def test_executor_start_includes_vendor_flag(monkeypatch, tmp_path):
     monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    manager = ExecutorManager(workspace_dir=tmp_path, vendor="OpenAI")
+    manager = ExecutorManager(workspace_dir=tmp_path, jar_path=dummy_jar, vendor="OpenAI")
     await manager.start()
 
     assert captured_cmd is not None
@@ -217,7 +284,7 @@ async def test_executor_start_includes_exit_on_stdin_eof_flag_when_enabled(monke
     monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    manager = ExecutorManager(workspace_dir=tmp_path, exit_on_stdin_eof=True)
+    manager = ExecutorManager(workspace_dir=tmp_path, jar_path=dummy_jar, exit_on_stdin_eof=True)
     await manager.start()
 
     assert captured_cmd is not None
@@ -293,7 +360,7 @@ async def test_executor_exits_when_stdin_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    manager = ExecutorManager(workspace_dir=tmp_path)
+    manager = ExecutorManager(workspace_dir=tmp_path, jar_path=dummy_jar)
 
     await manager.start()
     assert manager.check_alive() is True

@@ -59,7 +59,6 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
             "acp",
             "--workspace",
             str(tmp_path),
-            "--executor-stable",
             "--vendor",
             "Gemini",
         ],
@@ -68,7 +67,6 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     main_module.main()
 
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
-    assert captured["kwargs"]["executor_snapshot"] is False
     assert captured["kwargs"]["ide"] == "intellij"
     assert captured["kwargs"]["vendor"] == "Gemini"
 

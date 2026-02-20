@@ -677,8 +677,8 @@ class BrokkAcpBridge:
 async def run_acp_server(
     workspace_dir: Path,
     jar_path: Optional[Path],
-    executor_version: Optional[str],
-    executor_snapshot: bool,
+    executor_version: Optional[str] = None,
+    executor_snapshot: bool = True,
     ide: str = "intellij",
     vendor: Optional[str] = None,
 ) -> None:
