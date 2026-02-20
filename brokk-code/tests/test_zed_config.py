@@ -187,3 +187,43 @@ def test_configure_zed_acp_settings_default_path_windows_blank_appdata(
     # Should fall back to home-based path when APPDATA is blank
     assert written_path == fake_home / "AppData" / "Roaming" / "Zed" / "settings.json"
     assert written_path.exists()
+
+
+def test_configure_zed_acp_settings_default_path_windows_whitespace_appdata(
+    monkeypatch, tmp_path
+) -> None:
+    fake_home = tmp_path / "home"
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", "   ")
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    written_path = configure_zed_acp_settings()
+    # Should fall back to home-based path when APPDATA is whitespace
+    assert written_path == fake_home / "AppData" / "Roaming" / "Zed" / "settings.json"
+    assert written_path.exists()
+
+
+def test_configure_zed_acp_settings_default_path_windows_relative_appdata(
+    monkeypatch, tmp_path
+) -> None:
+    fake_home = tmp_path / "home"
+    monkeypatch.setattr(sys, "platform", "win32")
+    # Relative path should be ignored
+    monkeypatch.setenv("APPDATA", "Relative/Path")
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    written_path = configure_zed_acp_settings()
+    # Should fall back to home-based path when APPDATA is relative
+    assert written_path == fake_home / "AppData" / "Roaming" / "Zed" / "settings.json"
+    assert written_path.exists()
+
+
+def test_configure_zed_acp_settings_default_path_windows_untrimmed_appdata(
+    monkeypatch, tmp_path
+) -> None:
+    fake_appdata = tmp_path / "AppData" / "Roaming"
+    monkeypatch.setattr(sys, "platform", "win32")
+    # Path with whitespace should be trimmed and used if absolute
+    monkeypatch.setenv("APPDATA", f"  {fake_appdata}  ")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    written_path = configure_zed_acp_settings()
+    assert written_path == fake_appdata / "Zed" / "settings.json"
+    assert written_path.exists()

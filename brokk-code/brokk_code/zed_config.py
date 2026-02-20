@@ -229,9 +229,11 @@ def _atomic_write_zed_settings(path: Path, settings: dict[str, Any], *, prefix: 
 
 def _default_zed_settings_path() -> Path:
     if sys.platform == "win32":
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            return Path(appdata) / "Zed" / "settings.json"
+        appdata_str = os.environ.get("APPDATA", "").strip()
+        if appdata_str:
+            appdata_path = Path(appdata_str)
+            if appdata_path.is_absolute():
+                return appdata_path / "Zed" / "settings.json"
         return Path.home() / "AppData" / "Roaming" / "Zed" / "settings.json"
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "Zed" / "settings.json"
