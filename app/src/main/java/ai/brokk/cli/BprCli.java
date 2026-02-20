@@ -569,7 +569,7 @@ public final class BprCli implements Callable<Integer> {
 
             // Attempt to serve recommendation from cache (properties file if available, otherwise JSON)
             ContextAgent.RecommendationResult recommendations;
-            var cached = readRecommendationFromCache(taskFile, cm);
+            var cached = readRecommendationFromCache(taskFile, cm, project);
             if (cached.isPresent()) {
                 recommendations = cached.get();
             } else {
@@ -675,7 +675,7 @@ public final class BprCli implements Callable<Integer> {
                         }
 
                         // (1) Initial cache/context state
-                        cachedRec = readRecommendationFromCache(taskFile, cm);
+                        cachedRec = readRecommendationFromCache(taskFile, cm, project);
                         if (cachedRec.isPresent()) {
                             context = context.addAsSummaries(cachedRec.get().fragments());
                         }
@@ -1107,7 +1107,7 @@ public final class BprCli implements Callable<Integer> {
     }
 
     static Optional<ContextAgent.RecommendationResult> readRecommendationFromCache(
-            @Nullable Path taskFile, ContextManager cm) {
+            @Nullable Path taskFile, ContextManager cm, AbstractProject project) {
         CacheMode mode = getCacheMode();
         if (!mode.canRead()) {
             logger.debug(
@@ -1141,10 +1141,67 @@ public final class BprCli implements Callable<Integer> {
                                 propsFile);
 
                         var fileFragments = files.stream()
+                                .flatMap(fname -> {
+                                    var pf = cm.toFile(fname);
+                                    if (pf.exists()) {
+                                        return Stream.of(fname);
+                                    }
+                                    String bareName =
+                                            Path.of(fname).getFileName().toString();
+                                    var matches = project.getRepo().getTrackedFiles().parallelStream()
+                                            .filter(f -> f.getFileName().equals(bareName))
+                                            .map(ProjectFile::toString)
+                                            .toList();
+
+                                    if (matches.size() == 1) {
+                                        logger.debug(
+                                                "Resolved missing cached file '{}' to '{}'", fname, matches.getFirst());
+                                        return matches.stream();
+                                    } else if (matches.size() > 1) {
+                                        logger.warn(
+                                                "Ambiguous resolution for missing cached file '{}': {}",
+                                                fname,
+                                                matches);
+                                        return matches.stream();
+                                    } else {
+                                        logger.warn("Could not find replacement for missing cached file '{}'", fname);
+                                        return Stream.empty();
+                                    }
+                                })
                                 .map(fname -> (ContextFragment) new ContextFragments.SummaryFragment(
                                         cm, fname, ContextFragment.SummaryType.FILE_SKELETONS))
                                 .toList();
-                        var classFragments = classes.stream()
+
+                        var analyzer = cm.getAnalyzerUninterrupted();
+                        List<ContextFragment> classFragments;
+                        classFragments = classes.stream()
+                                .flatMap(fqcn -> {
+                                    if (!analyzer.getDefinitions(fqcn).isEmpty()) {
+                                        return Stream.of(fqcn);
+                                    }
+                                    String simpleName =
+                                            fqcn.contains(".") ? fqcn.substring(fqcn.lastIndexOf('.') + 1) : fqcn;
+                                    var matches = analyzer.searchDefinitions(simpleName, false).stream()
+                                            .filter(cu -> cu.isClass()
+                                                    && cu.shortName().equals(simpleName))
+                                            .map(CodeUnit::fqName)
+                                            .toList();
+
+                                    if (matches.size() == 1) {
+                                        logger.debug(
+                                                "Resolved missing cached class '{}' to '{}'", fqcn, matches.getFirst());
+                                        return matches.stream();
+                                    } else if (matches.size() > 1) {
+                                        logger.warn(
+                                                "Ambiguous resolution for missing cached class '{}': {}",
+                                                fqcn,
+                                                matches);
+                                        return matches.stream();
+                                    } else {
+                                        logger.warn("Could not find replacement for missing cached class '{}'", fqcn);
+                                        return Stream.empty();
+                                    }
+                                })
                                 .map(fqcn -> (ContextFragment) new ContextFragments.SummaryFragment(
                                         cm, fqcn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
                                 .toList();
