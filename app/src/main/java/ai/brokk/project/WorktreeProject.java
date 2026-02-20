@@ -290,6 +290,16 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    public long getRunCommandTimeoutSeconds() {
+        return parent.getRunCommandTimeoutSeconds();
+    }
+
+    @Override
+    public long getTestCommandTimeoutSeconds() {
+        return parent.getTestCommandTimeoutSeconds();
+    }
+
+    @Override
     public Set<ProjectFile> getAllOnDiskDependencies() {
         return parent.getAllOnDiskDependencies();
     }

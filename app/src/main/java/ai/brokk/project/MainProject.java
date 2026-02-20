@@ -126,7 +126,7 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
-    private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
+    private static final String TEST_COMMAND_TIMEOUT_SECONDS_KEY = "testCommandTimeoutSeconds";
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
@@ -709,24 +709,50 @@ public final class MainProject extends AbstractProject {
         notifyAutoUpdateGitDependenciesChanged();
     }
 
+    @Override
     public long getRunCommandTimeoutSeconds() {
         String valueStr = projectProps.getProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
         if (valueStr == null) {
-            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+            return Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         }
         try {
             long seconds = Long.parseLong(valueStr);
-            return seconds > 0 ? seconds : DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+            return seconds > 0 ? seconds : Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         } catch (NumberFormatException e) {
-            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+            return Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         }
     }
 
     public void setRunCommandTimeoutSeconds(long seconds) {
-        if (seconds > 0 && seconds != DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS) {
+        if (seconds > 0 && seconds != Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS) {
             projectProps.setProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY, String.valueOf(seconds));
         } else {
             projectProps.remove(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
+        }
+        saveProjectProperties();
+    }
+
+    @Override
+    public long getTestCommandTimeoutSeconds() {
+        String valueStr = projectProps.getProperty(TEST_COMMAND_TIMEOUT_SECONDS_KEY);
+        if (valueStr == null) {
+            return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+        }
+        try {
+            long seconds = Long.parseLong(valueStr);
+            // Use -1 for unlimited, which is valid to store. Positive values are valid. 0 or other negatives fallback
+            // to default.
+            return (seconds > 0 || seconds == -1) ? seconds : Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+        } catch (NumberFormatException e) {
+            return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+        }
+    }
+
+    public void setTestCommandTimeoutSeconds(long seconds) {
+        if ((seconds > 0 || seconds == -1) && seconds != Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS) {
+            projectProps.setProperty(TEST_COMMAND_TIMEOUT_SECONDS_KEY, String.valueOf(seconds));
+        } else {
+            projectProps.remove(TEST_COMMAND_TIMEOUT_SECONDS_KEY);
         }
         saveProjectProperties();
     }

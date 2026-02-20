@@ -13,6 +13,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.util.Environment;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.ShellConfig;
 import java.awt.Rectangle;
@@ -567,6 +568,22 @@ public interface IProject extends AutoCloseable {
             return Languages.NONE;
         }
         return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
+    }
+
+    /**
+     * Obtains the user-defined run command timeout if set, or the default value otherwise.
+     * @return the default timeout for how long a shell command may run for.
+     */
+    default long getRunCommandTimeoutSeconds() {
+        return Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+    }
+
+    /**
+     * Obtains the user-defined test command timeout if set, or the default value otherwise.
+     * @return the default timeout for how long a test command may run for.
+     */
+    default long getTestCommandTimeoutSeconds() {
+        return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
     }
 
     enum CodeAgentTestScope {
