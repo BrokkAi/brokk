@@ -319,6 +319,14 @@ def map_executor_event_to_session_update(
         token = data.get("token", "")
         if not token:
             return None
+        is_reasoning_raw = data.get("isReasoning", False)
+        if isinstance(is_reasoning_raw, str):
+            is_reasoning = is_reasoning_raw.strip().lower() in ("true", "1", "yes")
+        else:
+            is_reasoning = bool(is_reasoning_raw)
+
+        if is_reasoning and update_agent_thought_text:
+            return update_agent_thought_text(token)
         return update_agent_message_text(token)
 
     if event_type == "ERROR":
@@ -330,15 +338,11 @@ def map_executor_event_to_session_update(
         msg = data.get("message", "")
         if not msg:
             return None
-        if update_agent_thought_text:
-            return update_agent_thought_text(f"[{level}] {msg}")
         return update_agent_message_text(f"\n[{level}] {msg}\n")
 
     if event_type == "STATE_HINT":
         message = data.get("message")
         if isinstance(message, str) and message.strip():
-            if update_agent_thought_text:
-                return update_agent_thought_text(message.strip())
             return update_agent_message_text(f"\n[STATE] {message.strip()}\n")
         return None
 
