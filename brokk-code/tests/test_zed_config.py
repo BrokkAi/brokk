@@ -164,3 +164,14 @@ def test_configure_zed_acp_settings_default_path_windows_no_appdata(monkeypatch,
     written_path = configure_zed_acp_settings()
     assert written_path == fake_home / "AppData" / "Roaming" / "Zed" / "settings.json"
     assert written_path.exists()
+
+
+def test_configure_zed_acp_settings_default_path_windows_blank_appdata(monkeypatch, tmp_path) -> None:
+    fake_home = tmp_path / "home"
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", "")
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    written_path = configure_zed_acp_settings()
+    # Should fall back to home-based path when APPDATA is blank
+    assert written_path == fake_home / "AppData" / "Roaming" / "Zed" / "settings.json"
+    assert written_path.exists()
