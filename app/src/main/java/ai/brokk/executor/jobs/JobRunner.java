@@ -249,9 +249,8 @@ public final class JobRunner {
 
     static SearchPrompts.Objective objectiveForMode(Mode mode) {
         return switch (mode) {
-            case LUTZ, PLAN -> SearchPrompts.Objective.TASKS_ONLY;
             case ASK, SEARCH, REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
-            default -> SearchPrompts.Objective.TASKS_ONLY;
+            case LUTZ, PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
         };
     }
 
@@ -1214,7 +1213,10 @@ public final class JobRunner {
     void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
             throws InterruptedException {
         var context = cm.liveContext();
-        var searchAgent = new SearchAgent(context, taskInput, plannerModel, objectiveForMode(Mode.LUTZ), scope);
+        // LUTZ mode always uses TASKS_ONLY for the search/planning phase to ensure
+        // a consistent task list structure for the subsequent execution loop.
+        var searchAgent =
+                new SearchAgent(context, taskInput, plannerModel, SearchPrompts.Objective.TASKS_ONLY, scope);
         var taskListResult = searchAgent.execute();
         scope.append(taskListResult);
     }
