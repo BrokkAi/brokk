@@ -233,6 +233,15 @@ def test_map_executor_token_event() -> None:
     }
 
 
+def test_map_executor_reasoning_token_event() -> None:
+    event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": True}}
+    # Should use thought block when isReasoning is True
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_thought_chunk",
+        "text": "thinking",
+    }
+
+
 def test_map_executor_error_event() -> None:
     event = {"type": "ERROR", "data": {"message": "boom"}}
     assert map_executor_event_to_session_update(event, _text_block) == {
@@ -246,19 +255,21 @@ def test_map_executor_unknown_event() -> None:
     assert map_executor_event_to_session_update(event, _text_block) is None
 
 
-def test_map_executor_notification_event_to_thought_when_available() -> None:
+def test_map_executor_notification_event_surfaces_as_message() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
+    # Should NOT use thought block even if available
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_thought_chunk",
-        "text": "[INFO] planning",
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n[INFO] planning\n",
     }
 
 
-def test_map_executor_state_hint_to_thought_when_available() -> None:
+def test_map_executor_state_hint_surfaces_as_message() -> None:
     event = {"type": "STATE_HINT", "data": {"message": "indexing workspace"}}
+    # Should NOT use thought block even if available
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_thought_chunk",
-        "text": "indexing workspace",
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n[STATE] indexing workspace\n",
     }
 
 
