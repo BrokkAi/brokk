@@ -144,7 +144,7 @@ class GitRepoIgnoreConfiguratorTest {
 
         // Verify .gitignore contains Brokk patterns
         String gitignoreContent = Files.readString(projectRoot.resolve(".gitignore"));
-        assertTrue(gitignoreContent.contains(".brokk/**"));
+        assertTrue(gitignoreContent.contains("**/.brokk/**"));
         assertTrue(gitignoreContent.contains("!AGENTS.md"));
         assertTrue(gitignoreContent.contains("!.brokk/style.md"));
 
@@ -173,7 +173,7 @@ class GitRepoIgnoreConfiguratorTest {
 
         String gitignoreContent = Files.readString(projectRoot.resolve(".gitignore"));
         assertTrue(gitignoreContent.contains("node_modules/"), "Should preserve existing content");
-        assertTrue(gitignoreContent.contains(".brokk/**"), "Should add Brokk pattern");
+        assertTrue(gitignoreContent.contains("**/.brokk/**"), "Should add Brokk pattern");
     }
 
     @Test
@@ -226,7 +226,7 @@ class GitRepoIgnoreConfiguratorTest {
                 result.gitignoreUpdated(), "gitignoreUpdated should be true for partial patterns - need comprehensive");
 
         String gitignoreContent = Files.readString(projectRoot.resolve(".gitignore"));
-        assertTrue(gitignoreContent.contains(".brokk/**"), "Should add comprehensive pattern");
+        assertTrue(gitignoreContent.contains("**/.brokk/**"), "Should add comprehensive pattern");
     }
 
     @Test

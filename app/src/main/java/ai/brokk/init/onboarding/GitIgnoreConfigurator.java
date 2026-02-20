@@ -89,7 +89,7 @@ public class GitIgnoreConfigurator {
 
                 // Add Brokk entries
                 content += "\n### BROKK'S CONFIGURATION ###\n";
-                content += ".brokk/**\n";
+                content += "**/.brokk/**\n";
                 content += "/.brokk/workspace.properties\n";
                 content += "/.brokk/sessions/\n";
                 content += "/.brokk/dependencies/\n";
