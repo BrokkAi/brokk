@@ -264,6 +264,13 @@ export function finalizeAssistantMessage() {
 
 /** @param {object} msg */
 export function handleToken(msg) {
+  // Respect new-message boundaries for both reasoning and non-reasoning tokens.
+  // Without this, turns that begin with reasoning can merge into the previous turn.
+  if (msg.isNewMessage && (accumulatedContent || accumulatedReasoning)) {
+    finalizeAssistantMessage();
+    startAssistantMessage();
+  }
+
   if (msg.isReasoning) {
     if (!reasoningStartTime) {
       reasoningStartTime = Date.now();
@@ -279,10 +286,6 @@ export function handleToken(msg) {
   } else {
     if (accumulatedReasoning && currentReasoningEl && reasoningHeader) {
       finalizeReasoning();
-    }
-    if (msg.isNewMessage && accumulatedContent) {
-      finalizeAssistantMessage();
-      startAssistantMessage();
     }
     accumulatedContent += msg.token;
     scheduleStreamRender();
