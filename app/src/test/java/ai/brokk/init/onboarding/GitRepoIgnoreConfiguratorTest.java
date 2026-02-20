@@ -272,6 +272,20 @@ class GitRepoIgnoreConfiguratorTest {
     }
 
     @Test
+    void testGitignore_SpecificFilePattern_IsRecognized() throws Exception {
+        // Create .gitignore with a specific file pattern inside .brokk
+        Files.writeString(projectRoot.resolve(".gitignore"), "**/.brokk/workspace.properties\n**/.brokk/**\n");
+
+        var project = new TestProject(projectRoot, gitRepo);
+
+        // Execute
+        SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
+
+        // Verify pattern was recognized (no update needed)
+        assertFalse(result.gitignoreUpdated(), "Should recognize specific file patterns within **/.brokk/");
+    }
+
+    @Test
     void testGitignore_PatternWithComment_IsRecognized() throws Exception {
         // Create .gitignore with pattern followed by comment
         Files.writeString(projectRoot.resolve(".gitignore"), "**/.brokk/** # Brokk configuration files\n");
