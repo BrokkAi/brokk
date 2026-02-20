@@ -8,6 +8,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.IProject;
+import ai.brokk.util.Environment;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -26,8 +27,8 @@ public class TestProject implements IProject {
     private final Path root;
     private final Language language;
 
-    private long runCommandTimeoutSeconds = ai.brokk.util.Environment.DEFAULT_RUN_TIMEOUT_SECONDS;
-    private long testCommandTimeoutSeconds = ai.brokk.util.Environment.DEFAULT_TEST_TIMEOUT_SECONDS;
+    private long runCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
+    private long testCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
 
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
             CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
