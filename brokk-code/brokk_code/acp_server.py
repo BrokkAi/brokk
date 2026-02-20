@@ -319,6 +319,7 @@ def map_executor_event_to_session_update(
         token = data.get("token", "")
         if not token:
             return None
+        token = _normalize_status_token(token)
         is_reasoning_raw = data.get("isReasoning", False)
         if isinstance(is_reasoning_raw, str):
             is_reasoning = is_reasoning_raw.strip().lower() in ("true", "1", "yes")
@@ -338,15 +339,42 @@ def map_executor_event_to_session_update(
         msg = data.get("message", "")
         if not msg:
             return None
-        return update_agent_message_text(f"\n[{level}] {msg}\n")
+        normalized_level = str(level).strip().upper()
+        # CONFIRM is an internal headless prompt outcome and should not be appended
+        # to persistent chat output.
+        if normalized_level in {"COST", "CONFIRM"}:
+            return None
+        return update_agent_message_text(_format_notification_line(level, msg))
 
     if event_type == "STATE_HINT":
-        message = data.get("message")
-        if isinstance(message, str) and message.strip():
-            return update_agent_message_text(f"\n[STATE] {message.strip()}\n")
+        # These are transient UI state updates and should not be appended to
+        # persistent chat output.
         return None
 
     return None
+
+
+def _is_transient_status_token(token: str) -> bool:
+    normalized = token.strip().lower()
+    return normalized.startswith("**brokk")
+
+
+def _normalize_status_token(token: str) -> str:
+    normalized = token.strip().lower()
+    if not _is_transient_status_token(token):
+        return token
+    safe = token.replace("â€¦", "...")
+    if "performing initial workspace review" in normalized:
+        return "\n**Brokk** performing initial workspace review...\n"
+    if "context engine** analyzing repository context" in normalized:
+        return "\n**Brokk Context Engine** analyzing repository context...\n"
+    return safe
+
+
+def _format_notification_line(level: Any, msg: Any) -> str:
+    level_text = str(level)
+    msg_text = str(msg)
+    return f"\n\n[{level_text}] {msg_text}\n"
 
 
 def _extract_session_id_for_cancel(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Optional[str]:
