@@ -22,6 +22,7 @@ import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
+import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.PathNormalizer;
@@ -712,18 +713,18 @@ public final class MainProject extends AbstractProject {
     public long getRunCommandTimeoutSeconds() {
         String valueStr = projectProps.getProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
         if (valueStr == null) {
-            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+            return Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         }
         try {
             long seconds = Long.parseLong(valueStr);
-            return seconds > 0 ? seconds : DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+            return seconds > 0 ? seconds : Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         } catch (NumberFormatException e) {
-            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+            return Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         }
     }
 
     public void setRunCommandTimeoutSeconds(long seconds) {
-        if (seconds > 0 && seconds != DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS) {
+        if (seconds > 0 && seconds != Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS) {
             projectProps.setProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY, String.valueOf(seconds));
         } else {
             projectProps.remove(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
@@ -735,20 +736,20 @@ public final class MainProject extends AbstractProject {
     public long getTestCommandTimeoutSeconds() {
         String valueStr = projectProps.getProperty(TEST_COMMAND_TIMEOUT_SECONDS_KEY);
         if (valueStr == null) {
-            return DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+            return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
         }
         try {
             long seconds = Long.parseLong(valueStr);
             // Use -1 for unlimited, which is valid to store. Positive values are valid. 0 or other negatives fallback
             // to default.
-            return (seconds > 0 || seconds == -1) ? seconds : DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+            return (seconds > 0 || seconds == -1) ? seconds : Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
         } catch (NumberFormatException e) {
-            return DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+            return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
         }
     }
 
     public void setTestCommandTimeoutSeconds(long seconds) {
-        if ((seconds > 0 || seconds == -1) && seconds != DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS) {
+        if ((seconds > 0 || seconds == -1) && seconds != Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS) {
             projectProps.setProperty(TEST_COMMAND_TIMEOUT_SECONDS_KEY, String.valueOf(seconds));
         } else {
             projectProps.remove(TEST_COMMAND_TIMEOUT_SECONDS_KEY);

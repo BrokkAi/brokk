@@ -13,6 +13,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.util.Environment;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.ShellConfig;
 import java.awt.Rectangle;
@@ -36,9 +37,6 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
 public interface IProject extends AutoCloseable {
-
-    long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = -1L;
-    long DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS = -1L;
 
     default IGitRepo getRepo() {
         throw new UnsupportedOperationException();
@@ -577,7 +575,7 @@ public interface IProject extends AutoCloseable {
      * @return the default timeout for how long a shell command may run for.
      */
     default long getRunCommandTimeoutSeconds() {
-        return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+        return Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
     }
 
     /**
@@ -585,7 +583,7 @@ public interface IProject extends AutoCloseable {
      * @return the default timeout for how long a test command may run for.
      */
     default long getTestCommandTimeoutSeconds() {
-        return DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+        return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
     }
 
     enum CodeAgentTestScope {
