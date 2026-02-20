@@ -246,6 +246,15 @@ public final class JobRunner {
         ISSUE_WRITER
     }
 
+    static SearchPrompts.Objective objectiveForMode(Mode mode) {
+        return switch (mode) {
+            case LUTZ -> SearchPrompts.Objective.LUTZ;
+            case PLAN -> SearchPrompts.Objective.TASKS_ONLY;
+            case ASK, SEARCH, REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
+            default -> SearchPrompts.Objective.TASKS_ONLY;
+        };
+    }
+
     public static Mode parseMode(JobSpec spec) {
         try {
             var tags = spec.tags();
@@ -466,7 +475,7 @@ public final class JobRunner {
                                                     requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for LUTZ jobs"),
-                                                    SearchPrompts.Objective.TASKS_ONLY,
+                                                    objectiveForMode(Mode.LUTZ),
                                                     scope);
                                             var taskListResult = searchAgent.execute();
                                             scope.append(taskListResult);
@@ -538,7 +547,7 @@ public final class JobRunner {
                                                     Objects.requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for PLAN jobs"),
-                                                    SearchPrompts.Objective.TASKS_ONLY,
+                                                    objectiveForMode(Mode.PLAN),
                                                     scope);
                                             scope.append(searchAgent.execute());
                                         }
@@ -569,7 +578,7 @@ public final class JobRunner {
                                                         spec.taskInput(),
                                                         requireNonNull(
                                                                 askPlannerModel, "plannerModel required for ASK jobs"),
-                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        objectiveForMode(Mode.ASK),
                                                         scope);
 
                                                 String rawScanModel = spec.scanModel();
@@ -755,7 +764,7 @@ public final class JobRunner {
                                                     spec.taskInput(),
                                                     requireNonNull(
                                                             scanModelToUse, "scan model unavailable for SEARCH jobs"),
-                                                    SearchPrompts.Objective.ANSWER_ONLY,
+                                                    objectiveForMode(Mode.SEARCH),
                                                     scope,
                                                     cm.getIo(),
                                                     scanConfig);
@@ -878,7 +887,7 @@ public final class JobRunner {
                                                         requireNonNull(
                                                                 reviewScanModel,
                                                                 "scan model unavailable for REVIEW pre-scan"),
-                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        objectiveForMode(Mode.REVIEW),
                                                         scope);
 
                                                 context = searchAgent.scanContext();
