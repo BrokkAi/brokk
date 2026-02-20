@@ -312,25 +312,21 @@ def test_map_executor_cost_notification_event_is_suppressed() -> None:
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
 
 
-def test_map_executor_transient_brokk_status_token_is_suppressed() -> None:
-    event = {
-        "type": "LLM_TOKEN",
-        "data": {"token": "\n**Brokk** performing initial workspace review..."},
-    }
+def test_map_executor_status_token_is_passed_through() -> None:
+    token = "\n**Brokk** performing initial workspace review..."
+    event = {"type": "LLM_TOKEN", "data": {"token": token}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
         "sessionUpdate": "agent_message_chunk",
-        "text": "\n**Brokk** performing initial workspace review...\n",
+        "text": token,
     }
 
 
-def test_map_executor_transient_brokk_status_token_mojibake_is_normalized() -> None:
-    event = {
-        "type": "LLM_TOKEN",
-        "data": {"token": "\n**Brokk** performing initial workspace reviewâ€¦"},
-    }
+def test_map_executor_status_token_mojibake_is_minimally_normalized() -> None:
+    token = "\n**Brokk** performing initial workspace reviewâ€¦"
+    event = {"type": "LLM_TOKEN", "data": {"token": token}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
         "sessionUpdate": "agent_message_chunk",
-        "text": "\n**Brokk** performing initial workspace review...\n",
+        "text": "\n**Brokk** performing initial workspace review...",
     }
 
 

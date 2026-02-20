@@ -354,21 +354,9 @@ def map_executor_event_to_session_update(
     return None
 
 
-def _is_transient_status_token(token: str) -> bool:
-    normalized = token.strip().lower()
-    return normalized.startswith("**brokk")
-
-
 def _normalize_status_token(token: str) -> str:
-    normalized = token.strip().lower()
-    if not _is_transient_status_token(token):
-        return token
-    safe = token.replace("â€¦", "...")
-    if "performing initial workspace review" in normalized:
-        return "\n**Brokk** performing initial workspace review...\n"
-    if "context engine** analyzing repository context" in normalized:
-        return "\n**Brokk Context Engine** analyzing repository context...\n"
-    return safe
+    # Pass tokens through as-is, with only minimal normalization for known mojibake.
+    return token.replace("â€¦", "...")
 
 
 def _format_notification_line(level: Any, msg: Any) -> str:
