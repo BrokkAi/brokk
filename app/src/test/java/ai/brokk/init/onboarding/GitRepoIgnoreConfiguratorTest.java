@@ -179,7 +179,7 @@ class GitRepoIgnoreConfiguratorTest {
     @Test
     void testExistingGitignore_WithComprehensivePattern_DoesNotUpdate() throws Exception {
         // Create .gitignore with comprehensive pattern
-        Files.writeString(projectRoot.resolve(".gitignore"), "node_modules/\n.brokk/**\n");
+        Files.writeString(projectRoot.resolve(".gitignore"), "node_modules/\n**/.brokk/**\n");
 
         var project = new TestProject(projectRoot, gitRepo);
         var consoleIO = new TestConsoleIO();
@@ -198,8 +198,8 @@ class GitRepoIgnoreConfiguratorTest {
 
     @Test
     void testExistingGitignore_WithAlternativePattern_DoesNotUpdate() throws Exception {
-        // Create .gitignore with .brokk/ pattern
-        Files.writeString(projectRoot.resolve(".gitignore"), ".brokk/\n");
+        // Create .gitignore with **/.brokk/ pattern
+        Files.writeString(projectRoot.resolve(".gitignore"), "**/.brokk/\n");
 
         var project = new TestProject(projectRoot, gitRepo);
         var consoleIO = new TestConsoleIO();
@@ -246,7 +246,7 @@ class GitRepoIgnoreConfiguratorTest {
     @Test
     void testGitignore_LeadingSlashPattern_IsRecognized() throws Exception {
         // Create .gitignore with leading slash pattern
-        Files.writeString(projectRoot.resolve(".gitignore"), "/.brokk/**\n");
+        Files.writeString(projectRoot.resolve(".gitignore"), "/**/.brokk/**\n");
 
         var project = new TestProject(projectRoot, gitRepo);
 
@@ -274,7 +274,7 @@ class GitRepoIgnoreConfiguratorTest {
     @Test
     void testGitignore_PatternWithComment_IsRecognized() throws Exception {
         // Create .gitignore with pattern followed by comment
-        Files.writeString(projectRoot.resolve(".gitignore"), ".brokk/** # Brokk configuration files\n");
+        Files.writeString(projectRoot.resolve(".gitignore"), "**/.brokk/** # Brokk configuration files\n");
 
         var project = new TestProject(projectRoot, gitRepo);
 
@@ -386,7 +386,7 @@ class GitRepoIgnoreConfiguratorTest {
     @Test
     void testGitignore_WithWhitespace_IsRecognized() throws Exception {
         // Create .gitignore with pattern that has whitespace
-        Files.writeString(projectRoot.resolve(".gitignore"), "  .brokk/**  \n");
+        Files.writeString(projectRoot.resolve(".gitignore"), "  **/.brokk/**  \n");
 
         var project = new TestProject(projectRoot, gitRepo);
 
