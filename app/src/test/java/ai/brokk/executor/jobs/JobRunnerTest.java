@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.IssueRewriterAgent;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
@@ -258,6 +259,16 @@ class JobRunnerTest {
         runner.runLutzFromSearchResult(fakeContext, null, null, () -> false);
 
         assertTrue(executedTasks.isEmpty(), "No tasks should be executed when task list is empty");
+    }
+
+    @Test
+    void testObjectiveForModeLutzEqualsTasksOnly() {
+        assertEquals(SearchPrompts.Objective.TASKS_ONLY, JobRunner.objectiveForMode(JobRunner.Mode.LUTZ));
+    }
+
+    @Test
+    void testObjectiveForModePlanIsTasksOnly() {
+        assertEquals(SearchPrompts.Objective.TASKS_ONLY, JobRunner.objectiveForMode(JobRunner.Mode.PLAN));
     }
 
     @Test

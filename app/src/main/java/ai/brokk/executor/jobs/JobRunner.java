@@ -249,8 +249,7 @@ public final class JobRunner {
 
     static SearchPrompts.Objective objectiveForMode(Mode mode) {
         return switch (mode) {
-            case LUTZ -> SearchPrompts.Objective.LUTZ;
-            case PLAN -> SearchPrompts.Objective.TASKS_ONLY;
+            case LUTZ, PLAN -> SearchPrompts.Objective.TASKS_ONLY;
             case ASK, SEARCH, REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
             default -> SearchPrompts.Objective.TASKS_ONLY;
         };
