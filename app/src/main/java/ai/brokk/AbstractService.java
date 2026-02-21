@@ -521,17 +521,15 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         String brokkKey = MainProject.getBrokkKey();
         var kp = !brokkKey.isBlank() && brokkKey.contains("+") ? parseKey(brokkKey) : KeyParts.DUMMY;
 
-        var customHeaders = new HashMap<>(Map.of("Authorization", "Bearer " + kp.token()));
-        if (shortName.contains("opus") || shortName.contains("sonnet")) {
-            customHeaders.put("anthropic-beta", "context-1m-2025-08-07 ");
-        }
         var builder = OpenAiStreamingChatModel.builder()
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .apiKey(kp.token())
-                .customHeaders(customHeaders)
+                // this is the only custom header we can set from the client, brokk-llm discards others;
+                // in particular, anthropic-beta should be set by proxy.
+                .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
                 .promptCacheKey(shortName + kp.userId())
                 .timeout(Duration.ofSeconds(
                         config.tier == ProcessingTier.FLEX
