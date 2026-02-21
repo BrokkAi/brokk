@@ -521,13 +521,17 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         String brokkKey = MainProject.getBrokkKey();
         var kp = !brokkKey.isBlank() && brokkKey.contains("+") ? parseKey(brokkKey) : KeyParts.DUMMY;
 
+        var customHeaders = new HashMap<>(Map.of("Authorization", "Bearer " + kp.token()));
+        if (shortName.contains("opus") || shortName.contains("sonnet")) {
+            customHeaders.put("anthropic-beta", "context-1m-2025-08-07 ");
+        }
         var builder = OpenAiStreamingChatModel.builder()
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .apiKey(kp.token())
-                .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
+                .customHeaders(customHeaders)
                 .promptCacheKey(shortName + kp.userId())
                 .timeout(Duration.ofSeconds(
                         config.tier == ProcessingTier.FLEX
