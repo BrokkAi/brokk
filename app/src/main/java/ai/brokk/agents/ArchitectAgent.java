@@ -353,12 +353,14 @@ public class ArchitectAgent {
 
         // Offer undo and attach diff if the CodeAgent failed and left changes behind
         if (!changedFragments.isEmpty()) {
-            this.offerUndoToolNext = true;
             String combinedDiffText = DiffService.cumulativeDiff(initialContext, context);
             // FIXME the if here is working around a bug, ContextDelta should not return
             // changed fragments with an empty diff
             if (!combinedDiffText.isBlank()) {
+                this.offerUndoToolNext = true;
                 context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
+            } else {
+                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, "Code Agent made no changes");
             }
         }
 
