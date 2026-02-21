@@ -349,7 +349,7 @@ public final class DiffService {
     }
 
     @Blocking
-    public static String cumulativeDiff(IGitRepo repo, Context from, Context to) {
+    public static String cumulativeDiff(Context from, Context to) {
         var projectPathFiles = to.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .flatMap(f -> f.sourceFiles().join().stream())
