@@ -1081,7 +1081,7 @@ public class Llm {
             if (error == null && originalResponse != null) {
                 boolean isLength = originalResponse.finishReason() == FinishReason.LENGTH;
                 if (isLength && nsr.isEmpty()) {
-                    error = new ContextTooLargeException("Model reached context limit before generating output");
+                    error = new ContextTooLargeException("Model reached max output tokens before generating text");
                     // If we set error, we must ensure NullSafeResponse doesn't have the originalResponse
                     // to satisfy the constructor assertion.
                     nsr = new NullSafeResponse(nsr.text(), nsr.reasoningContent(), nsr.toolRequests(), null);
