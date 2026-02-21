@@ -732,6 +732,17 @@ tasks.register<JavaExec>("runRmShadingEvalAggregate") {
     }
 }
 
+tasks.register<JavaExec>("runRmShadingEvalSummarizeReasonings") {
+    group = "application"
+    description = "Summarizes judge reasonings into themes via LLM (use --corpus-with-judgments or --reasonings)"
+    mainClass.set("ai.brokk.tools.RmShadingEvalSummarizeReasonings")
+    classpath = sourceSets.test.get().runtimeClasspath
+    workingDir = rmShadingEvalWorkingDir
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
+}
+
 tasks.shadowJar {
     archiveBaseName.set("brokk")
     archiveClassifier.set("")
@@ -758,7 +769,7 @@ tasks.named("compileJava") {
 
 // Eval tools (RmShadingEval*) need main+test classpath but not the frontend; skip frontendBuild so nodeSetup isn't required
 val isRmShadingEvalOnly = gradle.startParameter.taskNames.any { name ->
-    name.contains("runRmShadingEvalRunner") || name.contains("runRmShadingEvalJudge") || name.contains("runRmShadingEvalAggregate")
+    name.contains("runRmShadingEvalRunner") || name.contains("runRmShadingEvalJudge") || name.contains("runRmShadingEvalAggregate") || name.contains("runRmShadingEvalSummarizeReasonings")
 }
 tasks.named("processResources") {
     if (!isRmShadingEvalOnly) {

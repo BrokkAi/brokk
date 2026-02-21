@@ -362,13 +362,31 @@ If you run Phase 2 without setting `OPENAI_API_KEY`, the Judge falls back to Bro
 
 - **RefactoringMiner failures**: On some commits RefactoringMiner can throw internally (e.g. NPE in extract-method detection). The Runner catches this, logs a short “falling back to text diff” message, and continues with the full vanilla diff for that item (`refactoringCount=0`). You may also see the library log “Ignored revision … due to error”; both are expected and harmless.
 
+### Aggregate with reasonings export and reasoning summarizer
+
+After Phase 3 you can export reasonings and have an LLM summarize them into themes for presentation:
+
+```bash
+# 1. Run aggregate (prints A/B/TIE and breakdowns)
+./gradlew :app:runRmShadingEvalAggregate -Pargs="--corpus-with-judgments build/reports/rm-shading-eval-2/corpus-with-judgments.json"
+
+# 2. Summarize reasonings into themes (requires OPENAI_API_KEY; writes reasoning-summary.md)
+# Use the same corpus-with-judgments file—no need to re-run Judge or export a separate reasonings file.
+./gradlew :app:runRmShadingEvalSummarizeReasonings -Pargs="--corpus-with-judgments build/reports/rm-shading-eval-2/corpus-with-judgments.json"
+```
+
+Optional: aggregate can write a reasonings-only JSON with `--write-reasonings <path>` if you want to run the summarizer with `--reasonings <path>` instead of `--corpus-with-judgments`.
+
+The summarizer calls an LLM (default: gpt-4o-mini) to produce a short structured report: overall takeaway, why A was preferred, why B was preferred (if any), why TIE, and caveats. Use the generated `reasoning-summary.md` plus the aggregate console output when presenting to stakeholders.
+
+### What to present to your boss
+
+1. **Headline**: e.g. "On 40 Brokk merge commits, the judge (GPT-5.2) preferred the **full diff (A) in 87.5%** of cases; RM-shaded (B) in 7.5%, tie in 5%."
+2. **Breakdown**: Use the aggregate output (by refactoring count and by diff size). Example: "Even when there were 6+ refactorings, vanilla still won 30/33; B won only 3 times, all in the >1k-line bucket."
+3. **When B won**: Use the new "When B (RM-shaded) won" lines from the aggregate (id, refactoring count, vanilla lines) so they can see the handful of cases where masking helped.
+4. **Themes**: Run the reasoning summarizer (steps above) and attach or paste **reasoning-summary.md** so they get a narrative of *why* (e.g. "refactorings often mixed with behavior changes", "full context needed for issue-spotting").
+5. **Recommendation**: e.g. "Recommendation: keep RM-shading off by default for now; consider making it optional or enabling only when refactoring count is very high and diff is huge."
+
 ### Pattern report (Phase 3 follow-up)
 
-After aggregation, review a sample of `reasoning` strings in `corpus-with-judgments.json` (e.g. 20–30 items) and note recurring themes, e.g.:
-
-- RM-shaded preferred when there are many renames or extract-method changes.
-- Vanilla preferred when the change is small and refactorings are few.
-- TIE when refactorings are minimal or the diff is already readable.
-
-Document findings in a short report and use them to decide: keep RM-shading as default, make it optional, or refine which refactoring types to mask.
-```
+After aggregation, review a sample of `reasoning` strings in `corpus-with-judgments.json` (e.g. 20–30 items) and note recurring themes, or run the **reasoning summarizer** (see above) to get an LLM-generated theme summary. Then document findings in a short report and decide: keep RM-shading as default, make it optional, or refine which refactoring types to mask.

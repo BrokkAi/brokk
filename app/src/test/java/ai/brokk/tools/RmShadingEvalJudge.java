@@ -47,6 +47,7 @@ public class RmShadingEvalJudge implements Callable<Integer> {
             Version B is a diff with detected refactorings removed and replaced by a short summary.
 
             Which representation is more useful for a reviewer to understand the change and spot real issues?
+            Try to be objective and balanced in your interepretation of the diffs.
 
             Answer with exactly one line: WINNER: A | B | TIE
             Then on the next line(s), give a short reason (one to three sentences).
