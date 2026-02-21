@@ -381,11 +381,34 @@ The summarizer calls an LLM (default: gpt-4o-mini) to produce a short structured
 
 ### What to present to your boss
 
+**Quick commands for token savings + surgical (by refactoring type) info:**
+
+```bash
+./gradlew :app:runRmShadingEvalAggregate -Pargs="--corpus-with-judgments build/reports/rm-shading-eval-2/corpus-with-judgments.json"
+./gradlew :app:runRmShadingEvalReport -Pargs="--input build/reports/rm-shading-eval-2/corpus-with-judgments.json"
+```
+
 1. **Headline**: e.g. "On 40 Brokk merge commits, the judge (GPT-5.2) preferred the **full diff (A) in 87.5%** of cases; RM-shaded (B) in 7.5%, tie in 5%."
-2. **Breakdown**: Use the aggregate output (by refactoring count and by diff size). Example: "Even when there were 6+ refactorings, vanilla still won 30/33; B won only 3 times, all in the >1k-line bucket."
-3. **When B won**: Use the new "When B (RM-shaded) won" lines from the aggregate (id, refactoring count, vanilla lines) so they can see the handful of cases where masking helped.
-4. **Themes**: Run the reasoning summarizer (steps above) and attach or paste **reasoning-summary.md** so they get a narrative of *why* (e.g. "refactorings often mixed with behavior changes", "full context needed for issue-spotting").
-5. **Recommendation**: e.g. "Recommendation: keep RM-shading off by default for now; consider making it optional or enabling only when refactoring count is very high and diff is huge."
+2. **Token savings**: Use the Report output—total and % tokens saved by RM-shading. If there’s no real savings, that undercuts the value.
+3. **Breakdown**: Use the aggregate output (by refactoring count and by diff size). Example: "Even when there were 6+ refactorings, vanilla still won 30/33; B won only 3 times, all in the >1k-line bucket."
+4. **Surgical (by refactoring type)**: Use the Report’s “By refactoring type” table to say which refactor types (if any) correlate with B winning vs A winning.
+5. **When B won**: Use the "When B (RM-shaded) won" lines from the aggregate (id, refactoring count, vanilla lines) so they can see the handful of cases where masking helped.
+6. **Themes**: Run the reasoning summarizer (steps above) and attach or paste **reasoning-summary.md** so they get a narrative of *why* (e.g. "refactorings often mixed with behavior changes", "full context needed for issue-spotting").
+7. **Recommendation**: e.g. "Recommendation: keep RM-shading off by default for now; consider making it optional or enabling only when refactoring count is very high and diff is huge."
+
+### Token and refactoring-type report (no re-run, safe for large files)
+
+To answer **“Are we actually saving tokens?”** and **“Are some refactor types destroying information?”** run the Report tool. It **streams** the JSON (does not load the whole file into memory), so it’s safe for large corpus files (e.g. 118 MB).
+
+```bash
+# Token counts + A/B/TIE breakdown by refactoring type (use corpus-with-judgments so we have winner)
+./gradlew :app:runRmShadingEvalReport -Pargs="--input build/reports/rm-shading-eval-2/corpus-with-judgments.json"
+```
+
+- **Token summary**: Total vanilla vs RM-shaded tokens (approximate, OpenAI-style), total saved and %, per-item median. If RM-shaded isn’t saving meaningful tokens, the report makes that obvious.
+- **By refactoring type**: For each refactoring type present in the corpus (e.g. “Rename Variable”, “Extract Method”), how often the judge preferred A / B / TIE when that type was present. Use this to see if certain refactor types correlate with “B won” or “A won” (surgical view).
+
+You can pass either `corpus.json` or `corpus-with-judgments.json`. For the by-type breakdown you need judgments (winner), so use `corpus-with-judgments.json`. For token-only stats, either file works.
 
 ### Pattern report (Phase 3 follow-up)
 

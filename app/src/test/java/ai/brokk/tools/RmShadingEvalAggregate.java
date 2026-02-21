@@ -127,7 +127,8 @@ public class RmShadingEvalAggregate implements Callable<Integer> {
             System.out.println(" When B (RM-shaded) won – refactoring count & vanilla lines:");
             for (var item : items) {
                 if ("B".equalsIgnoreCase(item.winner())) {
-                    System.out.println("   id=" + item.id() + " refactorings=" + item.refactoringCount() + " vanillaLines=" + item.vanillaDiffLineCount());
+                    String note = item.refactoringCount() == 0 ? "  (A and B were identical – judge noise)" : "";
+                    System.out.println("   id=" + item.id() + " refactorings=" + item.refactoringCount() + " vanillaLines=" + item.vanillaDiffLineCount() + note);
                 }
             }
         }
