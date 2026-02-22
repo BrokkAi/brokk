@@ -585,6 +585,22 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     // --- Project Tree expansion persistence ---
 
     private static final String PROP_TREE_EXPANDED = "ui.projectTree.expandedPaths";
+    private static final String PROP_GIT_CONFIG_DECLINED = "gitConfigDeclined";
+
+    @Override
+    public final boolean isGitConfigDeclined() {
+        return "true".equals(workspaceProps.getProperty(PROP_GIT_CONFIG_DECLINED));
+    }
+
+    @Override
+    public final void setGitConfigDeclined(boolean declined) {
+        if (declined) {
+            workspaceProps.setProperty(PROP_GIT_CONFIG_DECLINED, "true");
+        } else {
+            workspaceProps.remove(PROP_GIT_CONFIG_DECLINED);
+        }
+        saveWorkspaceProperties();
+    }
 
     @Override
     public List<Path> getExpandedTreePaths() {
