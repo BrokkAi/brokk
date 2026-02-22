@@ -74,7 +74,7 @@ apache-compress = "org.apache.commons:commons-compress:1.26.2"
 apache-commons-text = "org.apache.commons:commons-text:1.12.0"
 handlebars = "com.github.jknack:handlebars:4.5.0"
 mustache = "com.github.spullara.mustache.java:compiler:0.9.10"
-mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.12.1" }
+mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.18.1" }
 uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
 pcollections = "org.pcollections:pcollections:5.0.0"
 
