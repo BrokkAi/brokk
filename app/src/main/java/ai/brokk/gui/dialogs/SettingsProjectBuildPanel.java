@@ -1500,7 +1500,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 case 0 -> m.alias();
                 case 1 -> m.relativePath();
                 case 2 -> m.parallel();
-                default -> null;
+                default -> "";
             };
         }
     }

@@ -590,7 +590,7 @@ public class BuildAgent {
                 defaultEnvForProject(),
                 null,
                 "",
-                modules != null ? modules : List.of());
+                modules);
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
@@ -954,8 +954,8 @@ public class BuildAgent {
                 continue;
             }
 
-            List<ProjectFile> files = moduleGroups.get(module);
-            String cmd = interpolateModuleTestCommand(cm, details, module, template, files, pythonVersion);
+            List<ProjectFile> files = moduleGroups.getOrDefault(module, List.of());
+            String cmd = interpolateModuleTestCommand(cm, details, template, files, pythonVersion);
             if (!cmd.isBlank()) {
                 commands.add(cmd);
             }
@@ -967,7 +967,6 @@ public class BuildAgent {
     private static String interpolateModuleTestCommand(
             IContextManager cm,
             BuildDetails details,
-            ModuleBuildEntry module,
             String template,
             List<ProjectFile> files,
             @Nullable String pythonVersion)
