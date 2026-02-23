@@ -873,11 +873,25 @@ public class SettingsProjectBuildPanel extends JPanel {
     private void updateBuildDetailsFieldsFromAgent(
             BuildAgent.BuildDetails details, @Nullable Set<String> llmAddedPatterns) {
         SwingUtilities.invokeLater(() -> {
-            // Update this panel's fields
-            buildCleanCommandField.setText(details.buildLintCommand());
-            allTestsCommandField.setText(details.testAllCommand());
-            someTestsCommandField.setText(details.testSomeCommand());
-            afterTaskListCommandField.setText(details.afterTaskListCommand());
+            // Update this panel's fields - only overwrite if agent provided a value
+            if (!details.buildLintCommand().isBlank()) {
+                buildCleanCommandField.setText(details.buildLintCommand());
+            }
+            if (!details.testAllCommand().isBlank()) {
+                allTestsCommandField.setText(details.testAllCommand());
+            }
+            if (!details.testSomeCommand().isBlank()) {
+                someTestsCommandField.setText(details.testSomeCommand());
+            }
+            if (!details.afterTaskListCommand().isBlank()) {
+                afterTaskListCommandField.setText(details.afterTaskListCommand());
+            }
+
+            if (!details.modules().isEmpty()) {
+                modulesList.clear();
+                modulesList.addAll(details.modules());
+                modulesTableModel.fireTableDataChanged();
+            }
 
             // Also refresh the CI exclusions list in the parent SettingsProjectPanel
             try {
