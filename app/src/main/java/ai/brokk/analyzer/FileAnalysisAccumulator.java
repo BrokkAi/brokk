@@ -20,6 +20,7 @@ import org.jetbrains.annotations.Nullable;
 public class FileAnalysisAccumulator {
     private final Set<CodeUnit> topLevelCUs = new LinkedHashSet<>();
     private final Map<CodeUnit, Set<CodeUnit>> children = new LinkedHashMap<>();
+    private final Map<CodeUnit, CodeUnit> childToParent = new HashMap<>();
     private final Map<CodeUnit, Set<String>> signatures = new LinkedHashMap<>();
     private final Map<CodeUnit, Set<Range>> sourceRanges = new LinkedHashMap<>();
     private final Map<CodeUnit, Boolean> hasBody = new HashMap<>();
@@ -45,6 +46,7 @@ public class FileAnalysisAccumulator {
      */
     public FileAnalysisAccumulator addChild(CodeUnit parent, CodeUnit child) {
         children.computeIfAbsent(parent, k -> new LinkedHashSet<>()).add(child);
+        childToParent.put(child, parent);
         addLookupKey(child.fqName(), child);
         return this;
     }
@@ -96,6 +98,15 @@ public class FileAnalysisAccumulator {
                 remove(child);
             }
         }
+
+        CodeUnit parent = childToParent.remove(cu);
+        if (parent != null) {
+            Set<CodeUnit> siblings = children.get(parent);
+            if (siblings != null) {
+                siblings.remove(cu);
+            }
+        }
+
         topLevelCUs.remove(cu);
         signatures.remove(cu);
         sourceRanges.remove(cu);
@@ -109,9 +120,6 @@ public class FileAnalysisAccumulator {
             }
         }
 
-        for (Set<CodeUnit> siblingList : children.values()) {
-            siblingList.remove(cu);
-        }
         return this;
     }
 
@@ -201,7 +209,12 @@ public class FileAnalysisAccumulator {
     }
 
     public void detachChildren(CodeUnit cu) {
-        children.remove(cu);
+        Set<CodeUnit> kids = children.remove(cu);
+        if (kids != null) {
+            for (CodeUnit child : kids) {
+                childToParent.remove(child);
+            }
+        }
     }
 
     public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
