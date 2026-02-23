@@ -185,7 +185,9 @@ class ExecutorManager:
             "--java",
             "21",
             "-R",
-            "--enable-native-access=ALL-UNNAMED",
+            "-Djava.awt.headless=true "
+            + "-Dapple.awt.UIElement=true "
+            + "--enable-native-access=ALL-UNNAMED",
             "--main",
             _EXECUTOR_MAIN_CLASS,
             jar_url,
