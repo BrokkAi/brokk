@@ -1078,7 +1078,7 @@ async def run_acp_server(
         ) -> InitializeResponse:
             return InitializeResponse(
                 protocol_version=protocol_version,
-                agent_info=Implementation(name="brokk-code", version="0.1.0"),
+                agent_info=Implementation(name="brokk", version="0.1.0"),
                 agent_capabilities=AgentCapabilities(
                     load_session=True,
                     prompt_capabilities=PromptCapabilities(embedded_context=True),

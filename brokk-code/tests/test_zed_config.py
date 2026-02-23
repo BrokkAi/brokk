@@ -133,7 +133,7 @@ def test_configure_zed_acp_settings_parses_jsonc(tmp_path) -> None:
     data = json.loads(updated_text[json_start:])
     assert data["telemetry"]["diagnostics"] is False
     assert data["theme"]["dark"] == "Gruvbox Dark"
-    assert data["agent_servers"]["Brokk Code"]["command"] == "brokk-code"
+    assert data["agent_servers"]["Brokk Code"]["command"] == "brokk"
 
 
 def test_configure_zed_acp_settings_default_path_linux(monkeypatch, tmp_path) -> None:
