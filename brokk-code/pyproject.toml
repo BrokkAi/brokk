@@ -1,6 +1,6 @@
 [project]
 name = "brokk"
-version = "0.1.0"
+version = "0.1.1"
 description = "AI-native code platform for million-line repos with fragment-level context management and code intelligence"
 license = { text = "Proprietary" }
 classifiers = [
