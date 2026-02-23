@@ -14,7 +14,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.0.beta1"
+BUNDLED_EXECUTOR_VERSION = "0.23.0.beta2"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 
@@ -179,7 +179,7 @@ class ExecutorManager:
         cmd = [
             jbang_bin,
             "--java", "21",
-            "-J--enable-native-access=ALL-UNNAMED",
+            "-R", "--enable-native-access=ALL-UNNAMED",
             "--main", _EXECUTOR_MAIN_CLASS,
             jar_url,
         ]
@@ -257,17 +257,19 @@ class ExecutorManager:
 
         # Parse stdout for the listening URL
         port = None
-        # We use a timeout for the initial port readout to avoid hanging
-        # if the JAR crashes immediately
+        output_lines: List[str] = []
+        # Use a generous timeout per-line to accommodate first-time JAR downloads
+        # (JBang may be silent for 60+ seconds while fetching a large remote JAR).
         while True:
             try:
-                line_bytes = await asyncio.wait_for(self._process.stdout.readline(), timeout=10.0)
+                line_bytes = await asyncio.wait_for(self._process.stdout.readline(), timeout=120.0)
             except asyncio.TimeoutError:
                 break
             if not line_bytes:
                 break
             line = line_bytes.decode().strip()
             logger.debug(f"Executor: {line}")
+            output_lines.append(line)
 
             if "Executor listening on http://" in line:
                 # Line format: "Executor listening on http://127.0.0.1:PORT"
@@ -279,7 +281,10 @@ class ExecutorManager:
 
         if port is None:
             await self.stop()
-            raise ExecutorError("Failed to extract port from executor output")
+            output_summary = "\n".join(output_lines[-30:]) if output_lines else "(no output)"
+            raise ExecutorError(
+                f"Failed to extract port from executor output.\nLast output:\n{output_summary}"
+            )
 
         self.base_url = f"http://127.0.0.1:{port}"
         self._http_client = httpx.AsyncClient(
