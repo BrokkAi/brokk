@@ -443,6 +443,14 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     margin-bottom: 1;
 }
 
+#api-key-modal-spinner {
+    height: 1;
+    width: 100%;
+    color: $accent;
+    background: transparent;
+    margin-bottom: 1;
+}
+
 #api-key-modal-footer {
     text-align: center;
     width: 100%;

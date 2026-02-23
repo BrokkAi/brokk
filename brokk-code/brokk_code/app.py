@@ -117,7 +117,7 @@ class BrokkApiKeyModalScreen(ModalScreen[str]):
         self._is_update = is_update
 
     def compose(self) -> ComposeResult:
-        from textual.widgets import Markdown
+        from textual.widgets import LoadingIndicator, Markdown
 
         with Vertical(id="api-key-modal-container"):
             with VerticalScroll(id="api-key-modal-scroll"):
@@ -127,6 +127,7 @@ class BrokkApiKeyModalScreen(ModalScreen[str]):
                     id="api-key-modal-welcome",
                 )
             yield Static(self._message, id="api-key-modal-title")
+            yield LoadingIndicator(id="api-key-modal-spinner", classes="hidden")
             yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
             footer_text = "Press Ctrl+C or Ctrl+D to exit."
             if self._is_update:
