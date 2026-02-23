@@ -383,6 +383,7 @@ public class BuildAgent {
                 """
                 You are an agent tasked with finding build information for the *development* environment of a software project.
                 Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
+                Determine if there is a single command that builds/tests the entire project. If not, leave the root commands blank and provide module-specific commands.
                 Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
                 configurations unless they are the only ones available.
 
@@ -913,8 +914,16 @@ public class BuildAgent {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null
                     ? System.getenv("BRK_TESTALL_CMD")
                     : details.testAllCommand();
-            logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", cmd);
-            return interpolateCommandWithPythonVersion(cmd, projectRoot);
+
+            if (cmd.isBlank() && !details.modules().isEmpty()) {
+                cmd = details.modules().stream()
+                        .map(m -> interpolateCommandWithPythonVersion(m.testAllCommand(), projectRoot))
+                        .filter(c -> !c.isBlank())
+                        .collect(Collectors.joining(" && "));
+            }
+
+            logger.debug("Code Agent Test Scope is ALL, using command: {}", cmd);
+            return cmd.isBlank() ? null : interpolateCommandWithPythonVersion(cmd, projectRoot);
         }
 
         // Proceed with workspace-specific test determination (based on the provided Context)
@@ -943,7 +952,14 @@ public class BuildAgent {
                 .toList();
 
         if (affectedModules.isEmpty()) {
-            return interpolateCommandWithPythonVersion(details.buildLintCommand(), projectRoot);
+            String cmd = details.buildLintCommand();
+            if (cmd.isBlank()) {
+                cmd = details.modules().stream()
+                        .map(m -> interpolateCommandWithPythonVersion(m.buildLintCommand(), projectRoot))
+                        .filter(c -> !c.isBlank())
+                        .collect(Collectors.joining(" && "));
+            }
+            return interpolateCommandWithPythonVersion(cmd, projectRoot);
         }
 
         return affectedModules.stream()

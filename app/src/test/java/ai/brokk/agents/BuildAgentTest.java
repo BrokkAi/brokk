@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -852,6 +853,62 @@ class BuildAgentTest {
         } finally {
             Environment.shellCommandRunnerFactory = originalFactory;
         }
+    }
+
+    @Test
+    void testDetermineVerificationCommand_FallbackToModules_WhenGlobalEmpty(@TempDir Path tempDir) throws Exception {
+        Files.createDirectories(tempDir.resolve("mod1"));
+        Files.createDirectories(tempDir.resolve("mod2"));
+        var project = new TestProject(tempDir);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        var details = new BuildAgent.BuildDetails(
+                "",
+                "", // Empty global testAll
+                "",
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(
+                        new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1"),
+                        new BuildAgent.ModuleBuildEntry("m2", "mod2", "lint2", "test2", "some2")));
+        project.setBuildDetails(details);
+
+        var cm = new TestContextManager(project);
+        var ctx = cm.liveContext();
+
+        String cmd = BuildAgent.determineVerificationCommand(ctx);
+        assertEquals("test1 && test2", cmd);
+    }
+
+    @Test
+    void testDetermineVerificationCommand_VerificationFallback_WhenGlobalEmpty(@TempDir Path tempDir) throws Exception {
+        Files.createDirectories(tempDir.resolve("mod1"));
+        var project = new TestProject(tempDir);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.WORKSPACE);
+
+        var details = new BuildAgent.BuildDetails(
+                "", // Empty global buildLint
+                "",
+                "",
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(
+                        new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1"),
+                        new BuildAgent.ModuleBuildEntry("m2", "mod2", "lint2", "test2", "some2")));
+        project.setBuildDetails(details);
+
+        var cm = new TestContextManager(project);
+        // Create context with a file that does NOT map to a module
+        var file = new ai.brokk.analyzer.ProjectFile(tempDir, "README.md");
+        Files.writeString(tempDir.resolve("README.md"), "info");
+        var ctx = cm.liveContext().addFragments(new ai.brokk.context.ContextFragments.ProjectPathFragment(file, cm));
+
+        String cmd = BuildAgent.determineVerificationCommand(ctx);
+        assertEquals("lint1 && lint2", cmd);
     }
 
     @Test
