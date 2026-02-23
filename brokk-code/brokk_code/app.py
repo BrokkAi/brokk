@@ -406,6 +406,9 @@ class BrokkApp(App):
         self._reported_refresh_errors: set[str] = set()
         self._reasoning_target: str = "planner"
 
+        # Accumulators for LLM usage costs (USD).
+        # current_job_cost resets at the start of each new job submission.
+        # session_total_cost accumulates for the lifetime of the App instance.
         self.current_job_cost: float = 0.0
         self.session_total_cost: float = 0.0
 

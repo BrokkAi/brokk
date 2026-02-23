@@ -113,7 +113,7 @@ class StatusLine(Horizontal):
         ]
 
         if self._turn_cost is not None and self._turn_cost > 0:
-            parts.append(f"${self._turn_cost:.3f} this turn")
+            parts.append(f"${self._turn_cost:.3f} turn")
         if self._session_cost is not None and self._session_cost > 0:
             parts.append(f"${self._session_cost:.3f} session")
 

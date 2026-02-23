@@ -174,12 +174,12 @@ def test_status_line_cost_rendering():
 
     # Case 2: Only turn cost
     status.update_status(turn_cost=0.0123)
-    expected_turn_only = "LUTZ • gpt-4 (high) • /work • main • $0.012 this turn"
+    expected_turn_only = "LUTZ • gpt-4 (high) • /work • main • $0.012 turn"
     mock_metadata.update.assert_called_with(expected_turn_only)
 
     # Case 3: Both turn and session cost
     status.update_status(session_cost=0.4567)
-    expected_both = "LUTZ • gpt-4 (high) • /work • main • $0.012 this turn • $0.457 session"
+    expected_both = "LUTZ • gpt-4 (high) • /work • main • $0.012 turn • $0.457 session"
     mock_metadata.update.assert_called_with(expected_both)
 
     # Case 4: Fragment hover takes precedence over cost
