@@ -41,6 +41,7 @@ class Settings:
     last_reasoning_level: Optional[str] = None
     last_code_reasoning_level: Optional[str] = None
     last_auto_commit: Optional[bool] = None
+    brokk_api_key: Optional[str] = None
 
     @classmethod
     def load(cls) -> "Settings":

@@ -16,6 +16,7 @@ def test_settings_default_load(tmp_path, monkeypatch):
     assert settings.last_reasoning_level is None
     assert settings.last_code_reasoning_level is None
     assert settings.last_auto_commit is None
+    assert settings.brokk_api_key is None
 
 
 def test_settings_prompt_history_persistence(tmp_path, monkeypatch):
@@ -103,6 +104,16 @@ def test_settings_models_roundtrip(tmp_path, monkeypatch):
     assert loaded.last_auto_commit is False
 
 
+def test_settings_api_key_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    settings = Settings(brokk_api_key="sk-test-key-123")
+    settings.save()
+
+    loaded = Settings.load()
+    assert loaded.brokk_api_key == "sk-test-key-123"
+
+
 def test_settings_load_from_older_json_without_new_keys(tmp_path, monkeypatch):
     """
     Simulate an older settings.json that only contains legacy keys
@@ -124,6 +135,7 @@ def test_settings_load_from_older_json_without_new_keys(tmp_path, monkeypatch):
     assert loaded.last_reasoning_level is None
     assert loaded.last_code_reasoning_level is None
     assert loaded.last_auto_commit is None
+    assert loaded.brokk_api_key is None
 
 
 def test_app_initializes_with_defaults_when_settings_empty(tmp_path, monkeypatch):
