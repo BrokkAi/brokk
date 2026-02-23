@@ -679,6 +679,45 @@ public class SettingsProjectBuildPanel extends JPanel {
                     publish("--- Skipping empty Test All Command ---\n\n");
                 }
 
+                // Step 3: Verify Modules
+                if (!modulesList.isEmpty()) {
+                    for (var module : modulesList) {
+                        publish("--- Verifying Module: [" + module.alias() + "] ---\n");
+
+                        // Verify Module Build/Lint
+                        String mBuild = module.buildLintCommand().trim();
+                        if (!mBuild.isEmpty()) {
+                            publish("Verifying Build/Lint: $ " + mBuild + "\n");
+                            var result = BuildVerifier.verifyStreaming(
+                                    project, mBuild, envVars, line -> publish(line + "\n"));
+                            if (result.success()) {
+                                publish("SUCCESS: Build/Lint for module [" + module.alias() + "] passed.\n");
+                            } else {
+                                publish("\nERROR: Build/Lint failed for module [" + module.alias() + "].\n");
+                                publish(result.output() + "\n");
+                                return "Build/Lint command failed for module " + module.alias() + ".";
+                            }
+                        }
+
+                        // Verify Module Test All
+                        String mTest = module.testAllCommand().trim();
+                        if (!mTest.isEmpty()) {
+                            publish("Verifying Test All: $ " + mTest + "\n");
+                            var result = BuildVerifier.verifyStreaming(
+                                    project, mTest, envVars, line -> publish(line + "\n"));
+                            if (result.success()) {
+                                publish("SUCCESS: Test All for module [" + module.alias() + "] passed.\n\n");
+                            } else {
+                                publish("\nERROR: Test All failed for module [" + module.alias() + "].\n");
+                                publish(result.output() + "\n");
+                                return "Test All command failed for module " + module.alias() + ".";
+                            }
+                        } else {
+                            publish("\n");
+                        }
+                    }
+                }
+
                 return "Verification successful!";
             }
 
