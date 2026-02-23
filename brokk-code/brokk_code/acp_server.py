@@ -625,10 +625,11 @@ class BrokkAcpBridge:
                     # Emit SVG bar if token info is present.
                     used_tokens_raw = context_data.get("usedTokens")
                     if used_tokens_raw is not None:
+                        used_tokens_local = int(used_tokens_raw or 0)
                         fragments = context_data.get("fragments", [])
                         bar_md = get_token_bar_markdown(
-                            used_tokens=used_tokens,
-                            max_tokens=max_tokens,
+                            used_tokens=used_tokens_local,
+                            max_tokens=int(max_tokens),
                             fragments=fragments if isinstance(fragments, list) else [],
                         )
                         if bar_md:
