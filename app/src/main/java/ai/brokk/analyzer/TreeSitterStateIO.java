@@ -560,9 +560,9 @@ public final class TreeSitterStateIO {
             var ranges = v.ranges() == null ? Collections.<IAnalyzer.Range>emptySet() : new LinkedHashSet<>(v.ranges());
 
             var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                    Collections.unmodifiableSet(new LinkedHashSet<>(children)),
-                    Collections.unmodifiableSet(new LinkedHashSet<>(signatures)),
-                    Collections.unmodifiableSet(new LinkedHashSet<>(ranges)),
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>(children)),
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>(signatures)),
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>(ranges)),
                     v.hasBody());
 
             cuState.put(fromDto(entry.key()), props);
@@ -583,7 +583,7 @@ public final class TreeSitterStateIO {
                     .toList();
 
             var fp = new TreeSitterAnalyzer.FileProperties(
-                    Collections.unmodifiableSet(new LinkedHashSet<>(topLevel)), imports, v.containsTests());
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>(topLevel)), imports, v.containsTests());
             fileStateMap.put(fromDto(entry.key()), fp);
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);

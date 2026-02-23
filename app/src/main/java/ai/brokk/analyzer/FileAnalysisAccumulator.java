@@ -218,9 +218,9 @@ public class FileAnalysisAccumulator {
             localStates.put(
                     cu,
                     new CodeUnitProperties(
-                            Collections.unmodifiableSet(new LinkedHashSet<>(kids)),
-                            Collections.unmodifiableSet(new LinkedHashSet<>(sigs)),
-                            Collections.unmodifiableSet(new LinkedHashSet<>(rngs)),
+                            Collections.unmodifiableSequencedSet(new LinkedHashSet<>(kids)),
+                            Collections.unmodifiableSequencedSet(new LinkedHashSet<>(sigs)),
+                            Collections.unmodifiableSequencedSet(new LinkedHashSet<>(rngs)),
                             hasBody.getOrDefault(cu, false)));
         }
         return localStates;

@@ -128,10 +128,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param importStatements  imports found on this file.
      */
     public record FileProperties(
-            Set<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
+            SequencedSet<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
 
         public static FileProperties empty() {
-            return new FileProperties(Set.of(), List.of(), false);
+            return new FileProperties(Collections.unmodifiableSequencedSet(new LinkedHashSet<>()), List.of(), false);
         }
     }
 
@@ -143,11 +143,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * definition anywhere marks the CodeUnit as having a body.
      */
     public record CodeUnitProperties(
-            Set<CodeUnit> children, Set<String> signatures, Set<Range> ranges, boolean hasBody) {
+            SequencedSet<CodeUnit> children,
+            SequencedSet<String> signatures,
+            SequencedSet<Range> ranges,
+            boolean hasBody) {
 
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(
-                    Collections.emptySet(), Collections.emptySet(), Collections.emptySet(), false);
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                    false);
         }
     }
 
@@ -3280,22 +3286,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     return new CodeUnitProperties(
                             newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
                 }
-                Set<CodeUnit> mergedKids = new LinkedHashSet<>(existing.children());
+                SequencedSet<CodeUnit> mergedKids = new LinkedHashSet<>(existing.children());
                 mergedKids.addAll(newState.children());
 
-                Set<String> mergedSigs = new LinkedHashSet<>(existing.signatures());
+                SequencedSet<String> mergedSigs = new LinkedHashSet<>(existing.signatures());
                 mergedSigs.addAll(newState.signatures());
 
-                Set<Range> mergedRanges = new LinkedHashSet<>(existing.ranges());
+                SequencedSet<Range> mergedRanges = new LinkedHashSet<>(existing.ranges());
                 mergedRanges.addAll(newState.ranges());
 
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
                 return new CodeUnitProperties(
-                        Collections.unmodifiableSet(mergedKids),
-                        Collections.unmodifiableSet(mergedSigs),
-                        Collections.unmodifiableSet(mergedRanges),
+                        Collections.unmodifiableSequencedSet(mergedKids),
+                        Collections.unmodifiableSequencedSet(mergedSigs),
+                        Collections.unmodifiableSequencedSet(mergedRanges),
                         mergedHasBody);
             });
 
@@ -3309,7 +3315,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         targetFileState.put(
                 pf,
                 new FileProperties(
-                        Collections.unmodifiableSet(new LinkedHashSet<>(analysisResult.topLevelCUs())),
+                        Collections.unmodifiableSequencedSet(new LinkedHashSet<>(analysisResult.topLevelCUs())),
                         analysisResult.importStatements(),
                         analysisResult.containsTests()));
 
@@ -3373,14 +3379,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // Filter children lists in remaining entries
         newCodeUnitState.replaceAll((cu, props) -> {
-            Set<CodeUnit> children = props.children();
-            Set<CodeUnit> filtered = children.stream()
+            SequencedSet<CodeUnit> children = props.children();
+            SequencedSet<CodeUnit> filtered = children.stream()
                     .filter(child -> !codeUnitsToRemove.contains(child))
                     .collect(Collectors.toCollection(LinkedHashSet::new));
             return (filtered.size() == children.size())
                     ? props
                     : new CodeUnitProperties(
-                            Collections.unmodifiableSet(filtered), props.signatures(), props.ranges(), props.hasBody());
+                            Collections.unmodifiableSequencedSet(filtered),
+                            props.signatures(),
+                            props.ranges(),
+                            props.hasBody());
         });
 
         // Filter symbol index
