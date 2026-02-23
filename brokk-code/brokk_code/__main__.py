@@ -188,7 +188,7 @@ def main():
     if last_id:
         zip_path = get_session_zip_path(workspace_path, last_id)
         if has_tasks(zip_path):
-            print(f"brokk-code resume {last_id}")
+            print(f"brokk resume {last_id}")
 
 
 if __name__ == "__main__":

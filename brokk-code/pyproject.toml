@@ -17,7 +17,7 @@ dev = [
 ]
 
 [project.scripts]
-brokk-code = "brokk_code.__main__:main"
+brokk = "brokk_code.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

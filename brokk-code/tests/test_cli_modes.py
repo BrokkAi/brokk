@@ -24,7 +24,7 @@ def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
         sys,
         "argv",
         [
-            "brokk-code",
+            "brokk",
             "--workspace",
             str(tmp_path),
             "--session",
@@ -55,7 +55,7 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
         sys,
         "argv",
         [
-            "brokk-code",
+            "brokk",
             "acp",
             "--workspace",
             str(tmp_path),
@@ -85,7 +85,7 @@ def test_main_acp_routes_to_server_with_ide(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
-        ["brokk-code", "acp", "--workspace", str(tmp_path), "--ide", "zed"],
+        ["brokk", "acp", "--workspace", str(tmp_path), "--ide", "zed"],
     )
 
     main_module.main()
@@ -98,7 +98,7 @@ def test_main_acp_rejects_extra_positional(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
-        ["brokk-code", "acp", "zed", "--workspace", str(tmp_path)],
+        ["brokk", "acp", "zed", "--workspace", str(tmp_path)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -115,7 +115,7 @@ def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         return tmp_path / ".config" / "zed" / "settings.json"
 
     monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
-    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "zed", "--force"])
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed", "--force"])
 
     main_module.main()
 
@@ -129,7 +129,7 @@ def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
     monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
-    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "zed"])
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
 
     with pytest.raises(SystemExit) as exc:
         main_module.main()
@@ -142,7 +142,7 @@ def test_main_install_zed_invalid_json_exits_nonzero(monkeypatch) -> None:
         raise ValueError("Could not parse as JSON/JSONC")
 
     monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
-    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "zed"])
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
 
     with pytest.raises(SystemExit) as exc:
         main_module.main()
@@ -160,7 +160,7 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(
         main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
     )
-    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "intellij", "--force"])
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "intellij", "--force"])
 
     main_module.main()
 
@@ -176,7 +176,7 @@ def test_main_install_intellij_conflict_exits_nonzero(monkeypatch) -> None:
     monkeypatch.setattr(
         main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
     )
-    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "intellij"])
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "intellij"])
 
     with pytest.raises(SystemExit) as exc:
         main_module.main()
@@ -191,7 +191,7 @@ def test_main_install_intellij_invalid_json_exits_nonzero(monkeypatch) -> None:
     monkeypatch.setattr(
         main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
     )
-    monkeypatch.setattr(sys, "argv", ["brokk-code", "install", "intellij"])
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "intellij"])
 
     with pytest.raises(SystemExit) as exc:
         main_module.main()
@@ -220,7 +220,7 @@ def test_main_uses_git_repo_root_for_nested_workspace(monkeypatch, tmp_path) -> 
         sys,
         "argv",
         [
-            "brokk-code",
+            "brokk",
             "--workspace",
             str(nested_workspace),
         ],
@@ -251,7 +251,7 @@ def test_main_keeps_workspace_when_not_in_git_repo(monkeypatch, tmp_path) -> Non
         sys,
         "argv",
         [
-            "brokk-code",
+            "brokk",
             "--workspace",
             str(nested_workspace),
         ],
@@ -280,7 +280,7 @@ def test_main_resume_routes_correctly(monkeypatch, tmp_path) -> None:
         sys,
         "argv",
         [
-            "brokk-code",
+            "brokk",
             "resume",
             "session-xyz",
             "--workspace",

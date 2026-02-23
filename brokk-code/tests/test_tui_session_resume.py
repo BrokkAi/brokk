@@ -173,13 +173,13 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
         patch("brokk_code.app.BrokkApp.run", return_value=None),
         patch(
             "sys.argv",
-            ["brokk-code", "--workspace", str(workspace)],
+            ["brokk", "--workspace", str(workspace)],
         ),
     ):
         main()
 
     captured = capsys.readouterr()
-    expected_hint = f"brokk-code resume {session_id}"
+    expected_hint = f"brokk resume {session_id}"
     assert expected_hint in captured.out
 
 
@@ -206,10 +206,10 @@ def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
         patch("brokk_code.app.BrokkApp.run", return_value=None),
         patch(
             "sys.argv",
-            ["brokk-code", "--workspace", str(workspace)],
+            ["brokk", "--workspace", str(workspace)],
         ),
     ):
         main()
 
     captured = capsys.readouterr()
-    assert "brokk-code resume" not in captured.out
+    assert "brokk resume" not in captured.out

@@ -15,6 +15,7 @@ from textual.widgets import Input, ListItem, ListView, Static
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
+from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.status_line import StatusLine
@@ -436,6 +437,14 @@ class BrokkApp(App):
         except (ScreenStackError, Exception):
             return None
 
+    def _show_welcome_message(self) -> None:
+        """Constructs and displays the branded welcome message in the ChatPanel."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        chat.add_welcome(get_braille_icon(), build_welcome_message(self.get_slash_commands()))
+
     def _maybe_statusline(self) -> Optional[StatusLine]:
         """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
         try:
@@ -490,11 +499,13 @@ class BrokkApp(App):
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
             chat.set_token_bar_visible(True)
-            chat.add_system_message("Starting Brokk executor...")
 
             # Load initial prompt history for arrow-key navigation
             history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
+
+            self._show_welcome_message()
+            chat.add_system_message("Starting Brokk executor...")
 
         self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
@@ -558,11 +569,6 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
-                msg = "Executor ready."
-                if chat:
-                    chat.add_system_message(msg)
-                else:
-                    logger.info(msg)
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
             else:
