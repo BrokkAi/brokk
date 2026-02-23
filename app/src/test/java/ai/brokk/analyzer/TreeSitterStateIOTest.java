@@ -188,9 +188,9 @@ public class TreeSitterStateIOTest {
 
         var props = new TreeSitterAnalyzer.CodeUnitProperties(
                 Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
-                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(Set.of("public class Test"))),
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(List.of("public class Test"))),
                 Collections.unmodifiableSequencedSet(
-                        new LinkedHashSet<>(Set.of(new IAnalyzer.Range(0, 100, 0, 10, 0)))),
+                        new LinkedHashSet<>(List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)))),
                 true);
 
         var stateMap = Map.of(cu, props);

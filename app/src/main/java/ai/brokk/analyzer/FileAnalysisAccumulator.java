@@ -192,16 +192,28 @@ public class FileAnalysisAccumulator {
         return hasBody.getOrDefault(cu, defaultValue);
     }
 
+    /**
+     * Returns a view of the children for the given CodeUnit.
+     */
     public List<CodeUnit> getChildren(CodeUnit cu) {
-        return new ArrayList<>(children.getOrDefault(cu, Set.of()));
+        Set<CodeUnit> kids = children.get(cu);
+        return kids == null ? List.of() : List.copyOf(kids);
     }
 
+    /**
+     * Returns a view of the signatures for the given CodeUnit.
+     */
     public List<String> getSignatures(CodeUnit cu) {
-        return new ArrayList<>(signatures.getOrDefault(cu, Set.of()));
+        Set<String> sigs = signatures.get(cu);
+        return sigs == null ? List.of() : List.copyOf(sigs);
     }
 
+    /**
+     * Returns a view of the ranges for the given CodeUnit.
+     */
     public List<Range> getRanges(CodeUnit cu) {
-        return new ArrayList<>(sourceRanges.getOrDefault(cu, Set.of()));
+        Set<Range> ranges = sourceRanges.get(cu);
+        return ranges == null ? List.of() : List.copyOf(ranges);
     }
 
     public List<String> getLookupKeys(CodeUnit cu) {
@@ -225,9 +237,9 @@ public class FileAnalysisAccumulator {
         unionKeys.addAll(signatures.keySet());
         unionKeys.addAll(sourceRanges.keySet());
         for (var cu : unionKeys) {
-            var kids = children.getOrDefault(cu, Set.of());
-            var sigs = signatures.getOrDefault(cu, Set.of());
-            var rngs = sourceRanges.getOrDefault(cu, Set.of());
+            var kids = children.getOrDefault(cu, Collections.emptySet());
+            var sigs = signatures.getOrDefault(cu, Collections.emptySet());
+            var rngs = sourceRanges.getOrDefault(cu, Collections.emptySet());
             localStates.put(
                     cu,
                     new CodeUnitProperties(

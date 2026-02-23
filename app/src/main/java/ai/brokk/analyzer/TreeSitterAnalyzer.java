@@ -128,7 +128,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param importStatements  imports found on this file.
      */
     public record FileProperties(
-            SequencedSet<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
+            SequencedSet<CodeUnit> topLevelCodeUnits,
+            List<ImportInfo> importStatements,
+            boolean containsTests,
+            List<CodeUnit> topLevelList) {
+
+        public FileProperties(
+                SequencedSet<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
+            this(topLevelCodeUnits, importStatements, containsTests, List.copyOf(topLevelCodeUnits));
+        }
 
         public static FileProperties empty() {
             return new FileProperties(Collections.unmodifiableSequencedSet(new LinkedHashSet<>()), List.of(), false);
@@ -146,7 +154,25 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SequencedSet<CodeUnit> children,
             SequencedSet<String> signatures,
             SequencedSet<Range> ranges,
-            boolean hasBody) {
+            boolean hasBody,
+            List<CodeUnit> childrenList,
+            List<String> signaturesList,
+            List<Range> rangesList) {
+
+        public CodeUnitProperties(
+                SequencedSet<CodeUnit> children,
+                SequencedSet<String> signatures,
+                SequencedSet<Range> ranges,
+                boolean hasBody) {
+            this(
+                    children,
+                    signatures,
+                    ranges,
+                    hasBody,
+                    List.copyOf(children),
+                    List.copyOf(signatures),
+                    List.copyOf(ranges));
+        }
 
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(
@@ -592,15 +618,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected List<CodeUnit> childrenOf(CodeUnit codeUnit) {
-        return new ArrayList<>(codeUnitProperties(codeUnit).children());
+        return codeUnitProperties(codeUnit).childrenList();
     }
 
     protected List<String> signaturesOf(CodeUnit codeUnit) {
-        return new ArrayList<>(codeUnitProperties(codeUnit).signatures());
+        return codeUnitProperties(codeUnit).signaturesList();
     }
 
     protected List<Range> rangesOf(CodeUnit codeUnit) {
-        return new ArrayList<>(codeUnitProperties(codeUnit).ranges());
+        return codeUnitProperties(codeUnit).rangesList();
     }
 
     protected List<CodeUnit> supertypesOf(CodeUnit codeUnit) {
@@ -629,7 +655,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-        return List.copyOf(fileProperties(file).topLevelCodeUnits());
+        return fileProperties(file).topLevelList();
     }
 
     @Override
