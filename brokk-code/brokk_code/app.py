@@ -98,6 +98,31 @@ class TaskTitleModalScreen(ModalScreen[Optional[str]]):
         self.dismiss(value if value else None)
 
 
+class BrokkApiKeyModalScreen(ModalScreen[str]):
+    """Modal to prompt for the Brokk API key."""
+
+    def __init__(self, message: str = "Enter Brokk API Key") -> None:
+        super().__init__()
+        self._message = message
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="api-key-modal-container"):
+            yield Static(self._message, id="api-key-modal-title")
+            yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
+
+    def on_mount(self) -> None:
+        self.query_one("#api-key-input", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = str(event.value or "").strip()
+        if not value:
+            self.query_one("#api-key-modal-title", Static).update(
+                "[bold red]API Key is required[/]"
+            )
+            return
+        self.dismiss(value)
+
+
 class ModelSelectModal(ModalScreen[str]):
     """A modal for selecting from available models."""
 
@@ -498,9 +523,25 @@ class BrokkApp(App):
             chat.set_history(history)
 
             self._show_welcome_message()
-            chat.add_system_message("Starting Brokk executor...")
 
-        self.run_worker(self._start_executor())
+        # Check for API key before starting executor
+        if not self.settings.get_brokk_api_key():
+            if chat:
+                chat.add_system_message("Brokk API key missing. Please enter it to continue.")
+
+            def on_key_entered(key: str) -> None:
+                self.settings.brokk_api_key = key
+                self.settings.save()
+                self.executor.brokk_api_key = key
+                if chat:
+                    chat.add_system_message("API key saved. Starting Brokk executor...")
+                self.run_worker(self._start_executor())
+
+            self.push_screen(BrokkApiKeyModalScreen(), on_key_entered)
+        else:
+            if chat:
+                chat.add_system_message("Starting Brokk executor...")
+            self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
         self.run_worker(self._poll_tasklist())
         self.run_worker(self._poll_context())

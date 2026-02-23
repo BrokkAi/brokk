@@ -76,7 +76,12 @@ class Settings:
         env_key = os.getenv("BROKK_API_KEY")
         if env_key and env_key.strip():
             return env_key.strip()
-        return self.brokk_api_key
+
+        # Ensure we return None if the persisted key is just whitespace
+        if self.brokk_api_key and self.brokk_api_key.strip():
+            return self.brokk_api_key.strip()
+
+        return None
 
     def save(self) -> None:
         """Saves current settings to disk atomically."""
