@@ -183,11 +183,13 @@ function _populateModelDropdown(select, modelInfos, favorites, isPrimary) {
   dropdown.innerHTML = "";
 
   if (!isPrimary) {
-    const sameOpt = document.createElement("div");
-    sameOpt.className = "custom-select-option selected";
-    sameOpt.dataset.value = "";
-    sameOpt.innerHTML = `<span class="option-label">(same as primary)</span>`;
-    dropdown.appendChild(sameOpt);
+    const defaultCode = "gemini-3-flash-preview";
+    const defaultOpt = document.createElement("div");
+    defaultOpt.className = "custom-select-option selected";
+    defaultOpt.dataset.value = defaultCode;
+    defaultOpt.innerHTML = `<span class="option-label">${defaultCode}</span>`;
+    dropdown.appendChild(defaultOpt);
+    select.valueEl.textContent = defaultCode;
   }
 
   // Favorites
@@ -261,12 +263,21 @@ function _populateModelDropdown(select, modelInfos, favorites, isPrimary) {
     if (favorites.length > 0) {
       select.valueEl.textContent = favorites[0].alias;
       select.reasoning = favorites[0].reasoning;
-    } else if (modelInfos.length > 0) {
-      toggleCheckbox.checked = true;
-      allModelsContainer.classList.remove("hidden");
-      const firstAll = allModelsContainer.querySelector(".custom-select-option");
-      if (firstAll) firstAll.classList.add("selected");
-      select.valueEl.textContent = modelInfos[0].name;
+    } else {
+      const defaultPlanner = "claude-opus-4-6";
+      const match = allModelsContainer.querySelector(`.custom-select-option[data-value="${defaultPlanner}"]`);
+      if (match) {
+        match.classList.add("selected");
+        toggleCheckbox.checked = true;
+        allModelsContainer.classList.remove("hidden");
+        select.valueEl.textContent = defaultPlanner;
+      } else if (modelInfos.length > 0) {
+        toggleCheckbox.checked = true;
+        allModelsContainer.classList.remove("hidden");
+        const firstAll = allModelsContainer.querySelector(".custom-select-option");
+        if (firstAll) firstAll.classList.add("selected");
+        select.valueEl.textContent = modelInfos[0].name;
+      }
       select.reasoning = "DEFAULT";
     }
   } else {

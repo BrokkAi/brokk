@@ -230,10 +230,17 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
   const authToken = randomUUID();
   const execId = randomUUID();
 
+  const version = "0.23.0.beta2";
+  const jarUrl = `https://github.com/BrokkAi/brokk-releases/releases/download/${version}/brokk-${version}.jar`;
+
   const child = spawn(
     jbang,
     [
-      "brokk-headless@brokkai/brokk-releases",
+      "--java", "21",
+      "-R", "--enable-native-access=ALL-UNNAMED",
+      "-R", "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
+      "--main", "ai.brokk.executor.HeadlessExecutorMain",
+      jarUrl,
       "--listen-addr",
       "127.0.0.1:0",
       "--auth-token",
@@ -261,7 +268,7 @@ function waitForPort(child: ChildProcess): Promise<number> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error("Timed out waiting for executor to report its port"));
-    }, 60_000);
+    }, 120_000);
 
     if (!child.stdout) {
       clearTimeout(timeout);

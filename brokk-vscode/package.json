@@ -2,7 +2,7 @@
   "name": "vscode-brokk",
   "displayName": "Brokk",
   "description": "Context management and AI chat for Brokk",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "publisher": "brokk",
   "icon": "icon.png",
   "homepage": "https://brokk.ai",
@@ -51,7 +51,7 @@
         },
         "brokk.launchMode": {
           "type": "string",
-          "default": "auto",
+          "default": "jbang",
           "enum": [
             "auto",
             "jbang",

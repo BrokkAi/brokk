@@ -58,6 +58,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
             <button id="settings-toggle-key" class="settings-toggle-btn" title="Show/hide key">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3C4.5 3 1.7 5.1 0.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5c-1.2-2.9-4-5-7.5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5S6.1 4.5 8 4.5s3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5zm0-5.5c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
             </button>
+            <button id="settings-clear-key" class="settings-toggle-btn" title="Clear key" style="display:none">&times;</button>
           </div>
           <div id="settings-key-hint" class="settings-hint">
             Don't have an account? <a href="https://brokk.ai/signup?utm_source=vscode">Sign up</a>
@@ -150,11 +151,11 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
         <div class="custom-select" id="code-select">
           <button class="custom-select-trigger">
             <span class="custom-select-label">Code</span>
-            <span class="custom-select-value" id="code-value">(same as primary)</span>
+            <span class="custom-select-value" id="code-value">gemini-3-flash-preview</span>
             <svg class="custom-select-chevron" width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M0 2l4 4 4-4z"/></svg>
           </button>
           <div class="custom-select-dropdown hidden">
-            <div class="custom-select-option selected" data-value=""><span class="option-label">(same as primary)</span></div>
+            <div class="custom-select-option selected" data-value="gemini-3-flash-preview"><span class="option-label">gemini-3-flash-preview</span></div>
           </div>
         </div>
       </div>
