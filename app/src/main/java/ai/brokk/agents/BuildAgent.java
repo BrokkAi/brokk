@@ -456,8 +456,43 @@ public class BuildAgent {
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects six parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, excludedFilePatterns, and modules.
 
-                If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, etc.), you MUST identify each module and provide its details in the `modules` list.
-                Root commands (the top-level parameters) should represent repo-level actions, while module-specific commands should be relative to the module's directory.
+                If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, Node.js workspaces, etc.), you MUST identify each module and provide its details in the `modules` list.
+                Root commands (the top-level parameters) should represent repo-level actions.
+                Module-specific commands must be executable from the project root (e.g., using flags like `-pl`, `-w`, or `cd`).
+
+                For monolithic repositories or single-module projects, you may report a single module with `relativePath: "."` and provide the relevant `testSomeCommand` in that module entry.
+
+                **Modules JSON Examples:**
+
+                **Maven (Nested Modules):**
+                ```json
+                "modules": [
+                  { "alias": "core", "relativePath": "core", "buildLintCommand": "mvn compile -pl core", "testAllCommand": "mvn test -pl core", "testSomeCommand": "mvn test -pl core -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" },
+                  { "alias": "api", "relativePath": "api", "buildLintCommand": "mvn compile -pl api", "testAllCommand": "mvn test -pl api", "testSomeCommand": "mvn test -pl api -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" }
+                ]
+                ```
+
+                **Gradle (Subprojects):**
+                ```json
+                "modules": [
+                  { "alias": "app", "relativePath": "app", "buildLintCommand": "./gradlew :app:classes", "testAllCommand": "./gradlew :app:test", "testSomeCommand": "./gradlew :app:test {{#classes}}--tests {{value}}{{/classes}}" },
+                  { "alias": "lib", "relativePath": "lib", "buildLintCommand": "./gradlew :lib:classes", "testAllCommand": "./gradlew :lib:test", "testSomeCommand": "./gradlew :lib:test {{#classes}}--tests {{value}}{{/classes}}" }
+                ]
+                ```
+
+                **Python (Poetry Monorepo / Sub-packages):**
+                ```json
+                "modules": [
+                  { "alias": "service-a", "relativePath": "services/a", "buildLintCommand": "cd services/a && poetry run mypy .", "testAllCommand": "cd services/a && poetry run pytest", "testSomeCommand": "cd services/a && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                ]
+                ```
+
+                **Node.js (Workspaces):**
+                ```json
+                "modules": [
+                  { "alias": "web", "relativePath": "packages/web", "buildLintCommand": "npm run build -w web", "testAllCommand": "npm test -w web", "testSomeCommand": "npm test -w web -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                ]
+                ```
                 """
                         .formatted(
                                 wrapperScriptInstruction,
