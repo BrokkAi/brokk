@@ -119,6 +119,7 @@ class ExecutorManager:
         executor_snapshot: bool = True,
         vendor: Optional[str] = None,
         exit_on_stdin_eof: bool = False,
+        brokk_api_key: Optional[str] = None,
     ):
         self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
         self.jar_override = jar_path
@@ -126,6 +127,7 @@ class ExecutorManager:
         self.use_snapshot = executor_snapshot
         self.vendor = vendor
         self.exit_on_stdin_eof = exit_on_stdin_eof
+        self.brokk_api_key = brokk_api_key
         self.auth_token = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
@@ -151,6 +153,8 @@ class ExecutorManager:
         ]
         if self.vendor is not None and str(self.vendor).strip():
             args.extend(["--vendor", str(self.vendor).strip()])
+        if self.brokk_api_key is not None and str(self.brokk_api_key).strip():
+            args.extend(["--brokk-api-key", str(self.brokk_api_key).strip()])
         if self.exit_on_stdin_eof:
             args.append("--exit-on-stdin-eof")
         return args
@@ -172,18 +176,18 @@ class ExecutorManager:
         """Returns the command for launching via jbang, installing if necessary."""
         jbang_bin = resolve_jbang_binary()
         if not jbang_bin:
-            jbang_bin = install_jbang()
+            jbang_bin = await asyncio.to_thread(install_jbang)
 
         version = self.executor_version or BUNDLED_EXECUTOR_VERSION
         jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
         cmd = [
             jbang_bin,
+            "--java",
+            "21",
             "-R",
             "-Djava.awt.headless=true "
             + "-Dapple.awt.UIElement=true "
             + "--enable-native-access=ALL-UNNAMED",
-            "--java",
-            "21",
             "--main",
             _EXECUTOR_MAIN_CLASS,
             jar_url,

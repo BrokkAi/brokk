@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Optional
 from urllib.parse import urlparse
 
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.settings import Settings
 from brokk_code.token_format import format_token_count
 from brokk_code.widgets.token_bar import get_token_bar_markdown
 
@@ -845,6 +846,7 @@ async def run_acp_server(
     # closed by the IDE (for example, when IntelliJ terminates/restarts the run profile).
     # This stdin-based parent-death signal prevents orphaned Java executor processes in
     # cases where Python's finally blocks may not run (e.g., abrupt IDE lifecycle events).
+    settings = Settings.load()
     executor = ExecutorManager(
         workspace_dir=workspace_dir,
         jar_path=jar_path,
@@ -852,6 +854,7 @@ async def run_acp_server(
         executor_snapshot=executor_snapshot,
         vendor=vendor,
         exit_on_stdin_eof=ide_profile == "intellij",
+        brokk_api_key=settings.get_brokk_api_key(),
     )
     bridge = BrokkAcpBridge(executor)
 

@@ -14,7 +14,12 @@ from textual.widgets import Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
-from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
+from brokk_code.settings import (
+    DEFAULT_THEME,
+    Settings,
+    normalize_theme_name,
+    write_brokk_api_key,
+)
 from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
@@ -96,6 +101,91 @@ class TaskTitleModalScreen(ModalScreen[Optional[str]]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = str(event.value or "").strip()
         self.dismiss(value if value else None)
+
+
+class BrokkApiKeyModalScreen(ModalScreen[None]):
+    """Modal to prompt for the Brokk API key."""
+
+    BINDINGS = [
+        Binding("ctrl+c", "quit_prompt", "Quit", show=False),
+        Binding("ctrl+d", "quit_prompt", "Quit", show=False),
+    ]
+
+    def __init__(
+        self,
+        on_submit: Callable[[str], asyncio.Future[bool] | Any],
+        message: str = "Enter Brokk API Key",
+        is_update: bool = False,
+    ) -> None:
+        super().__init__()
+        self._on_submit = on_submit
+        self._message = message
+        self._is_update = is_update
+
+    def compose(self) -> ComposeResult:
+        from textual.widgets import LoadingIndicator, Markdown
+
+        with Vertical(id="api-key-modal-container"):
+            with VerticalScroll(id="api-key-modal-scroll"):
+                yield Static(get_braille_icon(), id="api-key-modal-icon")
+                yield Markdown(
+                    build_welcome_message(BrokkApp.get_slash_commands()),
+                    id="api-key-modal-welcome",
+                )
+            yield Static(self._message, id="api-key-modal-title")
+            yield LoadingIndicator(id="api-key-modal-spinner", classes="hidden")
+            yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
+            footer_text = "Press Ctrl+C or Ctrl+D to exit."
+            if self._is_update:
+                footer_text += (
+                    "\n[dim]Note: API key updates will apply to " + "the next executor restart.[/]"
+                )
+            yield Static(footer_text, id="api-key-modal-footer")
+
+    def on_mount(self) -> None:
+        self.query_one("#api-key-input", Input).focus()
+
+    async def action_quit_prompt(self) -> None:
+        await self.app.action_quit()
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = str(event.value or "").strip()
+        if not value:
+            self.query_one("#api-key-modal-title", Static).update(
+                "[bold red]API Key is required[/]"
+            )
+            return
+
+        # Show spinner and disable input while processing
+        spinner = self.query_one("#api-key-modal-spinner")
+        title = self.query_one("#api-key-modal-title", Static)
+        spinner.remove_class("hidden")
+        event.input.disabled = True
+        if self._is_update:
+            title.update("Saving key...")
+        else:
+            title.update("Starting Brokk… (first run may take a moment)")
+
+        try:
+            res = self._on_submit(value)
+            if asyncio.iscoroutine(res):
+                success = await res
+            else:
+                success = bool(res)
+
+            if success:
+                self.dismiss(None)
+            else:
+                spinner.add_class("hidden")
+                title.update("[bold red]Failed to save API key[/]")
+                event.input.disabled = False
+                event.input.focus()
+        except Exception as e:
+            logger.exception("API key submission failed")
+            spinner.add_class("hidden")
+            title.update(f"[bold red]{str(e)}[/]")
+            event.input.disabled = False
+            event.input.focus()
 
 
 class ModelSelectModal(ModalScreen[str]):
@@ -343,6 +433,7 @@ class BrokkApp(App):
         vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
+        self.settings = Settings.load()
         if executor:
             self.executor = executor
             if workspace_dir:
@@ -356,10 +447,10 @@ class BrokkApp(App):
                 executor_version=executor_version,
                 executor_snapshot=executor_snapshot,
                 vendor=vendor,
+                brokk_api_key=self.settings.get_brokk_api_key(),
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
-        self.settings = Settings.load()
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
 
@@ -402,6 +493,7 @@ class BrokkApp(App):
         self._pending_min_wait_until: float = 0.0
         self._resubmit_grace_s: float = 0.2
         self._last_ctrl_c_time: float = 0
+        self._executor_started: bool = False
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
@@ -497,9 +589,27 @@ class BrokkApp(App):
             chat.set_history(history)
 
             self._show_welcome_message()
-            chat.add_system_message("Starting Brokk executor...")
 
-        self.run_worker(self._start_executor())
+        # Check for API key before starting executor
+        if not self.settings.get_brokk_api_key():
+
+            async def on_key_entered(key: str) -> bool:
+                try:
+                    await asyncio.to_thread(write_brokk_api_key, key)
+                    self.executor.brokk_api_key = key
+                    if chat:
+                        chat.add_system_message("API key saved. Starting Brokk executor...")
+                    self.run_worker(self._start_executor())
+                    return True
+                except Exception as e:
+                    logger.exception("Failed to save API key on startup")
+                    raise e
+
+            self.push_screen(BrokkApiKeyModalScreen(on_submit=on_key_entered))
+        else:
+            if chat:
+                chat.add_system_message("Starting Brokk executor...")
+            self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
         self.run_worker(self._poll_tasklist())
         self.run_worker(self._poll_context())
@@ -507,6 +617,8 @@ class BrokkApp(App):
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
         try:
             from brokk_code.session_persistence import (
                 get_session_zip_path,
@@ -515,6 +627,8 @@ class BrokkApp(App):
             )
 
             await self.executor.start()
+            # Mark as started only after successful launch so monitor begins checks
+            self._executor_started = True
 
             # Fetch and display effective build hint immediately
             try:
@@ -586,11 +700,22 @@ class BrokkApp(App):
                 chat.add_system_message(msg, level="ERROR")
             else:
                 logger.error(msg)
+        finally:
+            if chat:
+                chat.set_job_running(False)
 
     async def _monitor_executor(self) -> None:
         """Background worker to check if the executor dies unexpectedly."""
         while True:
+            if not self._executor_started:
+                await asyncio.sleep(0.5)
+                continue
+
             await asyncio.sleep(2.0)
+            # Re-check started flag in case of rapid stop during sleep
+            if not self._executor_started:
+                continue
+
             if not self.executor.check_alive():
                 msg = "Executor process crashed unexpectedly."
                 chat = self._maybe_chat()
@@ -1317,6 +1442,7 @@ class BrokkApp(App):
     def get_slash_commands() -> List[Dict[str, str]]:
         """Returns the structured catalog of supported slash commands."""
         return [
+            {"command": "/api-key", "description": "Update your Brokk API key"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
@@ -1468,6 +1594,24 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+        elif base == "/api-key":
+
+            async def on_key_entered(key: str) -> bool:
+                try:
+                    await asyncio.to_thread(write_brokk_api_key, key)
+                    self.executor.brokk_api_key = key
+                    chat.add_system_message(
+                        "API key updated. New key will be used on the next executor launch."
+                    )
+                    return True
+                except Exception as e:
+                    logger.error("Failed to update API key: %s", e)
+                    chat.add_system_message(f"Failed to update API key: {e}", level="ERROR")
+                    raise
+
+            self.push_screen(
+                BrokkApiKeyModalScreen(on_key_entered, "Update Brokk API Key", is_update=True)
+            )
         elif base == "/context":
             self.action_toggle_context()
         elif base == "/task":
