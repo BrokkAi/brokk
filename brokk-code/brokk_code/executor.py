@@ -179,7 +179,9 @@ class ExecutorManager:
         cmd = [
             jbang_bin,
             "-R",
-            "-Djava.awt.headless=true -Dapple.awt.UIElement=true --enable-native-access=ALL-UNNAMED",
+            "-Djava.awt.headless=true "
+            + "-Dapple.awt.UIElement=true "
+            + "--enable-native-access=ALL-UNNAMED",
             "--java",
             "21",
             "--main",
