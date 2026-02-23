@@ -39,6 +39,8 @@ class StatusLine(Horizontal):
         self._reasoning = "unknown"
         self._workspace = "unknown"
         self._branch = "unknown"
+        self._turn_cost: Optional[float] = None
+        self._session_cost: Optional[float] = None
         self._fragment_description: Optional[str] = None
         self._fragment_size: Optional[int] = None
         self._metadata: Optional[Static] = None
@@ -103,14 +105,20 @@ class StatusLine(Horizontal):
     def _render_status_text(self) -> None:
         # Compact format: {mode} • {model} ({reasoning}) • {workspace} • {branch}
         workspace_display = self._get_display_workspace(self._workspace)
-        text = self.SEPARATOR.join(
-            [
-                self._mode,
-                f"{self._model} ({self._reasoning})",
-                workspace_display,
-                self._branch,
-            ]
-        )
+        parts = [
+            self._mode,
+            f"{self._model} ({self._reasoning})",
+            workspace_display,
+            self._branch,
+        ]
+
+        if self._turn_cost is not None and self._turn_cost > 0:
+            parts.append(f"${self._turn_cost:.3f} this turn")
+        if self._session_cost is not None and self._session_cost > 0:
+            parts.append(f"${self._session_cost:.3f} session")
+
+        text = self.SEPARATOR.join(parts)
+
         if self._fragment_description is not None and self._fragment_size is not None:
             size_text = format_token_count(self._fragment_size)
             # Label-free fragment: {description} ({tokens} tokens)
@@ -134,6 +142,8 @@ class StatusLine(Horizontal):
         reasoning: Optional[str] = None,
         workspace: Optional[str] = None,
         branch: Optional[str] = None,
+        turn_cost: Optional[float] = None,
+        session_cost: Optional[float] = None,
     ) -> None:
         """Update the metadata text segment. Only non-None values are updated."""
         if mode is not None:
@@ -146,6 +156,10 @@ class StatusLine(Horizontal):
             self._workspace = str(workspace)
         if branch is not None:
             self._branch = str(branch)
+        if turn_cost is not None:
+            self._turn_cost = turn_cost
+        if session_cost is not None:
+            self._session_cost = session_cost
         self._render_status_text()
 
     def set_fragment_info(self, description: Optional[str], size: Optional[int]) -> None:

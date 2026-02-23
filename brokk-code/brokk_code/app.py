@@ -470,6 +470,8 @@ class BrokkApp(App):
                 reasoning=getattr(self, "reasoning_level", None),
                 workspace=workspace,
                 branch=getattr(self, "current_branch", "unknown"),
+                turn_cost=getattr(self, "current_job_cost", None),
+                session_cost=getattr(self, "session_total_cost", None),
             )
         except Exception:
             # Swallow all errors when updating UI that's possibly not mounted in tests.
