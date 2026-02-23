@@ -820,8 +820,8 @@ public class BuildAgent {
             if (excludedDirectories != null) {
                 patterns.addAll(excludedDirectories);
             }
-            List<ModuleBuildEntry> finalModules = modules;
-            if (finalModules == null || finalModules.isEmpty()) {
+            List<ModuleBuildEntry> finalModules;
+            if (modules == null || modules.isEmpty()) {
                 finalModules = new ArrayList<>();
                 boolean hasRootCommands = (buildLintCommand != null && !buildLintCommand.isBlank())
                         || (testAllCommand != null && !testAllCommand.isBlank())
@@ -834,6 +834,8 @@ public class BuildAgent {
                             testAllCommand != null ? testAllCommand : "",
                             testSomeCommand != null ? testSomeCommand : ""));
                 }
+            } else {
+                finalModules = modules;
             }
 
             return new BuildDetails(
