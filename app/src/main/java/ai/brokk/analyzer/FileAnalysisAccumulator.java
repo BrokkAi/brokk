@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -16,10 +18,10 @@ import org.jetbrains.annotations.Nullable;
  * Mutable accumulator for per-file analysis state.
  */
 public class FileAnalysisAccumulator {
-    private final List<CodeUnit> topLevelCUs = new ArrayList<>();
-    private final Map<CodeUnit, List<CodeUnit>> children = new HashMap<>();
-    private final Map<CodeUnit, List<String>> signatures = new HashMap<>();
-    private final Map<CodeUnit, List<Range>> sourceRanges = new HashMap<>();
+    private final Set<CodeUnit> topLevelCUs = new LinkedHashSet<>();
+    private final Map<CodeUnit, Set<CodeUnit>> children = new LinkedHashMap<>();
+    private final Map<CodeUnit, Set<String>> signatures = new LinkedHashMap<>();
+    private final Map<CodeUnit, Set<Range>> sourceRanges = new LinkedHashMap<>();
     private final Map<CodeUnit, Boolean> hasBody = new HashMap<>();
     private final Map<String, Set<CodeUnit>> codeUnitsBySymbol = new HashMap<>();
     private final Map<String, CodeUnit> cuByFqName = new HashMap<>();
@@ -32,9 +34,7 @@ public class FileAnalysisAccumulator {
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addTopLevel(CodeUnit cu) {
-        if (!topLevelCUs.contains(cu)) {
-            topLevelCUs.add(cu);
-        }
+        topLevelCUs.add(cu);
         addLookupKey(cu.fqName(), cu);
         return this;
     }
@@ -44,10 +44,7 @@ public class FileAnalysisAccumulator {
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addChild(CodeUnit parent, CodeUnit child) {
-        List<CodeUnit> kids = children.computeIfAbsent(parent, k -> new ArrayList<>());
-        if (!kids.contains(child)) {
-            kids.add(child);
-        }
+        children.computeIfAbsent(parent, k -> new LinkedHashSet<>()).add(child);
         addLookupKey(child.fqName(), child);
         return this;
     }
@@ -57,10 +54,7 @@ public class FileAnalysisAccumulator {
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addSignature(CodeUnit cu, String signature) {
-        List<String> sigs = signatures.computeIfAbsent(cu, k -> new ArrayList<>());
-        if (!sigs.contains(signature)) {
-            sigs.add(signature);
-        }
+        signatures.computeIfAbsent(cu, k -> new LinkedHashSet<>()).add(signature);
         return this;
     }
 
@@ -69,7 +63,7 @@ public class FileAnalysisAccumulator {
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addRange(CodeUnit cu, Range range) {
-        sourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(range);
+        sourceRanges.computeIfAbsent(cu, k -> new LinkedHashSet<>()).add(range);
         return this;
     }
 
@@ -96,7 +90,7 @@ public class FileAnalysisAccumulator {
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator remove(CodeUnit cu) {
-        List<CodeUnit> kids = children.remove(cu);
+        Set<CodeUnit> kids = children.remove(cu);
         if (kids != null) {
             for (CodeUnit child : new ArrayList<>(kids)) {
                 remove(child);
@@ -115,7 +109,7 @@ public class FileAnalysisAccumulator {
             }
         }
 
-        for (List<CodeUnit> siblingList : children.values()) {
+        for (Set<CodeUnit> siblingList : children.values()) {
             siblingList.remove(cu);
         }
         return this;
@@ -157,15 +151,15 @@ public class FileAnalysisAccumulator {
     }
 
     public List<CodeUnit> getChildren(CodeUnit cu) {
-        return Collections.unmodifiableList(children.getOrDefault(cu, List.of()));
+        return new ArrayList<>(children.getOrDefault(cu, Set.of()));
     }
 
     public List<String> getSignatures(CodeUnit cu) {
-        return Collections.unmodifiableList(signatures.getOrDefault(cu, List.of()));
+        return new ArrayList<>(signatures.getOrDefault(cu, Set.of()));
     }
 
     public List<Range> getRanges(CodeUnit cu) {
-        return Collections.unmodifiableList(sourceRanges.getOrDefault(cu, List.of()));
+        return new ArrayList<>(sourceRanges.getOrDefault(cu, Set.of()));
     }
 
     public List<String> getLookupKeys(CodeUnit cu) {
@@ -184,13 +178,16 @@ public class FileAnalysisAccumulator {
         unionKeys.addAll(signatures.keySet());
         unionKeys.addAll(sourceRanges.keySet());
         for (var cu : unionKeys) {
-            var kids = children.getOrDefault(cu, List.of());
-            var sigs = signatures.getOrDefault(cu, List.of());
-            var rngs = sourceRanges.getOrDefault(cu, List.of());
+            var kids = children.getOrDefault(cu, Set.of());
+            var sigs = signatures.getOrDefault(cu, Set.of());
+            var rngs = sourceRanges.getOrDefault(cu, Set.of());
             localStates.put(
                     cu,
                     new CodeUnitProperties(
-                            List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody.getOrDefault(cu, false)));
+                            Collections.unmodifiableSet(new LinkedHashSet<>(kids)),
+                            Collections.unmodifiableSet(new LinkedHashSet<>(sigs)),
+                            Collections.unmodifiableSet(new LinkedHashSet<>(rngs)),
+                            hasBody.getOrDefault(cu, false)));
         }
         return localStates;
     }
@@ -211,9 +208,9 @@ public class FileAnalysisAccumulator {
      * Returns an immutable snapshot of parent-child relationships.
      * Mutations should be performed via accumulator APIs.
      */
-    public Map<CodeUnit, List<CodeUnit>> children() {
-        Map<CodeUnit, List<CodeUnit>> copy = new HashMap<>();
-        children.forEach((k, v) -> copy.put(k, List.copyOf(v)));
+    public Map<CodeUnit, Set<CodeUnit>> children() {
+        Map<CodeUnit, Set<CodeUnit>> copy = new HashMap<>();
+        children.forEach((k, v) -> copy.put(k, Collections.unmodifiableSet(new LinkedHashSet<>(v))));
         return Collections.unmodifiableMap(copy);
     }
 
@@ -221,9 +218,9 @@ public class FileAnalysisAccumulator {
      * Returns an immutable snapshot of signatures associated with each CodeUnit.
      * Mutations should be performed via accumulator APIs.
      */
-    public Map<CodeUnit, List<String>> signatures() {
-        Map<CodeUnit, List<String>> copy = new HashMap<>();
-        signatures.forEach((k, v) -> copy.put(k, List.copyOf(v)));
+    public Map<CodeUnit, Set<String>> signatures() {
+        Map<CodeUnit, Set<String>> copy = new HashMap<>();
+        signatures.forEach((k, v) -> copy.put(k, Collections.unmodifiableSet(new LinkedHashSet<>(v))));
         return Collections.unmodifiableMap(copy);
     }
 
@@ -231,9 +228,9 @@ public class FileAnalysisAccumulator {
      * Returns an immutable snapshot of source ranges for each CodeUnit.
      * Mutations should be performed via accumulator APIs.
      */
-    public Map<CodeUnit, List<Range>> sourceRanges() {
-        Map<CodeUnit, List<Range>> copy = new HashMap<>();
-        sourceRanges.forEach((k, v) -> copy.put(k, List.copyOf(v)));
+    public Map<CodeUnit, Set<Range>> sourceRanges() {
+        Map<CodeUnit, Set<Range>> copy = new HashMap<>();
+        sourceRanges.forEach((k, v) -> copy.put(k, Collections.unmodifiableSet(new LinkedHashSet<>(v))));
         return Collections.unmodifiableMap(copy);
     }
 
@@ -280,7 +277,7 @@ public class FileAnalysisAccumulator {
     }
 
     public @Nullable CodeUnit findChildDuplicate(CodeUnit parent, CodeUnit child) {
-        List<CodeUnit> kids = children.get(parent);
+        Set<CodeUnit> kids = children.get(parent);
         if (kids == null) return null;
         return kids.stream()
                 .filter(existing -> sameLogicalIdentity(existing, child))
@@ -289,7 +286,7 @@ public class FileAnalysisAccumulator {
     }
 
     public @Nullable CodeUnit findChildCrossKindDuplicate(CodeUnit parent, CodeUnit child) {
-        List<CodeUnit> kids = children.get(parent);
+        Set<CodeUnit> kids = children.get(parent);
         if (kids == null) return null;
         return kids.stream()
                 .filter(existing -> existing.fqName().equals(child.fqName()) && existing.kind() != child.kind())

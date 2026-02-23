@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.stream.Collectors;
 import net.jpountz.lz4.LZ4FrameInputStream;
 import net.jpountz.lz4.LZ4FrameOutputStream;
 import org.jetbrains.annotations.Blocking;
@@ -483,7 +484,11 @@ public final class TreeSitterStateIO {
             var childrenDtos =
                     props.children().stream().map(TreeSitterStateIO::toDto).toList();
 
-            var propsDto = new CodeUnitPropertiesDto(childrenDtos, props.signatures(), props.ranges(), props.hasBody());
+            var propsDto = new CodeUnitPropertiesDto(
+                    childrenDtos,
+                    new ArrayList<>(props.signatures()),
+                    new ArrayList<>(props.ranges()),
+                    props.hasBody());
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
@@ -493,9 +498,9 @@ public final class TreeSitterStateIO {
         for (var e : state.fileState().entrySet()) {
             var fileProps = e.getValue();
 
-            var topLevelDtos =
-                    new ArrayList<CodeUnitDto>(fileProps.topLevelCodeUnits().size());
-            for (var cu : fileProps.topLevelCodeUnits()) topLevelDtos.add(toDto(cu));
+            var topLevelDtos = fileProps.topLevelCodeUnits().stream()
+                    .map(TreeSitterStateIO::toDto)
+                    .toList();
 
             var importDtos = fileProps.importStatements().stream()
                     .map(TreeSitterStateIO::toDto)
@@ -543,14 +548,21 @@ public final class TreeSitterStateIO {
         for (var entry : dto.codeUnitState()) {
             var v = entry.value();
 
+            var children = v.children() == null
+                    ? Collections.<CodeUnit>emptySet()
+                    : v.children().stream()
+                            .map(TreeSitterStateIO::fromDto)
+                            .collect(Collectors.toCollection(LinkedHashSet::new));
+
+            var signatures =
+                    v.signatures() == null ? Collections.<String>emptySet() : new LinkedHashSet<>(v.signatures());
+
+            var ranges = v.ranges() == null ? Collections.<IAnalyzer.Range>emptySet() : new LinkedHashSet<>(v.ranges());
+
             var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                    v.children() == null
-                            ? Collections.emptyList()
-                            : v.children().stream()
-                                    .map(TreeSitterStateIO::fromDto)
-                                    .toList(),
-                    v.signatures() == null ? Collections.emptyList() : v.signatures(),
-                    v.ranges() == null ? Collections.emptyList() : v.ranges(),
+                    Collections.unmodifiableSet(new LinkedHashSet<>(children)),
+                    Collections.unmodifiableSet(new LinkedHashSet<>(signatures)),
+                    Collections.unmodifiableSet(new LinkedHashSet<>(ranges)),
                     v.hasBody());
 
             cuState.put(fromDto(entry.key()), props);
@@ -562,14 +574,16 @@ public final class TreeSitterStateIO {
         for (var entry : dto.fileState()) {
             var v = entry.value();
 
-            var topLevel = new ArrayList<CodeUnit>(v.topLevelCodeUnits().size());
-            for (var cuDto : v.topLevelCodeUnits()) topLevel.add(fromDto(cuDto));
+            var topLevel = v.topLevelCodeUnits().stream()
+                    .map(TreeSitterStateIO::fromDto)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
 
             var imports = v.importStatements().stream()
                     .map(TreeSitterStateIO::fromDto)
                     .toList();
 
-            var fp = new TreeSitterAnalyzer.FileProperties(topLevel, imports, v.containsTests());
+            var fp = new TreeSitterAnalyzer.FileProperties(
+                    Collections.unmodifiableSet(new LinkedHashSet<>(topLevel)), imports, v.containsTests());
             fileStateMap.put(fromDto(entry.key()), fp);
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);

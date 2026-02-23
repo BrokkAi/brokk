@@ -128,10 +128,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param importStatements  imports found on this file.
      */
     public record FileProperties(
-            List<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
+            Set<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
 
         public static FileProperties empty() {
-            return new FileProperties(Collections.emptyList(), Collections.emptyList(), false);
+            return new FileProperties(Set.of(), List.of(), false);
         }
     }
 
@@ -143,11 +143,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * definition anywhere marks the CodeUnit as having a body.
      */
     public record CodeUnitProperties(
-            List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
+            Set<CodeUnit> children, Set<String> signatures, Set<Range> ranges, boolean hasBody) {
 
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(
-                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false);
+                    Collections.emptySet(), Collections.emptySet(), Collections.emptySet(), false);
         }
     }
 
@@ -586,15 +586,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected List<CodeUnit> childrenOf(CodeUnit codeUnit) {
-        return codeUnitProperties(codeUnit).children();
+        return new ArrayList<>(codeUnitProperties(codeUnit).children());
     }
 
     protected List<String> signaturesOf(CodeUnit codeUnit) {
-        return codeUnitProperties(codeUnit).signatures();
+        return new ArrayList<>(codeUnitProperties(codeUnit).signatures());
     }
 
     protected List<Range> rangesOf(CodeUnit codeUnit) {
-        return codeUnitProperties(codeUnit).ranges();
+        return new ArrayList<>(codeUnitProperties(codeUnit).ranges());
     }
 
     protected List<CodeUnit> supertypesOf(CodeUnit codeUnit) {
@@ -623,7 +623,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-        return fileProperties(file).topLevelCodeUnits();
+        return List.copyOf(fileProperties(file).topLevelCodeUnits());
     }
 
     @Override
@@ -1021,7 +1021,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     public Map<ProjectFile, List<CodeUnit>> getTopLevelDeclarations() {
         final Map<ProjectFile, List<CodeUnit>> result = new HashMap<>();
         var current = this.state;
-        current.fileState().forEach((file, fileProperties) -> result.put(file, fileProperties.topLevelCodeUnits()));
+        current.fileState()
+                .forEach((file, fileProperties) -> result.put(file, List.copyOf(fileProperties.topLevelCodeUnits())));
         return Map.copyOf(result);
     }
 
@@ -3298,35 +3299,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     return new CodeUnitProperties(
                             newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
                 }
-                List<CodeUnit> mergedKids = existing.children();
-                var newKids = newState.children();
-                if (!newKids.isEmpty()) {
-                    var tmp = new ArrayList<CodeUnit>(existing.children().size() + newKids.size());
-                    tmp.addAll(existing.children());
-                    for (var kid : newKids) if (!tmp.contains(kid)) tmp.add(kid);
-                    mergedKids = List.copyOf(tmp);
-                }
-                List<String> mergedSigs = existing.signatures();
-                var newSigs = newState.signatures();
-                if (!newSigs.isEmpty()) {
-                    var tmp = new ArrayList<String>(existing.signatures().size() + newSigs.size());
-                    tmp.addAll(existing.signatures());
-                    for (var s : newSigs) if (!tmp.contains(s)) tmp.add(s);
-                    mergedSigs = List.copyOf(tmp);
-                }
-                List<Range> mergedRanges = existing.ranges();
-                var newRngs = newState.ranges();
-                if (!newRngs.isEmpty()) {
-                    var tmp = new ArrayList<Range>(existing.ranges().size() + newRngs.size());
-                    tmp.addAll(existing.ranges());
-                    for (var r : newRngs) if (!tmp.contains(r)) tmp.add(r);
-                    mergedRanges = List.copyOf(tmp);
-                }
+                Set<CodeUnit> mergedKids = new LinkedHashSet<>(existing.children());
+                mergedKids.addAll(newState.children());
+
+                Set<String> mergedSigs = new LinkedHashSet<>(existing.signatures());
+                mergedSigs.addAll(newState.signatures());
+
+                Set<Range> mergedRanges = new LinkedHashSet<>(existing.ranges());
+                mergedRanges.addAll(newState.ranges());
 
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
-                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedHasBody);
+                return new CodeUnitProperties(
+                        Collections.unmodifiableSet(mergedKids),
+                        Collections.unmodifiableSet(mergedSigs),
+                        Collections.unmodifiableSet(mergedRanges),
+                        mergedHasBody);
             });
 
             if (cu.isModule()) {
@@ -3339,7 +3328,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         targetFileState.put(
                 pf,
                 new FileProperties(
-                        analysisResult.topLevelCUs(),
+                        Collections.unmodifiableSet(new LinkedHashSet<>(analysisResult.topLevelCUs())),
                         analysisResult.importStatements(),
                         analysisResult.containsTests()));
 
@@ -3403,13 +3392,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // Filter children lists in remaining entries
         newCodeUnitState.replaceAll((cu, props) -> {
-            List<CodeUnit> children = props.children();
-            List<CodeUnit> filtered = children.stream()
+            Set<CodeUnit> children = props.children();
+            Set<CodeUnit> filtered = children.stream()
                     .filter(child -> !codeUnitsToRemove.contains(child))
-                    .toList();
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
             return (filtered.size() == children.size())
                     ? props
-                    : new CodeUnitProperties(filtered, props.signatures(), props.ranges(), props.hasBody());
+                    : new CodeUnitProperties(
+                            Collections.unmodifiableSet(filtered), props.signatures(), props.ranges(), props.hasBody());
         });
 
         // Filter symbol index

@@ -185,7 +185,7 @@ public class TreeSitterStateIOTest {
         var cu = CodeUnit.cls(projectFile, "com.example", "Test");
 
         var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                List.of(), List.of("public class Test"), List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
+                Set.of(), Set.of("public class Test"), Set.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
 
         var stateMap = Map.of(cu, props);
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
@@ -327,7 +327,7 @@ public class TreeSitterStateIOTest {
                 new ImportInfo("import java.util.*;", true, null, null),
                 new ImportInfo("import foo.bar.Baz as B", false, "Baz", "B"));
 
-        var fileProps = new TreeSitterAnalyzer.FileProperties(List.of(), imports, false);
+        var fileProps = new TreeSitterAnalyzer.FileProperties(Set.of(), imports, false);
 
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
                 HashTreePMap.<String, Set<CodeUnit>>empty(),
