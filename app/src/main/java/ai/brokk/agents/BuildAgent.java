@@ -29,6 +29,7 @@ import ai.brokk.util.Messages;
 import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
@@ -741,15 +742,16 @@ public class BuildAgent {
     public record BuildDetails(
             String buildLintCommand,
             String testAllCommand,
-            String testSomeCommand,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) String testSomeCommand,
             @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
             @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables,
             @Nullable Integer maxBuildAttempts,
             // blank = do nothing
-            String afterTaskListCommand,
-            @JsonSetter(nulls = Nulls.AS_EMPTY) List<ModuleBuildEntry> modules) {
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) String afterTaskListCommand,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) @JsonSetter(nulls = Nulls.AS_EMPTY)
+                    List<ModuleBuildEntry> modules) {
 
         @VisibleForTesting
         public BuildDetails(
