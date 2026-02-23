@@ -402,3 +402,22 @@ async def test_executor_start_installs_jbang_if_missing(monkeypatch, tmp_path):
 
     assert install_called is True
     await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_executor_start_propagates_install_failure(monkeypatch, tmp_path):
+    import brokk_code.executor as executor_module
+
+    def fake_install_fail():
+        raise ExecutorError("jbang installation failed (mock)")
+
+    monkeypatch.setattr(executor_module, "resolve_jbang_binary", lambda: None)
+    monkeypatch.setattr(executor_module, "install_jbang", fake_install_fail)
+    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: None)
+
+    manager = ExecutorManager(workspace_dir=tmp_path)
+
+    with pytest.raises(ExecutorError, match="jbang installation failed \(mock\)$"):
+        await manager.start()
+
+    assert manager.check_alive() is False
