@@ -661,7 +661,9 @@ class BrokkApp(App):
                     used = context_data.get("usedTokens", 0)
                     max_tokens = context_data.get("maxTokens")
                     fragments = context_data.get("fragments")
-                    chat.set_token_usage(used, max_tokens, fragments, session_cost=self.session_total_cost)
+                    chat.set_token_usage(
+                        used, max_tokens, fragments, session_cost=self.session_total_cost
+                    )
 
                 self._update_statusline()
 
@@ -1257,16 +1259,17 @@ class BrokkApp(App):
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
         data = event.get("data", {})
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
 
         if event_type == "LLM_TOKEN":
-            chat.append_token(
-                token=data.get("token", ""),
-                message_type=data.get("messageType", "AI"),
-                is_new_message=bool(data.get("isNewMessage", False)),
-                is_reasoning=bool(data.get("isReasoning", False)),
-                is_terminal=bool(data.get("isTerminal", False)),
-            )
+            if chat:
+                chat.append_token(
+                    token=data.get("token", ""),
+                    message_type=data.get("messageType", "AI"),
+                    is_new_message=bool(data.get("isNewMessage", False)),
+                    is_reasoning=bool(data.get("isReasoning", False)),
+                    is_terminal=bool(data.get("isTerminal", False)),
+                )
         elif event_type == "NOTIFICATION":
             level = data.get("level", "INFO")
             msg = data.get("message", "")
@@ -1278,10 +1281,12 @@ class BrokkApp(App):
                 self.session_total_cost += increment
                 self._update_statusline()
 
-            chat.add_system_message(msg, level=level)
+            if chat:
+                chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
             msg = data.get("message", "Unknown error")
-            chat.add_system_message(msg, level="ERROR")
+            if chat:
+                chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")

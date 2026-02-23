@@ -185,6 +185,7 @@ def test_status_line_cost_rendering():
     # Case 4: Fragment hover takes precedence over cost
     status.set_fragment_info("some-file.txt", 500)
     from brokk_code.token_format import format_token_count
+
     size_text = format_token_count(500)
     expected_fragment = f"some-file.txt ({size_text} tokens)"
     mock_metadata.update.assert_called_with(expected_fragment)
