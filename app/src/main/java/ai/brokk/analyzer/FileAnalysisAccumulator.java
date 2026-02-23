@@ -225,7 +225,10 @@ public class FileAnalysisAccumulator {
         Set<CodeUnit> kids = children.remove(cu);
         if (kids != null) {
             for (CodeUnit child : kids) {
-                childToParent.remove(child);
+                CodeUnit parent = childToParent.get(child);
+                if (Objects.equals(parent, cu)) {
+                    childToParent.remove(child);
+                }
             }
         }
     }
