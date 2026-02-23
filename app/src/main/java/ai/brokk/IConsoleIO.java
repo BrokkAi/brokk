@@ -88,6 +88,16 @@ public interface IConsoleIO {
         llmOutput("\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
     }
 
+    /**
+     * Extended notification API that can optionally carry a structured numeric cost value.
+     * <p>
+     * Default implementation ignores the cost and delegates to the legacy two-argument
+     * method to preserve source and binary compatibility for existing implementors.
+     */
+    default void showNotification(NotificationRole role, String message, @Nullable Double cost) {
+        showNotification(role, message);
+    }
+
     default void showOutputSpinner(String message) {}
 
     default void hideOutputSpinner() {}
