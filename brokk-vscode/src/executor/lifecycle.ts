@@ -194,9 +194,7 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
     jbang,
     [
       "-R",
-      "--java-options=-Djava.awt.headless=true",
-      "-R",
-      "--java-options=-Dapple.awt.UIElement=true",
+      "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
       "brokk-headless@brokkai/brokk-releases",
       "--listen-addr",
       "127.0.0.1:0",
