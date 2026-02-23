@@ -125,6 +125,40 @@ public class FileAnalysisAccumulator {
         return this;
     }
 
+    /**
+     * Replaces an existing top-level CodeUnit with a new one, ensuring descendants and symbol indices are updated.
+     * @return this accumulator for chaining.
+     */
+    public FileAnalysisAccumulator replaceTopLevelCodeUnit(CodeUnit existing, CodeUnit replacement) {
+        remove(existing);
+        addTopLevel(replacement);
+        registerCodeUnit(replacement);
+        return this;
+    }
+
+    /**
+     * Replaces an existing child CodeUnit with a new one under the same parent.
+     * @return this accumulator for chaining.
+     */
+    public FileAnalysisAccumulator replaceChildCodeUnit(CodeUnit parent, CodeUnit existing, CodeUnit replacement) {
+        remove(existing);
+        addChild(parent, replacement);
+        registerCodeUnit(replacement);
+        return this;
+    }
+
+    /**
+     * Registers a CodeUnit in the symbol index.
+     * @return this accumulator for chaining.
+     */
+    public FileAnalysisAccumulator registerCodeUnit(CodeUnit cu) {
+        addSymbolIndex(cu.identifier(), cu);
+        if (!cu.shortName().equals(cu.identifier())) {
+            addSymbolIndex(cu.shortName(), cu);
+        }
+        return this;
+    }
+
     private void removeFromSymbolIndex(CodeUnit cu) {
         String[] keys = {cu.identifier(), cu.shortName()};
         for (String key : keys) {

@@ -1714,9 +1714,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             "Replacing cross-kind duplicate: existing='{}', candidate='{}'",
                             crossKindDuplicate.fqName(),
                             cu.fqName());
-                    acc.remove(crossKindDuplicate);
-                    acc.addTopLevel(cu);
-                    registerCodeUnit(cu, acc);
+                    acc.replaceTopLevelCodeUnit(crossKindDuplicate, cu);
                     return;
                 }
                 if (isBenignDuplicate(crossKindDuplicate, cu)) {
@@ -1730,7 +1728,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 }
             }
             acc.addTopLevel(cu);
-            registerCodeUnit(cu, acc);
+            acc.registerCodeUnit(cu);
             return;
         }
 
@@ -1750,9 +1748,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 return;
             } else if (candidateHasBody && !existingHasBody) {
                 log.trace("Replacing forward declaration with definition for: {}", cu.fqName());
-                acc.remove(existingDuplicate);
-                acc.addTopLevel(cu);
-                registerCodeUnit(cu, acc);
+                acc.replaceTopLevelCodeUnit(existingDuplicate, cu);
                 return;
             }
         }
@@ -1762,23 +1758,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     "Replacing duplicate CodeUnit: existing='{}', candidate='{}'",
                     existingDuplicate.fqName(),
                     cu.fqName());
-            acc.remove(existingDuplicate);
-            acc.addTopLevel(cu);
-            registerCodeUnit(cu, acc);
+            acc.replaceTopLevelCodeUnit(existingDuplicate, cu);
         } else if (isBenignDuplicate(existingDuplicate, cu)) {
             mergeCodeUnitProperties(existingDuplicate, cu, acc);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             log.trace("Ignoring duplicate {} per language policy", cu.fqName());
         } else {
             acc.addTopLevel(cu);
-            registerCodeUnit(cu, acc);
-        }
-    }
-
-    private void registerCodeUnit(CodeUnit cu, FileAnalysisAccumulator acc) {
-        acc.addSymbolIndex(cu.identifier(), cu);
-        if (!cu.shortName().equals(cu.identifier())) {
-            acc.addSymbolIndex(cu.shortName(), cu);
+            acc.registerCodeUnit(cu);
         }
     }
 
@@ -1848,9 +1835,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             "Replacing cross-kind child duplicate: existing='{}', candidate='{}'",
                             crossKindDuplicate.fqName(),
                             cu.fqName());
-                    acc.remove(crossKindDuplicate);
-                    acc.addChild(parentCu, cu);
-                    registerCodeUnit(cu, acc);
+                    acc.replaceChildCodeUnit(parentCu, crossKindDuplicate, cu);
                     return;
                 }
                 if (isBenignDuplicate(crossKindDuplicate, cu)) {
@@ -1860,7 +1845,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 }
             }
             acc.addChild(parentCu, cu);
-            registerCodeUnit(cu, acc);
+            acc.registerCodeUnit(cu);
             return;
         }
 
@@ -1881,9 +1866,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 return;
             } else if (candidateHasBody && !existingHasBody) {
                 log.trace("Replacing child forward declaration with definition for: {}", cu.fqName());
-                acc.remove(existingDuplicate);
-                acc.addChild(parentCu, cu);
-                registerCodeUnit(cu, acc);
+                acc.replaceChildCodeUnit(parentCu, existingDuplicate, cu);
                 return;
             }
         }
@@ -1893,16 +1876,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     "Replacing duplicate child CodeUnit: existing='{}', candidate='{}'",
                     existingDuplicate.fqName(),
                     cu.fqName());
-            acc.remove(existingDuplicate);
-            acc.addChild(parentCu, cu);
-            registerCodeUnit(cu, acc);
+            acc.replaceChildCodeUnit(parentCu, existingDuplicate, cu);
         } else if (isBenignDuplicate(existingDuplicate, cu)) {
             mergeCodeUnitProperties(existingDuplicate, cu, acc);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, cu.source())) {
             log.trace("Skipping duplicate child '{}' per language policy", cu.fqName());
         } else {
             acc.addChild(parentCu, cu);
-            registerCodeUnit(cu, acc);
+            acc.registerCodeUnit(cu);
         }
     }
 
@@ -2121,7 +2102,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
                     CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
                     if (implicit != null) {
-                        registerCodeUnit(implicit, acc);
+                        acc.registerCodeUnit(implicit);
                         acc.setHasBody(implicit, true);
                         acc.addChild(cu, implicit);
                     }
