@@ -34,6 +34,32 @@ class BuildAgentTest {
     private static final Logger logger = LogManager.getLogger(BuildAgentTest.class);
 
     @Test
+    void testResolveModule_selectsLongestMatchingPrefix() throws Exception {
+        var project = ai.brokk.project.MainProject.forTests(java.nio.file.Path.of("/tmp"));
+        var cm = new ai.brokk.testutil.TestContextManager(project);
+
+        var details = new BuildAgent.BuildDetails(
+                "mvn compile",
+                "mvn test",
+                "",
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(
+                        new BuildAgent.ModuleBuildEntry("root", "", "mvn compile -root", "mvn test -root", ""),
+                        new BuildAgent.ModuleBuildEntry("a", "a", "mvn compile -a", "mvn test -a", ""),
+                        new BuildAgent.ModuleBuildEntry("ab", "a/b", "mvn compile -ab", "mvn test -ab", "")));
+
+        // File is in a/b/c/File.java, which matches root (""), a ("a"), and ab ("a/b").
+        // "a/b" is the longest match.
+        var testFile = new ai.brokk.analyzer.ProjectFile(java.nio.file.Path.of("/tmp"), "a/b/c/File.java");
+        String cmd = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(testFile));
+
+        assertEquals("mvn test -ab", cmd);
+    }
+
+    @Test
     void testGetBuildLintSomeCommand_fallsBackToTestAll() throws Exception {
         var project = ai.brokk.project.MainProject.forTests(java.nio.file.Path.of("/tmp"));
         var cm = new ai.brokk.testutil.TestContextManager(project);
