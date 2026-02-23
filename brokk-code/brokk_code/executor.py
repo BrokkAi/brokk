@@ -96,7 +96,9 @@ class ExecutorManager:
         return self._download_jar(self.executor_version)
 
     def _download_jar(self, version: Optional[str] = None) -> Path:
-        """Downloads the requested or latest release JAR from GitHub.
+        """[DEPRECATED] Downloads the requested or latest release JAR from GitHub.
+
+        Note: This is candidate for removal once migration to jbang is complete.
 
         Tag matching policy when 'version' is provided:
         - We perform an exact, case-sensitive match against the release 'tag_name'
@@ -256,7 +258,10 @@ class ExecutorManager:
     def _extract_jar_from_tgz(
         self, tgz_content: bytes, version: Optional[str], asset_name: str
     ) -> bytes:
-        """Extracts the best-matching JAR from a TGZ archive bytes."""
+        """[DEPRECATED] Extracts the best-matching JAR from a TGZ archive bytes.
+
+        Note: This is candidate for removal once migration to jbang is complete.
+        """
         with tarfile.open(fileobj=io.BytesIO(tgz_content), mode="r:gz") as tar:
             members: List[tarfile.TarInfo] = [m for m in tar.getmembers() if m.isfile()]
             jar_members = [m for m in members if m.name.endswith(".jar")]
@@ -291,19 +296,9 @@ class ExecutorManager:
                 f"Could not find a suitable Brokk JAR in {asset_name}. Found JARs: {member_names}"
             )
 
-    async def start(self):
-        """Starts the Java HeadlessExecutorMain subprocess."""
-        jar_path = self._find_jar()
-        self.resolved_jar_path = jar_path
-        exec_id = str(uuid.uuid4())
-
-        cmd = [
-            "java",
-            "-Djava.awt.headless=true",
-            "-Dapple.awt.UIElement=true",
-            "-cp",
-            str(jar_path),
-            "ai.brokk.executor.HeadlessExecutorMain",
+    def _get_executor_args(self, exec_id: str) -> List[str]:
+        """Returns the common command-line arguments for the HeadlessExecutorMain."""
+        args = [
             "--exec-id",
             exec_id,
             "--listen-addr",
@@ -313,11 +308,42 @@ class ExecutorManager:
             "--workspace-dir",
             str(self.workspace_dir),
         ]
-
         if self.vendor is not None and str(self.vendor).strip():
-            cmd.extend(["--vendor", str(self.vendor).strip()])
+            args.extend(["--vendor", str(self.vendor).strip()])
         if self.exit_on_stdin_eof:
-            cmd.append("--exit-on-stdin-eof")
+            args.append("--exit-on-stdin-eof")
+        return args
+
+    def _get_direct_java_command(self, jar_path: Path, exec_id: str) -> List[str]:
+        """Returns the command for Direct-Java mode (explicit JAR override)."""
+        cmd = [
+            "java",
+            "-Djava.awt.headless=true",
+            "-Dapple.awt.UIElement=true",
+            "-cp",
+            str(jar_path),
+            "ai.brokk.executor.HeadlessExecutorMain",
+        ]
+        cmd.extend(self._get_executor_args(exec_id))
+        return cmd
+
+    def _get_default_command(self, exec_id: str) -> List[str]:
+        """Returns the command for Default mode (to be migrated to jbang)."""
+        # For now, we still use the legacy _find_jar logic which includes GitHub downloads.
+        # This will be replaced with 'jbang' in a follow-up task.
+        jar_path = self._find_jar()
+        self.resolved_jar_path = jar_path
+        return self._get_direct_java_command(jar_path, exec_id)
+
+    async def start(self):
+        """Starts the Java HeadlessExecutorMain subprocess."""
+        exec_id = str(uuid.uuid4())
+
+        if self.jar_override:
+            self.resolved_jar_path = self.jar_override
+            cmd = self._get_direct_java_command(self.jar_override, exec_id)
+        else:
+            cmd = self._get_default_command(exec_id)
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
