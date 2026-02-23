@@ -178,9 +178,14 @@ class ExecutorManager:
         jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
         cmd = [
             jbang_bin,
-            "--java", "21",
-            "-R", "--enable-native-access=ALL-UNNAMED",
-            "--main", _EXECUTOR_MAIN_CLASS,
+            "-Djava.awt.headless=true",
+            "-Dapple.awt.UIElement=true",
+            "--java",
+            "21",
+            "-R",
+            "--enable-native-access=ALL-UNNAMED",
+            "--main",
+            _EXECUTOR_MAIN_CLASS,
             jar_url,
         ]
         cmd.extend(self._get_executor_args(exec_id))
