@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "textual>=0.47.0",
     "httpx>=0.25.0",
-    "agent-client-protocol>=0.3.4",
+    "agent-client-protocol>=0.8.1",
 ]
 
 [dependency-groups]
