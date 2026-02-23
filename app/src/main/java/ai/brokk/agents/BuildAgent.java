@@ -454,7 +454,10 @@ public class BuildAgent {
                 This project's primary language is %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
+                The reportBuildDetails tool expects six parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, excludedFilePatterns, and modules.
+
+                If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, etc.), you MUST identify each module and provide its details in the `modules` list.
+                Root commands (the top-level parameters) should represent repo-level actions, while module-specific commands should be relative to the module's directory.
                 """
                         .formatted(
                                 wrapperScriptInstruction,
@@ -492,6 +495,22 @@ public class BuildAgent {
         return SearchTools.formatFilesInDirectory(project.getRepo().getTrackedFiles(), normalizedPath, directoryPath);
     }
 
+    /** Overload for backward compatibility with older callers and tests. */
+    public String reportBuildDetails(
+            String buildLintCommand,
+            String testAllCommand,
+            String testSomeCommand,
+            List<String> excludedDirectories,
+            List<String> excludedFilePatterns) {
+        return reportBuildDetails(
+                buildLintCommand,
+                testAllCommand,
+                testSomeCommand,
+                excludedDirectories,
+                excludedFilePatterns,
+                List.of());
+    }
+
     @Tool("Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
     public String reportBuildDetails(
             @P(
@@ -508,7 +527,10 @@ public class BuildAgent {
                     List<String> excludedDirectories,
             @P(
                             "List of file patterns to exclude. Use '*.ext' for extensions (e.g., '*.svg'), literal names for specific files (e.g., 'package-lock.json'). Do NOT use **/ prefix or duplicate directories.")
-                    List<String> excludedFilePatterns) {
+                    List<String> excludedFilePatterns,
+            @P(
+                            "List of modules identified in the project. Each module should have: 'alias' (name), 'relativePath' (path from root), 'buildLintCommand', 'testAllCommand', and 'testSomeCommand'.")
+                    List<ModuleBuildEntry> modules) {
         logger.debug("Raw excludedDirectories from LLM: {}", excludedDirectories);
         logger.debug("Raw excludedFilePatterns from LLM: {}", excludedFilePatterns);
         logger.debug("Baseline excludedDirectories (from gitignore, not stored): {}", currentExcludedDirectories);
@@ -568,7 +590,7 @@ public class BuildAgent {
                 defaultEnvForProject(),
                 null,
                 "",
-                List.of());
+                modules != null ? modules : List.of());
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
