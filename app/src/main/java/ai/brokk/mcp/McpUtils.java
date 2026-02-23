@@ -3,6 +3,7 @@ package ai.brokk.mcp;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.util.Environment;
+import ai.brokk.util.Json;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpClient;
@@ -90,7 +91,7 @@ public class McpUtils {
         final var params =
                 ServerParameters.builder(cmd).args(arguments).env(resolvedEnv).build();
 
-        return new StdioClientTransport(params, new JacksonMcpJsonMapper(new ObjectMapper()));
+        return new StdioClientTransport(params, new JacksonMcpJsonMapper(Json.getMapper()));
     }
 
     private static McpAsyncClient buildAsyncClient(URL url, @Nullable String bearerToken) {
