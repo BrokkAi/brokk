@@ -62,9 +62,11 @@ def install_jbang() -> str:
         else:
             cmd = ["bash", "-c", "curl -Ls https://sh.jbang.dev | bash -s - app setup"]
 
+        # Use capture_output=True (which sets both stdout and stderr to PIPE)
+        # subprocess.run handles draining the pipes to avoid deadlocks.
         proc = subprocess.run(
             cmd,
-            capture_stderr=True,
+            capture_output=True,
             text=True,
             timeout=timeout_s,
         )
@@ -74,6 +76,8 @@ def install_jbang() -> str:
 
     except subprocess.TimeoutExpired:
         raise ExecutorError("jbang installation timed out after 2 minutes")
+    except ExecutorError:
+        raise
     except Exception as e:
         raise ExecutorError(f"Failed to run jbang installer: {e}")
 
@@ -85,13 +89,20 @@ def install_jbang() -> str:
 
     # Trust the brokk catalog
     try:
-        subprocess.run(
+        trust_proc = subprocess.run(
             [jbang_path, "trust", "add", "https://github.com/BrokkAi/brokk-releases"],
             capture_output=True,
-            check=True,
+            text=True,
         )
-    except subprocess.CalledProcessError as e:
-        logger.warning("Failed to trust brokk catalog: %s", e.stderr.decode() if e.stderr else e)
+        if trust_proc.returncode != 0:
+            logger.warning(
+                "Failed to trust brokk catalog: %s",
+                trust_proc.stderr.strip()
+                if trust_proc.stderr
+                else f"exit code {trust_proc.returncode}",
+            )
+    except Exception as e:
+        logger.warning("Failed to run trust command: %s", e)
 
     return jbang_path
 
