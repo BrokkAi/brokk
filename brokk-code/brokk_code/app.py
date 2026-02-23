@@ -13,6 +13,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.welcome import build_welcome_message
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
@@ -551,6 +552,9 @@ class BrokkApp(App):
             if await self.executor.wait_ready():
                 self._executor_ready = True
                 if chat:
+                    # Construct and display the welcome message
+                    welcome_md = build_welcome_message(self.get_slash_commands())
+                    chat.add_markdown(welcome_md)
                     chat.add_system_message("Ready!")
                 else:
                     logger.info("Executor ready")
