@@ -14,7 +14,6 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -633,8 +632,8 @@ def pixels_to_grid_ceil(pixels: int, dpi: int) -> int: ...
     @Test
     public void testCombinedTextDeduplicatesCodeUnitsWithDifferentSourceFiles() throws IOException {
         try (var testProject = InlineTestProjectCreator.code("", "Test.java").build()) {
-            Path root1 = Paths.get("/root1");
-            Path root2 = Paths.get("/root2");
+            Path root1 = testProject.getRoot().resolve("root1");
+            Path root2 = testProject.getRoot().resolve("root2");
             ProjectFile file1 = new ProjectFile(root1, "src/Test.java");
             ProjectFile file2 = new ProjectFile(root2, "src/Test.java");
 
