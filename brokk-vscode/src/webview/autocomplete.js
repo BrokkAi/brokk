@@ -178,12 +178,12 @@ export function initAutocomplete(vscode) {
    */
   function getIcon(type) {
     switch (type) {
-      case "file": return "\u{1F4C4}";
-      case "class": return "C";
-      case "function": return "f";
-      case "field": return "F";
-      case "module": return "M";
-      default: return "\u2022";
+      case "file": return "[file]";
+      case "class": return "[class]";
+      case "function": return "[func]";
+      case "field": return "[field]";
+      case "module": return "[mod]";
+      default: return "";
     }
   }
 

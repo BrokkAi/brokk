@@ -463,22 +463,11 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             return;
         }
 
-        contextManager.addSummaries(
-                Set.of(),
-                validClassNames.stream()
-                        .flatMap(name -> analyzer.getDefinitions(name).stream().filter(CodeUnit::isClass))
-                        .collect(Collectors.toSet()));
-
         var addedClasses = new ArrayList<AddedContextClass>();
-        var live = contextManager.liveContext();
         for (var className : validClassNames) {
-            var fragId = live.allFragments()
-                    .filter(f -> f instanceof ContextFragments.SummaryFragment sf
-                            && sf.getTargetIdentifier().contains(className))
-                    .map(ContextFragment::id)
-                    .findFirst()
-                    .orElse("");
-            addedClasses.add(new AddedContextClass(fragId, className));
+            var fragment = new ContextFragments.CodeFragment(contextManager, className);
+            contextManager.addFragments(fragment);
+            addedClasses.add(new AddedContextClass(fragment.id(), className));
         }
 
         SimpleHttpServer.sendJsonResponse(exchange, new AddContextClassesResponse(addedClasses));

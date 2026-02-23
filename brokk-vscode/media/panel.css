@@ -1604,6 +1604,28 @@ a.file-link:hover {
   color: var(--vscode-descriptionForeground, #888);
 }
 
+.welcome-links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.welcome-links a {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+}
+
+.welcome-links a:hover {
+  text-decoration: underline;
+}
+
+.welcome-links-sep {
+  color: var(--vscode-descriptionForeground, #888);
+}
+
 /* ── Empty State ──────────────────────────────────── */
 
 .empty-state {
@@ -1868,10 +1890,11 @@ a.file-link:hover {
 
 .autocomplete-icon {
   flex-shrink: 0;
-  width: 16px;
-  text-align: center;
+  width: auto;
+  font-family: monospace;
   font-size: 11px;
-  opacity: 0.8;
+  color: var(--vscode-menu-foreground, #fff);
+  margin-right: 4px;
 }
 
 .autocomplete-name {

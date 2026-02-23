@@ -60,7 +60,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
             </button>
           </div>
           <div id="settings-key-hint" class="settings-hint">
-            Sign up or get your key at <a href="https://brokk.ai">brokk.ai</a>
+            Don't have an account? <a href="https://brokk.ai/signup?utm_source=vscode">Sign up</a>
           </div>
         </div>
         <div class="settings-field">
@@ -81,6 +81,13 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
     <div id="welcome">
       <div class="welcome-title">Start a new conversation to begin coding with Brokk</div>
       <div class="welcome-subtitle">Ask questions, request code reviews, or describe what you'd like to build</div>
+      <div class="welcome-links">
+        <a href="https://brokk.ai/documentation/introduction">Introduction</a>
+        <span class="welcome-links-sep">&middot;</span>
+        <a href="https://brokk.ai/documentation/actions-toolkit">Actions Toolkit</a>
+        <span class="welcome-links-sep">&middot;</span>
+        <a href="https://brokk.ai/documentation/faq">FAQ</a>
+      </div>
     </div>
   </div>
   <div id="status-bar" class="hidden"></div>

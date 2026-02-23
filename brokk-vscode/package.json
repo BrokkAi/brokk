@@ -4,6 +4,9 @@
   "description": "Context management and AI chat for Brokk",
   "version": "0.0.1",
   "publisher": "brokk",
+  "icon": "icon.png",
+  "homepage": "https://brokk.ai",
+  "license": "Apache-2.0",
   "engines": {
     "vscode": "^1.106.0"
   },
