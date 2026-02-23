@@ -4,7 +4,6 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.util.Environment;
 import ai.brokk.util.Json;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
