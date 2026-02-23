@@ -2447,15 +2447,14 @@ public final class JobRunner {
                     if (reviewResponse == null) {
                         if (reviewText.isBlank()) {
                             var stopDetails = review.taskResult().stopDetails();
-                            String causeDetail =
-                                    stopDetails.reason() == TaskResult.StopReason.SUCCESS
-                                            ? ""
-                                            : " Cause: "
-                                                    + stopDetails
-                                                            .explanation()
-                                                            .lines()
-                                                            .findFirst()
-                                                            .orElse(stopDetails.reason().name());
+                            String causeDetail = stopDetails.reason() == TaskResult.StopReason.SUCCESS
+                                    ? ""
+                                    : " Cause: "
+                                            + stopDetails
+                                                    .explanation()
+                                                    .lines()
+                                                    .findFirst()
+                                                    .orElse(stopDetails.reason().name());
                             throw new IssueExecutionException(
                                     "LLM returned empty response for issue diff review." + causeDetail);
                         }
