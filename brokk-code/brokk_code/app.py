@@ -149,6 +149,10 @@ class BrokkApiKeyModalScreen(ModalScreen[str]):
                 "[bold red]API Key is required[/]"
             )
             return
+
+        # Show spinner and disable input while processing
+        self.query_one("#api-key-modal-spinner").remove_class("hidden")
+        event.input.disabled = True
         self.dismiss(value)
 
 
@@ -559,9 +563,10 @@ class BrokkApp(App):
             if chat:
                 chat.add_system_message("Brokk API key missing. Please enter it to continue.")
 
-            def on_key_entered(key: str) -> None:
+            async def on_key_entered(key: str) -> None:
                 try:
-                    write_brokk_api_key(key)
+                    # Offload I/O to a worker to keep UI responsive/spinner spinning
+                    await asyncio.to_thread(write_brokk_api_key, key)
                 except Exception as e:
                     logger.error("Failed to save API key: %s", e)
                     if chat:
@@ -1562,12 +1567,16 @@ class BrokkApp(App):
             chat.add_system_message("Prompt history cleared.")
         elif base == "/api-key":
 
-            def on_key_entered(key: str) -> None:
-                write_brokk_api_key(key)
-                self.executor.brokk_api_key = key
-                chat.add_system_message(
-                    "API key updated. New key will be used on the next executor launch."
-                )
+            async def on_key_entered(key: str) -> None:
+                try:
+                    await asyncio.to_thread(write_brokk_api_key, key)
+                    self.executor.brokk_api_key = key
+                    chat.add_system_message(
+                        "API key updated. New key will be used on the next executor launch."
+                    )
+                except Exception as e:
+                    logger.error("Failed to update API key: %s", e)
+                    chat.add_system_message(f"Failed to update API key: {e}", level="ERROR")
 
             self.push_screen(
                 BrokkApiKeyModalScreen("Update Brokk API Key", is_update=True), on_key_entered
