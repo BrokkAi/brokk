@@ -2,6 +2,8 @@ package ai.brokk.prompts;
 
 import ai.brokk.mcp.McpServer;
 import ai.brokk.mcp.McpUtils;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.io.IOException;
 import java.util.LinkedHashMap;
@@ -10,6 +12,8 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 public class McpPrompts {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public static String mcpToolPreamble() {
         return """
@@ -43,15 +47,41 @@ public class McpPrompts {
                         return "Currently unable to fetch tools for server '" + server.name() + "'";
                     }
 
-                    var descByName = available.stream()
-                            .collect(Collectors.toMap(McpSchema.Tool::name, McpSchema.Tool::description, (a, b) -> a));
+                    var toolByName = available.stream()
+                            .collect(Collectors.toMap(McpSchema.Tool::name, tool -> tool, (a, b) -> a));
 
                     return toolsForServer.stream()
                             .map(sel -> {
-                                var desc = descByName.get(sel.toolName());
+                                @Nullable var tool = toolByName.get(sel.toolName());
+
+                                @Nullable var desc = tool == null ? null : tool.description();
                                 var descText = (desc == null || desc.isBlank()) ? "(no description provided)" : desc;
-                                return "<tool>\n\t<name>" + sel.toolName() + "</name>\n\t<description>" + descText
-                                        + "\n\t</description>\n</tool>\n";
+
+                                @Nullable var inputSchema = tool == null ? null : tool.inputSchema();
+                                var hasInputSchema = inputSchema != null
+                                        && ((inputSchema.properties() != null
+                                                        && !inputSchema
+                                                                .properties()
+                                                                .isEmpty())
+                                                || (inputSchema.required() != null
+                                                        && !inputSchema
+                                                                .required()
+                                                                .isEmpty()));
+
+                                @Nullable String inputSchemaXml = null;
+                                if (hasInputSchema) {
+                                    try {
+                                        inputSchemaXml = "\n\t<inputSchema>"
+                                                + xmlEscape(OBJECT_MAPPER.writeValueAsString(inputSchema))
+                                                + "</inputSchema>";
+                                    } catch (JsonProcessingException e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                }
+
+                                return "<tool>\n\t<name>" + xmlEscape(sel.toolName()) + "</name>\n\t<description>"
+                                        + xmlEscape(descText) + "\n\t</description>"
+                                        + (inputSchemaXml == null ? "" : inputSchemaXml) + "\n</tool>\n";
                             })
                             .collect(Collectors.joining("\n"));
                 })
@@ -62,6 +92,14 @@ public class McpPrompts {
         }
         var header = "Available MCP tools callable by `callMcpTool` (restricted to this project configuration):";
         return header + "\n" + sections;
+    }
+
+    private static String xmlEscape(String text) {
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;");
     }
 
     public record McpTool(McpServer server, String toolName) {}
