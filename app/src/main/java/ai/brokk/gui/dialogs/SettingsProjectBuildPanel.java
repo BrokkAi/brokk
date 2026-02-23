@@ -7,6 +7,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -16,6 +17,8 @@ import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.ShellConfig;
 import com.google.common.io.Files;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
@@ -29,6 +32,8 @@ import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
 import javax.swing.plaf.basic.BasicComboBoxEditor;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -80,6 +85,11 @@ public class SettingsProjectBuildPanel extends JPanel {
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
     private JdkSelector jdkSelector = new JdkSelector();
     private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
+
+    // Modules UI
+    private final List<BuildAgent.ModuleBuildEntry> modulesList = new ArrayList<>();
+    private final ModulesTableModel modulesTableModel = new ModulesTableModel();
+    private final JTable modulesTable = new JTable(modulesTableModel);
 
     // Executor configuration UI
     private JTextField executorArgsField = new JTextField(20);
@@ -367,6 +377,81 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.fill = GridBagConstraints.HORIZONTAL;
         buildGbc.anchor = GridBagConstraints.WEST;
         buildConfigPanel.add(buttonsPanel, buildGbc);
+
+        // --- 3. Modules Configuration Panel ---
+        var modulesPanel = new JPanel(new BorderLayout(5, 5));
+        modulesPanel.setBorder(BorderFactory.createTitledBorder("Modules"));
+        modulesPanel.setPreferredSize(new Dimension(400, 200));
+
+        modulesTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        modulesTable.getTableHeader().setReorderingAllowed(false);
+        modulesTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && modulesTable.getSelectedRow() != -1) {
+                    editModule();
+                }
+            }
+        });
+
+        // Center checkbox in Parallel column
+        modulesTable.getColumnModel().getColumn(2).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                if (value instanceof Boolean b) {
+                    JCheckBox cb = new JCheckBox();
+                    cb.setSelected(b);
+                    cb.setHorizontalAlignment(JLabel.CENTER);
+                    cb.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+                    return cb;
+                }
+                return super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            }
+        });
+
+        var scrollPane = new JScrollPane(modulesTable);
+        modulesPanel.add(scrollPane, BorderLayout.CENTER);
+
+        var moduleButtons = new JPanel(new GridBagLayout());
+        var mbGbc = new GridBagConstraints();
+        mbGbc.gridx = 0;
+        mbGbc.gridy = 0;
+        mbGbc.fill = GridBagConstraints.HORIZONTAL;
+        mbGbc.insets = new Insets(0, 5, 2, 0);
+
+        var addBtn = new MaterialButton("+");
+        addBtn.addActionListener(e -> addModule());
+        moduleButtons.add(addBtn, mbGbc);
+
+        var removeBtn = new MaterialButton("-");
+        removeBtn.addActionListener(e -> removeModule());
+        mbGbc.gridy++;
+        moduleButtons.add(removeBtn, mbGbc);
+
+        var editBtn = new MaterialButton("Edit");
+        editBtn.addActionListener(e -> editModule());
+        mbGbc.gridy++;
+        moduleButtons.add(editBtn, mbGbc);
+
+        var upBtn = new MaterialButton("▲");
+        upBtn.addActionListener(e -> moveModule(-1));
+        mbGbc.gridy++;
+        moduleButtons.add(upBtn, mbGbc);
+
+        var downBtn = new MaterialButton("▼");
+        downBtn.addActionListener(e -> moveModule(1));
+        mbGbc.gridy++;
+        moduleButtons.add(downBtn, mbGbc);
+
+        modulesPanel.add(moduleButtons, BorderLayout.EAST);
+
+        gbc.gridy = row++;
+        gbc.weighty = 0.5;
+        gbc.fill = GridBagConstraints.BOTH;
+        this.add(modulesPanel, gbc);
+        gbc.weighty = 0.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
 
         // Progress bar for Build Agent
         JPanel progressWrapper = new JPanel(new BorderLayout());
@@ -821,6 +906,10 @@ public class SettingsProjectBuildPanel extends JPanel {
         someTestsCommandField.setText(details.testSomeCommand());
         afterTaskListCommandField.setText(details.afterTaskListCommand());
 
+        modulesList.clear();
+        modulesList.addAll(details.modules());
+        modulesTableModel.fireTableDataChanged();
+
         if (project.getCodeAgentTestScope() == IProject.CodeAgentTestScope.ALL) {
             runAllTestsRadio.setSelected(true);
         } else {
@@ -899,7 +988,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 envVars,
                 diskDetails.maxBuildAttempts(),
                 newAfterTaskList,
-                diskDetails.modules());
+                new ArrayList<>(modulesList));
 
         // Compare against what's currently saved on disk
         var currentDetails = project.awaitBuildDetails();
@@ -1337,6 +1426,166 @@ public class SettingsProjectBuildPanel extends JPanel {
                     this, validation.errorMessage(), "Invalid Timeout", JOptionPane.ERROR_MESSAGE);
             // Revert to last valid
             combo.setSelectedItem(isRunTimeout ? lastValidRunTimeout : lastValidTestTimeout);
+        }
+    }
+
+    private void addModule() {
+        var entry = new BuildAgent.ModuleBuildEntry("", "", "", "", "", false);
+        var dialog = new ModuleEditDialog(parentDialog, entry);
+        dialog.setVisible(true);
+        if (dialog.isSaved()) {
+            modulesList.add(dialog.getResult());
+            modulesTableModel.fireTableDataChanged();
+        }
+    }
+
+    private void editModule() {
+        int row = modulesTable.getSelectedRow();
+        if (row == -1) return;
+        var entry = modulesList.get(row);
+        var dialog = new ModuleEditDialog(parentDialog, entry);
+        dialog.setVisible(true);
+        if (dialog.isSaved()) {
+            modulesList.set(row, dialog.getResult());
+            modulesTableModel.fireTableDataChanged();
+        }
+    }
+
+    private void removeModule() {
+        int row = modulesTable.getSelectedRow();
+        if (row != -1) {
+            modulesList.remove(row);
+            modulesTableModel.fireTableDataChanged();
+        }
+    }
+
+    private void moveModule(int delta) {
+        int row = modulesTable.getSelectedRow();
+        if (row == -1) return;
+        int next = row + delta;
+        if (next >= 0 && next < modulesList.size()) {
+            Collections.swap(modulesList, row, next);
+            modulesTableModel.fireTableDataChanged();
+            modulesTable.setRowSelectionInterval(next, next);
+        }
+    }
+
+    private class ModulesTableModel extends AbstractTableModel {
+        private final String[] columns = {"Alias", "Path", "Parallel"};
+
+        @Override
+        public int getRowCount() {
+            return modulesList.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return columns.length;
+        }
+
+        @Override
+        public String getColumnName(int col) {
+            return columns[col];
+        }
+
+        @Override
+        public Class<?> getColumnClass(int col) {
+            return col == 2 ? Boolean.class : String.class;
+        }
+
+        @Override
+        public Object getValueAt(int row, int col) {
+            var m = modulesList.get(row);
+            return switch (col) {
+                case 0 -> m.alias();
+                case 1 -> m.relativePath();
+                case 2 -> m.parallel();
+                default -> null;
+            };
+        }
+    }
+
+    private static class ModuleEditDialog extends BaseThemedDialog {
+        private final JTextField aliasField = new JTextField();
+        private final JTextField pathField = new JTextField();
+        private final JTextField buildCmdField = new JTextField();
+        private final JTextField testAllField = new JTextField();
+        private final JTextField testSomeField = new JTextField();
+        private final JCheckBox parallelCheck = new JCheckBox("Run in Parallel");
+        private boolean saved = false;
+
+        public ModuleEditDialog(Window owner, BuildAgent.ModuleBuildEntry entry) {
+            super(owner, "Edit Module");
+            setSize(500, 350);
+            setLocationRelativeTo(owner);
+            setModal(true);
+
+            aliasField.setText(entry.alias());
+            pathField.setText(entry.relativePath());
+            buildCmdField.setText(entry.buildLintCommand());
+            testAllField.setText(entry.testAllCommand());
+            testSomeField.setText(entry.testSomeCommand());
+            parallelCheck.setSelected(entry.parallel());
+
+            var p = getContentRoot();
+            p.setLayout(new GridBagLayout());
+            var gbc = new GridBagConstraints();
+            gbc.insets = new Insets(5, 5, 5, 5);
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+
+            int row = 0;
+            addField(p, "Alias:", aliasField, gbc, row++);
+            addField(p, "Relative Path:", pathField, gbc, row++);
+            addField(p, "Build/Lint Command:", buildCmdField, gbc, row++);
+            addField(p, "Test All Command:", testAllField, gbc, row++);
+            addField(p, "Test Some Command:", testSomeField, gbc, row++);
+
+            gbc.gridx = 1;
+            gbc.gridy = row++;
+            p.add(parallelCheck, gbc);
+
+            var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            var ok = new MaterialButton("Ok");
+            SwingUtil.applyPrimaryButtonStyle(ok);
+            ok.addActionListener(e -> {
+                saved = true;
+                dispose();
+            });
+            var cancel = new MaterialButton("Cancel");
+            cancel.addActionListener(e -> dispose());
+            buttons.add(ok);
+            buttons.add(cancel);
+
+            gbc.gridy = row;
+            gbc.gridx = 0;
+            gbc.gridwidth = 2;
+            gbc.weighty = 1.0;
+            gbc.anchor = GridBagConstraints.SOUTH;
+            p.add(buttons, gbc);
+        }
+
+        private void addField(JPanel p, String label, JTextField field, GridBagConstraints gbc, int row) {
+            gbc.gridx = 0;
+            gbc.gridy = row;
+            gbc.weightx = 0.0;
+            p.add(new JLabel(label), gbc);
+            gbc.gridx = 1;
+            gbc.weightx = 1.0;
+            p.add(field, gbc);
+        }
+
+        public boolean isSaved() {
+            return saved;
+        }
+
+        public BuildAgent.ModuleBuildEntry getResult() {
+            return new BuildAgent.ModuleBuildEntry(
+                    aliasField.getText().trim(),
+                    pathField.getText().trim(),
+                    buildCmdField.getText().trim(),
+                    testAllField.getText().trim(),
+                    testSomeField.getText().trim(),
+                    parallelCheck.isSelected());
         }
     }
 }
