@@ -431,6 +431,15 @@ class BrokkApp(App):
         except (ScreenStackError, Exception):
             return None
 
+    def _show_welcome_message(self) -> None:
+        """Constructs and displays the branded welcome message in the ChatPanel."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        welcome_md = build_welcome_message(self.get_slash_commands())
+        chat.add_markdown(welcome_md)
+
     def _maybe_statusline(self) -> Optional[StatusLine]:
         """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
         try:
@@ -551,10 +560,8 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
+                self._show_welcome_message()
                 if chat:
-                    # Construct and display the welcome message
-                    welcome_md = build_welcome_message(self.get_slash_commands())
-                    chat.add_markdown(welcome_md)
                     chat.add_system_message("Ready!")
                 else:
                     logger.info("Executor ready")
