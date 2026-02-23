@@ -88,7 +88,6 @@ public class SettingsProjectBuildPanel extends JPanel {
     // UI components
     private JTextField buildCleanCommandField = new JTextField();
     private JTextField allTestsCommandField = new JTextField();
-    private JTextField someTestsCommandField = new JTextField();
     private JTextField afterTaskListCommandField = new JTextField();
 
     private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
@@ -306,26 +305,6 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.gridy = buildRow++;
         buildGbc.weightx = 1.0;
         buildConfigPanel.add(allTestsCommandField, buildGbc);
-
-        // Test Some Command
-        buildGbc.gridx = 0;
-        buildGbc.gridy = buildRow;
-        buildGbc.weightx = 0.0;
-        buildConfigPanel.add(new JLabel("Test Some Command:"), buildGbc);
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.weightx = 1.0;
-        buildConfigPanel.add(someTestsCommandField, buildGbc);
-        var testSomeInfo = new JLabel(
-                "<html>Mustache variables {{#files}}, {{#classes}}, or {{#fqclasses}} will be interpolated with filenames, class names, or fully-qualified class names, respectively</html>");
-        testSomeInfo.setFont(testSomeInfo
-                .getFont()
-                .deriveFont(Font.ITALIC, testSomeInfo.getFont().getSize() * 0.9f));
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.insets = new Insets(0, 2, 8, 2);
-        buildConfigPanel.add(testSomeInfo, buildGbc);
-        buildGbc.insets = new Insets(2, 2, 2, 2); // Reset insets
 
         // Post-Task List Command
         buildGbc.gridx = 0;
@@ -700,10 +679,14 @@ public class SettingsProjectBuildPanel extends JPanel {
                     publish("--- Skipping empty Test All Command ---\n\n");
                 }
 
-                // Step 3: Test Some command
-                String testSomeTemplate = someTestsCommandField.getText().trim();
+                // Step 3: Test Some command (verify first module if exists)
+                String testSomeTemplate = "";
+                if (!modulesList.isEmpty()) {
+                    testSomeTemplate = modulesList.getFirst().testSomeCommand().trim();
+                }
+
                 if (!testSomeTemplate.isEmpty()) {
-                    publish("--- Verifying Test Some Command Template ---\n");
+                    publish("--- Verifying First Module's Test Some Command Template ---\n");
                     publish("Template: " + testSomeTemplate + "\n");
                     String listKey;
                     List<String> items = List.of("placeholder");
@@ -879,7 +862,6 @@ public class SettingsProjectBuildPanel extends JPanel {
         Stream.of(
                         buildCleanCommandField,
                         allTestsCommandField,
-                        someTestsCommandField,
                         afterTaskListCommandField,
                         runAllTestsRadio,
                         runTestsInWorkspaceRadio,
@@ -900,9 +882,6 @@ public class SettingsProjectBuildPanel extends JPanel {
             }
             if (!details.testAllCommand().isBlank()) {
                 allTestsCommandField.setText(details.testAllCommand());
-            }
-            if (!details.testSomeCommand().isBlank()) {
-                someTestsCommandField.setText(details.testSomeCommand());
             }
             if (!details.afterTaskListCommand().isBlank()) {
                 afterTaskListCommandField.setText(details.afterTaskListCommand());
@@ -938,7 +917,6 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         buildCleanCommandField.setText(details.buildLintCommand());
         allTestsCommandField.setText(details.testAllCommand());
-        someTestsCommandField.setText(details.testSomeCommand());
         afterTaskListCommandField.setText(details.afterTaskListCommand());
 
         modulesList.clear();
@@ -999,7 +977,6 @@ public class SettingsProjectBuildPanel extends JPanel {
         var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
-        var newTestSome = someTestsCommandField.getText();
         var newAfterTaskList = afterTaskListCommandField.getText();
 
         // Primary language
@@ -1018,7 +995,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         var newDetails = new BuildAgent.BuildDetails(
                 newBuildLint,
                 newTestAll,
-                newTestSome,
+                "", // Global testSome is deprecated in UI
                 diskDetails.exclusionPatterns(),
                 envVars,
                 diskDetails.maxBuildAttempts(),

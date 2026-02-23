@@ -91,6 +91,27 @@ public class BuildDetailsPathNormalizationTest {
     }
 
     @Test
+    void testLegacyJson_createsRootModule() throws Exception {
+        String legacyJson =
+                """
+            {
+                "buildLintCommand": "mvn compile",
+                "testAllCommand": "mvn test",
+                "testSomeCommand": "mvn test -Dtest={{classes}}"
+            }
+            """;
+        var details = MAPPER.readValue(legacyJson, BuildAgent.BuildDetails.class);
+
+        assertEquals(1, details.modules().size());
+        var root = details.modules().getFirst();
+        assertEquals("root", root.alias());
+        assertEquals("", root.relativePath());
+        assertEquals("mvn compile", root.buildLintCommand());
+        assertEquals("mvn test", root.testAllCommand());
+        assertEquals("mvn test -Dtest={{classes}}", root.testSomeCommand());
+    }
+
+    @Test
     void testLegacyJson_migratesExcludedDirectories() throws Exception {
         // Old JSON format with excludedDirectories - should migrate to exclusionPatterns
         String oldJson =

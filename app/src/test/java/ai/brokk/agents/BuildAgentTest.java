@@ -34,6 +34,27 @@ class BuildAgentTest {
     private static final Logger logger = LogManager.getLogger(BuildAgentTest.class);
 
     @Test
+    void testGetBuildLintSomeCommand_fallsBackToTestAll() throws Exception {
+        var project = ai.brokk.project.MainProject.forTests(java.nio.file.Path.of("/tmp"));
+        var cm = new ai.brokk.testutil.TestContextManager(project);
+
+        var details = new BuildAgent.BuildDetails(
+                "mvn compile",
+                "mvn test",
+                "", // testSome blank
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(new BuildAgent.ModuleBuildEntry("mod", "mod", "mvn compile -pl mod", "mvn test -pl mod", "")));
+
+        var testFile = new ai.brokk.analyzer.ProjectFile(java.nio.file.Path.of("/tmp"), "mod/src/Test.java");
+        String cmd = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(testFile));
+
+        assertEquals("mvn test -pl mod", cmd);
+    }
+
+    @Test
     void testInterpolateModulesTemplate() {
         String template = "tests/runtests.py{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("servers.tests");

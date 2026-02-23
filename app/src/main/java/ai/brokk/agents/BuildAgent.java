@@ -818,6 +818,22 @@ public class BuildAgent {
             if (excludedDirectories != null) {
                 patterns.addAll(excludedDirectories);
             }
+            List<ModuleBuildEntry> finalModules = modules;
+            if (finalModules == null || finalModules.isEmpty()) {
+                finalModules = new ArrayList<>();
+                boolean hasRootCommands = (buildLintCommand != null && !buildLintCommand.isBlank())
+                        || (testAllCommand != null && !testAllCommand.isBlank())
+                        || (testSomeCommand != null && !testSomeCommand.isBlank());
+                if (hasRootCommands) {
+                    finalModules.add(new ModuleBuildEntry(
+                            "root",
+                            "",
+                            buildLintCommand != null ? buildLintCommand : "",
+                            testAllCommand != null ? testAllCommand : "",
+                            testSomeCommand != null ? testSomeCommand : ""));
+                }
+            }
+
             return new BuildDetails(
                     buildLintCommand != null ? buildLintCommand : "",
                     testAllCommand != null ? testAllCommand : "",
@@ -826,7 +842,7 @@ public class BuildAgent {
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
                     afterTaskListCommand != null ? afterTaskListCommand : "",
-                    modules != null ? modules : List.of());
+                    finalModules);
         }
     }
 
@@ -839,8 +855,17 @@ public class BuildAgent {
 
         String relPath = toUnixPath(file.getRelPath());
         return modules.stream()
-                .filter(m -> relPath.startsWith(toUnixPath(Path.of(m.relativePath()))))
-                .max(Comparator.comparingInt(m -> m.relativePath().length()))
+                .filter(m -> {
+                    String modulePath = m.relativePath().replace('\\', '/');
+                    if (modulePath.equals(".") || modulePath.isEmpty()) {
+                        return true;
+                    }
+                    return relPath.startsWith(modulePath);
+                })
+                .max(Comparator.comparingInt(m -> {
+                    String mp = m.relativePath();
+                    return (mp.equals(".") || mp.isEmpty()) ? 0 : mp.length();
+                }))
                 .orElse(null);
     }
 
@@ -965,11 +990,7 @@ public class BuildAgent {
                                 resolveModule(f, details.modules()),
                                 // Placeholder entry for root if no module matches
                                 new ModuleBuildEntry(
-                                        "root",
-                                        ".",
-                                        details.buildLintCommand(),
-                                        details.testAllCommand(),
-                                        details.testSomeCommand())),
+                                        "root", "", details.buildLintCommand(), details.testAllCommand(), "")),
                         LinkedHashMap::new,
                         Collectors.toList()));
 
@@ -991,10 +1012,15 @@ public class BuildAgent {
                     : module.testSomeCommand();
 
             if (template.isBlank()) {
-                if (!module.buildLintCommand().isBlank()) {
-                    commands.add(interpolateCommandWithPythonVersion(module.buildLintCommand(), projectRoot));
+                if (!module.testAllCommand().isBlank()) {
+                    template = module.testAllCommand();
+                } else if (!module.buildLintCommand().isBlank()) {
+                    template = module.buildLintCommand();
                 }
-                continue;
+
+                if (template.isBlank()) {
+                    continue;
+                }
             }
 
             List<ProjectFile> files = moduleGroups.getOrDefault(module, List.of());
@@ -1450,7 +1476,7 @@ public class BuildAgent {
     }
 
     /**
-     * When BRK_TEST_RETRIES is set, run lint first, then run the test command with retries.
+     * When BRK_TEST_RETRIES is set, talk lint first, then run the test command with retries.
      * This decouples persistent build errors from transient (flaky) test failures.
      */
     private static Context runBuildWithTestRetries(
