@@ -1410,7 +1410,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             String captureName,
             String classChain,
             List<ScopeSegment> scopeChain,
-            TreeSitterAnalyzer.FileAnalysisAccumulator acc,
+            FileAnalysisAccumulator acc,
             SourceContent sourceContent) {
         if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
             var enclosingFnNameOpt = findEnclosingJavaMethodOrClassName(node, sourceContent);
