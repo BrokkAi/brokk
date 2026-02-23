@@ -231,10 +231,17 @@ class ExecutorManager:
             # Note: Process.stdin is a StreamWriter-like object when stdin=PIPE.
             self._stdin = self._process.stdin  # type: ignore[attr-defined]
         except FileNotFoundError:
-            raise ExecutorError(
-                "Java executable not found. "
-                "Please ensure JDK 21+ is installed and 'java' is in your PATH."
-            )
+            binary = cmd[0]
+            if "jbang" in binary.lower():
+                raise ExecutorError(
+                    f"jbang executable not found at '{binary}'. "
+                    "Please ensure jbang is installed or provide a local JAR with --jar."
+                )
+            else:
+                raise ExecutorError(
+                    f"Java executable not found ('{binary}'). "
+                    "Please ensure JDK 21+ is installed and 'java' is in your PATH."
+                )
 
         # Parse stdout for the listening URL
         port = None
