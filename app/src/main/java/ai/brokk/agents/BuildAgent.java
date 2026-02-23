@@ -764,6 +764,20 @@ public class BuildAgent {
         }
     }
 
+    /**
+     * Resolves a ProjectFile to the most specific ModuleBuildEntry based on longest prefix match of relativePath.
+     * Returns null if no module matches.
+     */
+    private static @Nullable ModuleBuildEntry resolveModule(ProjectFile file, List<ModuleBuildEntry> modules) {
+        if (modules.isEmpty()) return null;
+
+        String relPath = toUnixPath(file.getRelPath());
+        return modules.stream()
+                .filter(m -> relPath.startsWith(toUnixPath(Path.of(m.relativePath()))))
+                .max(Comparator.comparingInt(m -> m.relativePath().length()))
+                .orElse(null);
+    }
+
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
     @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
@@ -775,61 +789,72 @@ public class BuildAgent {
     public static @Nullable String determineVerificationCommand(Context ctx, @Nullable BuildDetails override)
             throws InterruptedException {
         var cm = ctx.getContextManager();
+        IProject project = cm.getProject();
+        Path projectRoot = project.getRoot();
 
         // Retrieve build details from the project associated with the ContextManager
-        BuildDetails details = override != null ? override : cm.getProject().awaitBuildDetails();
+        BuildDetails details = override != null ? override : project.awaitBuildDetails();
 
         if (details.equals(BuildDetails.EMPTY)) {
             logger.warn("No build details available, cannot determine verification command.");
             return null;
         }
 
+        // Get all files involved in the current Context
+        var projectFilesFromEditableOrReadOnly = ctx.allFragments()
+                .filter(f -> f.getType().isPath())
+                .flatMap(fragment -> fragment.sourceFiles().join().stream());
+
+        var projectFilesFromSkeletons = ctx.allFragments()
+                .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
+                .flatMap(skeletonFragment -> skeletonFragment.sourceFiles().join().stream());
+
+        var workspaceFiles = Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)
+                .collect(Collectors.toSet());
+
         // Check project setting for test scope
-        IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
+        IProject.CodeAgentTestScope testScope = project.getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null
                     ? System.getenv("BRK_TESTALL_CMD")
                     : details.testAllCommand();
             logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", cmd);
-            return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
+            return interpolateCommandWithPythonVersion(cmd, projectRoot);
         }
 
         // Proceed with workspace-specific test determination (based on the provided Context)
         logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace (Context-based).");
 
-        // Get ProjectFiles from editable and read-only fragments
-        var projectFilesFromEditableOrReadOnly = ctx.allFragments()
-                .filter(f -> f.getType().isPath())
-                .flatMap(fragment -> fragment.sourceFiles().join().stream()); // No analyzer
-
-        // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        var projectFilesFromSkeletons = ctx.allFragments()
-                .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(skeletonFragment -> skeletonFragment.sourceFiles().join().stream()); // No analyzer
-
-        // Combine all relevant ProjectFiles into a single set for checking against test files
-        var workspaceFiles = Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)
-                .collect(Collectors.toSet());
-
-        // Check if any of the identified project test files are present in the current workspace set
         var analyzer = cm.getAnalyzer();
         var workspaceTestFiles = workspaceFiles.stream()
                 .filter(f -> ContextManager.isTestFile(f, analyzer))
                 .toList();
 
-        // Decide which command to use
-        if (workspaceTestFiles.isEmpty()) {
-            var summaries = ContextFragment.describe(ctx.allFragments());
-            logger.debug(
-                    "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
-                    cm.getProject().getRoot(),
-                    summaries,
-                    details.buildLintCommand());
-            return interpolateCommandWithPythonVersion(
-                    details.buildLintCommand(), cm.getProject().getRoot());
+        // If we have test files, delegate to getBuildLintSomeCommand which handles modules
+        if (!workspaceTestFiles.isEmpty()) {
+            return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
         }
 
-        return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
+        // No test files; determine which module build/lint commands to run based on changed files
+        if (details.modules().isEmpty()) {
+            return interpolateCommandWithPythonVersion(details.buildLintCommand(), projectRoot);
+        }
+
+        var affectedModules = workspaceFiles.stream()
+                .map(f -> resolveModule(f, details.modules()))
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted(Comparator.comparingInt(m -> details.modules().indexOf(m)))
+                .toList();
+
+        if (affectedModules.isEmpty()) {
+            return interpolateCommandWithPythonVersion(details.buildLintCommand(), projectRoot);
+        }
+
+        return affectedModules.stream()
+                .map(m -> interpolateCommandWithPythonVersion(m.buildLintCommand(), projectRoot))
+                .filter(cmd -> !cmd.isBlank())
+                .collect(Collectors.joining(" && "));
     }
 
     /**
@@ -854,12 +879,7 @@ public class BuildAgent {
 
     /**
      * Determine and interpolate the "run some tests" command for the current workspace.
-     * Supports files-based, classes-based, fqclasses-based, and modules-based templates.
-     * If the template contains {{#modules}}, this will convert selected test files into
-     * dotted module labels relative to a detected module anchor:
-     *  1) Parent of any hardcoded *.py runner mentioned in the configured commands,
-     *  2) A top-level "tests/" directory if present,
-     *  3) The import root of each file established by walking up until no __init__.py.
+     * Supports multi-module grouping and files/classes/modules templating.
      */
     public static String getBuildLintSomeCommand(
             IContextManager cm,
@@ -868,84 +888,109 @@ public class BuildAgent {
             @Nullable String pythonVersionOverride)
             throws InterruptedException {
 
-        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
-                ? System.getenv("BRK_TESTSOME_CMD")
-                : details.testSomeCommand();
-
-        // No test-some command configured - silently fall back to build/lint
-        if (testSomeTemplate.isBlank()) {
-            return details.buildLintCommand();
-        }
-
-        boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
-        boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
-        boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
-        boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
-
-        if (!isFilesBased && !isClassesBased && !isModulesBased) {
-            // Template is defined but may be misconfigured
-            logger.debug(
-                    "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, or {{#modules}})");
-            return testSomeTemplate;
-        }
-
         final Path projectRoot = cm.getProject().getRoot();
         String pythonVersion =
                 pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
 
-        List<String> targetItems;
+        // Group files by module
+        Map<ModuleBuildEntry, List<ProjectFile>> moduleGroups = workspaceTestFiles.stream()
+                .collect(Collectors.groupingBy(
+                        f -> Objects.requireNonNullElse(
+                                resolveModule(f, details.modules()),
+                                // Placeholder entry for root if no module matches
+                                new ModuleBuildEntry(
+                                        "root",
+                                        ".",
+                                        details.buildLintCommand(),
+                                        details.testAllCommand(),
+                                        details.testSomeCommand(),
+                                        false)),
+                        LinkedHashMap::new,
+                        Collectors.toList()));
+
+        List<String> commands = new ArrayList<>();
+
+        // Sort modules by their order in BuildDetails
+        List<ModuleBuildEntry> sortedModules = moduleGroups.keySet().stream()
+                .sorted((m1, m2) -> {
+                    if (m1.alias().equals("root")) return -1;
+                    if (m2.alias().equals("root")) return 1;
+                    return Integer.compare(
+                            details.modules().indexOf(m1), details.modules().indexOf(m2));
+                })
+                .toList();
+
+        for (ModuleBuildEntry module : sortedModules) {
+            String template = System.getenv("BRK_TESTSOME_CMD") != null
+                    ? System.getenv("BRK_TESTSOME_CMD")
+                    : module.testSomeCommand();
+
+            if (template.isBlank()) {
+                if (!module.buildLintCommand().isBlank()) {
+                    commands.add(interpolateCommandWithPythonVersion(module.buildLintCommand(), projectRoot));
+                }
+                continue;
+            }
+
+            List<ProjectFile> files = moduleGroups.get(module);
+            String cmd = interpolateModuleTestCommand(cm, details, module, template, files, pythonVersion);
+            if (!cmd.isBlank()) {
+                commands.add(cmd);
+            }
+        }
+
+        return commands.isEmpty() ? details.buildLintCommand() : String.join(" && ", commands);
+    }
+
+    private static String interpolateModuleTestCommand(
+            IContextManager cm,
+            BuildDetails details,
+            ModuleBuildEntry module,
+            String template,
+            List<ProjectFile> files,
+            @Nullable String pythonVersion)
+            throws InterruptedException {
+        Path projectRoot = cm.getProject().getRoot();
+
+        boolean isFilesBased = template.contains("{{#files}}");
+        boolean isFqBased = template.contains("{{#fqclasses}}");
+        boolean isClassesBased = template.contains("{{#classes}}") || isFqBased;
+        boolean isModulesBased = template.contains("{{#modules}}");
+
+        if (!isFilesBased && !isClassesBased && !isModulesBased) {
+            return template;
+        }
 
         if (isModulesBased) {
             Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
-            targetItems = workspaceTestFiles.stream()
+            List<String> items = files.stream()
                     .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
                     .filter(s -> !s.isBlank())
                     .distinct()
                     .sorted()
                     .toList();
-
-            if (targetItems.isEmpty()) {
-                logger.debug("No modules derived; falling back to build/lint: {}", details.buildLintCommand());
-                return details.buildLintCommand();
-            }
-
-            logger.debug(
-                    "Using modules-based template with {} modules (anchor={})",
-                    targetItems.size(),
-                    anchor == null ? "<inferred import roots>" : anchor);
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
+            return items.isEmpty() ? "" : interpolateMustacheTemplate(template, items, "modules", pythonVersion);
         }
 
         if (isFilesBased) {
-            targetItems = workspaceTestFiles.stream().map(ProjectFile::toString).toList();
-            logger.debug("Using files-based template with {} files", targetItems.size());
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "files", pythonVersion);
+            List<String> items = files.stream().map(ProjectFile::toString).toList();
+            return interpolateMustacheTemplate(template, items, "files", pythonVersion);
         }
 
         IAnalyzer analyzer = cm.getAnalyzer();
-
         if (analyzer.isEmpty()) {
-            logger.warn("Analyzer is empty; falling back to build/lint: {}", details.buildLintCommand());
-            return details.buildLintCommand();
+            return "";
         }
 
-        var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
+        var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, files);
         if (isFqBased) {
-            targetItems = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
-            if (targetItems.isEmpty()) {
-                logger.debug("No fqclasses derived; falling back to build/lint: {}", details.buildLintCommand());
-                return details.buildLintCommand();
-            }
-            logger.debug("Using fqclasses-based template with {} entries", targetItems.size());
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "fqclasses", pythonVersion);
+            List<String> items =
+                    codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
+            return items.isEmpty() ? "" : interpolateMustacheTemplate(template, items, "fqclasses", pythonVersion);
         } else {
-            targetItems = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
-            if (targetItems.isEmpty()) {
-                logger.debug("No classes derived; falling back to build/lint: {}", details.buildLintCommand());
-                return details.buildLintCommand();
-            }
-            logger.debug("Using classes-based template with {} entries", targetItems.size());
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "classes", pythonVersion);
+            List<String> items =
+                    codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
+            return items.isEmpty() ? "" : interpolateMustacheTemplate(template, items, "classes", pythonVersion);
         }
     }
 
