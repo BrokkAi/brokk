@@ -61,8 +61,8 @@ async def test_executor_start_includes_jvm_flags(monkeypatch, tmp_path):
 
         return FakeProcess()
 
-    # Monkeypatch _find_jar and asyncio.create_subprocess_exec
-    monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
+    # Monkeypatch _find_dev_jar and asyncio.create_subprocess_exec
+    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     manager = ExecutorManager(workspace_dir=tmp_path)
@@ -150,7 +150,7 @@ async def test_executor_start_includes_vendor_flag(monkeypatch, tmp_path):
 
         return FakeProcess()
 
-    monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
+    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     manager = ExecutorManager(workspace_dir=tmp_path, vendor="OpenAI")
@@ -214,7 +214,7 @@ async def test_executor_start_includes_exit_on_stdin_eof_flag_when_enabled(monke
 
         return FakeProcess()
 
-    monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
+    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     manager = ExecutorManager(workspace_dir=tmp_path, exit_on_stdin_eof=True)
@@ -290,7 +290,7 @@ async def test_executor_exits_when_stdin_closed(monkeypatch, tmp_path):
         proc.stdin = FakeStdin(proc)
         return proc
 
-    monkeypatch.setattr(ExecutorManager, "_find_jar", lambda self: dummy_jar)
+    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     manager = ExecutorManager(workspace_dir=tmp_path)
@@ -318,4 +318,90 @@ async def test_executor_exits_when_stdin_closed(monkeypatch, tmp_path):
     assert manager.check_alive() is False, "Executor process did not exit after stdin was closed"
 
     # Cleanup remaining resources
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_executor_start_uses_jbang_when_no_jar(monkeypatch, tmp_path):
+    import brokk_code.executor as executor_module
+
+    captured_cmd = None
+
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+        nonlocal captured_cmd
+        captured_cmd = list(cmd)
+
+        class FakeStdout:
+            async def readline(self):
+                return b"Executor listening on http://127.0.0.1:12345\n"
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = FakeStdout()
+                self.stdin = None
+                self.returncode = None
+
+            async def wait(self):
+                return 0
+
+            def terminate(self):
+                pass
+
+        return FakeProcess()
+
+    monkeypatch.setattr(executor_module, "resolve_jbang_binary", lambda: "/usr/local/bin/jbang")
+    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: None)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    manager = ExecutorManager(workspace_dir=tmp_path)
+    await manager.start()
+
+    assert captured_cmd is not None
+    assert captured_cmd[0] == "/usr/local/bin/jbang"
+    assert captured_cmd[1] == "brokk-headless@brokkai/brokk-releases"
+    assert "--workspace-dir" in captured_cmd
+    assert "--auth-token" in captured_cmd
+
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_executor_start_installs_jbang_if_missing(monkeypatch, tmp_path):
+    import brokk_code.executor as executor_module
+
+    install_called = False
+
+    def fake_install():
+        nonlocal install_called
+        install_called = True
+        return "/tmp/jbang"
+
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+        class FakeStdout:
+            async def readline(self):
+                return b"Executor listening on http://127.0.0.1:12345\n"
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = FakeStdout()
+                self.stdin = None
+                self.returncode = None
+
+            async def wait(self):
+                return 0
+
+            def terminate(self):
+                pass
+
+        return FakeProcess()
+
+    monkeypatch.setattr(executor_module, "resolve_jbang_binary", lambda: None)
+    monkeypatch.setattr(executor_module, "install_jbang", fake_install)
+    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: None)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    manager = ExecutorManager(workspace_dir=tmp_path)
+    await manager.start()
+
+    assert install_called is True
     await manager.stop()
