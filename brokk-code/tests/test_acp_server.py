@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from brokk_code.acp_server import (
@@ -745,3 +746,109 @@ async def test_prompt_emits_summary_as_list_item_with_text_and_tokens_for_brokk_
     assert updates[3][1]["text"] == "- "
     assert updates[4][1]["text"] == "Summary of worker.go"
     assert updates[5][1]["text"] == " | 12\n"
+
+
+async def test_prompt_emits_task_list_checklist_only_on_change(tmp_path: Path) -> None:
+    updates: list[tuple[str, dict[str, str]]] = []
+
+    tl_json_1 = json.dumps(
+        {
+            "bigPicture": "Goal 1",
+            "tasks": [{"id": "t1", "title": "Task 1", "done": False}],
+        }
+    )
+    # Same as 1
+    tl_json_2 = tl_json_1
+    # Changed done state
+    tl_json_3 = json.dumps(
+        {
+            "bigPicture": "Goal 1",
+            "tasks": [{"id": "t1", "title": "Task 1", "done": True}],
+        }
+    )
+
+    current_tl_json = tl_json_1
+
+    class StubExecutor:
+        def __init__(self, workspace_dir: Path):
+            self.workspace_dir = workspace_dir
+
+        async def start(self) -> None:
+            pass
+
+        async def create_session(self, name: str = "ignored") -> str:
+            return "session-1"
+
+        async def wait_ready(self) -> bool:
+            return True
+
+        async def submit_job(self, **kwargs) -> str:
+            return "job-1"
+
+        async def stream_events(self, job_id: str):
+            yield {"type": "STATE_HINT"}  # No tokens to keep it simple
+
+        async def get_context(self) -> dict[str, object]:
+            return {
+                "usedTokens": 100,
+                "maxTokens": 1000,
+                "fragments": [
+                    {
+                        "id": "tl-frag",
+                        "chipKind": "TASK_LIST",
+                        "shortDescription": "Tasks",
+                    }
+                ],
+            }
+
+        async def get_context_fragment(self, fragment_id: str) -> dict[str, object]:
+            assert fragment_id == "tl-frag"
+            return {
+                "id": "tl-frag",
+                "uri": "brokk://context/fragment/tl-frag",
+                "mimeType": "application/json",
+                "text": current_tl_json,
+            }
+
+    async def send_update(session_id: str, update: dict[str, str]) -> None:
+        updates.append((session_id, update))
+
+    def update_agent_message_text(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_message_chunk", "text": text}
+
+    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
+
+    prompt_params = {
+        "prompt": [{"type": "text", "text": "hello"}],
+        "session_id": "acp-session-1",
+        "mode": "LUTZ",
+        "planner_model": "gpt-5.2",
+        "code_model": "gemini-3-flash-preview",
+        "reasoning_level": "low",
+        "reasoning_level_code": "disable",
+        "send_update": send_update,
+        "update_agent_message_text": update_agent_message_text,
+        "update_agent_thought_text": None,
+        "build_context_snapshot_update": lambda u, m, t: {"text": t},
+    }
+
+    # 1. First call: expect checklist
+    await bridge.prompt(**prompt_params)
+    text_1 = "".join(u[1].get("text", "") for u in updates)
+    assert "#### Task List" in text_1
+    assert "- [ ] Task 1" in text_1
+    updates.clear()
+
+    # 2. Second call with identical JSON: expect no checklist
+    current_tl_json = tl_json_2
+    await bridge.prompt(**prompt_params)
+    text_2 = "".join(u[1].get("text", "") for u in updates)
+    assert "#### Task List" not in text_2
+    updates.clear()
+
+    # 3. Third call with changed JSON: expect checklist again
+    current_tl_json = tl_json_3
+    await bridge.prompt(**prompt_params)
+    text_3 = "".join(u[1].get("text", "") for u in updates)
+    assert "#### Task List" in text_3
+    assert "- [x] Task 1" in text_3

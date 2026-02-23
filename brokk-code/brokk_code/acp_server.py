@@ -522,6 +522,7 @@ class BrokkAcpBridge:
         self.executor = executor
         self._acp_to_brokk_session: dict[str, str] = {}
         self._active_job_by_session: dict[str, str] = {}
+        self._last_tasklist_key_by_session: dict[str, Any] = {}
         self._started = False
 
     async def ensure_ready(self) -> None:
