@@ -263,7 +263,7 @@ class JobRunnerTest {
     }
 
     @Test
-    void testObjectiveForModeLutzUsesLutzObjective() {
+    void testObjectiveForModeLutzEqualsLutzObjective() {
         assertEquals(SearchPrompts.Objective.LUTZ, JobRunner.objectiveForMode(JobRunner.Mode.LUTZ));
     }
 
