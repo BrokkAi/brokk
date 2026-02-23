@@ -406,6 +406,9 @@ class BrokkApp(App):
         self._reported_refresh_errors: set[str] = set()
         self._reasoning_target: str = "planner"
 
+        self.current_job_cost: float = 0.0
+        self.session_total_cost: float = 0.0
+
         self._tasklist_restore_focus_widget: Any | None = None
 
         # Shutdown coordination flags and lock
@@ -1160,6 +1163,7 @@ class BrokkApp(App):
         return list(dict.fromkeys(attached_fragment_ids))
 
     async def _run_job(self, task_input: str) -> None:
+        self.current_job_cost = 0.0
         self.job_in_progress = True
         chat = self.query_one(ChatPanel)
         chat.set_job_running(True)
@@ -1255,6 +1259,14 @@ class BrokkApp(App):
         elif event_type == "NOTIFICATION":
             level = data.get("level", "INFO")
             msg = data.get("message", "")
+            cost = data.get("cost")
+
+            if level.upper() == "COST" and isinstance(cost, (int, float)):
+                increment = float(cost)
+                self.current_job_cost += increment
+                self.session_total_cost += increment
+                self._update_statusline()
+
             chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
             msg = data.get("message", "Unknown error")
