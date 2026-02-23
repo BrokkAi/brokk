@@ -95,11 +95,7 @@ public class McpPrompts {
     }
 
     private static String xmlEscape(String text) {
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&apos;");
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     public record McpTool(McpServer server, String toolName) {}
