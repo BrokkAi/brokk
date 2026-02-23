@@ -178,8 +178,10 @@ class ExecutorManager:
         jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
         cmd = [
             jbang_bin,
-            "-J-Djava.awt.headless=true",
-            "-J-Dapple.awt.UIElement=true",
+            "-R",
+            "-Djava.awt.headless=true",
+            "-R",
+            "-Dapple.awt.UIElement=true",
             "--java",
             "21",
             "-R",

@@ -355,8 +355,11 @@ async def test_executor_start_uses_jbang_when_no_jar(monkeypatch, tmp_path):
 
     assert captured_cmd is not None
     assert captured_cmd[0] == "/usr/local/bin/jbang"
-    assert "-J-Djava.awt.headless=true" in captured_cmd
-    assert "-J-Dapple.awt.UIElement=true" in captured_cmd
+    # Check for -R followed by the system property
+    for prop in ["-Djava.awt.headless=true", "-Dapple.awt.UIElement=true"]:
+        idx = captured_cmd.index(prop)
+        assert captured_cmd[idx - 1] == "-R"
+
     assert "--java" in captured_cmd
     assert "21" in captured_cmd
     assert "--main" in captured_cmd
