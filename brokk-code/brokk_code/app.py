@@ -408,6 +408,7 @@ class BrokkApp(App):
         self._reasoning_target: str = "planner"
 
         self._tasklist_restore_focus_widget: Any | None = None
+        self._show_welcome_on_ready: bool = False
 
         # Shutdown coordination flags and lock
         self._shutting_down: bool = False
@@ -497,6 +498,8 @@ class BrokkApp(App):
             # Load initial prompt history for arrow-key navigation
             history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
+            # Show welcome only if history is empty (new workspace/user)
+            self._show_welcome_on_ready = not history
 
         self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
@@ -560,7 +563,9 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
-                self._show_welcome_message()
+                if self._show_welcome_on_ready:
+                    self._show_welcome_message()
+
                 if chat:
                     chat.add_system_message("Ready!")
                 else:
