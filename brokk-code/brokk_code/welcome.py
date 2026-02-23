@@ -1,6 +1,21 @@
 from typing import Any, Dict, List
 
 
+def get_braille_icon() -> str:
+    """
+    Returns a multi-line string representing the Brokk icon using Braille characters.
+    Uses characters in the U+2800–U+28FF range.
+    """
+    # A stylized "B" or block icon
+    return (
+        "⣿⣿⣿⣿⡇\n"
+        "⣿⡇⢀⣸⡇\n"
+        "⣿⣿⣿⣿⡇\n"
+        "⣿⡇⢀⣸⡇\n"
+        "⣿⣿⣿⣿⡇"
+    )
+
+
 def build_welcome_message(commands: List[Dict[str, str]]) -> str:
     """
     Constructs the branded welcome/onboarding message as a Markdown string.
@@ -11,8 +26,8 @@ def build_welcome_message(commands: List[Dict[str, str]]) -> str:
     Returns:
         A Markdown-formatted string for display in the ChatPanel.
     """
-    # Braille icon snippet (resembling a 'B' or abstract block)
-    icon = "⣿⣿⣿⣿⡇\n⣿⡇⢀⣸⡇\n⣿⣿⣿⣿⡇\n⣿⡇⢀⣸⡇\n⣿⣿⣿⣿⡇"
+    # Wrap icon in a code block to ensure monospace alignment in Markdown
+    icon = f"```\n{get_braille_icon()}\n```"
 
     description = (
         "# Welcome to Brokk\n\n"

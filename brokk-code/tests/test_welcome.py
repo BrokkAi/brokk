@@ -58,3 +58,38 @@ async def test_welcome_message_suppressed_on_subsequent_run(tmp_path: Path):
             chat_log = app.query_one("#chat-log")
             content = "".join(str(line) for line in chat_log.lines)
             assert "Welcome to Brokk" not in content
+
+
+def test_build_welcome_message_content():
+    """Verify the welcome message contains expected branded content and commands."""
+    from brokk_code.welcome import build_welcome_message
+
+    mock_commands = [
+        {"command": "/context", "description": "test"},
+        {"command": "/task", "description": "test"},
+        {"command": "/help", "description": "test"},
+    ]
+
+    msg = build_welcome_message(mock_commands)
+
+    assert "Welcome to Brokk" in msg
+    assert "context engineering" in msg.lower()
+    assert "/context" in msg
+    assert "/task" in msg
+    assert "/help" in msg
+    # Verify Braille icon is present in a code block
+    assert "```" in msg
+    # Braille block starts at U+2800
+    assert any("\u2800" <= char <= "\u28FF" for char in msg)
+
+
+def test_get_braille_icon_contains_braille():
+    """Verify the icon helper returns characters in the Braille Unicode block."""
+    from brokk_code.welcome import get_braille_icon
+
+    icon = get_braille_icon()
+    assert isinstance(icon, str)
+    assert len(icon) > 0
+    # Check for at least one Braille character (U+2800 to U+28FF)
+    has_braille = any("\u2800" <= char <= "\u28FF" for char in icon)
+    assert has_braille, "Icon should contain Unicode Braille characters"

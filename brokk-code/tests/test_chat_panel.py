@@ -462,27 +462,6 @@ async def test_mention_autocomplete_fetch_and_accept():
         assert chat_input.text == "@ai.brokk.ContextManager "
 
 
-def test_build_welcome_message_content():
-    """Verify the welcome message contains expected branded content and commands."""
-    from brokk_code.welcome import build_welcome_message
-
-    mock_commands = [
-        {"command": "/context", "description": "test"},
-        {"command": "/task", "description": "test"},
-        {"command": "/help", "description": "test"},
-    ]
-
-    msg = build_welcome_message(mock_commands)
-
-    assert "Welcome to Brokk" in msg
-    assert "context engineering" in msg.lower()
-    assert "/context" in msg
-    assert "/task" in msg
-    assert "/help" in msg
-    # Verify Braille icon (starts with a Braille character)
-    assert msg.startswith("⣿")
-
-
 @pytest.mark.asyncio
 async def test_mention_autocomplete_ignores_email_like_text():
     """Verify email-like text does not trigger @mention autocomplete."""
