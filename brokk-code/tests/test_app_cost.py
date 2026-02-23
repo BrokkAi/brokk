@@ -1,5 +1,7 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from brokk_code.app import BrokkApp
 
 
@@ -35,6 +37,7 @@ def test_brokk_app_cost_tracking_basic(mock_executor):
     }
     app._handle_event(event2)
 
+    # These assertions would fail with 0.15000000000000002 if handled as raw floats
     assert app.current_job_cost == 0.15
     assert app.session_total_cost == 0.15
 

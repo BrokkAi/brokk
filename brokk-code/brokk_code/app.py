@@ -1282,8 +1282,10 @@ class BrokkApp(App):
 
             if level.upper() == "COST" and isinstance(cost, (int, float)):
                 increment = float(cost)
-                self.current_job_cost += increment
-                self.session_total_cost += increment
+                # Use rounding to avoid floating point precision artifacts (e.g. 0.1 + 0.05 = 0.15000000000000002)
+                # LLM costs often go to 4+ decimal places.
+                self.current_job_cost = round(self.current_job_cost + increment, 6)
+                self.session_total_cost = round(self.session_total_cost + increment, 6)
                 self._update_statusline()
 
             if chat:
