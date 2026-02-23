@@ -39,13 +39,13 @@ pip install -e .
 **With uv:**
 
 ```bash
-uv run brokk-code
+uv run brokk
 ```
 
 **With pip installation:**
 
 ```bash
-brokk-code
+brokk
 ```
 
 **Or run directly:**
@@ -60,25 +60,25 @@ Brokk automatically saves your session state (fragments, history, etc.) when you
 
 **Resume the last session in the current workspace:**
 ```bash
-brokk-code --resume
+brokk --resume
 ```
 
 **Resume a specific session by ID:**
 ```bash
-brokk-code resume <session_id>
+brokk resume <session_id>
 ```
-*Note: When you exit `brokk-code`, it prints a convenient "resume hint" command for the session you just finished, for example:*
-`brokk-code resume <session_id>`
+*Note: When you exit `brokk`, it prints a convenient "resume hint" command for the session you just finished, for example:*
+`brokk resume <session_id>`
 
 ### ACP Mode
 
 Run the official ACP server mode over stdio:
 
 ```bash
-uv run brokk-code acp
+uv run brokk acp
 ```
 
-This mode is headless and intended for ACP-compatible clients. The default `brokk-code` command still launches the interactive TUI.
+This mode is headless and intended for ACP-compatible clients. The default `brokk` command still launches the interactive TUI.
 
 ### Options
 

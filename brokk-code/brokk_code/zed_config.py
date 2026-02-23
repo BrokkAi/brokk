@@ -193,7 +193,7 @@ def _brokk_code_agent_server_config() -> dict[str, Any]:
             "model": ["gpt-5.2"],
         },
         "type": "custom",
-        "command": "brokk-code",
+        "command": "brokk",
         "args": ["acp", "--ide", "zed"],
         "env": {},
     }
