@@ -30,28 +30,25 @@ def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
         "--jar",
         type=str,
         default=None,
-        help="Path to brokk.jar (default: auto-download to ~/.brokk/)",
+        help="Path to brokk.jar (bypasses jbang; default: use jbang to launch)",
     )
     parser.add_argument(
         "--executor-version",
         type=str,
         default=None,
-        help="Specific version/tag of the executor to download (default: latest snapshot)",
+        help="[Ignored] Use jbang to manage versions (default: latest snapshot)",
     )
     parser.add_argument(
         "--executor-snapshot",
         action="store_true",
         default=True,
-        help=(
-            "Download the latest snapshot release if no specific version is provided "
-            "(default: True)"
-        ),
+        help="[Ignored] Use jbang to manage versions",
     )
     parser.add_argument(
         "--executor-stable",
         action="store_false",
         dest="executor_snapshot",
-        help="Download the latest stable release instead of the snapshot",
+        help="[Ignored] Use jbang to manage versions",
     )
 
 
