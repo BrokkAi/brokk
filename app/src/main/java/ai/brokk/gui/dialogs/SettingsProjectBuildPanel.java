@@ -1607,6 +1607,16 @@ public class SettingsProjectBuildPanel extends JPanel {
             gbc.gridy = row++;
             p.add(parallelCheck, gbc);
 
+            var parallelNote = new JLabel(
+                    "<html>If checked, this module may run in parallel with other independent modules in the same group.<br>(Note: Execution is currently sequential; this setting is for future parallelization support.)</html>");
+            parallelNote.setFont(parallelNote
+                    .getFont()
+                    .deriveFont(Font.ITALIC, parallelNote.getFont().getSize() * 0.9f));
+            gbc.gridy = row++;
+            gbc.insets = new Insets(0, 5, 8, 5);
+            p.add(parallelNote, gbc);
+            gbc.insets = new Insets(5, 5, 5, 5); // Reset
+
             var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
             var ok = new MaterialButton("Ok");
             SwingUtil.applyPrimaryButtonStyle(ok);
