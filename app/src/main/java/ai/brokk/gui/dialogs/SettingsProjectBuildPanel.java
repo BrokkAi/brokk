@@ -33,7 +33,6 @@ import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
 import javax.swing.plaf.basic.BasicComboBoxEditor;
 import javax.swing.table.AbstractTableModel;
-import javax.swing.table.DefaultTableCellRenderer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -429,22 +428,6 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (e.getClickCount() == 2 && modulesTable.getSelectedRow() != -1) {
                     editModule();
                 }
-            }
-        });
-
-        // Center checkbox in Parallel column
-        modulesTable.getColumnModel().getColumn(2).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(
-                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                if (value instanceof Boolean b) {
-                    JCheckBox cb = new JCheckBox();
-                    cb.setSelected(b);
-                    cb.setHorizontalAlignment(JLabel.CENTER);
-                    cb.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
-                    return cb;
-                }
-                return super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             }
         });
 
@@ -1482,7 +1465,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void addModule() {
-        var entry = new BuildAgent.ModuleBuildEntry("", "", "", "", "", false);
+        var entry = new BuildAgent.ModuleBuildEntry("", "", "", "", "");
         var dialog = new ModuleEditDialog(parentDialog, entry);
         dialog.setVisible(true);
         if (dialog.isSaved()) {
@@ -1523,7 +1506,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private class ModulesTableModel extends AbstractTableModel {
-        private final String[] columns = {"Alias", "Path", "Parallel"};
+        private final String[] columns = {"Alias", "Path"};
 
         @Override
         public int getRowCount() {
@@ -1542,7 +1525,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         @Override
         public Class<?> getColumnClass(int col) {
-            return col == 2 ? Boolean.class : String.class;
+            return String.class;
         }
 
         @Override
@@ -1551,7 +1534,6 @@ public class SettingsProjectBuildPanel extends JPanel {
             return switch (col) {
                 case 0 -> m.alias();
                 case 1 -> m.relativePath();
-                case 2 -> m.parallel();
                 default -> "";
             };
         }
@@ -1563,12 +1545,11 @@ public class SettingsProjectBuildPanel extends JPanel {
         private final JTextField buildCmdField = new JTextField();
         private final JTextField testAllField = new JTextField();
         private final JTextField testSomeField = new JTextField();
-        private final JCheckBox parallelCheck = new JCheckBox("Run in Parallel");
         private boolean saved = false;
 
         public ModuleEditDialog(Window owner, BuildAgent.ModuleBuildEntry entry) {
             super(owner, "Edit Module");
-            setSize(500, 350);
+            setSize(500, 320);
             setLocationRelativeTo(owner);
             setModal(true);
 
@@ -1577,7 +1558,6 @@ public class SettingsProjectBuildPanel extends JPanel {
             buildCmdField.setText(entry.buildLintCommand());
             testAllField.setText(entry.testAllCommand());
             testSomeField.setText(entry.testSomeCommand());
-            parallelCheck.setSelected(entry.parallel());
 
             var p = getContentRoot();
             p.setLayout(new GridBagLayout());
@@ -1601,20 +1581,6 @@ public class SettingsProjectBuildPanel extends JPanel {
             gbc.gridy = row++;
             gbc.insets = new Insets(0, 5, 8, 5);
             p.add(testSomeNote, gbc);
-            gbc.insets = new Insets(5, 5, 5, 5); // Reset
-
-            gbc.gridx = 1;
-            gbc.gridy = row++;
-            p.add(parallelCheck, gbc);
-
-            var parallelNote = new JLabel(
-                    "<html>If checked, this module may run in parallel with other independent modules in the same group.<br>(Note: Execution is currently sequential; this setting is for future parallelization support.)</html>");
-            parallelNote.setFont(parallelNote
-                    .getFont()
-                    .deriveFont(Font.ITALIC, parallelNote.getFont().getSize() * 0.9f));
-            gbc.gridy = row++;
-            gbc.insets = new Insets(0, 5, 8, 5);
-            p.add(parallelNote, gbc);
             gbc.insets = new Insets(5, 5, 5, 5); // Reset
 
             var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -1657,8 +1623,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                     pathField.getText().trim(),
                     buildCmdField.getText().trim(),
                     testAllField.getText().trim(),
-                    testSomeField.getText().trim(),
-                    parallelCheck.isSelected());
+                    testSomeField.getText().trim());
         }
     }
 }

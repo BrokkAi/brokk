@@ -734,8 +734,7 @@ public class BuildAgent {
             String relativePath,
             String buildLintCommand,
             String testAllCommand,
-            String testSomeCommand,
-            boolean parallel) {}
+            String testSomeCommand) {}
 
     /** Holds semi-structured information about a project's build process */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -970,8 +969,7 @@ public class BuildAgent {
                                         ".",
                                         details.buildLintCommand(),
                                         details.testAllCommand(),
-                                        details.testSomeCommand(),
-                                        false)),
+                                        details.testSomeCommand())),
                         LinkedHashMap::new,
                         Collectors.toList()));
 
