@@ -7,9 +7,8 @@ from brokk_code.app import BrokkApp
 
 
 @pytest.mark.asyncio
-async def test_welcome_message_shown_on_first_run(tmp_path: Path):
-    """Verify welcome message appears when history is empty."""
-    # Mock executor to be ready immediately
+async def test_welcome_message_shown_on_startup(tmp_path: Path):
+    """Verify welcome message appears on every startup."""
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
     mock_executor.start = AsyncMock()
@@ -22,44 +21,16 @@ async def test_welcome_message_shown_on_first_run(tmp_path: Path):
     mock_executor.get_context = AsyncMock(return_value={"usedTokens": 0})
     mock_executor.get_tasklist = AsyncMock(return_value={"tasks": []})
 
-    # Ensure load_history returns empty
-    with patch("brokk_code.app.load_history", return_value=[]):
-        app = BrokkApp(executor=mock_executor)
-        async with app.run_test() as pilot:
-            # Wait for executor to be ready and logic to trigger
-            await pilot.pause()
+    for history in ([], ["previous prompt"]):
+        with patch("brokk_code.app.load_history", return_value=history):
+            app = BrokkApp(executor=mock_executor)
+            async with app.run_test() as pilot:
+                await pilot.pause()
 
-            chat_log = app.query_one("#chat-log")
-            # The welcome message starts with the Braille icon '⣿'
-            content = "".join(str(line) for line in chat_log.lines)
-            assert "Welcome to Brokk" in content
-            assert "Context Engineering" in content
-
-
-@pytest.mark.asyncio
-async def test_welcome_message_suppressed_on_subsequent_run(tmp_path: Path):
-    """Verify welcome message is NOT shown when history exists."""
-    mock_executor = MagicMock()
-    mock_executor.workspace_dir = tmp_path
-    mock_executor.start = AsyncMock()
-    mock_executor.wait_ready = AsyncMock(return_value=True)
-    mock_executor.check_alive = MagicMock(return_value=True)
-    mock_executor.get_health_live = AsyncMock(return_value={})
-    mock_executor.create_session = AsyncMock()
-    mock_executor.session_id = "test-session"
-    mock_executor.stop = AsyncMock()
-    mock_executor.get_context = AsyncMock(return_value={"usedTokens": 0})
-    mock_executor.get_tasklist = AsyncMock(return_value={"tasks": []})
-
-    # Simulate existing history
-    with patch("brokk_code.app.load_history", return_value=["previous prompt"]):
-        app = BrokkApp(executor=mock_executor)
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            chat_log = app.query_one("#chat-log")
-            content = "".join(str(line) for line in chat_log.lines)
-            assert "Welcome to Brokk" not in content
+                chat_log = app.query_one("#chat-log")
+                content = "".join(str(line) for line in chat_log.lines)
+                assert "Welcome to Brokk" in content, f"Expected welcome with history={history!r}"
+                assert "Context Engineering" in content
 
 
 def test_build_welcome_message_content():
@@ -79,10 +50,6 @@ def test_build_welcome_message_content():
     assert "/context" in msg
     assert "/task" in msg
     assert "/help" in msg
-    # Verify Braille icon is present in a code block
-    assert "```" in msg
-    # Braille block starts at U+2800
-    assert any("\u2800" <= char <= "\u28ff" for char in msg)
 
 
 def test_get_braille_icon_contains_braille():

@@ -5,9 +5,20 @@ def get_braille_icon() -> str:
     """
     Returns a multi-line string representing the Brokk icon using Braille characters.
     Uses characters in the U+2800–U+28FF range.
+    Depicts the Viking helmet logo: two curved horns, dome, central bar, and banded lower section.
     """
-    # A stylized "B" or block icon
-    return "⣿⣿⣿⣿⡇\n⣿⡇⢀⣸⡇\n⣿⣿⣿⣿⡇\n⣿⡇⢀⣸⡇\n⣿⣿⣿⣿⡇"
+    return (
+        "⣠⣾⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣰⣷⣄\n"
+        "⣿⣿⣿⠀⠀⠀⠀⢀⣀⣀⣀⣀⣀⠀⠀⠀⠀⣿⣿⣿\n"
+        "⣿⣿⣿⣇⠀⠀⠀⠀⠙⢿⣿⠟⠁⠀⠀⠀⣸⣿⣿⣿\n"
+        "⢿⣿⣿⣿⡀⠀⣠⣶⣿⣿⣿⣿⣷⣦⡀⢀⣿⣿⣿⡿\n"
+        "⠘⣿⣿⣿⣷⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣾⣿⣿⣿⠃\n"
+        "⠀⠈⠻⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠟⠁⠀\n"
+        "⠀⠀⠀⠠⣉⣉⣉⣉⣹⣿⣿⣏⣉⣉⣉⣉⡧⠀⠀⠀\n"
+        "⠀⠀⠀⠀⣉⣉⣉⠉⢹⣿⣿⡏⠉⣉⣉⣉⡇⠀⠀⠀\n"
+        "⠀⠀⠀⠀⣿⣿⣿⠀⢸⣿⣿⡇⠀⣿⣿⣿⠀⠀⠀⠀\n"
+        "⠀⠀⠀⠀⠛⠛⠛⠀⢸⣿⣿⡇⠀⠛⠛⠛⠀⠀⠀⠀"
+    )
 
 
 def build_welcome_message(commands: List[Dict[str, str]]) -> str:
@@ -20,9 +31,6 @@ def build_welcome_message(commands: List[Dict[str, str]]) -> str:
     Returns:
         A Markdown-formatted string for display in the ChatPanel.
     """
-    # Wrap icon in a code block to ensure monospace alignment in Markdown
-    icon = f"```\n{get_braille_icon()}\n```"
-
     description = (
         "# Welcome to Brokk\n\n"
         "Brokk is a code intelligence agent designed for high-precision **context engineering**."
@@ -51,4 +59,4 @@ def build_welcome_message(commands: List[Dict[str, str]]) -> str:
         "\n\nType **`/help`** to see the full list of available commands." if has_help else ""
     )
 
-    return f"{icon}\n\n{description}\n\n{context_eng}\n\n{workflows}{help_hint}"
+    return f"{description}\n\n{context_eng}\n\n{workflows}{help_hint}"

@@ -15,7 +15,7 @@ from textual.widgets import Input, ListItem, ListView, Static
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
-from brokk_code.welcome import build_welcome_message
+from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.status_line import StatusLine
@@ -408,7 +408,6 @@ class BrokkApp(App):
         self._reasoning_target: str = "planner"
 
         self._tasklist_restore_focus_widget: Any | None = None
-        self._show_welcome_on_ready: bool = False
 
         # Shutdown coordination flags and lock
         self._shutting_down: bool = False
@@ -438,8 +437,7 @@ class BrokkApp(App):
         if not chat:
             return
 
-        welcome_md = build_welcome_message(self.get_slash_commands())
-        chat.add_markdown(welcome_md)
+        chat.add_welcome(get_braille_icon(), build_welcome_message(self.get_slash_commands()))
 
     def _maybe_statusline(self) -> Optional[StatusLine]:
         """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
@@ -493,13 +491,13 @@ class BrokkApp(App):
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
             chat.set_token_bar_visible(True)
-            chat.add_system_message("Starting Brokk executor...")
 
             # Load initial prompt history for arrow-key navigation
             history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
-            # Show welcome only if history is empty (new workspace/user)
-            self._show_welcome_on_ready = not history
+
+            self._show_welcome_message()
+            chat.add_system_message("Starting Brokk executor...")
 
         self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
@@ -563,13 +561,6 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
-                if self._show_welcome_on_ready:
-                    self._show_welcome_message()
-
-                if chat:
-                    chat.add_system_message(msg)
-                else:
-                    logger.info(msg)
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
             else:
