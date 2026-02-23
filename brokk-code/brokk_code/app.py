@@ -550,12 +550,11 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
-                launch_type = "JAR" if self.executor.jar_override else "jbang"
-                msg = f"Ready! (Launched via {launch_type})"
+                msg = "Executor ready."
                 if chat:
                     chat.add_system_message(msg)
                 else:
-                    logger.info(f"Executor ready. {msg}")
+                    logger.info(msg)
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
             else:
