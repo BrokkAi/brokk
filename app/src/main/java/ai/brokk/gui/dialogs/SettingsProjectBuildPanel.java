@@ -694,7 +694,8 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (!buildCmd.isEmpty()) {
                 publish.accept("--- Verifying Build/Lint Command ---\n");
                 publish.accept("$ " + buildCmd + "\n");
-                var result = BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish.accept(line + "\n"));
+                var result =
+                        BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish.accept(line + "\n"));
                 if (result.success()) {
                     publish.accept("\nSUCCESS: Build/Lint command completed successfully.\n\n");
                 } else {
@@ -713,7 +714,8 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (!testAllCmd.isEmpty()) {
                 publish.accept("--- Verifying Test All Command ---\n");
                 publish.accept("$ " + testAllCmd + "\n");
-                var result = BuildVerifier.verifyStreaming(project, testAllCmd, envVars, line -> publish.accept(line + "\n"));
+                var result = BuildVerifier.verifyStreaming(
+                        project, testAllCmd, envVars, line -> publish.accept(line + "\n"));
                 if (result.success()) {
                     publish.accept("\nSUCCESS: Test All command completed successfully.\n\n");
                 } else {
@@ -737,7 +739,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                     String mBuild = module.buildLintCommand().trim();
                     if (!mBuild.isEmpty()) {
                         publish.accept("Verifying Build/Lint: $ " + mBuild + "\n");
-                        var result = BuildVerifier.verifyStreaming(project, mBuild, envVars, line -> publish.accept(line + "\n"));
+                        var result = BuildVerifier.verifyStreaming(
+                                project, mBuild, envVars, line -> publish.accept(line + "\n"));
                         if (result.success()) {
                             publish.accept("SUCCESS: Build/Lint for module [" + module.alias() + "] passed.\n");
                         } else {
@@ -753,7 +756,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                     String mTest = module.testAllCommand().trim();
                     if (!mTest.isEmpty()) {
                         publish.accept("Verifying Test All: $ " + mTest + "\n");
-                        var result = BuildVerifier.verifyStreaming(project, mTest, envVars, line -> publish.accept(line + "\n"));
+                        var result = BuildVerifier.verifyStreaming(
+                                project, mTest, envVars, line -> publish.accept(line + "\n"));
                         if (result.success()) {
                             publish.accept("SUCCESS: Test All for module [" + module.alias() + "] passed.\n\n");
                         } else {
@@ -1596,7 +1600,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!buildLint.isEmpty()) {
                     publish.accept("--- Verifying Build/Lint Command ---\n");
                     publish.accept("$ " + buildLint + "\n");
-                    var result = BuildVerifier.verifyStreaming(project, buildLint, envVars, line -> publish.accept(line + "\n"));
+                    var result = BuildVerifier.verifyStreaming(
+                            project, buildLint, envVars, line -> publish.accept(line + "\n"));
                     if (result.success()) {
                         publish.accept("\nSUCCESS: Build/Lint command completed successfully.\n\n");
                     } else {
@@ -1611,7 +1616,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!testAll.isEmpty()) {
                     publish.accept("--- Verifying Test All Command ---\n");
                     publish.accept("$ " + testAll + "\n");
-                    var result = BuildVerifier.verifyStreaming(project, testAll, envVars, line -> publish.accept(line + "\n"));
+                    var result = BuildVerifier.verifyStreaming(
+                            project, testAll, envVars, line -> publish.accept(line + "\n"));
                     if (result.success()) {
                         publish.accept("\nSUCCESS: Test All command completed successfully.\n\n");
                     } else {
