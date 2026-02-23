@@ -227,41 +227,47 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         FileAnalysisAccumulator() {}
 
-        void addTopLevel(CodeUnit cu) {
+        FileAnalysisAccumulator addTopLevel(CodeUnit cu) {
             if (!topLevelCUs.contains(cu)) {
                 topLevelCUs.add(cu);
             }
             addLookupKey(cu.fqName(), cu);
+            return this;
         }
 
-        void addChild(CodeUnit parent, CodeUnit child) {
+        FileAnalysisAccumulator addChild(CodeUnit parent, CodeUnit child) {
             List<CodeUnit> kids = children.computeIfAbsent(parent, k -> new ArrayList<>());
             if (!kids.contains(child)) {
                 kids.add(child);
             }
             addLookupKey(child.fqName(), child);
+            return this;
         }
 
-        void addSignature(CodeUnit cu, String signature) {
+        FileAnalysisAccumulator addSignature(CodeUnit cu, String signature) {
             List<String> sigs = signatures.computeIfAbsent(cu, k -> new ArrayList<>());
             if (!sigs.contains(signature)) {
                 sigs.add(signature);
             }
+            return this;
         }
 
-        void addRange(CodeUnit cu, Range range) {
+        FileAnalysisAccumulator addRange(CodeUnit cu, Range range) {
             sourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(range);
+            return this;
         }
 
-        void setHasBody(CodeUnit cu, boolean body) {
+        FileAnalysisAccumulator setHasBody(CodeUnit cu, boolean body) {
             hasBody.put(cu, body);
+            return this;
         }
 
-        void addSymbolIndex(String symbol, CodeUnit cu) {
+        FileAnalysisAccumulator addSymbolIndex(String symbol, CodeUnit cu) {
             codeUnitsBySymbol.computeIfAbsent(symbol, k -> new HashSet<>()).add(cu);
+            return this;
         }
 
-        void remove(CodeUnit cu) {
+        FileAnalysisAccumulator remove(CodeUnit cu) {
             List<CodeUnit> kids = children.remove(cu);
             if (kids != null) {
                 for (CodeUnit child : new ArrayList<>(kids)) {
@@ -284,11 +290,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             for (List<CodeUnit> siblingList : children.values()) {
                 siblingList.remove(cu);
             }
+            return this;
         }
 
-        void addLookupKey(String lookupKey, CodeUnit cu) {
+        FileAnalysisAccumulator addLookupKey(String lookupKey, CodeUnit cu) {
             cuByFqName.put(lookupKey, cu);
             lookupKeys.computeIfAbsent(cu, k -> new ArrayList<>()).add(lookupKey);
+            return this;
         }
 
         private void removeFromSymbolIndex(CodeUnit cu) {
@@ -2575,12 +2583,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Useful for languages that have a module system, e.g., dynamic languages, to declare MODULE code units with.
      * Operates on the mutable FileAnalysisAccumulator to register modules and their properties.
      */
-    protected void createModulesFromImports(
+    protected FileAnalysisAccumulator createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            FileAnalysisAccumulator acc) {}
+            FileAnalysisAccumulator acc) {
+        return acc;
+    }
 
     /**
      * Renders the opening part of a class-like structure (e.g., "public class Foo {").

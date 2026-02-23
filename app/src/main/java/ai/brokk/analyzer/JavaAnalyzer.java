@@ -816,21 +816,21 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected void createModulesFromImports(
+    protected FileAnalysisAccumulator createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
             FileAnalysisAccumulator acc) {
         if (modulePackageName.isBlank()) {
-            return;
+            return acc;
         }
 
         // Look up the module in cuByFqName (created via captures).
         // Only use modules that are already present; do not create new ones.
         CodeUnit moduleCu = acc.cuByFqName().get(modulePackageName);
         if (moduleCu == null || !moduleCu.isModule()) {
-            return;
+            return acc;
         }
 
         // Find top-level classes in this package.
@@ -841,6 +841,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         for (CodeUnit child : classesInPackage) {
             acc.addChild(moduleCu, child);
         }
+        return acc;
     }
 
     /**

@@ -864,7 +864,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected void createModulesFromImports(
+    protected FileAnalysisAccumulator createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
@@ -872,7 +872,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             FileAnalysisAccumulator acc) {
 
         if (modulePackageName.isBlank()) {
-            return;
+            return acc;
         }
 
         int idx = modulePackageName.lastIndexOf('.');
@@ -890,10 +890,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             acc.addLookupKey(targetCu.fqName(), targetCu);
         }
 
-        acc.addSignature(targetCu, "# module " + modulePackageName);
-        acc.setHasBody(targetCu, true);
-        acc.addSymbolIndex(targetCu.identifier(), targetCu);
-        acc.addSymbolIndex(targetCu.shortName(), targetCu);
+        acc.addSignature(targetCu, "# module " + modulePackageName)
+                .setHasBody(targetCu, true)
+                .addSymbolIndex(targetCu.identifier(), targetCu)
+                .addSymbolIndex(targetCu.shortName(), targetCu);
 
         List<CodeUnit> children = acc.topLevelCUs().stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
@@ -903,6 +903,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         for (CodeUnit child : children) {
             acc.addChild(targetCu, child);
         }
+        return acc;
     }
 
     @Override
