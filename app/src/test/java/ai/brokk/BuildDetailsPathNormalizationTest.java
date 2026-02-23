@@ -303,4 +303,27 @@ public class BuildDetailsPathNormalizationTest {
         assertFalse(filtered.contains(pfResources), "test-data.json should be excluded by path prefix");
         assertFalse(filtered.contains(pfNested), "testcode-java/Sample.java should be excluded by path prefix");
     }
+
+    @Test
+    void testModulesArePreservedOnSaveAndLoad(@TempDir Path root) {
+        var modules = List.of(
+                new BuildAgent.ModuleBuildEntry("api", "api", "mvn compile -pl api", "mvn test -pl api", ""),
+                new BuildAgent.ModuleBuildEntry("impl", "impl", "mvn compile -pl impl", "mvn test -pl impl", ""));
+
+        var details = new BuildAgent.BuildDetails(
+                "mvn compile", "mvn test", "", Set.of("target"), Map.of("VAR", "VAL"), 3, "echo done", modules);
+
+        var project = MainProject.forTests(root);
+        project.saveBuildDetails(details);
+
+        var loaded = project.loadBuildDetails().orElseThrow();
+
+        assertEquals(details.buildLintCommand(), loaded.buildLintCommand());
+        assertEquals(details.testAllCommand(), loaded.testAllCommand());
+        assertEquals(details.afterTaskListCommand(), loaded.afterTaskListCommand());
+        assertEquals(details.modules().size(), loaded.modules().size());
+        assertEquals(details.modules().get(0).alias(), loaded.modules().get(0).alias());
+        assertEquals(
+                details.modules().get(1).relativePath(), loaded.modules().get(1).relativePath());
+    }
 }
