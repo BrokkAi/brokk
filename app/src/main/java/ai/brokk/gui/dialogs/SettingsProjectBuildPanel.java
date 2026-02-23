@@ -679,61 +679,6 @@ public class SettingsProjectBuildPanel extends JPanel {
                     publish("--- Skipping empty Test All Command ---\n\n");
                 }
 
-                // Step 3: Test Some command (verify first module if exists)
-                String testSomeTemplate = "";
-                if (!modulesList.isEmpty()) {
-                    testSomeTemplate = modulesList.getFirst().testSomeCommand().trim();
-                }
-
-                if (!testSomeTemplate.isEmpty()) {
-                    publish("--- Verifying First Module's Test Some Command Template ---\n");
-                    publish("Template: " + testSomeTemplate + "\n");
-                    String listKey;
-                    List<String> items = List.of("placeholder");
-                    if (testSomeTemplate.contains("{{#files}}")) {
-                        listKey = "files";
-                        items = List.of("src/test/java/com/example/Placeholder.java");
-                    } else if (testSomeTemplate.contains("{{#fqclasses}}")) {
-                        listKey = "fqclasses";
-                        items = List.of("com.example.Placeholder");
-                    } else if (testSomeTemplate.contains("{{#classes}}")) {
-                        listKey = "classes";
-                        items = List.of("Placeholder");
-                    } else {
-                        publish(
-                                "\nWARNING: 'Test Some' command does not contain {{#files}}, {{#classes}}, or {{#fqclasses}}.\n");
-                        publish("Cannot perform mock interpolation. Will run the command as-is.\n");
-                        listKey = null;
-                    }
-
-                    String interpolatedCmd;
-                    if (listKey != null) {
-                        interpolatedCmd = BuildAgent.interpolateMustacheTemplate(testSomeTemplate, items, listKey);
-                        publish("Interpolated command with placeholder: " + interpolatedCmd + "\n");
-                    } else {
-                        interpolatedCmd = testSomeTemplate;
-                    }
-
-                    publish("$ " + interpolatedCmd + "\n");
-                    var result = BuildVerifier.verifyStreaming(
-                            project, interpolatedCmd, envVars, line -> publish(line + "\n"));
-                    if (result.success()) {
-                        publish(
-                                "\nSUCCESS: 'Test Some' command executed without errors (this is unexpected for a placeholder test).\n\n");
-                    } else if (result.exitCode() >= 0) {
-                        publish(
-                                "\nSUCCESS: 'Test Some' command executed and failed as expected for a placeholder test.\n");
-                        publish("This confirms the command and template syntax are valid.\n\n");
-                    } else {
-                        publish("\nERROR: 'Test Some' command failed to execute.\n");
-                        publish("This may indicate an invalid executable or a syntax error in the command.\n");
-                        publish(result.output() + "\n");
-                        return "'Test Some' command is invalid.";
-                    }
-                } else {
-                    publish("--- Skipping empty Test Some Command ---\n\n");
-                }
-
                 return "Verification successful!";
             }
 
