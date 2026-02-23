@@ -456,8 +456,9 @@ public class BuildAgent {
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects six parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, excludedFilePatterns, and modules.
 
-                If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, Node.js workspaces, etc.), you MUST identify each module and provide its details in the `modules` list.
-                Root commands (the top-level parameters) should represent repo-level actions.
+                If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, Node.js workspaces, etc.), you MUST identify each module and provide its details in the single flat `modules` list.
+                **IMPORTANT**: For polyglot or multi-language repositories, include all modules from ALL detected languages and frameworks in this same list.
+                Root commands (the top-level parameters) should represent repo-level orchestration.
                 Module-specific commands must be executable from the project root (e.g., using flags like `-pl`, `-w`, or `cd`).
 
                 For monolithic repositories or single-module projects, you may report a single module with `relativePath: "."` and provide the relevant `testSomeCommand` in that module entry.
@@ -491,6 +492,15 @@ public class BuildAgent {
                 ```json
                 "modules": [
                   { "alias": "web", "relativePath": "packages/web", "buildLintCommand": "npm run build -w web", "testAllCommand": "npm test -w web", "testSomeCommand": "npm test -w web -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                ]
+                ```
+
+                **Mixed Language / Polyglot (Mono-repo):**
+                ```json
+                "modules": [
+                  { "alias": "java-backend", "relativePath": "backend", "buildLintCommand": "./gradlew :backend:classes", "testAllCommand": "./gradlew :backend:test", "testSomeCommand": "./gradlew :backend:test {{#classes}}--tests {{value}}{{/classes}}" },
+                  { "alias": "python-worker", "relativePath": "worker", "buildLintCommand": "cd worker && poetry run mypy .", "testAllCommand": "cd worker && poetry run pytest", "testSomeCommand": "cd worker && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" },
+                  { "alias": "frontend-app", "relativePath": "frontend", "buildLintCommand": "npm run build -w frontend", "testAllCommand": "npm test -w frontend", "testSomeCommand": "npm test -w frontend -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
                 ]
                 ```
                 """
