@@ -89,9 +89,11 @@ public class SettingsProjectBuildPanel extends JPanel {
     private final IProject project;
 
     // UI components
-    private JTextField buildCleanCommandField = new JTextField();
-    private JTextField allTestsCommandField = new JTextField();
-    private JTextField afterTaskListCommandField = new JTextField();
+    private final JCheckBox buildCleanCommandCheck = new JCheckBox("Enable");
+    private final JTextField buildCleanCommandField = new JTextField();
+    private final JCheckBox allTestsCommandCheck = new JCheckBox("Enable");
+    private final JTextField allTestsCommandField = new JTextField();
+    private final JTextField afterTaskListCommandField = new JTextField();
 
     private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
     private JRadioButton runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
@@ -294,20 +296,34 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.weightx = 0.0;
         buildGbc.anchor = GridBagConstraints.WEST;
         buildConfigPanel.add(new JLabel("Build/Lint Command:"), buildGbc);
+
+        JPanel buildWrapper = new JPanel(new BorderLayout(5, 0));
+        buildWrapper.setOpaque(false);
+        buildWrapper.add(buildCleanCommandCheck, BorderLayout.WEST);
+        buildWrapper.add(buildCleanCommandField, BorderLayout.CENTER);
+        buildCleanCommandCheck.addActionListener(e -> buildCleanCommandField.setEnabled(buildCleanCommandCheck.isSelected()));
+
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
         buildGbc.weightx = 1.0;
-        buildConfigPanel.add(buildCleanCommandField, buildGbc);
+        buildConfigPanel.add(buildWrapper, buildGbc);
 
         // Test All Command
         buildGbc.gridx = 0;
         buildGbc.gridy = buildRow;
         buildGbc.weightx = 0.0;
         buildConfigPanel.add(new JLabel("Test All Command:"), buildGbc);
+
+        JPanel testWrapper = new JPanel(new BorderLayout(5, 0));
+        testWrapper.setOpaque(false);
+        testWrapper.add(allTestsCommandCheck, BorderLayout.WEST);
+        testWrapper.add(allTestsCommandField, BorderLayout.CENTER);
+        allTestsCommandCheck.addActionListener(e -> allTestsCommandField.setEnabled(allTestsCommandCheck.isSelected()));
+
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
         buildGbc.weightx = 1.0;
-        buildConfigPanel.add(allTestsCommandField, buildGbc);
+        buildConfigPanel.add(testWrapper, buildGbc);
 
         // Post-Task List Command
         buildGbc.gridx = 0;
@@ -690,7 +706,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             var envVars = computeEnvFromUi();
 
             // Step 1: Build/Lint command
-            String buildCmd = buildCleanCommandField.getText().trim();
+            String buildCmd = buildCleanCommandCheck.isSelected() ? buildCleanCommandField.getText().trim() : "";
             if (!buildCmd.isEmpty()) {
                 publish.accept("--- Verifying Build/Lint Command ---\n");
                 publish.accept("$ " + buildCmd + "\n");
@@ -710,7 +726,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (Thread.interrupted()) return "Cancelled";
 
             // Step 2: Test All command
-            String testAllCmd = allTestsCommandField.getText().trim();
+            String testAllCmd = allTestsCommandCheck.isSelected() ? allTestsCommandField.getText().trim() : "";
             if (!testAllCmd.isEmpty()) {
                 publish.accept("--- Verifying Test All Command ---\n");
                 publish.accept("$ " + testAllCmd + "\n");
@@ -866,7 +882,9 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildProgressBar.setVisible(!enabled);
 
         Stream.of(
+                        buildCleanCommandCheck,
                         buildCleanCommandField,
+                        allTestsCommandCheck,
                         allTestsCommandField,
                         afterTaskListCommandField,
                         runAllTestsRadio,
@@ -884,10 +902,14 @@ public class SettingsProjectBuildPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             // Update this panel's fields - only overwrite if agent provided a value
             if (!details.buildLintCommand().isBlank()) {
+                buildCleanCommandCheck.setSelected(true);
                 buildCleanCommandField.setText(details.buildLintCommand());
+                buildCleanCommandField.setEnabled(true);
             }
             if (!details.testAllCommand().isBlank()) {
+                allTestsCommandCheck.setSelected(true);
                 allTestsCommandField.setText(details.testAllCommand());
+                allTestsCommandField.setEnabled(true);
             }
             if (!details.afterTaskListCommand().isBlank()) {
                 afterTaskListCommandField.setText(details.afterTaskListCommand());
@@ -921,8 +943,15 @@ public class SettingsProjectBuildPanel extends JPanel {
             chrome.toolError("Error loading build details: " + e.getMessage() + ". Using defaults.");
         }
 
-        buildCleanCommandField.setText(details.buildLintCommand());
-        allTestsCommandField.setText(details.testAllCommand());
+        String buildCmd = details.buildLintCommand();
+        buildCleanCommandCheck.setSelected(!buildCmd.isBlank());
+        buildCleanCommandField.setText(buildCmd);
+        buildCleanCommandField.setEnabled(buildCleanCommandCheck.isSelected());
+
+        String testCmd = details.testAllCommand();
+        allTestsCommandCheck.setSelected(!testCmd.isBlank());
+        allTestsCommandField.setText(testCmd);
+        allTestsCommandField.setEnabled(allTestsCommandCheck.isSelected());
         afterTaskListCommandField.setText(details.afterTaskListCommand());
 
         modulesList.clear();
@@ -981,8 +1010,8 @@ public class SettingsProjectBuildPanel extends JPanel {
         // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
         var diskDetails = project.awaitBuildDetails();
         var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
-        var newBuildLint = buildCleanCommandField.getText();
-        var newTestAll = allTestsCommandField.getText();
+        var newBuildLint = buildCleanCommandCheck.isSelected() ? buildCleanCommandField.getText() : "";
+        var newTestAll = allTestsCommandCheck.isSelected() ? allTestsCommandField.getText() : "";
         var newAfterTaskList = afterTaskListCommandField.getText();
 
         // Primary language
