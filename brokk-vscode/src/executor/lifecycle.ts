@@ -193,6 +193,8 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
   const child = spawn(
     jbang,
     [
+      "-R",
+      "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
       "brokk-headless@brokkai/brokk-releases",
       "--listen-addr",
       "127.0.0.1:0",
