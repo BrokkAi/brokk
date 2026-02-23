@@ -1359,6 +1359,7 @@ class BrokkApp(App):
     def get_slash_commands() -> List[Dict[str, str]]:
         """Returns the structured catalog of supported slash commands."""
         return [
+            {"command": "/api-key", "description": "Update your Brokk API key"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
@@ -1510,6 +1511,15 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+        elif base == "/api-key":
+
+            def on_key_entered(key: str) -> None:
+                self.settings.brokk_api_key = key
+                self.settings.save()
+                self.executor.brokk_api_key = key
+                chat.add_system_message("API key updated.")
+
+            self.push_screen(BrokkApiKeyModalScreen("Update Brokk API Key"), on_key_entered)
         elif base == "/context":
             self.action_toggle_context()
         elif base == "/task":
