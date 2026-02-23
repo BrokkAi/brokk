@@ -109,21 +109,21 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     @Override
-    protected FileAnalysisContext createModulesFromImports(
+    protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            FileAnalysisContext ctx) {
+            FileAnalysisAccumulator acc) {
         if (localImportStatements.isEmpty()) {
-            return ctx;
+            return;
         }
 
         String moduleShortName = file.getFileName();
         CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
 
-        if (ctx.cuByFqName().containsKey(moduleCU.fqName())) {
-            return ctx;
+        if (acc.cuByFqName().containsKey(moduleCU.fqName())) {
+            return;
         }
 
         String importBlockSignature = String.join("\n", localImportStatements);
@@ -134,12 +134,12 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                 rootNode.getEndPoint().getRow(),
                 rootNode.getStartByte());
 
-        return ctx.withTopLevelCu(moduleCU)
-                .withSignature(moduleCU, importBlockSignature)
-                .withRange(moduleCU, moduleRange)
-                .withHasBody(moduleCU, true)
-                .withSymbolIndex(moduleCU.identifier(), moduleCU)
-                .withSymbolIndex(moduleCU.shortName(), moduleCU);
+        acc.addTopLevel(moduleCU);
+        acc.addSignature(moduleCU, importBlockSignature);
+        acc.addRange(moduleCU, moduleRange);
+        acc.setHasBody(moduleCU, true);
+        acc.addSymbolIndex(moduleCU.identifier(), moduleCU);
+        acc.addSymbolIndex(moduleCU.shortName(), moduleCU);
     }
 
     @Override

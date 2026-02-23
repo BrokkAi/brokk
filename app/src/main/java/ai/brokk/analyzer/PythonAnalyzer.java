@@ -864,15 +864,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected FileAnalysisContext createModulesFromImports(
+    protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            FileAnalysisContext ctx) {
+            FileAnalysisAccumulator acc) {
 
         if (modulePackageName.isBlank()) {
-            return ctx;
+            return;
         }
 
         int idx = modulePackageName.lastIndexOf('.');
@@ -883,29 +883,26 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         // If the module CodeUnit already exists in context (e.g. from another file in the same package),
         // we should still associate this file's TLDs with it.
-        CodeUnit existing = ctx.cuByFqName().get(moduleCu.fqName());
+        CodeUnit existing = acc.cuByFqName().get(moduleCu.fqName());
         CodeUnit targetCu = (existing != null && existing.isModule()) ? existing : moduleCu;
 
-        FileAnalysisContext updated = ctx;
         if (existing == null) {
-            updated = updated.withLookupKey(targetCu.fqName(), targetCu);
+            acc.addLookupKey(targetCu.fqName(), targetCu);
         }
 
-        updated = updated.withSignature(targetCu, "# module " + modulePackageName)
-                .withHasBody(targetCu, true)
-                .withSymbolIndex(targetCu.identifier(), targetCu)
-                .withSymbolIndex(targetCu.shortName(), targetCu);
+        acc.addSignature(targetCu, "# module " + modulePackageName);
+        acc.setHasBody(targetCu, true);
+        acc.addSymbolIndex(targetCu.identifier(), targetCu);
+        acc.addSymbolIndex(targetCu.shortName(), targetCu);
 
-        List<CodeUnit> children = updated.topLevelCUs().stream()
+        List<CodeUnit> children = acc.topLevelCUs().stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
                 .filter(cu -> !cu.isModule())
                 .toList();
 
         for (CodeUnit child : children) {
-            updated = updated.withChild(targetCu, child);
+            acc.addChild(targetCu, child);
         }
-
-        return updated;
     }
 
     @Override

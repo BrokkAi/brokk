@@ -816,33 +816,31 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected FileAnalysisContext createModulesFromImports(
+    protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            FileAnalysisContext ctx) {
+            FileAnalysisAccumulator acc) {
         if (modulePackageName.isBlank()) {
-            return ctx;
+            return;
         }
 
         // Look up the module in cuByFqName (created via captures).
         // Only use modules that are already present; do not create new ones.
-        CodeUnit moduleCu = ctx.cuByFqName().get(modulePackageName);
+        CodeUnit moduleCu = acc.cuByFqName().get(modulePackageName);
         if (moduleCu == null || !moduleCu.isModule()) {
-            return ctx;
+            return;
         }
 
         // Find top-level classes in this package.
-        List<CodeUnit> classesInPackage = ctx.topLevelCUs().stream()
+        List<CodeUnit> classesInPackage = acc.topLevelCUs().stream()
                 .filter(cu -> cu.isClass() && modulePackageName.equals(cu.packageName()))
                 .toList();
 
-        FileAnalysisContext updated = ctx;
         for (CodeUnit child : classesInPackage) {
-            updated = updated.withChild(moduleCu, child);
+            acc.addChild(moduleCu, child);
         }
-        return updated;
     }
 
     /**
@@ -1411,7 +1409,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             String captureName,
             String classChain,
             List<ScopeSegment> scopeChain,
-            TreeSitterAnalyzer.FileAnalysisContext ctx,
+            TreeSitterAnalyzer.FileAnalysisAccumulator acc,
             SourceContent sourceContent) {
         if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
             var enclosingFnNameOpt = findEnclosingJavaMethodOrClassName(node, sourceContent);
@@ -1422,10 +1420,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 if (!cu.packageName().isEmpty()) {
                     methodFqName = cu.packageName() + "." + methodFqName;
                 }
-                return ctx.cuByFqName().get(methodFqName);
+                return acc.cuByFqName().get(methodFqName);
             }
         }
-        return super.findParentForCodeUnit(cu, node, captureName, classChain, scopeChain, ctx, sourceContent);
+        return super.findParentForCodeUnit(cu, node, captureName, classChain, scopeChain, acc, sourceContent);
     }
 
     @Override
