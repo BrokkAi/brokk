@@ -9,6 +9,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
@@ -1883,7 +1884,7 @@ public class ContextFragments {
             return out;
         }
 
-        private record CodeUnitKey(ai.brokk.analyzer.CodeUnitType kind, String fqName, @Nullable String signature) {
+        private record CodeUnitKey(CodeUnitType kind, String fqName, @Nullable String signature) {
             static CodeUnitKey of(CodeUnit cu) {
                 return new CodeUnitKey(cu.kind(), cu.fqName(), cu.signature());
             }
