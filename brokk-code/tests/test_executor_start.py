@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from brokk_code.executor import ExecutorManager
+from brokk_code.executor import ExecutorError, ExecutorManager
 
 
 @pytest.mark.asyncio
@@ -417,7 +417,7 @@ async def test_executor_start_propagates_install_failure(monkeypatch, tmp_path):
 
     manager = ExecutorManager(workspace_dir=tmp_path)
 
-    with pytest.raises(ExecutorError, match="jbang installation failed \(mock\)$"):
+    with pytest.raises(ExecutorError, match=r"jbang installation failed \(mock\)$"):
         await manager.start()
 
     assert manager.check_alive() is False
