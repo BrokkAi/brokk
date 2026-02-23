@@ -1285,7 +1285,7 @@ class BrokkApp(App):
             "[bold green]Ready[/]" if self._executor_ready else "[bold yellow]Initializing...[/]"
         )
         jar_path = self.executor.resolved_jar_path or "via jbang"
-        launch_mode = "Direct JAR" if self.executor.jar_override else "jbang"
+        launch_mode = "Direct JAR" if self.executor.resolved_jar_path else "jbang"
 
         planner_info = (
             f"Planner Model: [bold]{self.current_model}[/] "
