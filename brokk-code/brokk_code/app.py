@@ -14,7 +14,12 @@ from textual.widgets import Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
-from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
+from brokk_code.settings import (
+    DEFAULT_THEME,
+    Settings,
+    normalize_theme_name,
+    write_brokk_api_key,
+)
 from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
@@ -554,14 +559,14 @@ class BrokkApp(App):
                 chat.add_system_message("Brokk API key missing. Please enter it to continue.")
 
             def on_key_entered(key: str) -> None:
-                self.settings.brokk_api_key = key
                 try:
-                    self.settings.save()
+                    write_brokk_api_key(key)
                 except Exception as e:
                     logger.error("Failed to save API key: %s", e)
                     if chat:
                         chat.add_system_message(
-                            f"Failed to save API key: {e}. Executor will not start.", level="ERROR"
+                            f"Failed to save API key: {e}. Executor will not start.",
+                            level="ERROR",
                         )
                     return
 
@@ -1557,8 +1562,7 @@ class BrokkApp(App):
         elif base == "/api-key":
 
             def on_key_entered(key: str) -> None:
-                self.settings.brokk_api_key = key
-                self.settings.save()
+                write_brokk_api_key(key)
                 self.executor.brokk_api_key = key
                 chat.add_system_message(
                     "API key updated. New key will be used on the next executor launch."

@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -74,6 +74,11 @@ def read_brokk_properties() -> dict[str, str]:
     return props
 
 
+def write_brokk_api_key(key: str) -> None:
+    """Persists the Brokk API key to the global brokk.properties file."""
+    write_brokk_properties({"brokkApiKey": key})
+
+
 def write_brokk_properties(updates: dict[str, Optional[str]]) -> None:
     """Updates brokk.properties while preserving other keys and comments.
     If a value is None or empty, the key is removed.
@@ -132,7 +137,6 @@ class Settings:
     last_reasoning_level: Optional[str] = None
     last_code_reasoning_level: Optional[str] = None
     last_auto_commit: Optional[bool] = None
-    brokk_api_key: Optional[str] = None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -165,7 +169,6 @@ class Settings:
         Order:
         1. brokk.properties (brokkApiKey)
         2. BROKK_API_KEY environment variable
-        3. settings.json (brokk_api_key)
         """
         # 1. brokk.properties
         props = read_brokk_properties()
@@ -178,23 +181,15 @@ class Settings:
         if env_key and env_key.strip():
             return env_key.strip()
 
-        # 3. Persisted in settings.json
-        if self.brokk_api_key and self.brokk_api_key.strip():
-            return self.brokk_api_key.strip()
-
         return None
 
     def save(self) -> None:
         """Saves current settings to disk atomically.
-        Also syncs brokk_api_key to brokk.properties.
 
         Raises:
             OSError: If the settings file cannot be written.
         """
         try:
-            # Sync to brokk.properties
-            write_brokk_properties({"brokkApiKey": self.brokk_api_key})
-
             settings_path = settings_file()
             settings_path.parent.mkdir(parents=True, exist_ok=True)
             temp_file = settings_path.with_suffix(".tmp")

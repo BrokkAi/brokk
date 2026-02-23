@@ -16,7 +16,6 @@ def test_settings_default_load(tmp_path, monkeypatch):
     assert settings.last_reasoning_level is None
     assert settings.last_code_reasoning_level is None
     assert settings.last_auto_commit is None
-    assert settings.brokk_api_key is None
 
 
 def test_settings_prompt_history_persistence(tmp_path, monkeypatch):
@@ -104,16 +103,6 @@ def test_settings_models_roundtrip(tmp_path, monkeypatch):
     assert loaded.last_auto_commit is False
 
 
-def test_settings_api_key_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-    settings = Settings(brokk_api_key="sk-test-key-123")
-    settings.save()
-
-    loaded = Settings.load()
-    assert loaded.brokk_api_key == "sk-test-key-123"
-
-
 def test_settings_load_from_older_json_without_new_keys(tmp_path, monkeypatch):
     """
     Simulate an older settings.json that only contains legacy keys
@@ -135,7 +124,6 @@ def test_settings_load_from_older_json_without_new_keys(tmp_path, monkeypatch):
     assert loaded.last_reasoning_level is None
     assert loaded.last_code_reasoning_level is None
     assert loaded.last_auto_commit is None
-    assert loaded.brokk_api_key is None
 
 
 def test_app_initializes_with_defaults_when_settings_empty(tmp_path, monkeypatch):
@@ -266,17 +254,16 @@ def test_settings_api_key_ordering(tmp_path, monkeypatch):
     assert settings.get_brokk_api_key() == "properties-key"
 
 
-def test_settings_save_syncs_to_properties(tmp_path, monkeypatch):
-    from brokk_code.settings import read_brokk_properties
+def test_settings_save_to_properties(tmp_path, monkeypatch):
+    from brokk_code.settings import read_brokk_properties, write_brokk_api_key
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     import sys
 
     monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
-    settings = Settings(brokk_api_key="sync-test-key")
-    settings.save()
+    write_brokk_api_key("sync-test-key")
 
-    # Verify both settings.json and brokk.properties have it
-    assert Settings.load().brokk_api_key == "sync-test-key"
+    # Verify brokk.properties has it
     assert read_brokk_properties().get("brokkApiKey") == "sync-test-key"

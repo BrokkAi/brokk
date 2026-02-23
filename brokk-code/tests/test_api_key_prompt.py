@@ -4,16 +4,18 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from brokk_code.app import BrokkApiKeyModalScreen, BrokkApp
-from brokk_code.settings import Settings
+from brokk_code.settings import Settings, read_brokk_properties
 
 
 @pytest.mark.asyncio
 async def test_api_key_prompt_shown_when_missing(tmp_path: Path, monkeypatch):
     """Verify API key prompt appears on startup if no key is present."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    # Ensure properties file is missing
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
     # Mock settings to have no key
-    settings = Settings(brokk_api_key=None)
+    settings = Settings()
     monkeypatch.setattr(Settings, "load", lambda: settings)
 
     mock_executor = MagicMock()
@@ -30,8 +32,8 @@ async def test_api_key_prompt_shown_when_missing(tmp_path: Path, monkeypatch):
         await pilot.type("sk-test-key-123")
         await pilot.press("enter")
 
-        # Verify settings were updated and saved
-        assert settings.brokk_api_key == "sk-test-key-123"
+        # Verify global properties were updated
+        assert read_brokk_properties().get("brokkApiKey") == "sk-test-key-123"
         assert mock_executor.brokk_api_key == "sk-test-key-123"
 
         # Verify start was eventually called (via worker)
@@ -40,12 +42,14 @@ async def test_api_key_prompt_shown_when_missing(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_api_key_slash_command_opens_modal(tmp_path: Path, monkeypatch):
-    """Verify /api-key slash command opens the API key modal and updates settings."""
+    """Verify /api-key slash command opens the API key modal and updates global properties."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
-    # Mock settings to have an existing key
-    settings = Settings(brokk_api_key="old-key")
-    monkeypatch.setattr(Settings, "load", lambda: settings)
+    # Set existing key in properties
+    from brokk_code.settings import write_brokk_api_key
+
+    write_brokk_api_key("old-key")
 
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
@@ -65,8 +69,8 @@ async def test_api_key_slash_command_opens_modal(tmp_path: Path, monkeypatch):
         await pilot.type("new-secret-key")
         await pilot.press("enter")
 
-        # Verify update
-        assert settings.brokk_api_key == "new-secret-key"
+        # Verify update in global properties
+        assert read_brokk_properties().get("brokkApiKey") == "new-secret-key"
         assert mock_executor.brokk_api_key == "new-secret-key"
 
 
@@ -74,16 +78,19 @@ async def test_api_key_slash_command_opens_modal(tmp_path: Path, monkeypatch):
 async def test_api_key_startup_save_failure_prevents_executor_start(tmp_path: Path, monkeypatch):
     """Verify that if saving the API key fails at startup, the executor is NOT started."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
     # Mock settings to have no key
-    settings = Settings(brokk_api_key=None)
+    settings = Settings()
     monkeypatch.setattr(Settings, "load", lambda: settings)
 
-    # Mock save to fail
-    def mock_save_fail():
+    # Mock global write to fail
+    import brokk_code.app
+
+    def mock_save_fail(key):
         raise OSError("Disk full or permission denied")
 
-    monkeypatch.setattr(settings, "save", mock_save_fail)
+    monkeypatch.setattr(brokk_code.app, "write_brokk_api_key", mock_save_fail)
 
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
@@ -112,8 +119,11 @@ async def test_api_key_startup_save_failure_prevents_executor_start(tmp_path: Pa
 async def test_api_key_update_notes_restart_requirement(tmp_path: Path, monkeypatch):
     """Verify the API key update dialog mentions that a restart is required."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    settings = Settings(brokk_api_key="existing-key")
-    monkeypatch.setattr(Settings, "load", lambda: settings)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
+    from brokk_code.settings import write_brokk_api_key
+
+    write_brokk_api_key("existing-key")
 
     app = BrokkApp(executor=MagicMock())
     from textual.widgets import Static
@@ -134,8 +144,7 @@ async def test_api_key_update_notes_restart_requirement(tmp_path: Path, monkeypa
 async def test_api_key_prompt_shows_brokk_welcome_and_signup_link(tmp_path: Path, monkeypatch):
     """Verify the API key prompt includes a short Brokk intro and signup URL."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    settings = Settings(brokk_api_key=None)
-    monkeypatch.setattr(Settings, "load", lambda: settings)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
     from textual.widgets import Markdown, Static
 
@@ -163,8 +172,7 @@ async def test_api_key_prompt_supports_ctrl_c_and_ctrl_d_exit(
 ):
     """Verify Ctrl+C/Ctrl+D trigger app quit while the API key prompt is open."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    settings = Settings(brokk_api_key=None)
-    monkeypatch.setattr(Settings, "load", lambda: settings)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
     app = BrokkApp(executor=MagicMock())
     app.action_quit = AsyncMock()  # type: ignore[method-assign]
@@ -179,9 +187,11 @@ async def test_api_key_prompt_supports_ctrl_c_and_ctrl_d_exit(
 async def test_api_key_not_prompted_if_present(tmp_path: Path, monkeypatch):
     """Verify app starts normally if API key is already present."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
-    settings = Settings(brokk_api_key="existing-key")
-    monkeypatch.setattr(Settings, "load", lambda: settings)
+    from brokk_code.settings import write_brokk_api_key
+
+    write_brokk_api_key("existing-key")
 
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
@@ -206,10 +216,7 @@ async def test_no_crash_message_during_api_key_prompt(tmp_path: Path, monkeypatc
     import brokk_code.app
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-    # Mock settings to have no key
-    settings = Settings(brokk_api_key=None)
-    monkeypatch.setattr(Settings, "load", lambda: settings)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
     # Patch asyncio.sleep to be fast and trackable in the app module.
     # We await the real sleep(0) to allow the event loop to cycle.
