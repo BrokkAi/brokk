@@ -7,7 +7,7 @@ from brokk_code.executor import ExecutorManager
 
 @pytest.mark.asyncio
 async def test_executor_start_includes_jvm_flags(monkeypatch, tmp_path):
-    # Arrange: stub _find_jar to return a dummy path
+    # Arrange: explicit jar_path to force direct-Java mode
     dummy_jar = tmp_path / "brokk.jar"
     dummy_jar.write_text("dummy")
     captured_cmd = None
@@ -61,11 +61,11 @@ async def test_executor_start_includes_jvm_flags(monkeypatch, tmp_path):
 
         return FakeProcess()
 
-    # Monkeypatch _find_dev_jar and asyncio.create_subprocess_exec
-    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: dummy_jar)
+    # Monkeypatch asyncio.create_subprocess_exec
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    manager = ExecutorManager(workspace_dir=tmp_path)
+    # Pass jar_path explicitly
+    manager = ExecutorManager(workspace_dir=tmp_path, jar_path=dummy_jar)
 
     # Act: start (should read the listening line and complete)
     await manager.start()
@@ -150,10 +150,9 @@ async def test_executor_start_includes_vendor_flag(monkeypatch, tmp_path):
 
         return FakeProcess()
 
-    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    manager = ExecutorManager(workspace_dir=tmp_path, vendor="OpenAI")
+    manager = ExecutorManager(workspace_dir=tmp_path, jar_path=dummy_jar, vendor="OpenAI")
     await manager.start()
 
     assert captured_cmd is not None
@@ -214,10 +213,9 @@ async def test_executor_start_includes_exit_on_stdin_eof_flag_when_enabled(monke
 
         return FakeProcess()
 
-    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    manager = ExecutorManager(workspace_dir=tmp_path, exit_on_stdin_eof=True)
+    manager = ExecutorManager(workspace_dir=tmp_path, jar_path=dummy_jar, exit_on_stdin_eof=True)
     await manager.start()
 
     assert captured_cmd is not None
@@ -290,10 +288,9 @@ async def test_executor_exits_when_stdin_closed(monkeypatch, tmp_path):
         proc.stdin = FakeStdin(proc)
         return proc
 
-    monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: dummy_jar)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    manager = ExecutorManager(workspace_dir=tmp_path)
+    manager = ExecutorManager(workspace_dir=tmp_path, jar_path=dummy_jar)
 
     await manager.start()
     assert manager.check_alive() is True
