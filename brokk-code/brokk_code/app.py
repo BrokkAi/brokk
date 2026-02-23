@@ -567,9 +567,9 @@ class BrokkApp(App):
                     self._show_welcome_message()
 
                 if chat:
-                    chat.add_system_message("Ready!")
+                    chat.add_system_message(msg)
                 else:
-                    logger.info("Executor ready")
+                    logger.info(msg)
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
             else:
@@ -579,10 +579,16 @@ class BrokkApp(App):
                 else:
                     logger.error(msg)
         except ExecutorError as e:
+            msg = str(e)
+            if "jbang" in msg.lower():
+                msg += (
+                    "\n\nHint: Install jbang from https://jbang.dev "
+                    "or provide a local JAR with --jar."
+                )
             if chat:
-                chat.add_system_message(str(e), level="ERROR")
+                chat.add_system_message(msg, level="ERROR")
             else:
-                logger.error(str(e))
+                logger.error(msg)
         except Exception as e:
             msg = f"Unexpected startup error: {e}"
             if chat:
@@ -1293,7 +1299,8 @@ class BrokkApp(App):
         status = (
             "[bold green]Ready[/]" if self._executor_ready else "[bold yellow]Initializing...[/]"
         )
-        jar_path = self.executor.resolved_jar_path or "Unknown"
+        jar_path = self.executor.resolved_jar_path or "via jbang"
+        launch_mode = "Direct JAR" if self.executor.resolved_jar_path else "jbang"
 
         planner_info = (
             f"Planner Model: [bold]{self.current_model}[/] "
@@ -1306,6 +1313,7 @@ class BrokkApp(App):
         info_markup = (
             f"Status: {status}\n"
             f"Workspace: [bold]{self.executor.workspace_dir}[/]\n"
+            f"Launch Mode: [bold]{launch_mode}[/]\n"
             f"Executor JAR: [bold]{jar_path}[/]\n"
             f"Mode: [bold]{self.agent_mode}[/]\n"
             f"Auto-commit: [bold]{'ON' if self.auto_commit else 'OFF'}[/]\n"
