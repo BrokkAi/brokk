@@ -155,14 +155,14 @@ def test_settings_save_raises_on_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     settings = Settings()
 
-    # Make the directory read-only to trigger a failure
-    settings_dir = tmp_path / ".brokk"
-    settings_dir.mkdir()
-    settings_dir.chmod(0o555)
+    def fail_replace(self, target):
+        raise OSError("simulated save failure")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
 
     import pytest
 
-    with pytest.raises(Exception):
+    with pytest.raises(OSError, match="simulated save failure"):
         settings.save()
 
 
