@@ -101,14 +101,20 @@ class TaskTitleModalScreen(ModalScreen[Optional[str]]):
 class BrokkApiKeyModalScreen(ModalScreen[str]):
     """Modal to prompt for the Brokk API key."""
 
-    def __init__(self, message: str = "Enter Brokk API Key") -> None:
+    def __init__(self, message: str = "Enter Brokk API Key", is_update: bool = False) -> None:
         super().__init__()
         self._message = message
+        self._is_update = is_update
 
     def compose(self) -> ComposeResult:
         with Vertical(id="api-key-modal-container"):
             yield Static(self._message, id="api-key-modal-title")
             yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
+            if self._is_update:
+                yield Static(
+                    "\n[dim]Note: API key updates will apply to the next executor restart.[/]",
+                    id="api-key-modal-note",
+                )
 
     def on_mount(self) -> None:
         self.query_one("#api-key-input", Input).focus()
@@ -1517,9 +1523,13 @@ class BrokkApp(App):
                 self.settings.brokk_api_key = key
                 self.settings.save()
                 self.executor.brokk_api_key = key
-                chat.add_system_message("API key updated.")
+                chat.add_system_message(
+                    "API key updated. New key will be used on the next executor launch."
+                )
 
-            self.push_screen(BrokkApiKeyModalScreen("Update Brokk API Key"), on_key_entered)
+            self.push_screen(
+                BrokkApiKeyModalScreen("Update Brokk API Key", is_update=True), on_key_entered
+            )
         elif base == "/context":
             self.action_toggle_context()
         elif base == "/task":

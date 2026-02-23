@@ -71,6 +71,24 @@ async def test_api_key_slash_command_opens_modal(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_api_key_update_notes_restart_requirement(tmp_path: Path, monkeypatch):
+    """Verify the API key update dialog mentions that a restart is required."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    settings = Settings(brokk_api_key="existing-key")
+    monkeypatch.setattr(Settings, "load", lambda: settings)
+
+    app = BrokkApp(executor=MagicMock())
+    async with app.run_test() as pilot:
+        await pilot.type("/api-key")
+        await pilot.press("enter")
+
+        modal = app.screen
+        assert isinstance(modal, BrokkApiKeyModalScreen)
+        note = modal.query_one("#api-key-modal-note", Static)
+        assert "next executor restart" in str(note.renderable).lower()
+
+
+@pytest.mark.asyncio
 async def test_api_key_not_prompted_if_present(tmp_path: Path, monkeypatch):
     """Verify app starts normally if API key is already present."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
