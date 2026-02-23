@@ -312,36 +312,70 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
+        /**
+         * Returns an immutable mapping of FQNs (or signature-augmented lookup keys) to CodeUnits.
+         */
         public Map<String, CodeUnit> cuByFqName() {
-            return cuByFqName;
+            return Map.copyOf(cuByFqName);
         }
 
+        /**
+         * Returns an immutable list of top-level CodeUnits for the file.
+         */
         public List<CodeUnit> topLevelCUs() {
-            return topLevelCUs;
+            return List.copyOf(topLevelCUs);
         }
 
+        /**
+         * Returns an immutable snapshot of parent-child relationships.
+         */
         public Map<CodeUnit, List<CodeUnit>> children() {
-            return children;
+            Map<CodeUnit, List<CodeUnit>> copy = new HashMap<>();
+            children.forEach((k, v) -> copy.put(k, List.copyOf(v)));
+            return Collections.unmodifiableMap(copy);
         }
 
+        /**
+         * Returns an immutable snapshot of signatures associated with each CodeUnit.
+         */
         public Map<CodeUnit, List<String>> signatures() {
-            return signatures;
+            Map<CodeUnit, List<String>> copy = new HashMap<>();
+            signatures.forEach((k, v) -> copy.put(k, List.copyOf(v)));
+            return Collections.unmodifiableMap(copy);
         }
 
+        /**
+         * Returns an immutable snapshot of source ranges for each CodeUnit.
+         */
         public Map<CodeUnit, List<Range>> sourceRanges() {
-            return sourceRanges;
+            Map<CodeUnit, List<Range>> copy = new HashMap<>();
+            sourceRanges.forEach((k, v) -> copy.put(k, List.copyOf(v)));
+            return Collections.unmodifiableMap(copy);
         }
 
+        /**
+         * Returns an immutable mapping of CodeUnits to their body-presence flag.
+         */
         public Map<CodeUnit, Boolean> hasBody() {
-            return hasBody;
+            return Map.copyOf(hasBody);
         }
 
+        /**
+         * Returns an immutable snapshot of the symbol index.
+         */
         public Map<String, Set<CodeUnit>> codeUnitsBySymbol() {
-            return codeUnitsBySymbol;
+            Map<String, Set<CodeUnit>> copy = new HashMap<>();
+            codeUnitsBySymbol.forEach((k, v) -> copy.put(k, Set.copyOf(v)));
+            return Collections.unmodifiableMap(copy);
         }
 
+        /**
+         * Returns an immutable snapshot of all lookup keys (FQNs/signatures) registered for each CodeUnit.
+         */
         public Map<CodeUnit, List<String>> lookupKeys() {
-            return lookupKeys;
+            Map<CodeUnit, List<String>> copy = new HashMap<>();
+            lookupKeys.forEach((k, v) -> copy.put(k, List.copyOf(v)));
+            return Collections.unmodifiableMap(copy);
         }
     }
 
