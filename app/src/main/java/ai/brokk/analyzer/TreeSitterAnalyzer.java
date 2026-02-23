@@ -227,6 +227,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         FileAnalysisAccumulator() {}
 
+        /**
+         * Adds a CodeUnit to the top-level list. Mutations should only be performed via these APIs.
+         * @return this accumulator for chaining.
+         */
         FileAnalysisAccumulator addTopLevel(CodeUnit cu) {
             if (!topLevelCUs.contains(cu)) {
                 topLevelCUs.add(cu);
@@ -235,6 +239,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return this;
         }
 
+        /**
+         * Adds a parent-child relationship. Mutations should only be performed via these APIs.
+         * @return this accumulator for chaining.
+         */
         FileAnalysisAccumulator addChild(CodeUnit parent, CodeUnit child) {
             List<CodeUnit> kids = children.computeIfAbsent(parent, k -> new ArrayList<>());
             if (!kids.contains(child)) {
@@ -244,6 +252,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return this;
         }
 
+        /**
+         * Adds a signature to a CodeUnit. Mutations should only be performed via these APIs.
+         * @return this accumulator for chaining.
+         */
         FileAnalysisAccumulator addSignature(CodeUnit cu, String signature) {
             List<String> sigs = signatures.computeIfAbsent(cu, k -> new ArrayList<>());
             if (!sigs.contains(signature)) {
@@ -252,21 +264,37 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return this;
         }
 
+        /**
+         * Adds a source range to a CodeUnit. Mutations should only be performed via these APIs.
+         * @return this accumulator for chaining.
+         */
         FileAnalysisAccumulator addRange(CodeUnit cu, Range range) {
             sourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(range);
             return this;
         }
 
+        /**
+         * Sets whether the CodeUnit has a body. Mutations should only be performed via these APIs.
+         * @return this accumulator for chaining.
+         */
         FileAnalysisAccumulator setHasBody(CodeUnit cu, boolean body) {
             hasBody.put(cu, body);
             return this;
         }
 
+        /**
+         * Indexes a CodeUnit by a symbol. Mutations should only be performed via these APIs.
+         * @return this accumulator for chaining.
+         */
         FileAnalysisAccumulator addSymbolIndex(String symbol, CodeUnit cu) {
             codeUnitsBySymbol.computeIfAbsent(symbol, k -> new HashSet<>()).add(cu);
             return this;
         }
 
+        /**
+         * Removes a CodeUnit and its descendants from all internal maps.
+         * @return this accumulator for chaining.
+         */
         FileAnalysisAccumulator remove(CodeUnit cu) {
             List<CodeUnit> kids = children.remove(cu);
             if (kids != null) {
@@ -293,6 +321,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return this;
         }
 
+        /**
+         * Registers a lookup key for a CodeUnit. Mutations should only be performed via these APIs.
+         * @return this accumulator for chaining.
+         */
         FileAnalysisAccumulator addLookupKey(String lookupKey, CodeUnit cu) {
             cuByFqName.put(lookupKey, cu);
             lookupKeys.computeIfAbsent(cu, k -> new ArrayList<>()).add(lookupKey);
@@ -314,13 +346,65 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         /**
          * Returns an immutable mapping of FQNs (or signature-augmented lookup keys) to CodeUnits.
+         * Mutations should be performed via accumulator APIs.
          */
+        public @Nullable CodeUnit getByFqName(String key) {
+            return cuByFqName.get(key);
+        }
+
+        public boolean getHasBody(CodeUnit cu, boolean defaultValue) {
+            return hasBody.getOrDefault(cu, defaultValue);
+        }
+
+        public List<CodeUnit> getChildren(CodeUnit cu) {
+            return Collections.unmodifiableList(children.getOrDefault(cu, List.of()));
+        }
+
+        public List<String> getSignatures(CodeUnit cu) {
+            return Collections.unmodifiableList(signatures.getOrDefault(cu, List.of()));
+        }
+
+        public List<Range> getRanges(CodeUnit cu) {
+            return Collections.unmodifiableList(sourceRanges.getOrDefault(cu, List.of()));
+        }
+
+        public List<String> getLookupKeys(CodeUnit cu) {
+            return Collections.unmodifiableList(lookupKeys.getOrDefault(cu, List.of()));
+        }
+
+        public void detachChildren(CodeUnit cu) {
+            children.remove(cu);
+        }
+
+        public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
+            Map<CodeUnit, CodeUnitProperties> localStates = new HashMap<>();
+            var unionKeys = new HashSet<CodeUnit>();
+            unionKeys.addAll(children.keySet());
+            children.values().forEach(unionKeys::addAll);
+            unionKeys.addAll(signatures.keySet());
+            unionKeys.addAll(sourceRanges.keySet());
+            for (var cu : unionKeys) {
+                var kids = children.getOrDefault(cu, List.of());
+                var sigs = signatures.getOrDefault(cu, List.of());
+                var rngs = sourceRanges.getOrDefault(cu, List.of());
+                localStates.put(
+                        cu,
+                        new CodeUnitProperties(
+                                List.copyOf(kids),
+                                List.copyOf(sigs),
+                                List.copyOf(rngs),
+                                hasBody.getOrDefault(cu, false)));
+            }
+            return localStates;
+        }
+
         public Map<String, CodeUnit> cuByFqName() {
             return Map.copyOf(cuByFqName);
         }
 
         /**
          * Returns an immutable list of top-level CodeUnits for the file.
+         * Mutations should be performed via accumulator APIs.
          */
         public List<CodeUnit> topLevelCUs() {
             return List.copyOf(topLevelCUs);
@@ -328,6 +412,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         /**
          * Returns an immutable snapshot of parent-child relationships.
+         * Mutations should be performed via accumulator APIs.
          */
         public Map<CodeUnit, List<CodeUnit>> children() {
             Map<CodeUnit, List<CodeUnit>> copy = new HashMap<>();
@@ -337,6 +422,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         /**
          * Returns an immutable snapshot of signatures associated with each CodeUnit.
+         * Mutations should be performed via accumulator APIs.
          */
         public Map<CodeUnit, List<String>> signatures() {
             Map<CodeUnit, List<String>> copy = new HashMap<>();
@@ -346,6 +432,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         /**
          * Returns an immutable snapshot of source ranges for each CodeUnit.
+         * Mutations should be performed via accumulator APIs.
          */
         public Map<CodeUnit, List<Range>> sourceRanges() {
             Map<CodeUnit, List<Range>> copy = new HashMap<>();
@@ -355,6 +442,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         /**
          * Returns an immutable mapping of CodeUnits to their body-presence flag.
+         * Mutations should be performed via accumulator APIs.
          */
         public Map<CodeUnit, Boolean> hasBody() {
             return Map.copyOf(hasBody);
@@ -362,6 +450,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         /**
          * Returns an immutable snapshot of the symbol index.
+         * Mutations should be performed via accumulator APIs.
          */
         public Map<String, Set<CodeUnit>> codeUnitsBySymbol() {
             Map<String, Set<CodeUnit>> copy = new HashMap<>();
@@ -371,11 +460,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         /**
          * Returns an immutable snapshot of all lookup keys (FQNs/signatures) registered for each CodeUnit.
+         * Mutations should be performed via accumulator APIs.
          */
         public Map<CodeUnit, List<String>> lookupKeys() {
             Map<CodeUnit, List<String>> copy = new HashMap<>();
             lookupKeys.forEach((k, v) -> copy.put(k, List.copyOf(v)));
             return Collections.unmodifiableMap(copy);
+        }
+
+        public @Nullable CodeUnit findTopLevelDuplicate(CodeUnit cu) {
+            return topLevelCUs.stream()
+                    .filter(existing -> sameLogicalIdentity(existing, cu))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        public @Nullable CodeUnit findTopLevelCrossKindDuplicate(CodeUnit cu) {
+            return topLevelCUs.stream()
+                    .filter(existing -> existing.fqName().equals(cu.fqName()) && existing.kind() != cu.kind())
+                    .findFirst()
+                    .orElse(null);
         }
     }
 
@@ -1869,17 +1973,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * any pass/file marks the CodeUnit as having a body.
      */
     private void addTopLevelCodeUnit(CodeUnit cu, FileAnalysisAccumulator acc, ProjectFile file) {
-        CodeUnit existingDuplicate = acc.topLevelCUs().stream()
-                .filter(existing -> sameLogicalIdentity(existing, cu))
-                .findFirst()
-                .orElse(null);
+        CodeUnit existingDuplicate = acc.findTopLevelDuplicate(cu);
 
         CodeUnit crossKindDuplicate = null;
         if (existingDuplicate == null) {
-            crossKindDuplicate = acc.topLevelCUs().stream()
-                    .filter(existing -> existing.fqName().equals(cu.fqName()) && existing.kind() != cu.kind())
-                    .findFirst()
-                    .orElse(null);
+            crossKindDuplicate = acc.findTopLevelCrossKindDuplicate(cu);
         }
 
         if (existingDuplicate == null) {
@@ -1914,8 +2012,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         && existingDuplicate.isFunction()
                         && Objects.equals(cu.signature(), existingDuplicate.signature()))
                 || (cu.isClass() && existingDuplicate.isClass())) {
-            boolean existingHasBody = acc.hasBody().getOrDefault(existingDuplicate, false);
-            boolean candidateHasBody = acc.hasBody().getOrDefault(cu, false);
+            boolean existingHasBody = acc.getHasBody(existingDuplicate, false);
+            boolean candidateHasBody = acc.getHasBody(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
                 log.trace(
@@ -1966,41 +2064,41 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         log.trace("Merging properties from {} into {}", source.fqName(), target.fqName());
 
         // Transfer children
-        List<CodeUnit> sourceChildren = acc.children().get(source);
-        if (sourceChildren != null) {
-            for (CodeUnit child : new ArrayList<>(sourceChildren)) {
+        List<CodeUnit> sourceChildren = acc.getChildren(source);
+        if (!sourceChildren.isEmpty()) {
+            for (CodeUnit child : sourceChildren) {
                 acc.addChild(target, child);
             }
         }
 
         // Transfer signatures
-        List<String> sourceSigs = acc.signatures().get(source);
-        if (sourceSigs != null) {
+        List<String> sourceSigs = acc.getSignatures(source);
+        if (!sourceSigs.isEmpty()) {
             for (String sig : sourceSigs) {
                 acc.addSignature(target, sig);
             }
         }
 
         // Transfer ranges
-        List<Range> sourceRanges = acc.sourceRanges().get(source);
-        if (sourceRanges != null) {
-            for (Range range : sourceRanges) {
+        List<Range> sourceRangesMap = acc.getRanges(source);
+        if (!sourceRangesMap.isEmpty()) {
+            for (Range range : sourceRangesMap) {
                 acc.addRange(target, range);
             }
         }
 
         // Transfer hasBody flag
-        if (acc.hasBody().getOrDefault(source, false)) {
+        if (acc.getHasBody(source, false)) {
             acc.setHasBody(target, true);
         }
 
-        List<String> sourceLookupKeys = acc.lookupKeys().getOrDefault(source, List.of());
-        for (String lookupKey : new ArrayList<>(sourceLookupKeys)) {
+        List<String> sourceLookupKeys = acc.getLookupKeys(source);
+        for (String lookupKey : sourceLookupKeys) {
             acc.addLookupKey(lookupKey, target);
         }
 
         // Detach the source children mapping so remove does not recursively delete moved nodes
-        acc.children().remove(source);
+        acc.detachChildren(source);
 
         // Purge source to avoid orphaned references or duplicate index entries
         acc.remove(source);
@@ -2012,7 +2110,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
      */
     private void addChildCodeUnit(CodeUnit cu, CodeUnit parentCu, FileAnalysisAccumulator acc) {
-        List<CodeUnit> kids = acc.children().getOrDefault(parentCu, List.of());
+        List<CodeUnit> kids = acc.getChildren(parentCu);
         CodeUnit existingDuplicate = kids.stream()
                 .filter(existing -> sameLogicalIdentity(existing, cu))
                 .findFirst()
@@ -2051,8 +2149,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         && existingDuplicate.isFunction()
                         && Objects.equals(cu.signature(), existingDuplicate.signature()))
                 || (cu.isClass() && existingDuplicate.isClass())) {
-            boolean existingHasBody = acc.hasBody().getOrDefault(existingDuplicate, false);
-            boolean candidateHasBody = acc.hasBody().getOrDefault(cu, false);
+            boolean existingHasBody = acc.getHasBody(existingDuplicate, false);
+            boolean candidateHasBody = acc.getHasBody(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
                 log.trace(
@@ -2215,7 +2313,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
                     : enhancedFqName;
 
-            CodeUnit existingCUforKeyLookup = acc.cuByFqName().get(cuLookupKey);
+            CodeUnit existingCUforKeyLookup = acc.getByFqName(cuLookupKey);
             if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
                 cu = existingCUforKeyLookup;
             }
@@ -2240,9 +2338,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
                     && shouldMergeSignaturesForSameFqn()) {
-                List<String> existingSignatures = acc.signatures().get(existingCUforKeyLookup);
+                List<String> existingSignatures = acc.getSignatures(existingCUforKeyLookup);
                 boolean newIsExported = signature.trim().startsWith("export");
-                boolean oldIsExported = (existingSignatures != null && !existingSignatures.isEmpty())
+                boolean oldIsExported = !existingSignatures.isEmpty()
                         && existingSignatures.get(0).trim().startsWith("export");
 
                 if (newIsExported && !oldIsExported) {
@@ -2293,7 +2391,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Synthesize implicit constructors
         for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
             if (cu.isClass()) {
-                List<CodeUnit> kids = acc.children().getOrDefault(cu, List.of());
+                List<CodeUnit> kids = acc.getChildren(cu);
                 boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
                     String capture = cuToCaptureName.getOrDefault(k, "");
                     return isConstructor(k, cu, capture);
@@ -2312,7 +2410,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         boolean containsTests = containsTestMarkers(tree, sourceContent);
-        Map<CodeUnit, CodeUnitProperties> localStates = finalizeCodeUnitProperties(acc);
+        Map<CodeUnit, CodeUnitProperties> localStates = acc.toCodeUnitProperties();
 
         long __processEnd = System.nanoTime();
         if (timing != null) {
@@ -2497,7 +2595,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             FileAnalysisAccumulator acc,
             SourceContent sourceContent) {
         String parentFqName = buildParentFqName(cu, classChain, scopeChain);
-        return acc.cuByFqName().get(parentFqName);
+        return acc.getByFqName(parentFqName);
     }
 
     private void wrapModulesFromImports(
@@ -2512,28 +2610,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 rootNode,
                 determinePackageName(file, rootNode, rootNode, sourceContent),
                 acc);
-    }
-
-    private Map<CodeUnit, CodeUnitProperties> finalizeCodeUnitProperties(FileAnalysisAccumulator acc) {
-        Map<CodeUnit, CodeUnitProperties> localStates = new HashMap<>();
-        var unionKeys = new HashSet<CodeUnit>();
-        unionKeys.addAll(acc.children().keySet());
-        acc.children().values().forEach(unionKeys::addAll);
-        unionKeys.addAll(acc.signatures().keySet());
-        unionKeys.addAll(acc.sourceRanges().keySet());
-        for (var cu : unionKeys) {
-            var kids = acc.children().getOrDefault(cu, List.of());
-            var sigs = acc.signatures().getOrDefault(cu, List.of());
-            var rngs = acc.sourceRanges().getOrDefault(cu, List.of());
-            localStates.put(
-                    cu,
-                    new CodeUnitProperties(
-                            List.copyOf(kids),
-                            List.copyOf(sigs),
-                            List.copyOf(rngs),
-                            acc.hasBody().getOrDefault(cu, false)));
-        }
-        return localStates;
     }
 
     /**

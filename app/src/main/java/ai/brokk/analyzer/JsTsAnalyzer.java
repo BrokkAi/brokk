@@ -122,7 +122,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         String moduleShortName = file.getFileName();
         CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
 
-        if (acc.cuByFqName().containsKey(moduleCU.fqName())) {
+        if (acc.getByFqName(moduleCU.fqName()) != null) {
             return acc;
         }
 

@@ -828,7 +828,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
         // Look up the module in cuByFqName (created via captures).
         // Only use modules that are already present; do not create new ones.
-        CodeUnit moduleCu = acc.cuByFqName().get(modulePackageName);
+        CodeUnit moduleCu = acc.getByFqName(modulePackageName);
         if (moduleCu == null || !moduleCu.isModule()) {
             return acc;
         }
@@ -1421,7 +1421,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 if (!cu.packageName().isEmpty()) {
                     methodFqName = cu.packageName() + "." + methodFqName;
                 }
-                return acc.cuByFqName().get(methodFqName);
+                return acc.getByFqName(methodFqName);
             }
         }
         return super.findParentForCodeUnit(cu, node, captureName, classChain, scopeChain, acc, sourceContent);

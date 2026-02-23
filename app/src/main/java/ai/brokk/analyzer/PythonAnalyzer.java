@@ -883,7 +883,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         // If the module CodeUnit already exists in context (e.g. from another file in the same package),
         // we should still associate this file's TLDs with it.
-        CodeUnit existing = acc.cuByFqName().get(moduleCu.fqName());
+        CodeUnit existing = acc.getByFqName(moduleCu.fqName());
         CodeUnit targetCu = (existing != null && existing.isModule()) ? existing : moduleCu;
 
         if (existing == null) {
