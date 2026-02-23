@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -22,12 +24,101 @@ def normalize_theme_name(theme: str) -> str:
     return _LEGACY_THEME_ALIASES.get(theme, theme)
 
 
+def get_global_config_dir() -> Path:
+    """Returns the platform-appropriate global configuration directory for Brokk.
+    Mirrors ai.brokk.util.BrokkConfigPaths.java.
+    """
+    home = Path.home()
+    if sys.platform == "win32":
+        app_data = os.getenv("APPDATA")
+        base = Path(app_data) if app_data else home / "AppData" / "Roaming"
+    elif sys.platform == "darwin":
+        base = home / "Library" / "Application Support"
+    else:
+        xdg = os.getenv("XDG_CONFIG_HOME")
+        base = Path(xdg) if xdg else home / ".config"
+    return base / "Brokk"
+
+
 def settings_dir() -> Path:
+    """Returns the legacy .brokk directory in home for settings.json and prompt history."""
     return Path.home() / ".brokk"
 
 
 def settings_file() -> Path:
     return settings_dir() / "settings.json"
+
+
+def get_brokk_properties_path() -> Path:
+    return get_global_config_dir() / "brokk.properties"
+
+
+def read_brokk_properties() -> dict[str, str]:
+    """Reads brokk.properties into a dictionary."""
+    props_path = get_brokk_properties_path()
+    if not props_path.exists():
+        return {}
+
+    props = {}
+    try:
+        with props_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith(("#", "!")):
+                    continue
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    props[key.strip()] = value.strip()
+    except Exception as e:
+        logger.warning("Failed to read brokk.properties: %s", e)
+    return props
+
+
+def write_brokk_properties(updates: dict[str, Optional[str]]) -> None:
+    """Updates brokk.properties while preserving other keys and comments.
+    If a value is None or empty, the key is removed.
+    """
+    props_path = get_brokk_properties_path()
+    lines = []
+    keys_seen = set()
+
+    if props_path.exists():
+        try:
+            with props_path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as e:
+            logger.warning("Failed to read existing brokk.properties for update: %s", e)
+
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith(("#", "!")) and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key in updates:
+                keys_seen.add(key)
+                val = updates[key]
+                if val and val.strip():
+                    new_lines.append(f"{key}={val.strip()}\n")
+                continue  # If None/empty, we skip it (effectively removing)
+        new_lines.append(line)
+
+    # Append new keys that weren't in the file
+    for key, val in updates.items():
+        if key not in keys_seen and val and val.strip():
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append(f"{key}={val.strip()}\n")
+
+    try:
+        props_path.parent.mkdir(parents=True, exist_ok=True)
+        # Simple atomic write
+        temp_file = props_path.with_suffix(".tmp")
+        with temp_file.open("w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        temp_file.replace(props_path)
+    except Exception as e:
+        logger.error("Failed to write brokk.properties: %s", e)
+        raise
 
 
 @dataclass
@@ -70,14 +161,24 @@ class Settings:
             return cls()
 
     def get_brokk_api_key(self) -> Optional[str]:
-        """Returns the Brokk API key, preferring BROKK_API_KEY environment variable."""
-        import os
+        """Returns the Brokk API key.
+        Order:
+        1. brokk.properties (brokkApiKey)
+        2. BROKK_API_KEY environment variable
+        3. settings.json (brokk_api_key)
+        """
+        # 1. brokk.properties
+        props = read_brokk_properties()
+        prop_key = props.get("brokkApiKey")
+        if prop_key and prop_key.strip():
+            return prop_key.strip()
 
+        # 2. Environment variable
         env_key = os.getenv("BROKK_API_KEY")
         if env_key and env_key.strip():
             return env_key.strip()
 
-        # Ensure we return None if the persisted key is just whitespace
+        # 3. Persisted in settings.json
         if self.brokk_api_key and self.brokk_api_key.strip():
             return self.brokk_api_key.strip()
 
@@ -85,11 +186,15 @@ class Settings:
 
     def save(self) -> None:
         """Saves current settings to disk atomically.
+        Also syncs brokk_api_key to brokk.properties.
 
         Raises:
             OSError: If the settings file cannot be written.
         """
         try:
+            # Sync to brokk.properties
+            write_brokk_properties({"brokkApiKey": self.brokk_api_key})
+
             settings_path = settings_file()
             settings_path.parent.mkdir(parents=True, exist_ok=True)
             temp_file = settings_path.with_suffix(".tmp")

@@ -176,3 +176,107 @@ def test_settings_save_raises_on_failure(tmp_path, monkeypatch):
 
     with pytest.raises(Exception):
         settings.save()
+
+
+def test_get_global_config_dir_platforms(tmp_path, monkeypatch):
+    from brokk_code.settings import get_global_config_dir
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "AppData"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
+    import sys
+
+    # Test Linux/default logic
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert get_global_config_dir() == tmp_path / "xdg" / "Brokk"
+
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    assert get_global_config_dir() == tmp_path / ".config" / "Brokk"
+
+    # Test Mac
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert get_global_config_dir() == tmp_path / "Library" / "Application Support" / "Brokk"
+
+    # Test Windows
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert get_global_config_dir() == tmp_path / "AppData" / "Brokk"
+
+
+def test_brokk_properties_read_write(tmp_path, monkeypatch):
+    from brokk_code.settings import (
+        get_brokk_properties_path,
+        read_brokk_properties,
+        write_brokk_properties,
+    )
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    # Ensure a clean slate for Linux-style path
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
+    props_path = get_brokk_properties_path()
+
+    # Write initial props
+    props_path.parent.mkdir(parents=True)
+    props_path.write_text("# Comment\nfoo=bar\nbrokkApiKey=old-key\n")
+
+    assert read_brokk_properties() == {"foo": "bar", "brokkApiKey": "old-key"}
+
+    # Update key and remove another
+    write_brokk_properties({"brokkApiKey": "new-key", "foo": None, "newKey": "val"})
+
+    updated = read_brokk_properties()
+    assert updated == {"brokkApiKey": "new-key", "newKey": "val"}
+    assert "foo" not in updated
+
+    # Verify formatting/comments preservation (best effort)
+    content = props_path.read_text()
+    assert "# Comment" in content
+    assert "brokkApiKey=new-key" in content
+    assert "newKey=val" in content
+
+
+def test_settings_api_key_ordering(tmp_path, monkeypatch):
+    from brokk_code.settings import get_brokk_properties_path
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    settings = Settings(brokk_api_key="settings-json-key")
+
+    # Initially, settings.json key is used because env/props are missing
+    assert settings.get_brokk_api_key() == "settings-json-key"
+
+    # Env var takes precedence over settings.json
+    monkeypatch.setenv("BROKK_API_KEY", "env-key")
+    assert settings.get_brokk_api_key() == "env-key"
+
+    # brokk.properties takes precedence over env var
+    props_path = get_brokk_properties_path()
+    props_path.parent.mkdir(parents=True, exist_ok=True)
+    props_path.write_text("brokkApiKey=properties-key\n")
+
+    assert settings.get_brokk_api_key() == "properties-key"
+
+
+def test_settings_save_syncs_to_properties(tmp_path, monkeypatch):
+    from brokk_code.settings import read_brokk_properties
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    settings = Settings(brokk_api_key="sync-test-key")
+    settings.save()
+
+    # Verify both settings.json and brokk.properties have it
+    assert Settings.load().brokk_api_key == "sync-test-key"
+    assert read_brokk_properties().get("brokkApiKey") == "sync-test-key"
