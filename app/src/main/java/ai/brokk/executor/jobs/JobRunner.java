@@ -2390,6 +2390,53 @@ public final class JobRunner {
         return reviewAndParse.apply(diff);
     }
 
+    private static String firstNonBlankLine(@Nullable String text) {
+        if (text == null) {
+            return "(untitled)";
+        }
+        return text.lines()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .findFirst()
+                .orElse("(untitled)");
+    }
+
+    /**
+     * Formats task list data into a stable, human-readable checklist string.
+     * Output format: "N. [ ] Title" or "N. [x] Title".
+     */
+    static String formatTaskList(TaskList.TaskListData data) {
+        if (data == null || data.tasks().isEmpty()) {
+            return "";
+        }
+
+        var sb = new StringBuilder();
+        var tasks = data.tasks();
+        for (int i = 0; i < tasks.size(); i++) {
+            var task = tasks.get(i);
+            String title = task.title();
+            String text = task.text();
+
+            String label;
+            if (title != null && !title.isBlank()) {
+                label = firstNonBlankLine(title);
+            } else {
+                label = firstNonBlankLine(text);
+            }
+            if (label.isEmpty()) {
+                label = "(untitled)";
+            }
+
+            sb.append(i + 1)
+                    .append(". [")
+                    .append(task.done() ? "x" : " ")
+                    .append("] ")
+                    .append(label)
+                    .append("\n");
+        }
+        return sb.toString().trim();
+    }
+
     static List<PrReviewService.InlineComment> issueModeComputeInlineComments(
             String jobId,
             JobStore store,

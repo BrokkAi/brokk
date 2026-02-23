@@ -327,6 +327,35 @@ class JobRunnerTest {
     }
 
     @Test
+    void testFormatTaskList_FormatsCorrectly() {
+        var tasks = List.of(
+                new TaskList.TaskItem("1", "Task One", "Text", false),
+                new TaskList.TaskItem("2", "Task Two", "Text", true),
+                new TaskList.TaskItem("3", "", "Text with\nmultiple lines", false),
+                new TaskList.TaskItem("4", "  ", "", false));
+        var data = new TaskList.TaskListData("Big Picture", tasks);
+
+        String formatted = JobRunner.formatTaskList(data);
+
+        String expected =
+                """
+                1. [ ] Task One
+                2. [x] Task Two
+                3. [ ] Text with
+                4. [ ] (untitled)
+                """
+                        .strip();
+
+        assertEquals(expected, formatted);
+    }
+
+    @Test
+    void testFormatTaskList_EmptyData() {
+        assertEquals("", JobRunner.formatTaskList(null));
+        assertEquals("", JobRunner.formatTaskList(new TaskList.TaskListData(null, List.of())));
+    }
+
+    @Test
     void testLutz_cancellationDuringTaskExecutionPropagates() {
         JobRunner runner = new JobRunner(null, null);
         AtomicBoolean cancelled = new AtomicBoolean(false);
