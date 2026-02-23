@@ -24,9 +24,12 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.BorderFactory;
@@ -610,10 +613,10 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildProgressBar.setVisible(false);
     }
 
-    private void verifyBuildConfiguration() {
-        var verifyDialog = new BaseThemedDialog(parentDialog, "Verifying Build Configuration");
+    private void runVerificationUI(Window owner, String title, Function<Consumer<String>, String> task) {
+        var verifyDialog = new BaseThemedDialog(owner, title);
         verifyDialog.setSize(600, 400);
-        verifyDialog.setLocationRelativeTo(parentDialog);
+        verifyDialog.setLocationRelativeTo(owner);
 
         var outputArea = new JTextArea();
         outputArea.setEditable(false);
@@ -627,9 +630,12 @@ public class SettingsProjectBuildPanel extends JPanel {
         closeButton.setEnabled(false);
         closeButton.addActionListener(e -> verifyDialog.dispose());
 
-        var bottomPanel = new JPanel(new BorderLayout(5, 5));
-        bottomPanel.add(progressBar, BorderLayout.CENTER);
-        bottomPanel.add(closeButton, BorderLayout.EAST);
+        var cancelButton = new MaterialButton("Cancel");
+
+        var bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        bottomPanel.add(progressBar);
+        bottomPanel.add(cancelButton);
+        bottomPanel.add(closeButton);
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
         var root = verifyDialog.getContentRoot();
@@ -640,85 +646,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         SwingWorker<String, String> worker = new SwingWorker<>() {
             @Override
             protected String doInBackground() {
-
-                var envVars = computeEnvFromUi();
-
-                // Step 1: Build/Lint command
-                String buildCmd = buildCleanCommandField.getText().trim();
-                if (!buildCmd.isEmpty()) {
-                    publish("--- Verifying Build/Lint Command ---\n");
-                    publish("$ " + buildCmd + "\n");
-                    var result =
-                            BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish(line + "\n"));
-                    if (result.success()) {
-                        publish("\nSUCCESS: Build/Lint command completed successfully.\n\n");
-                    } else {
-                        publish("\nERROR: Build/Lint command failed.\n");
-                        publish(result.output() + "\n");
-                        return "Build/Lint command failed.";
-                    }
-                } else {
-                    publish("--- Skipping empty Build/Lint Command ---\n\n");
-                }
-
-                // Step 2: Test All command
-                String testAllCmd = allTestsCommandField.getText().trim();
-                if (!testAllCmd.isEmpty()) {
-                    publish("--- Verifying Test All Command ---\n");
-                    publish("$ " + testAllCmd + "\n");
-                    var result =
-                            BuildVerifier.verifyStreaming(project, testAllCmd, envVars, line -> publish(line + "\n"));
-                    if (result.success()) {
-                        publish("\nSUCCESS: Test All command completed successfully.\n\n");
-                    } else {
-                        publish("\nERROR: Test All command failed.\n");
-                        publish(result.output() + "\n");
-                        return "Test All command failed.";
-                    }
-                } else {
-                    publish("--- Skipping empty Test All Command ---\n\n");
-                }
-
-                // Step 3: Verify Modules
-                if (!modulesList.isEmpty()) {
-                    for (var module : modulesList) {
-                        publish("--- Verifying Module: [" + module.alias() + "] ---\n");
-
-                        // Verify Module Build/Lint
-                        String mBuild = module.buildLintCommand().trim();
-                        if (!mBuild.isEmpty()) {
-                            publish("Verifying Build/Lint: $ " + mBuild + "\n");
-                            var result = BuildVerifier.verifyStreaming(
-                                    project, mBuild, envVars, line -> publish(line + "\n"));
-                            if (result.success()) {
-                                publish("SUCCESS: Build/Lint for module [" + module.alias() + "] passed.\n");
-                            } else {
-                                publish("\nERROR: Build/Lint failed for module [" + module.alias() + "].\n");
-                                publish(result.output() + "\n");
-                                return "Build/Lint command failed for module " + module.alias() + ".";
-                            }
-                        }
-
-                        // Verify Module Test All
-                        String mTest = module.testAllCommand().trim();
-                        if (!mTest.isEmpty()) {
-                            publish("Verifying Test All: $ " + mTest + "\n");
-                            var result = BuildVerifier.verifyStreaming(
-                                    project, mTest, envVars, line -> publish(line + "\n"));
-                            if (result.success()) {
-                                publish("SUCCESS: Test All for module [" + module.alias() + "] passed.\n\n");
-                            } else {
-                                publish("\nERROR: Test All failed for module [" + module.alias() + "].\n");
-                                publish(result.output() + "\n");
-                                return "Test All command failed for module " + module.alias() + ".";
-                            }
-                        } else {
-                            publish("\n");
-                        }
-                    }
-                }
-
-                return "Verification successful!";
+                return task.apply(s -> publish(s));
             }
 
             @Override
@@ -731,26 +659,116 @@ public class SettingsProjectBuildPanel extends JPanel {
             @Override
             protected void done() {
                 progressBar.setVisible(false);
+                cancelButton.setEnabled(false);
                 closeButton.setEnabled(true);
                 try {
                     String result = get();
                     outputArea.append("\n--- VERIFICATION COMPLETE ---\n");
                     outputArea.append(result);
-                } catch (Exception e) {
-                    logger.error("Error during build verification", e);
+                } catch (CancellationException | InterruptedException e) {
+                    outputArea.append("\n--- VERIFICATION CANCELLED ---\n");
                     if (e instanceof InterruptedException) {
                         Thread.currentThread().interrupt();
-                        outputArea.append("\n--- VERIFICATION CANCELLED ---\n");
-                    } else {
-                        outputArea.append("\n--- An unexpected error occurred during verification ---\n");
-                        outputArea.append(e.toString());
                     }
+                } catch (Exception e) {
+                    logger.error("Error during build verification", e);
+                    outputArea.append("\n--- An unexpected error occurred during verification ---\n");
+                    outputArea.append(e.toString());
                 }
                 outputArea.setCaretPosition(outputArea.getDocument().getLength());
             }
         };
+
+        cancelButton.addActionListener(e -> worker.cancel(true));
+
         worker.execute();
-        verifyDialog.setVisible(true); // This blocks until dialog is closed
+        verifyDialog.setVisible(true);
+    }
+
+    private void verifyBuildConfiguration() {
+        runVerificationUI(parentDialog, "Verifying Build Configuration", publish -> {
+            var envVars = computeEnvFromUi();
+
+            // Step 1: Build/Lint command
+            String buildCmd = buildCleanCommandField.getText().trim();
+            if (!buildCmd.isEmpty()) {
+                publish.accept("--- Verifying Build/Lint Command ---\n");
+                publish.accept("$ " + buildCmd + "\n");
+                var result = BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish.accept(line + "\n"));
+                if (result.success()) {
+                    publish.accept("\nSUCCESS: Build/Lint command completed successfully.\n\n");
+                } else {
+                    publish.accept("\nERROR: Build/Lint command failed.\n");
+                    publish.accept(result.output() + "\n");
+                    return "Build/Lint command failed.";
+                }
+            } else {
+                publish.accept("--- Skipping empty Build/Lint Command ---\n\n");
+            }
+
+            if (Thread.interrupted()) return "Cancelled";
+
+            // Step 2: Test All command
+            String testAllCmd = allTestsCommandField.getText().trim();
+            if (!testAllCmd.isEmpty()) {
+                publish.accept("--- Verifying Test All Command ---\n");
+                publish.accept("$ " + testAllCmd + "\n");
+                var result = BuildVerifier.verifyStreaming(project, testAllCmd, envVars, line -> publish.accept(line + "\n"));
+                if (result.success()) {
+                    publish.accept("\nSUCCESS: Test All command completed successfully.\n\n");
+                } else {
+                    publish.accept("\nERROR: Test All command failed.\n");
+                    publish.accept(result.output() + "\n");
+                    return "Test All command failed.";
+                }
+            } else {
+                publish.accept("--- Skipping empty Test All Command ---\n\n");
+            }
+
+            if (Thread.interrupted()) return "Cancelled";
+
+            // Step 3: Verify Modules
+            if (!modulesList.isEmpty()) {
+                for (var module : modulesList) {
+                    if (Thread.interrupted()) return "Cancelled";
+                    publish.accept("--- Verifying Module: [" + module.alias() + "] ---\n");
+
+                    // Verify Module Build/Lint
+                    String mBuild = module.buildLintCommand().trim();
+                    if (!mBuild.isEmpty()) {
+                        publish.accept("Verifying Build/Lint: $ " + mBuild + "\n");
+                        var result = BuildVerifier.verifyStreaming(project, mBuild, envVars, line -> publish.accept(line + "\n"));
+                        if (result.success()) {
+                            publish.accept("SUCCESS: Build/Lint for module [" + module.alias() + "] passed.\n");
+                        } else {
+                            publish.accept("\nERROR: Build/Lint failed for module [" + module.alias() + "].\n");
+                            publish.accept(result.output() + "\n");
+                            return "Build/Lint command failed for module " + module.alias() + ".";
+                        }
+                    }
+
+                    if (Thread.interrupted()) return "Cancelled";
+
+                    // Verify Module Test All
+                    String mTest = module.testAllCommand().trim();
+                    if (!mTest.isEmpty()) {
+                        publish.accept("Verifying Test All: $ " + mTest + "\n");
+                        var result = BuildVerifier.verifyStreaming(project, mTest, envVars, line -> publish.accept(line + "\n"));
+                        if (result.success()) {
+                            publish.accept("SUCCESS: Test All for module [" + module.alias() + "] passed.\n\n");
+                        } else {
+                            publish.accept("\nERROR: Test All failed for module [" + module.alias() + "].\n");
+                            publish.accept(result.output() + "\n");
+                            return "Test All command failed for module " + module.alias() + ".";
+                        }
+                    } else {
+                        publish.accept("\n");
+                    }
+                }
+            }
+
+            return "Verification successful!";
+        });
     }
 
     private void runBuildAgent() {
@@ -1500,7 +1518,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
     }
 
-    private static class ModuleEditDialog extends BaseThemedDialog {
+    private class ModuleEditDialog extends BaseThemedDialog {
         private final JTextField aliasField = new JTextField();
         private final JTextField pathField = new JTextField();
         private final JTextField buildCmdField = new JTextField();
@@ -1545,6 +1563,8 @@ public class SettingsProjectBuildPanel extends JPanel {
             gbc.insets = new Insets(5, 5, 5, 5); // Reset
 
             var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            var verify = new MaterialButton("Verify");
+            verify.addActionListener(e -> verifyModule());
             var ok = new MaterialButton("Ok");
             SwingUtil.applyPrimaryButtonStyle(ok);
             ok.addActionListener(e -> {
@@ -1553,6 +1573,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             });
             var cancel = new MaterialButton("Cancel");
             cancel.addActionListener(e -> dispose());
+            buttons.add(verify);
             buttons.add(ok);
             buttons.add(cancel);
 
@@ -1562,6 +1583,46 @@ public class SettingsProjectBuildPanel extends JPanel {
             gbc.weighty = 1.0;
             gbc.anchor = GridBagConstraints.SOUTH;
             p.add(buttons, gbc);
+        }
+
+        private void verifyModule() {
+            String alias = aliasField.getText().trim();
+            String buildLint = buildCmdField.getText().trim();
+            String testAll = testAllField.getText().trim();
+
+            runVerificationUI(this, "Verifying Module: " + alias, publish -> {
+                var envVars = SettingsProjectBuildPanel.this.computeEnvFromUi();
+
+                if (!buildLint.isEmpty()) {
+                    publish.accept("--- Verifying Build/Lint Command ---\n");
+                    publish.accept("$ " + buildLint + "\n");
+                    var result = BuildVerifier.verifyStreaming(project, buildLint, envVars, line -> publish.accept(line + "\n"));
+                    if (result.success()) {
+                        publish.accept("\nSUCCESS: Build/Lint command completed successfully.\n\n");
+                    } else {
+                        publish.accept("\nERROR: Build/Lint command failed.\n");
+                        publish.accept(result.output() + "\n");
+                        return "Build/Lint command failed.";
+                    }
+                }
+
+                if (Thread.interrupted()) return "Cancelled";
+
+                if (!testAll.isEmpty()) {
+                    publish.accept("--- Verifying Test All Command ---\n");
+                    publish.accept("$ " + testAll + "\n");
+                    var result = BuildVerifier.verifyStreaming(project, testAll, envVars, line -> publish.accept(line + "\n"));
+                    if (result.success()) {
+                        publish.accept("\nSUCCESS: Test All command completed successfully.\n\n");
+                    } else {
+                        publish.accept("\nERROR: Test All command failed.\n");
+                        publish.accept(result.output() + "\n");
+                        return "Test All command failed.";
+                    }
+                }
+
+                return "Verification successful!";
+            });
         }
 
         private void addField(JPanel p, String label, JTextField field, GridBagConstraints gbc, int row) {
