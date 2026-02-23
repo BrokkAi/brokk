@@ -199,6 +199,8 @@ class ExecutorManager:
         try:
             # Create subprocess with a dedicated stdin pipe so the Java
             # executor can detect parent death.
+            log_cmd = [cmd[0]] + (["..."] if len(cmd) > 1 else [])
+            logger.info(f"Launching executor via {cmd[0]}...")
             #
             # Implementation note / lifecycle guarantee:
             # - We intentionally open the child's stdin as a PIPE and retain the StreamWriter
