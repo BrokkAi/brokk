@@ -69,6 +69,15 @@ class Settings:
             logger.warning("Failed to load settings from %s: %s. Using defaults.", settings_path, e)
             return cls()
 
+    def get_brokk_api_key(self) -> Optional[str]:
+        """Returns the Brokk API key, preferring BROKK_API_KEY environment variable."""
+        import os
+
+        env_key = os.getenv("BROKK_API_KEY")
+        if env_key and env_key.strip():
+            return env_key.strip()
+        return self.brokk_api_key
+
     def save(self) -> None:
         """Saves current settings to disk atomically."""
         try:

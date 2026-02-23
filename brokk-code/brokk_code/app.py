@@ -356,6 +356,7 @@ class BrokkApp(App):
                 executor_version=executor_version,
                 executor_snapshot=executor_snapshot,
                 vendor=vendor,
+                brokk_api_key=self.settings.get_brokk_api_key(),
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
