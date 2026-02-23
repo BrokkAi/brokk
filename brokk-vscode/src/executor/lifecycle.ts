@@ -193,9 +193,8 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
   const child = spawn(
     jbang,
     [
-      // JBang accepts JVM system properties (-D) directly before the script/alias
-      "-Djava.awt.headless=true",
-      "-Dapple.awt.UIElement=true",
+      "-J-Djava.awt.headless=true",
+      "-J-Dapple.awt.UIElement=true",
       "brokk-headless@brokkai/brokk-releases",
       "--listen-addr",
       "127.0.0.1:0",
