@@ -1178,9 +1178,10 @@ class BrokkApp(App):
     async def _run_job(self, task_input: str) -> None:
         self.current_job_cost = 0.0
         self.job_in_progress = True
-        chat = self.query_one(ChatPanel)
-        chat.set_job_running(True)
-        chat.set_response_pending()
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
+            chat.set_response_pending()
         attached_fragment_ids: List[str] = []
         try:
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)
@@ -1209,10 +1210,14 @@ class BrokkApp(App):
                         attached_fragment_ids,
                     )
 
-            chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
+            if chat:
+                chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
+            else:
+                logger.error("Job failed: %s", e)
         finally:
-            chat.set_response_finished()
-            chat.set_job_running(False)
+            if chat:
+                chat.set_response_finished()
+                chat.set_job_running(False)
 
             # Yield to the event loop to allow any rapid subsequent submissions
             # triggered by the cancellation to be processed before we check _pending_prompt.
