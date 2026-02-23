@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.token_format import format_token_count
+from brokk_code.widgets.token_bar import get_token_bar_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -620,6 +621,19 @@ class BrokkAcpBridge:
                             f"{format_token_count(max_tokens)} tokens\n"
                         ),
                     )
+
+                    # Emit SVG bar if token info is present.
+                    used_tokens_raw = context_data.get("usedTokens")
+                    if used_tokens_raw is not None:
+                        fragments = context_data.get("fragments", [])
+                        bar_md = get_token_bar_markdown(
+                            used_tokens=used_tokens,
+                            max_tokens=max_tokens,
+                            fragments=fragments if isinstance(fragments, list) else [],
+                        )
+                        if bar_md:
+                            await send_update(session_id, update_agent_message_text(bar_md + "\n"))
+
                 current_kind: Optional[str] = None
                 for block in blocks:
                     kind = str(block["chip_kind"])

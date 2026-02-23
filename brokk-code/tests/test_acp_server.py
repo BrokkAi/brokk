@@ -542,16 +542,17 @@ async def test_prompt_emits_context_snapshot_after_stream(tmp_path: Path) -> Non
         build_context_snapshot_update=build_context_snapshot_update,
     )
 
-    assert len(updates) == 6
+    assert len(updates) == 7
     assert updates[0][1]["text"] == "abc"
     assert "Context Snapshot" in updates[1][1]["text"]
-    assert "Editable Context" in updates[2][1]["text"]
-    assert updates[3][1]["text"] == "- "
-    assert updates[4][1]["kind"] == "embedded_resource"
-    assert updates[4][1]["uri"] == "file:///repo/main.py"
-    assert updates[4][1]["mimeType"] == "text/x-python"
-    assert updates[4][1]["text"] == "print('hi')\n"
-    assert updates[5][1]["text"] == " | 50\n"
+    assert "data:image/svg+xml;base64," in updates[2][1]["text"]
+    assert "Editable Context" in updates[3][1]["text"]
+    assert updates[4][1]["text"] == "- "
+    assert updates[5][1]["kind"] == "embedded_resource"
+    assert updates[5][1]["uri"] == "file:///repo/main.py"
+    assert updates[5][1]["mimeType"] == "text/x-python"
+    assert updates[5][1]["text"] == "print('hi')\n"
+    assert updates[6][1]["text"] == " | 50\n"
 
 
 async def test_prompt_emits_discarded_context_as_json_markdown_text(tmp_path: Path) -> None:
@@ -738,10 +739,11 @@ async def test_prompt_emits_summary_as_list_item_with_text_and_tokens_for_brokk_
         build_context_snapshot_update=build_context_snapshot_update,
     )
 
-    assert len(updates) == 6
+    assert len(updates) == 7
     assert updates[0][1]["text"] == "abc"
     assert "Context Snapshot" in updates[1][1]["text"]
-    assert "Summaries" in updates[2][1]["text"]
-    assert updates[3][1]["text"] == "- "
-    assert updates[4][1]["text"] == "Summary of worker.go"
-    assert updates[5][1]["text"] == " | 12\n"
+    assert "data:image/svg+xml;base64," in updates[2][1]["text"]
+    assert "Summaries" in updates[3][1]["text"]
+    assert updates[4][1]["text"] == "- "
+    assert updates[5][1]["text"] == "Summary of worker.go"
+    assert updates[6][1]["text"] == " | 12\n"
