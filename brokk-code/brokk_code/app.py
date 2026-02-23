@@ -113,6 +113,7 @@ class BrokkApiKeyModalScreen(ModalScreen[str]):
 
     def compose(self) -> ComposeResult:
         from textual.widgets import Markdown
+
         with Vertical(id="api-key-modal-container"):
             with VerticalScroll(id="api-key-modal-scroll"):
                 yield Static(get_braille_icon(), id="api-key-modal-icon")
@@ -124,7 +125,9 @@ class BrokkApiKeyModalScreen(ModalScreen[str]):
             yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
             footer_text = "Press Ctrl+C or Ctrl+D to exit."
             if self._is_update:
-                footer_text += "\n[dim]Note: API key updates will apply to the next executor restart.[/]"
+                footer_text += (
+                    "\n[dim]Note: API key updates will apply to " + "the next executor restart.[/]"
+                )
             yield Static(footer_text, id="api-key-modal-footer")
 
     def on_mount(self) -> None:

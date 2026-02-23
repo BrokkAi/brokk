@@ -1,9 +1,9 @@
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from brokk_code.app import BrokkApp, BrokkApiKeyModalScreen
+from brokk_code.app import BrokkApiKeyModalScreen, BrokkApp
 from brokk_code.settings import Settings
 
 
@@ -138,6 +138,7 @@ async def test_api_key_prompt_shows_brokk_welcome_and_signup_link(tmp_path: Path
     monkeypatch.setattr(Settings, "load", lambda: settings)
 
     from textual.widgets import Markdown, Static
+
     app = BrokkApp(executor=MagicMock())
     async with app.run_test():
         modal = app.screen
@@ -188,7 +189,7 @@ async def test_api_key_not_prompted_if_present(tmp_path: Path, monkeypatch):
 
     app = BrokkApp(executor=mock_executor)
 
-    async with app.run_test() as pilot:
+    async with app.run_test():
         # Should NOT be on the modal screen
         assert not isinstance(app.screen, BrokkApiKeyModalScreen)
         mock_executor.start.assert_called_once()

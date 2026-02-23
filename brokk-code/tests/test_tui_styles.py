@@ -321,9 +321,9 @@ def test_api_key_modal_dimensions_regression():
     assert "width: 100%" in modal_body, "#api-key-modal-container should use full width"
     assert "height: 100%" in modal_body, "#api-key-modal-container should use full height"
     assert "width: 80" not in modal_body, "#api-key-modal-container should not have fixed width 80"
-    assert (
-        "max-height:" not in modal_body
-    ), "#api-key-modal-container should not have any max-height constraints"
+    assert "max-height:" not in modal_body, (
+        "#api-key-modal-container should not have any max-height constraints"
+    )
 
     scroll_match = re.search(r"#api-key-modal-scroll\s*\{([^}]*)\}", css_content)
     assert scroll_match, "Could not find #api-key-modal-scroll rule in app.tcss"
