@@ -906,7 +906,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     private @Nullable CodeUnit findDirectParent(CodeUnit cu) {
         for (var entry : withCodeUnitProperties(Map::entrySet)) {
             CodeUnit parent = entry.getKey();
-            List<CodeUnit> children = entry.getValue().children();
+            Set<CodeUnit> children = entry.getValue().children();
             if (children.contains(cu)) {
                 return parent;
             }
