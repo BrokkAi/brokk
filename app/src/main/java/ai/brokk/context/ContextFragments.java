@@ -1883,12 +1883,18 @@ public class ContextFragments {
             return out;
         }
 
+        private record CodeUnitKey(ai.brokk.analyzer.CodeUnitType kind, String fqName, @Nullable String signature) {
+            static CodeUnitKey of(CodeUnit cu) {
+                return new CodeUnitKey(cu.kind(), cu.fqName(), cu.signature());
+            }
+        }
+
         /**
          * Combines multiple summary fragments into a single text block.
          *
          * <p>Semantic aggregation:
          * - Union CodeUnits across fragments via sources()
-         * - Deduplicate by CodeUnit.fqName() (stable first-seen)
+         * - Deduplicate by CodeUnit semantic identity (kind, fqName, signature)
          * - Exclude anonymous units
          * - Use each fragment's own analyzer to obtain skeleton text
          * - Format via SkeletonFragmentFormatter in by-package mode
@@ -1903,9 +1909,10 @@ public class ContextFragments {
                 logger.error("combinedText is a blocking function and should not be called on the EDT!");
             }
 
-            Map<CodeUnit, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            Map<CodeUnitKey, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
             for (SummaryFragment fragment : fragments) {
-                fragment.skeletonsByCodeUnit().forEach(deduped::putIfAbsent);
+                fragment.skeletonsByCodeUnit()
+                        .forEach((cu, skeleton) -> deduped.putIfAbsent(CodeUnitKey.of(cu), skeleton));
             }
 
             if (deduped.isEmpty()) {

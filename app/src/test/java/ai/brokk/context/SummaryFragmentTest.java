@@ -16,6 +16,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -622,6 +624,57 @@ def pixels_to_grid_ceil(pixels: int, dpi: int) -> int: ...
   def contained_in(self, bounds: "Rect") -> bool: ...
   """,
                     text);
+        }
+    }
+
+    @Test
+    public void testCombinedTextDeduplicatesCodeUnitsWithDifferentSourceFiles() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code("", "Test.java").build()) {
+            java.nio.file.Path root1 = java.nio.file.Paths.get("/root1");
+            java.nio.file.Path root2 = java.nio.file.Paths.get("/root2");
+            ProjectFile file1 = new ProjectFile(root1, "src/Test.java");
+            ProjectFile file2 = new ProjectFile(root2, "src/Test.java");
+
+            // These CodeUnits are semantically identical but differ in their 'source' ProjectFile instance
+            CodeUnit cu1 = CodeUnit.cls(file1, "com.example", "TestClass");
+            CodeUnit cu2 = CodeUnit.cls(file2, "com.example", "TestClass");
+
+            String skeleton = "class TestClass {}";
+
+            TestAnalyzer analyzer = new TestAnalyzer() {
+                @Override
+                public Optional<String> getSkeleton(CodeUnit cu) {
+                    if (cu.fqName().equals("com.example.TestClass")) {
+                        return Optional.of(skeleton);
+                    }
+                    return Optional.empty();
+                }
+
+                @Override
+                public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+                    if (fqName.equals("com.example.TestClass")) {
+                        return new java.util.LinkedHashSet<>(List.of(cu1, cu2));
+                    }
+                    return new java.util.LinkedHashSet<>();
+                }
+            };
+
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            // Create fragments for what are effectively the same unit
+            var sf1 = new SummaryFragment(cm, "com.example.TestClass", SummaryType.CODEUNIT_SKELETON);
+            var sf2 = new SummaryFragment(cm, "com.example.TestClass", SummaryType.CODEUNIT_SKELETON);
+
+            String combined = SummaryFragment.combinedText(List.of(sf1, sf2));
+
+            // Assert that the class definition appears EXACTLY ONCE
+            int count = 0;
+            int index = 0;
+            while ((index = combined.indexOf("class TestClass {}", index)) != -1) {
+                count++;
+                index += "class TestClass {}".length();
+            }
+            assertEquals(1, count, "Identical CodeUnit from different file instances should be deduplicated");
         }
     }
 
