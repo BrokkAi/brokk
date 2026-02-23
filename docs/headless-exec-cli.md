@@ -40,7 +40,13 @@ java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
   ai.brokk.tools.HeadlessExecCli [options] [prompt]
 ```
 
-Note: including `-Djava.awt.headless=true -Dapple.awt.UIElement=true` ensures the JVM and any in-process executor stay truly headless on macOS (the `apple.awt.UIElement` flag hides the process from the Dock/app switcher and is a no-op on other platforms).
+Note: including `-Djava.awt.headless=true -Dapple.awt.UIElement=true` ensures the JVM and any in-process executor stay truly headless on macOS (the `apple.awt.UIElement` flag hides the process from the Dock/app switcher and is a no-op on other platforms). 
+
+When launching via **jbang**, these flags should be passed before the script/alias name:
+
+```bash
+jbang -Djava.awt.headless=true -Dapple.awt.UIElement=true brokk-headless [options] [prompt]
+```
 
 Or via Gradle:
 
