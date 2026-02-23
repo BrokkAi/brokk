@@ -781,7 +781,8 @@ public class CodeAgent {
                     .collect(Collectors.toSet());
 
             var notInContext = Sets.difference(mentionedFiles, filesInContext);
-            if (!notInContext.isEmpty()) {
+            var watchdogEnabled = !"false".equalsIgnoreCase(System.getenv("BRK_CODE_WATCHDOG"));
+            if (!notInContext.isEmpty() && watchdogEnabled) {
                 var classifier = contextManager.getLlm(
                         contextManager.getService().getScanModel(),
                         "Check if asking for files",

@@ -440,6 +440,12 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default boolean isGitConfigDeclined() {
+        return false;
+    }
+
+    default void setGitConfigDeclined(boolean declined) {}
+
     /**
      * Whether this project should automatically attempt to update dependencies that were imported
      * from local directories on disk. Implementations may persist this at the project level.

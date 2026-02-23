@@ -91,6 +91,7 @@ public interface ExceptionMapper {
             }
             if (httpStatusCode >= 400 && httpStatusCode < 500) {
                 if (cause.getMessage().contains("prompt is too long")
+                        || cause.getMessage().contains("maximum context length")
                         || cause.getMessage().contains("maximum prompt length")) {
                     return new ContextTooLargeException(cause);
                 }

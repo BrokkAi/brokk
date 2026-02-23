@@ -13,8 +13,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -185,7 +187,11 @@ public class TreeSitterStateIOTest {
         var cu = CodeUnit.cls(projectFile, "com.example", "Test");
 
         var props = new TreeSitterAnalyzer.CodeUnitProperties(
-                List.of(), List.of("public class Test"), List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)), true);
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(List.of("public class Test"))),
+                Collections.unmodifiableSequencedSet(
+                        new LinkedHashSet<>(List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)))),
+                true);
 
         var stateMap = Map.of(cu, props);
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
@@ -327,7 +333,8 @@ public class TreeSitterStateIOTest {
                 new ImportInfo("import java.util.*;", true, null, null),
                 new ImportInfo("import foo.bar.Baz as B", false, "Baz", "B"));
 
-        var fileProps = new TreeSitterAnalyzer.FileProperties(List.of(), imports, false);
+        var fileProps = new TreeSitterAnalyzer.FileProperties(
+                Collections.unmodifiableSequencedSet(new LinkedHashSet<>()), imports, false);
 
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
                 HashTreePMap.<String, Set<CodeUnit>>empty(),

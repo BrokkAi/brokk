@@ -569,4 +569,10 @@ Headless JVM flags:
 - `-Djava.awt.headless=true` — Recommended and safe on all platforms; forces the JVM into headless mode so no AWT native UI is initialized.
 - `-Dapple.awt.UIElement=true` — Hides the Java process from the Dock and app switcher on macOS. This flag is effectively ignored on non-macOS platforms, so it is safe to include cross-platform.
 
-**Note:** The JAR requires the fully-qualified main class (`ai.brokk.executor.HeadlessExecutorMain`) as the first argument.
+When launching via **jbang**, pass these flags before the script/alias:
+
+```bash
+jbang -Djava.awt.headless=true -Dapple.awt.UIElement=true brokk-headless@brokkai/brokk-releases [args]
+```
+
+**Note:** The JAR requires the fully-qualified main class (`ai.brokk.executor.HeadlessExecutorMain`) as the first argument. Brokk clients (such as the Python TUI and VS Code extension) automatically include these JVM flags when managing the executor lifecycle.

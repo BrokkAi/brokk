@@ -527,6 +527,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .apiKey(kp.token())
+                // this is the only custom header we can set from the client, brokk-llm discards others;
+                // in particular, anthropic-beta should be set by proxy.
                 .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
                 .promptCacheKey(shortName + kp.userId())
                 .timeout(Duration.ofSeconds(

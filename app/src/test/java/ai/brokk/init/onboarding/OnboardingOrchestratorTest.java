@@ -73,6 +73,7 @@ class OnboardingOrchestratorTest {
         private boolean gitignoreExists = false;
         private boolean gitignoreConfigured = false;
         private boolean onboardingCompleted = false;
+        private boolean gitConfigDeclined = false;
 
         StateBuilder withProject(TestProject p) {
             this.project = p;
@@ -123,6 +124,11 @@ class OnboardingOrchestratorTest {
             return this;
         }
 
+        StateBuilder withGitConfigDeclined(boolean declined) {
+            this.gitConfigDeclined = declined;
+            return this;
+        }
+
         ProjectState build() {
             return new ProjectState(
                     project,
@@ -138,6 +144,7 @@ class OnboardingOrchestratorTest {
                     gitignoreExists,
                     gitignoreConfigured,
                     onboardingCompleted,
+                    gitConfigDeclined,
                     null,
                     null);
         }
@@ -336,6 +343,22 @@ class OnboardingOrchestratorTest {
         assertEquals(BuildSettingsStep.STEP_ID, steps.get(1).id());
         assertEquals(GitConfigStep.STEP_ID, steps.get(2).id());
         assertEquals(PostGitStyleRegenerationStep.STEP_ID, steps.get(3).id());
+    }
+
+    @Test
+    void testGitConfigDeclined_NotApplicable() {
+        var project = new TestProject(tempDir);
+        project.setHasGit(true);
+        var state = new StateBuilder()
+                .withProject(project)
+                .withGitConfigDeclined(true)
+                .build();
+
+        var orchestrator = new OnboardingOrchestrator();
+        var plan = orchestrator.buildPlan(state);
+
+        // Should NOT have GIT_CONFIG because it was declined
+        assertFalse(plan.hasStep(GitConfigStep.STEP_ID), "Should not include GitConfigStep when declined");
     }
 
     @Test

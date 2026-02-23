@@ -950,6 +950,19 @@ class ChatPanel(Vertical):
             self._current_message_buffer = ""
             self._current_message_type = None
 
+    def add_markdown(self, content: str) -> None:
+        """Renders a block of Markdown content to the chat log."""
+        log = self.query_one("#chat-log", RichLog)
+        log.write(Markdown(content))
+        log.write("")
+
+    def add_welcome(self, icon: str, body: str) -> None:
+        """Renders the welcome message: icon in Brokk red, followed by Markdown body."""
+        log = self.query_one("#chat-log", RichLog)
+        log.write(Text(icon, style="#D04040"))
+        log.write(Markdown(body))
+        log.write("")
+
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""
         log = self.query_one("#chat-log", RichLog)

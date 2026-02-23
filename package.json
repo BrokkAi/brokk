@@ -1,5 +1,4 @@
 {
-    "bin": {"brokk": "jdeploy-bundle/jdeploy.js"},
     "author": "Brokk Team",
     "description": "AI for large codebases. Brokk is a tool that helps you understand and navigate large codebases using AI.",
     "main": "index.js",

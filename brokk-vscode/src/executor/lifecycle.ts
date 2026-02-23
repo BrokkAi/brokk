@@ -237,8 +237,7 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
     jbang,
     [
       "--java", "21",
-      "-R", "--enable-native-access=ALL-UNNAMED",
-      "-R", "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
+      "-R", "-Djava.awt.headless=true -Dapple.awt.UIElement=true --enable-native-access=ALL-UNNAMED",
       "--main", "ai.brokk.executor.HeadlessExecutorMain",
       jarUrl,
       "--listen-addr",

@@ -1,6 +1,8 @@
+import base64
+
 from textual.geometry import Size
 
-from brokk_code.widgets.token_bar import TokenBar
+from brokk_code.widgets.token_bar import TokenBar, get_token_bar_markdown, get_token_bar_svg
 
 
 def test_compute_segments_empty():
@@ -153,3 +155,51 @@ def test_render_absolute_fallback():
     # max_tokens <= 0 should show absolute count
     bar.update_tokens(used_tokens=5000, max_tokens=0)
     assert "5k tokens" in bar._rendered_text.plain
+
+
+def test_get_token_bar_svg_contains_svg_tag():
+    svg = get_token_bar_svg(500, 1000, [{"chipKind": "EDIT", "tokens": 500}])
+    assert svg.startswith("<svg")
+    assert svg.endswith("</svg>")
+    assert 'fill="#4CAF50"' in svg  # EDIT color
+    assert 'fill="#333333"' in svg  # Background track
+
+
+def test_get_token_bar_markdown_format():
+    md = get_token_bar_markdown(500, 1000, [{"chipKind": "EDIT", "tokens": 500}])
+    assert md.startswith("![Token usage](data:image/svg+xml;base64,")
+    assert md.endswith(")")
+
+    # Validate base64 content
+    b64_part = md.split("base64,")[1].rstrip(")")
+    decoded = base64.b64decode(b64_part).decode("ascii")
+    assert decoded.startswith("<svg")
+
+
+def test_get_token_bar_svg_colors_for_multiple_kinds():
+    fragments = [
+        {"chipKind": "EDIT", "tokens": 100},
+        {"chipKind": "HISTORY", "tokens": 100},
+    ]
+    svg = get_token_bar_svg(200, 200, fragments, width_px=100)
+    assert 'fill="#4CAF50"' in svg  # EDIT
+    assert 'fill="#E91E63"' in svg  # HISTORY
+    # Both should have width 50
+    assert 'width="50"' in svg
+
+
+def test_get_token_bar_svg_absolute_mode_when_max_tokens_zero():
+    # When max_tokens <= 0, it should use used_tokens as effective max (full bar)
+    fragments = [{"chipKind": "EDIT", "tokens": 1000}]
+    svg = get_token_bar_svg(1000, 0, fragments, width_px=100)
+    # The bar should be full width (100) for the EDIT segment
+    assert 'width="100"' in svg
+    assert 'fill="#4CAF50"' in svg
+
+
+def test_get_token_bar_svg_empty_or_zero_tokens():
+    # zero used tokens should result in just the background track (no segments)
+    svg = get_token_bar_svg(0, 1000, [], width_px=100)
+    assert "<svg" in svg
+    assert 'fill="#333333"' in svg
+    assert '<rect x="' not in svg  # No segments

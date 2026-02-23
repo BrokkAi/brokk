@@ -30,28 +30,25 @@ def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
         "--jar",
         type=str,
         default=None,
-        help="Path to brokk.jar (default: auto-download to ~/.brokk/)",
+        help="Path to brokk.jar (bypasses jbang; default: use jbang to launch)",
     )
     parser.add_argument(
         "--executor-version",
         type=str,
         default=None,
-        help="Specific version/tag of the executor to download (default: latest snapshot)",
+        help="Executor version to use (default: bundled version)",
     )
     parser.add_argument(
         "--executor-snapshot",
         action="store_true",
         default=True,
-        help=(
-            "Download the latest snapshot release if no specific version is provided "
-            "(default: True)"
-        ),
+        help="[Ignored] Use jbang to manage versions",
     )
     parser.add_argument(
         "--executor-stable",
         action="store_false",
         dest="executor_snapshot",
-        help="Download the latest stable release instead of the snapshot",
+        help="[Ignored] Use jbang to manage versions",
     )
 
 
@@ -191,7 +188,7 @@ def main():
     if last_id:
         zip_path = get_session_zip_path(workspace_path, last_id)
         if has_tasks(zip_path):
-            print(f"brokk-code resume {last_id}")
+            print(f"brokk resume {last_id}")
 
 
 if __name__ == "__main__":

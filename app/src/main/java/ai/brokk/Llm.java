@@ -22,6 +22,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.NonRetriableException;
 import dev.langchain4j.exception.PaymentRequiredException;
@@ -1070,21 +1071,23 @@ public class Llm {
      */
     public record StreamingResult(
             @Nullable NullSafeResponse chatResponse, @Nullable Exception error, int retries, long elapsedMs) {
-        public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Exception error) {
-            this(partialResponse, error, 0, 0);
-        }
-
         public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Exception error, int retries) {
             this(partialResponse, error, retries, 0);
         }
 
-        public static StreamingResult fromResponse(@Nullable ChatResponse originalResponse, @Nullable Exception error) {
-            return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, 0);
-        }
-
         public static StreamingResult fromResponse(
                 @Nullable ChatResponse originalResponse, @Nullable Exception error, long elapsedMs) {
-            return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, elapsedMs);
+            NullSafeResponse nsr = new NullSafeResponse(originalResponse);
+            if (error == null && originalResponse != null) {
+                boolean isLength = originalResponse.finishReason() == FinishReason.LENGTH;
+                if (isLength && nsr.isEmpty()) {
+                    error = new ContextTooLargeException("Model reached max output tokens before generating text");
+                    // If we set error, we must ensure NullSafeResponse doesn't have the originalResponse
+                    // to satisfy the constructor assertion.
+                    nsr = new NullSafeResponse(nsr.text(), nsr.reasoningContent(), nsr.toolRequests(), null);
+                }
+            }
+            return new StreamingResult(nsr, error, 0, elapsedMs);
         }
 
         public StreamingResult {
