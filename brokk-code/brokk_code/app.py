@@ -13,9 +13,9 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
-from brokk_code.welcome import build_welcome_message
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
+from brokk_code.welcome import build_welcome_message
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.status_line import StatusLine

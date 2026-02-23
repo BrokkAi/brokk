@@ -1,9 +1,10 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from brokk_code.app import BrokkApp
-from brokk_code.widgets.chat_panel import ChatPanel
+
 
 @pytest.mark.asyncio
 async def test_welcome_message_shown_on_first_run(tmp_path: Path):
@@ -27,12 +28,13 @@ async def test_welcome_message_shown_on_first_run(tmp_path: Path):
         async with app.run_test() as pilot:
             # Wait for executor to be ready and logic to trigger
             await pilot.pause()
-            
+
             chat_log = app.query_one("#chat-log")
             # The welcome message starts with the Braille icon '⣿'
             content = "".join(str(line) for line in chat_log.lines)
             assert "Welcome to Brokk" in content
             assert "Context Engineering" in content
+
 
 @pytest.mark.asyncio
 async def test_welcome_message_suppressed_on_subsequent_run(tmp_path: Path):
@@ -54,7 +56,7 @@ async def test_welcome_message_suppressed_on_subsequent_run(tmp_path: Path):
         app = BrokkApp(executor=mock_executor)
         async with app.run_test() as pilot:
             await pilot.pause()
-            
+
             chat_log = app.query_one("#chat-log")
             content = "".join(str(line) for line in chat_log.lines)
             assert "Welcome to Brokk" not in content
@@ -80,7 +82,7 @@ def test_build_welcome_message_content():
     # Verify Braille icon is present in a code block
     assert "```" in msg
     # Braille block starts at U+2800
-    assert any("\u2800" <= char <= "\u28FF" for char in msg)
+    assert any("\u2800" <= char <= "\u28ff" for char in msg)
 
 
 def test_get_braille_icon_contains_braille():
@@ -91,5 +93,5 @@ def test_get_braille_icon_contains_braille():
     assert isinstance(icon, str)
     assert len(icon) > 0
     # Check for at least one Braille character (U+2800 to U+28FF)
-    has_braille = any("\u2800" <= char <= "\u28FF" for char in icon)
+    has_braille = any("\u2800" <= char <= "\u28ff" for char in icon)
     assert has_braille, "Icon should contain Unicode Braille characters"

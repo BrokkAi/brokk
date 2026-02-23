@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Dict, List
 
 
 def get_braille_icon() -> str:
@@ -7,13 +7,7 @@ def get_braille_icon() -> str:
     Uses characters in the U+2800–U+28FF range.
     """
     # A stylized "B" or block icon
-    return (
-        "⣿⣿⣿⣿⡇\n"
-        "⣿⡇⢀⣸⡇\n"
-        "⣿⣿⣿⣿⡇\n"
-        "⣿⡇⢀⣸⡇\n"
-        "⣿⣿⣿⣿⡇"
-    )
+    return "⣿⣿⣿⣿⡇\n⣿⡇⢀⣸⡇\n⣿⣿⣿⣿⡇\n⣿⡇⢀⣸⡇\n⣿⣿⣿⣿⡇"
 
 
 def build_welcome_message(commands: List[Dict[str, str]]) -> str:
@@ -53,6 +47,8 @@ def build_welcome_message(commands: List[Dict[str, str]]) -> str:
 
     # Optional help hint
     has_help = any(c.get("command") == "/help" for c in commands)
-    help_hint = "\n\nType **`/help`** to see the full list of available commands." if has_help else ""
+    help_hint = (
+        "\n\nType **`/help`** to see the full list of available commands." if has_help else ""
+    )
 
     return f"{icon}\n\n{description}\n\n{context_eng}\n\n{workflows}{help_hint}"
