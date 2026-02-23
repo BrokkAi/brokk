@@ -59,4 +59,6 @@ def build_welcome_message(commands: List[Dict[str, str]]) -> str:
         "\n\nType **`/help`** to see the full list of available commands." if has_help else ""
     )
 
-    return f"{description}\n\n{context_eng}\n\n{workflows}{help_hint}"
+    signup = "\n\nNeed a token? Go to https://brokk.ai/ to sign up and get one."
+
+    return f"{description}\n\n{context_eng}\n\n{workflows}{signup}{help_hint}"

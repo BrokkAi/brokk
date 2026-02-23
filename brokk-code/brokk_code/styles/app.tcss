@@ -407,3 +407,45 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
 #model-select-list > ListItem, #reasoning-select-list > ListItem {
     padding: 0 1;
 }
+
+#api-key-modal-container {
+    width: 80;
+    height: auto;
+    max-height: 90%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#api-key-modal-scroll {
+    height: auto;
+    max-height: 30;
+    margin-bottom: 1;
+}
+
+#api-key-modal-icon {
+    width: 100%;
+    content-align: center middle;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#api-key-modal-welcome {
+    background: transparent;
+    padding: 0 1;
+}
+
+#api-key-modal-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#api-key-modal-footer {
+    text-align: center;
+    width: 100%;
+    margin-top: 1;
+    color: $text-disabled;
+}

@@ -47,6 +47,7 @@ def test_build_welcome_message_content():
 
     assert "Welcome to Brokk" in msg
     assert "context engineering" in msg.lower()
+    assert "https://brokk.ai/" in msg
     assert "/context" in msg
     assert "/task" in msg
     assert "/help" in msg

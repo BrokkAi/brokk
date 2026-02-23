@@ -46,14 +46,62 @@ async def test_api_key_update_notes_restart_requirement(tmp_path: Path, monkeypa
     monkeypatch.setattr(Settings, "load", lambda: settings)
 
     app = BrokkApp(executor=MagicMock())
+    from textual.widgets import Static
+
     async with app.run_test() as pilot:
         await pilot.type("/api-key")
         await pilot.press("enter")
 
         modal = app.screen
         assert isinstance(modal, BrokkApiKeyModalScreen)
-        note = modal.query_one("#api-key-modal-note", Static)
-        assert "next executor restart" in str(note.renderable).lower()
+        footer = modal.query_one("#api-key-modal-footer", Static)
+        # Check the actual content of the Static widget's renderable
+        footer_text = str(footer.renderable)
+        assert "next executor restart" in footer_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_api_key_prompt_shows_brokk_welcome_and_signup_link(tmp_path: Path, monkeypatch):
+    """Verify the API key prompt includes a short Brokk intro and signup URL."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    settings = Settings(brokk_api_key=None)
+    monkeypatch.setattr(Settings, "load", lambda: settings)
+
+    from textual.widgets import Markdown, Static
+    app = BrokkApp(executor=MagicMock())
+    async with app.run_test():
+        modal = app.screen
+        assert isinstance(modal, BrokkApiKeyModalScreen)
+
+        # Verify Braille Icon
+        icon = modal.query_one("#api-key-modal-icon", Static)
+        assert "\u2800" in str(icon.renderable)
+
+        # Verify Welcome Markdown content via the rendered text
+        welcome = modal.query_one("#api-key-modal-welcome", Markdown)
+        welcome_text = str(welcome.document).lower()
+        assert "welcome to brokk" in welcome_text
+        assert "context engineering" in welcome_text
+        assert "https://brokk.ai/" in welcome_text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quit_key", ["ctrl+c", "ctrl+d"])
+async def test_api_key_prompt_supports_ctrl_c_and_ctrl_d_exit(
+    tmp_path: Path, monkeypatch, quit_key: str
+):
+    """Verify Ctrl+C/Ctrl+D trigger app quit while the API key prompt is open."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    settings = Settings(brokk_api_key=None)
+    monkeypatch.setattr(Settings, "load", lambda: settings)
+
+    app = BrokkApp(executor=MagicMock())
+    app.action_quit = AsyncMock()  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        assert isinstance(app.screen, BrokkApiKeyModalScreen)
+        await pilot.press(quit_key)
+        app.action_quit.assert_awaited_once()
 
 
 @pytest.mark.asyncio

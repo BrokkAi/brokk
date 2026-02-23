@@ -101,23 +101,37 @@ class TaskTitleModalScreen(ModalScreen[Optional[str]]):
 class BrokkApiKeyModalScreen(ModalScreen[str]):
     """Modal to prompt for the Brokk API key."""
 
+    BINDINGS = [
+        Binding("ctrl+c", "quit_prompt", "Quit", show=False),
+        Binding("ctrl+d", "quit_prompt", "Quit", show=False),
+    ]
+
     def __init__(self, message: str = "Enter Brokk API Key", is_update: bool = False) -> None:
         super().__init__()
         self._message = message
         self._is_update = is_update
 
     def compose(self) -> ComposeResult:
+        from textual.widgets import Markdown
         with Vertical(id="api-key-modal-container"):
+            with VerticalScroll(id="api-key-modal-scroll"):
+                yield Static(get_braille_icon(), id="api-key-modal-icon")
+                yield Markdown(
+                    build_welcome_message(BrokkApp.get_slash_commands()),
+                    id="api-key-modal-welcome",
+                )
             yield Static(self._message, id="api-key-modal-title")
             yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
+            footer_text = "Press Ctrl+C or Ctrl+D to exit."
             if self._is_update:
-                yield Static(
-                    "\n[dim]Note: API key updates will apply to the next executor restart.[/]",
-                    id="api-key-modal-note",
-                )
+                footer_text += "\n[dim]Note: API key updates will apply to the next executor restart.[/]"
+            yield Static(footer_text, id="api-key-modal-footer")
 
     def on_mount(self) -> None:
         self.query_one("#api-key-input", Input).focus()
+
+    async def action_quit_prompt(self) -> None:
+        await self.app.action_quit()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = str(event.value or "").strip()
@@ -374,6 +388,7 @@ class BrokkApp(App):
         vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
+        self.settings = Settings.load()
         if executor:
             self.executor = executor
             if workspace_dir:
@@ -391,7 +406,6 @@ class BrokkApp(App):
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
-        self.settings = Settings.load()
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
 
