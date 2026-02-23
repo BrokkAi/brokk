@@ -652,7 +652,7 @@ class BrokkApp(App):
                     used = context_data.get("usedTokens", 0)
                     max_tokens = context_data.get("maxTokens")
                     fragments = context_data.get("fragments")
-                    chat.set_token_usage(used, max_tokens, fragments)
+                    chat.set_token_usage(used, max_tokens, fragments, session_cost=self.session_total_cost)
 
                 self._update_statusline()
 
