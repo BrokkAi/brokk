@@ -14,6 +14,10 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
+BUNDLED_EXECUTOR_VERSION = "0.23.0.beta1"
+_EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
+_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
+
 
 class ExecutorError(Exception):
     """Custom error for ExecutorManager operations."""
@@ -170,7 +174,15 @@ class ExecutorManager:
         if not jbang_bin:
             jbang_bin = install_jbang()
 
-        cmd = [jbang_bin, "brokk-headless@brokkai/brokk-releases"]
+        version = self.executor_version or BUNDLED_EXECUTOR_VERSION
+        jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
+        cmd = [
+            jbang_bin,
+            "--java", "21",
+            "-J--enable-native-access=ALL-UNNAMED",
+            "--main", _EXECUTOR_MAIN_CLASS,
+            jar_url,
+        ]
         cmd.extend(self._get_executor_args(exec_id))
         return cmd
 
