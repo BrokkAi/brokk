@@ -567,7 +567,8 @@ public class BuildAgent {
                 deduplicatedPatterns,
                 defaultEnvForProject(),
                 null,
-                "");
+                "",
+                List.of());
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
@@ -657,6 +658,18 @@ public class BuildAgent {
         return result;
     }
 
+    /**
+     * Represents a submodule build configuration.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ModuleBuildEntry(
+            String alias,
+            String relativePath,
+            String buildLintCommand,
+            String testAllCommand,
+            String testSomeCommand,
+            boolean parallel) {}
+
     /** Holds semi-structured information about a project's build process */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildDetails(
@@ -669,12 +682,13 @@ public class BuildAgent {
                     Map<String, String> environmentVariables,
             @Nullable Integer maxBuildAttempts,
             // blank = do nothing
-            String afterTaskListCommand) {
+            String afterTaskListCommand,
+            @JsonSetter(nulls = Nulls.AS_EMPTY) List<ModuleBuildEntry> modules) {
 
         @VisibleForTesting
         public BuildDetails(
                 String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null, "");
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null, "", List.of());
         }
 
         public BuildDetails(
@@ -683,10 +697,37 @@ public class BuildAgent {
                 String testSomeCommand,
                 Set<String> exclusionPatterns,
                 Map<String, String> environmentVariables) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null, "");
+            this(
+                    buildLintCommand,
+                    testAllCommand,
+                    testSomeCommand,
+                    exclusionPatterns,
+                    environmentVariables,
+                    null,
+                    "",
+                    List.of());
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null, "");
+        public BuildDetails(
+                String buildLintCommand,
+                String testAllCommand,
+                String testSomeCommand,
+                Set<String> exclusionPatterns,
+                Map<String, String> environmentVariables,
+                @Nullable Integer maxBuildAttempts,
+                String afterTaskListCommand) {
+            this(
+                    buildLintCommand,
+                    testAllCommand,
+                    testSomeCommand,
+                    exclusionPatterns,
+                    environmentVariables,
+                    maxBuildAttempts,
+                    afterTaskListCommand,
+                    List.of());
+        }
+
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null, "", List.of());
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
@@ -701,7 +742,8 @@ public class BuildAgent {
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
                 @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables,
                 @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts,
-                @JsonProperty("afterTaskListCommand") @Nullable String afterTaskListCommand) {
+                @JsonProperty("afterTaskListCommand") @Nullable String afterTaskListCommand,
+                @JsonProperty("modules") @Nullable List<ModuleBuildEntry> modules) {
             // Migrate legacy excludedDirectories to exclusionPatterns
             Set<String> patterns = new LinkedHashSet<>();
             if (exclusionPatterns != null) {
@@ -717,7 +759,8 @@ public class BuildAgent {
                     patterns,
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
-                    afterTaskListCommand != null ? afterTaskListCommand : "");
+                    afterTaskListCommand != null ? afterTaskListCommand : "",
+                    modules != null ? modules : List.of());
         }
     }
 

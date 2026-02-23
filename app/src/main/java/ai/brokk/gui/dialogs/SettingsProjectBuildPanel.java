@@ -898,7 +898,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                 diskDetails.exclusionPatterns(),
                 envVars,
                 diskDetails.maxBuildAttempts(),
-                newAfterTaskList);
+                newAfterTaskList,
+                diskDetails.modules());
 
         // Compare against what's currently saved on disk
         var currentDetails = project.awaitBuildDetails();
