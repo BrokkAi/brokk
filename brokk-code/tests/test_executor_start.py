@@ -355,7 +355,14 @@ async def test_executor_start_uses_jbang_when_no_jar(monkeypatch, tmp_path):
 
     assert captured_cmd is not None
     assert captured_cmd[0] == "/usr/local/bin/jbang"
-    assert captured_cmd[1] == "brokk-headless@brokkai/brokk-releases"
+    assert "--java" in captured_cmd
+    assert "21" in captured_cmd
+    assert "--main" in captured_cmd
+    assert "ai.brokk.executor.HeadlessExecutorMain" in captured_cmd
+    assert any(
+        f"brokk-{executor_module.BUNDLED_EXECUTOR_VERSION}.jar" in arg
+        for arg in captured_cmd
+    )
     assert "--workspace-dir" in captured_cmd
     assert "--auth-token" in captured_cmd
 

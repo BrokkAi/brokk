@@ -38,7 +38,7 @@ def build_welcome_message(commands: List[Dict[str, str]]) -> str:
 
     context_eng = (
         "### Context Engineering\n"
-        "In this TUI, your workspace is managed via a living context. "
+        "In Brokk, your workspace is managed via a living context. "
         "AI performance depends on exactly what code is visible to the model. "
         "You can prune, pin, or focus specific files and methods to optimize results."
     )

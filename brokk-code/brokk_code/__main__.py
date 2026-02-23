@@ -36,7 +36,7 @@ def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
         "--executor-version",
         type=str,
         default=None,
-        help="[Ignored] Use jbang to manage versions (default: latest snapshot)",
+        help="Executor version to use (default: bundled version)",
     )
     parser.add_argument(
         "--executor-snapshot",
