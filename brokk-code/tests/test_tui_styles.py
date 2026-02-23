@@ -306,3 +306,28 @@ def test_help_menu_layout_contract():
 
     # 9. Ensure notification panel CSS is removed from main rules
     assert "#notification-panel" not in css_content
+
+
+def test_api_key_modal_dimensions_regression():
+    """
+    Ensure the API key modal uses full-screen dimensions and does not revert to a small fixed size.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    modal_match = re.search(r"#api-key-modal-container\s*\{([^}]*)\}", css_content)
+    assert modal_match, "Could not find #api-key-modal-container rule in app.tcss"
+    modal_body = modal_match.group(1)
+
+    assert "width: 100%" in modal_body, "#api-key-modal-container should use full width"
+    assert "height: 100%" in modal_body, "#api-key-modal-container should use full height"
+    assert "width: 80" not in modal_body, "#api-key-modal-container should not have fixed width 80"
+    assert (
+        "max-height:" not in modal_body
+    ), "#api-key-modal-container should not have any max-height constraints"
+
+    scroll_match = re.search(r"#api-key-modal-scroll\s*\{([^}]*)\}", css_content)
+    assert scroll_match, "Could not find #api-key-modal-scroll rule in app.tcss"
+    scroll_body = scroll_match.group(1)
+    assert "height: 1fr" in scroll_body, (
+        "#api-key-modal-scroll should use height: 1fr to fill available space"
+    )

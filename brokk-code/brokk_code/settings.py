@@ -84,7 +84,11 @@ class Settings:
         return None
 
     def save(self) -> None:
-        """Saves current settings to disk atomically."""
+        """Saves current settings to disk atomically.
+
+        Raises:
+            OSError: If the settings file cannot be written.
+        """
         try:
             settings_path = settings_file()
             settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,3 +98,4 @@ class Settings:
             temp_file.replace(settings_path)
         except Exception as e:
             logger.error("Failed to save settings to %s: %s", settings_file(), e)
+            raise

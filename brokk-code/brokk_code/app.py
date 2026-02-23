@@ -448,6 +448,7 @@ class BrokkApp(App):
         self._pending_min_wait_until: float = 0.0
         self._resubmit_grace_s: float = 0.2
         self._last_ctrl_c_time: float = 0
+        self._executor_started: bool = False
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
@@ -551,7 +552,16 @@ class BrokkApp(App):
 
             def on_key_entered(key: str) -> None:
                 self.settings.brokk_api_key = key
-                self.settings.save()
+                try:
+                    self.settings.save()
+                except Exception as e:
+                    logger.error("Failed to save API key: %s", e)
+                    if chat:
+                        chat.add_system_message(
+                            f"Failed to save API key: {e}. Executor will not start.", level="ERROR"
+                        )
+                    return
+
                 self.executor.brokk_api_key = key
                 if chat:
                     chat.add_system_message("API key saved. Starting Brokk executor...")
@@ -577,6 +587,8 @@ class BrokkApp(App):
             )
 
             await self.executor.start()
+            # Mark as started only after successful launch so monitor begins checks
+            self._executor_started = True
 
             # Fetch and display effective build hint immediately
             try:
@@ -652,7 +664,15 @@ class BrokkApp(App):
     async def _monitor_executor(self) -> None:
         """Background worker to check if the executor dies unexpectedly."""
         while True:
+            if not self._executor_started:
+                await asyncio.sleep(0.5)
+                continue
+
             await asyncio.sleep(2.0)
+            # Re-check started flag in case of rapid stop during sleep
+            if not self._executor_started:
+                continue
+
             if not self.executor.check_alive():
                 msg = "Executor process crashed unexpectedly."
                 chat = self._maybe_chat()

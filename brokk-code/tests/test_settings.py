@@ -160,3 +160,19 @@ def test_app_initializes_with_defaults_when_settings_empty(tmp_path, monkeypatch
     app_blank = BrokkApp(executor=MagicMock())
     assert app_blank.current_model == "gpt-5.2"
     assert app_blank.reasoning_level == "low"
+
+
+def test_settings_save_raises_on_failure(tmp_path, monkeypatch):
+    """Verify Settings.save() propagates exceptions."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    settings = Settings()
+
+    # Make the directory read-only to trigger a failure
+    settings_dir = tmp_path / ".brokk"
+    settings_dir.mkdir()
+    settings_dir.chmod(0o555)
+
+    import pytest
+
+    with pytest.raises(Exception):
+        settings.save()

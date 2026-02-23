@@ -18,6 +18,7 @@ async def test_api_key_prompt_shown_when_missing(tmp_path: Path, monkeypatch):
 
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
+    mock_executor.start = AsyncMock()
 
     app = BrokkApp(executor=mock_executor)
 
@@ -34,8 +35,77 @@ async def test_api_key_prompt_shown_when_missing(tmp_path: Path, monkeypatch):
         assert mock_executor.brokk_api_key == "sk-test-key-123"
 
         # Verify start was eventually called (via worker)
-        # We might need a small wait since start_executor is a worker
         mock_executor.start.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_api_key_slash_command_opens_modal(tmp_path: Path, monkeypatch):
+    """Verify /api-key slash command opens the API key modal and updates settings."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    # Mock settings to have an existing key
+    settings = Settings(brokk_api_key="old-key")
+    monkeypatch.setattr(Settings, "load", lambda: settings)
+
+    mock_executor = MagicMock()
+    mock_executor.workspace_dir = tmp_path
+    mock_executor.start = AsyncMock()
+
+    app = BrokkApp(executor=mock_executor)
+
+    async with app.run_test() as pilot:
+        # Simulate typing the slash command
+        await pilot.type("/api-key")
+        await pilot.press("enter")
+
+        # Verify modal is shown
+        assert isinstance(app.screen, BrokkApiKeyModalScreen)
+
+        # Type new key
+        await pilot.type("new-secret-key")
+        await pilot.press("enter")
+
+        # Verify update
+        assert settings.brokk_api_key == "new-secret-key"
+        assert mock_executor.brokk_api_key == "new-secret-key"
+
+
+@pytest.mark.asyncio
+async def test_api_key_startup_save_failure_prevents_executor_start(tmp_path: Path, monkeypatch):
+    """Verify that if saving the API key fails at startup, the executor is NOT started."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    # Mock settings to have no key
+    settings = Settings(brokk_api_key=None)
+    monkeypatch.setattr(Settings, "load", lambda: settings)
+
+    # Mock save to fail
+    def mock_save_fail():
+        raise OSError("Disk full or permission denied")
+
+    monkeypatch.setattr(settings, "save", mock_save_fail)
+
+    mock_executor = MagicMock()
+    mock_executor.workspace_dir = tmp_path
+    mock_executor.start = AsyncMock()
+
+    app = BrokkApp(executor=mock_executor)
+
+    async with app.run_test() as pilot:
+        assert isinstance(app.screen, BrokkApiKeyModalScreen)
+
+        # Submit a key
+        await pilot.type("sk-failure-test")
+        await pilot.press("enter")
+
+        # Verify start was NOT called
+        mock_executor.start.assert_not_called()
+
+        # Verify error message in chat log
+        chat_log = app.query_one("#chat-log")
+        content = "".join(str(line) for line in chat_log.lines)
+        assert "Failed to save API key" in content
+        assert "Disk full" in content
 
 
 @pytest.mark.asyncio
@@ -121,4 +191,46 @@ async def test_api_key_not_prompted_if_present(tmp_path: Path, monkeypatch):
     async with app.run_test() as pilot:
         # Should NOT be on the modal screen
         assert not isinstance(app.screen, BrokkApiKeyModalScreen)
+        mock_executor.start.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_no_crash_message_during_api_key_prompt(tmp_path: Path, monkeypatch):
+    """
+    Verify that the 'Executor process crashed unexpectedly' message does not appear
+    while waiting for the API key, even if check_alive() returns False.
+    """
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    # Mock settings to have no key
+    settings = Settings(brokk_api_key=None)
+    monkeypatch.setattr(Settings, "load", lambda: settings)
+
+    mock_executor = MagicMock()
+    mock_executor.workspace_dir = tmp_path
+    # check_alive returning False usually triggers the crash message,
+    # but it should be ignored until _executor_started is True.
+    mock_executor.check_alive.return_value = False
+    mock_executor.start = AsyncMock()
+
+    app = BrokkApp(executor=mock_executor)
+
+    async with app.run_test() as pilot:
+        # Verify we are at the API key prompt
+        assert isinstance(app.screen, BrokkApiKeyModalScreen)
+
+        # Allow background workers (like _monitor_executor) to cycle
+        await pilot.pause()
+
+        # Check chat log for crash message
+        chat_log = app.query_one("#chat-log")
+        content = "".join(str(line) for line in chat_log.lines)
+        assert "Executor process crashed unexpectedly" not in content
+        assert app._executor_started is False
+
+        # Now enter the key to start the executor
+        await pilot.type("sk-test-key")
+        await pilot.press("enter")
+
+        # Verify start was called
         mock_executor.start.assert_called_once()
