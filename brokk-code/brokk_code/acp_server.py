@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -542,6 +543,9 @@ class BrokkAcpBridge:
             return existing
         session_id = await self.executor.create_session(name=f"ACP Session {acp_session_id}")
         self._acp_to_brokk_session[acp_session_id] = session_id
+        # Clear cached state for the new session mapping
+        self._last_tasklist_key_by_session.pop(acp_session_id, None)
+        self._active_job_by_session.pop(acp_session_id, None)
         return session_id
 
     async def prompt(
@@ -624,6 +628,16 @@ class BrokkAcpBridge:
                 current_kind: Optional[str] = None
                 for block in blocks:
                     kind = str(block["chip_kind"])
+                    if kind == "TASK_LIST":
+                        # Only show task list if it has changed since last time we showed it
+                        # for this session. Use a hash to reduce memory pressure.
+                        last_hash = self._last_tasklist_key_by_session.get(session_id)
+                        text_content = str(block.get("text", ""))
+                        current_hash = hashlib.sha256(text_content.encode("utf-8")).hexdigest()
+                        if current_hash == last_hash:
+                            continue
+                        self._last_tasklist_key_by_session[session_id] = current_hash
+
                     block_uri = str(block["uri"])
                     is_brokk_context = _is_brokk_context_uri(block_uri)
                     if kind != current_kind:

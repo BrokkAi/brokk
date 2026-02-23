@@ -844,6 +844,11 @@ async def test_prompt_emits_task_list_checklist_only_on_change(tmp_path: Path) -
     await bridge.prompt(**prompt_params)
     text_2 = "".join(u[1].get("text", "") for u in updates)
     assert "#### Task List" not in text_2
+    # Verify we are storing hashes, not the full text
+    last_key = bridge._last_tasklist_key_by_session.get("acp-session-1")
+    assert last_key is not None
+    assert last_key != current_tl_json
+    assert len(last_key) == 64  # SHA-256 hex digest length
     updates.clear()
 
     # 3. Third call with changed JSON: expect checklist again
