@@ -26,7 +26,7 @@ public class FileAnalysisAccumulator {
     private final Map<CodeUnit, Boolean> hasBody = new HashMap<>();
     private final Map<String, Set<CodeUnit>> codeUnitsBySymbol = new HashMap<>();
     private final Map<String, CodeUnit> cuByFqName = new HashMap<>();
-    private final Map<CodeUnit, List<String>> lookupKeys = new HashMap<>();
+    private final Map<CodeUnit, Set<String>> lookupKeys = new HashMap<>();
 
     public FileAnalysisAccumulator() {}
 
@@ -113,7 +113,7 @@ public class FileAnalysisAccumulator {
         hasBody.remove(cu);
         removeFromSymbolIndex(cu);
 
-        List<String> keys = lookupKeys.remove(cu);
+        Set<String> keys = lookupKeys.remove(cu);
         if (keys != null) {
             for (String key : keys) {
                 cuByFqName.remove(key);
@@ -129,7 +129,7 @@ public class FileAnalysisAccumulator {
      */
     public FileAnalysisAccumulator addLookupKey(String lookupKey, CodeUnit cu) {
         cuByFqName.put(lookupKey, cu);
-        lookupKeys.computeIfAbsent(cu, k -> new ArrayList<>()).add(lookupKey);
+        lookupKeys.computeIfAbsent(cu, k -> new LinkedHashSet<>()).add(lookupKey);
         return this;
     }
 
@@ -217,7 +217,8 @@ public class FileAnalysisAccumulator {
     }
 
     public List<String> getLookupKeys(CodeUnit cu) {
-        return Collections.unmodifiableList(lookupKeys.getOrDefault(cu, List.of()));
+        Set<String> keys = lookupKeys.get(cu);
+        return keys == null ? List.of() : List.copyOf(keys);
     }
 
     public void detachChildren(CodeUnit cu) {
