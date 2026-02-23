@@ -200,11 +200,23 @@ async def test_no_crash_message_during_api_key_prompt(tmp_path: Path, monkeypatc
     Verify that the 'Executor process crashed unexpectedly' message does not appear
     while waiting for the API key, even if check_alive() returns False.
     """
+    import asyncio
+
+    import brokk_code.app
+
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     # Mock settings to have no key
     settings = Settings(brokk_api_key=None)
     monkeypatch.setattr(Settings, "load", lambda: settings)
+
+    # Patch asyncio.sleep to be fast and trackable in the app module.
+    # We await the real sleep(0) to allow the event loop to cycle.
+    async def fast_sleep(delay):
+        await asyncio.sleep(0)
+
+    sleep_mock = AsyncMock(side_effect=fast_sleep)
+    monkeypatch.setattr(brokk_code.app.asyncio, "sleep", sleep_mock)
 
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
@@ -219,14 +231,18 @@ async def test_no_crash_message_during_api_key_prompt(tmp_path: Path, monkeypatc
         # Verify we are at the API key prompt
         assert isinstance(app.screen, BrokkApiKeyModalScreen)
 
-        # Allow background workers (like _monitor_executor) to cycle
+        # Allow background workers (like _monitor_executor) to cycle.
+        # Since sleep is patched to 0, this will process several iterations.
         await pilot.pause()
 
         # Check chat log for crash message
         chat_log = app.query_one("#chat-log")
         content = "".join(str(line) for line in chat_log.lines)
         assert "Executor process crashed unexpectedly" not in content
+
+        # The guard should have prevented calling check_alive while _executor_started is False
         assert app._executor_started is False
+        mock_executor.check_alive.assert_not_called()
 
         # Now enter the key to start the executor
         await pilot.type("sk-test-key")
