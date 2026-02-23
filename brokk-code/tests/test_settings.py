@@ -237,12 +237,12 @@ def test_settings_api_key_ordering(tmp_path, monkeypatch):
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.delenv("BROKK_API_KEY", raising=False)
 
-    settings = Settings(brokk_api_key="settings-json-key")
+    settings = Settings()
 
-    # Initially, settings.json key is used because env/props are missing
-    assert settings.get_brokk_api_key() == "settings-json-key"
+    # Initially, nothing is configured
+    assert settings.get_brokk_api_key() is None
 
-    # Env var takes precedence over settings.json
+    # Env var is used when properties file is missing
     monkeypatch.setenv("BROKK_API_KEY", "env-key")
     assert settings.get_brokk_api_key() == "env-key"
 

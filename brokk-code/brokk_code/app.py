@@ -103,7 +103,7 @@ class TaskTitleModalScreen(ModalScreen[Optional[str]]):
         self.dismiss(value if value else None)
 
 
-class BrokkApiKeyModalScreen(ModalScreen[str]):
+class BrokkApiKeyModalScreen(ModalScreen[None]):
     """Modal to prompt for the Brokk API key."""
 
     BINDINGS = [
@@ -111,8 +111,14 @@ class BrokkApiKeyModalScreen(ModalScreen[str]):
         Binding("ctrl+d", "quit_prompt", "Quit", show=False),
     ]
 
-    def __init__(self, message: str = "Enter Brokk API Key", is_update: bool = False) -> None:
+    def __init__(
+        self,
+        on_submit: Callable[[str], asyncio.Future[bool] | Any],
+        message: str = "Enter Brokk API Key",
+        is_update: bool = False,
+    ) -> None:
         super().__init__()
+        self._on_submit = on_submit
         self._message = message
         self._is_update = is_update
 
@@ -142,7 +148,7 @@ class BrokkApiKeyModalScreen(ModalScreen[str]):
     async def action_quit_prompt(self) -> None:
         await self.app.action_quit()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
         value = str(event.value or "").strip()
         if not value:
             self.query_one("#api-key-modal-title", Static).update(
@@ -151,9 +157,35 @@ class BrokkApiKeyModalScreen(ModalScreen[str]):
             return
 
         # Show spinner and disable input while processing
-        self.query_one("#api-key-modal-spinner").remove_class("hidden")
+        spinner = self.query_one("#api-key-modal-spinner")
+        title = self.query_one("#api-key-modal-title", Static)
+        spinner.remove_class("hidden")
         event.input.disabled = True
-        self.dismiss(value)
+        if self._is_update:
+            title.update("Saving key...")
+        else:
+            title.update("Starting Brokk… (first run may take a moment)")
+
+        try:
+            res = self._on_submit(value)
+            if asyncio.iscoroutine(res):
+                success = await res
+            else:
+                success = bool(res)
+
+            if success:
+                self.dismiss(None)
+            else:
+                spinner.add_class("hidden")
+                title.update("[bold red]Failed to save API key[/]")
+                event.input.disabled = False
+                event.input.focus()
+        except Exception as e:
+            logger.exception("API key submission failed")
+            spinner.add_class("hidden")
+            title.update(f"[bold red]{str(e)}[/]")
+            event.input.disabled = False
+            event.input.focus()
 
 
 class ModelSelectModal(ModalScreen[str]):
@@ -560,28 +592,20 @@ class BrokkApp(App):
 
         # Check for API key before starting executor
         if not self.settings.get_brokk_api_key():
-            if chat:
-                chat.add_system_message("Brokk API key missing. Please enter it to continue.")
 
-            async def on_key_entered(key: str) -> None:
+            async def on_key_entered(key: str) -> bool:
                 try:
-                    # Offload I/O to a worker to keep UI responsive/spinner spinning
                     await asyncio.to_thread(write_brokk_api_key, key)
-                except Exception as e:
-                    logger.error("Failed to save API key: %s", e)
+                    self.executor.brokk_api_key = key
                     if chat:
-                        chat.add_system_message(
-                            f"Failed to save API key: {e}. Executor will not start.",
-                            level="ERROR",
-                        )
-                    return
+                        chat.add_system_message("API key saved. Starting Brokk executor...")
+                    self.run_worker(self._start_executor())
+                    return True
+                except Exception as e:
+                    logger.exception("Failed to save API key on startup")
+                    raise e
 
-                self.executor.brokk_api_key = key
-                if chat:
-                    chat.add_system_message("API key saved. Starting Brokk executor...")
-                self.run_worker(self._start_executor())
-
-            self.push_screen(BrokkApiKeyModalScreen(), on_key_entered)
+            self.push_screen(BrokkApiKeyModalScreen(on_submit=on_key_entered))
         else:
             if chat:
                 chat.add_system_message("Starting Brokk executor...")
@@ -593,6 +617,8 @@ class BrokkApp(App):
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
         try:
             from brokk_code.session_persistence import (
                 get_session_zip_path,
@@ -674,6 +700,9 @@ class BrokkApp(App):
                 chat.add_system_message(msg, level="ERROR")
             else:
                 logger.error(msg)
+        finally:
+            if chat:
+                chat.set_job_running(False)
 
     async def _monitor_executor(self) -> None:
         """Background worker to check if the executor dies unexpectedly."""
@@ -1567,19 +1596,21 @@ class BrokkApp(App):
             chat.add_system_message("Prompt history cleared.")
         elif base == "/api-key":
 
-            async def on_key_entered(key: str) -> None:
+            async def on_key_entered(key: str) -> bool:
                 try:
                     await asyncio.to_thread(write_brokk_api_key, key)
                     self.executor.brokk_api_key = key
                     chat.add_system_message(
                         "API key updated. New key will be used on the next executor launch."
                     )
+                    return True
                 except Exception as e:
                     logger.error("Failed to update API key: %s", e)
                     chat.add_system_message(f"Failed to update API key: {e}", level="ERROR")
+                    raise
 
             self.push_screen(
-                BrokkApiKeyModalScreen("Update Brokk API Key", is_update=True), on_key_entered
+                BrokkApiKeyModalScreen(on_key_entered, "Update Brokk API Key", is_update=True)
             )
         elif base == "/context":
             self.action_toggle_context()

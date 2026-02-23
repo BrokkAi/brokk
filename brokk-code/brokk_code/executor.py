@@ -176,7 +176,7 @@ class ExecutorManager:
         """Returns the command for launching via jbang, installing if necessary."""
         jbang_bin = resolve_jbang_binary()
         if not jbang_bin:
-            jbang_bin = install_jbang()
+            jbang_bin = await asyncio.to_thread(install_jbang)
 
         version = self.executor_version or BUNDLED_EXECUTOR_VERSION
         jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"

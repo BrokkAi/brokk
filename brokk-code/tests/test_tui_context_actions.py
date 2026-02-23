@@ -8,6 +8,11 @@ from brokk_code.app import BrokkApp
 from brokk_code.widgets.context_panel import ContextPanel
 
 
+@pytest.fixture(autouse=True)
+def _set_test_api_key(monkeypatch):
+    monkeypatch.setenv("BROKK_API_KEY", "test-api-key")
+
+
 def _static_rendered_text(widget: Static) -> str:
     rendered = widget.render()
     if isinstance(rendered, Text):
@@ -46,6 +51,7 @@ async def test_context_panel_shows_clear_selection_state():
         }
     )
     app = BrokkApp(executor=mock_executor)
+    app.settings.get_brokk_api_key = lambda: "test-key"
 
     with (
         patch.object(BrokkApp, "_start_executor", return_value=None),
@@ -56,8 +62,9 @@ async def test_context_panel_shows_clear_selection_state():
         async with app.run_test() as pilot:
             app._executor_ready = True
 
-            # Open context modal via slash command
-            await pilot.press("/", *"context".split(), "enter")
+            # Open context modal directly (avoid slash-command ordering dependence)
+            app.action_toggle_context()
+            await pilot.pause()
             await app._refresh_context_panel()
             await pilot.pause()
 
@@ -149,6 +156,7 @@ async def test_context_panel_drop_others_action():
         }
     )
     app = BrokkApp(executor=mock_executor)
+    app.settings.get_brokk_api_key = lambda: "test-key"
 
     with (
         patch.object(BrokkApp, "_start_executor", return_value=None),
@@ -158,7 +166,8 @@ async def test_context_panel_drop_others_action():
     ):
         async with app.run_test() as pilot:
             app._executor_ready = True
-            await pilot.press("/", *"context".split(), "enter")
+            app.action_toggle_context()
+            await pilot.pause()
             await app._refresh_context_panel()
             await pilot.pause()
 
