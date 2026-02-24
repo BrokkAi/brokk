@@ -7,7 +7,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.Llm;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.Context;
 import ai.brokk.project.IProject;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
@@ -15,6 +14,7 @@ import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildToolConventions;
 import ai.brokk.util.BuildToolConventions.BuildSystem;
 import ai.brokk.util.BuildTools;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -39,11 +39,10 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
+import java.util.Locale;
 import java.util.stream.Collectors;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -106,10 +105,21 @@ public class BuildAgent {
      * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
      */
     public BuildDetails execute() throws InterruptedException {
+        return execute(false);
+    }
+
+    /**
+     * Execute the build information gathering process with optional validation.
+     *
+     * @param validate If true, validates reported commands before returning.
+     * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
+     */
+    public BuildDetails execute(boolean validate) throws InterruptedException {
         var tr = globalRegistry.builder().register(this).build();
 
         // Loop safety tracking
         int iterationCount = 0;
+        int reportAttempts = 0;
         List<String> recentToolCalls = new ArrayList<>();
 
         // build message containing root directory contents
@@ -256,35 +266,37 @@ public class BuildAgent {
 
             // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
-                project.getConsoleIO().beforeToolCall(reportRequest);
-                var terminalResult = tr.executeTool(reportRequest);
-                project.getConsoleIO().afterToolOutput(terminalResult);
+                var details = requireNonNull(
+                        reportedDetails,
+                        "reportedDetails should be non-null after successful reportBuildDetails tool execution");
 
-                if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
-                    // The assertion was here, but requireNonNull is more explicit for NullAway
-                    return requireNonNull(
-                            reportedDetails,
-                            "reportedDetails should be non-null after successful reportBuildDetails tool execution");
-                } else {
-                    // Tool execution failed
-                    logger.warn("reportBuildDetails tool execution failed. Error: {}", terminalResult.resultText());
-                    chatHistory.add(terminalResult.toExecutionResultMessage());
-                    continue;
+                if (validate) {
+                    reportAttempts++;
+                    String validationError = validateBuildDetails(details);
+                    if (validationError == null) {
+                        return details;
+                    }
+
+                    if (reportAttempts < 3) {
+                        String feedback =
+                                """
+                                The reported build details were validated and the following command failed:
+                                %s
+                                Please review the build configuration and call reportBuildDetails again with corrected commands."""
+                                        .formatted(validationError);
+                        chatHistory.add(
+                                new ToolExecutionResultMessage(reportRequest.id(), "reportBuildDetails", feedback));
+                        reportedDetails = null;
+                        continue;
+                    } else {
+                        logger.warn("BuildAgent exhausted validation retries. Returning EMPTY.");
+                        return BuildDetails.EMPTY;
+                    }
                 }
+                return details;
             } else if (abortRequest != null) {
-                project.getConsoleIO().beforeToolCall(abortRequest);
-                var terminalResult = tr.executeTool(abortRequest);
-                project.getConsoleIO().afterToolOutput(terminalResult);
-
-                if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
-                    assert abortReason != null;
-                    return BuildDetails.EMPTY;
-                } else {
-                    // Tool execution failed
-                    logger.warn("abortBuildDetails tool execution failed. Error: {}", terminalResult.resultText());
-                    chatHistory.add(terminalResult.toExecutionResultMessage());
-                    continue;
-                }
+                assert abortReason != null;
+                return BuildDetails.EMPTY;
             }
 
             // 7. Execute Non-Terminal Tools
@@ -292,11 +304,9 @@ public class BuildAgent {
             for (var request : otherRequests) {
                 String toolName = request.name();
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
-
                 project.getConsoleIO().beforeToolCall(request);
                 ToolExecutionResult execResult = tr.executeTool(request);
                 project.getConsoleIO().afterToolOutput(execResult);
-
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
                 // Log tool result for debugging
@@ -707,6 +717,47 @@ public class BuildAgent {
                     maxBuildAttempts,
                     afterTaskListCommand != null ? afterTaskListCommand : "");
         }
+    }
+
+    @VisibleForTesting
+    @Nullable
+    String validateBuildDetails(BuildDetails details) throws InterruptedException {
+        // 1. Build/lint command
+        if (!details.buildLintCommand().isBlank()) {
+            var result = BuildVerifier.verify(project, details.buildLintCommand(), details.environmentVariables());
+            if (!result.success()) {
+                return "Build/lint command failed (exit code %d):\n%s"
+                        .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+            }
+        }
+
+        // 2. Testsome command
+        if (!details.testSomeCommand().isBlank()) {
+            var testFiles = project.getRepo().getTrackedFiles().stream()
+                    .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
+                    .toList();
+
+            if (!testFiles.isEmpty()) {
+                var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
+                String relPath = randomTestFile.toString();
+                String template = details.testSomeCommand();
+
+                String interpolatedCmd = null;
+                if (template.contains("{{#files}}")) {
+                    interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
+                }
+
+                if (interpolatedCmd != null) {
+                    var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
+                    if (!result.success()) {
+                        return "Test command failed (exit code %d):\n%s"
+                                .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

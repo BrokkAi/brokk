@@ -2,6 +2,8 @@ package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.project.MainProject;
@@ -806,6 +808,62 @@ class BuildAgentTest {
         } finally {
             Environment.shellCommandRunnerFactory = originalFactory;
         }
+    }
+
+    @Test
+    void testValidateBuildDetailsSuccess(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            // Lint command succeeds
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> "ok";
+
+            var agent = new BuildAgent(project, null, null);
+            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
+
+            String result = agent.validateBuildDetails(details);
+            assertNull(result, "validateBuildDetails should return null when commands pass");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testValidateBuildDetailsLintFailure(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                outputConsumer.accept("compile error");
+                throw new Environment.FailureException("build failed", "compile error", 1);
+            };
+
+            var agent = new BuildAgent(project, null, null);
+            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
+
+            String result = agent.validateBuildDetails(details);
+            assertNotNull(result, "validateBuildDetails should return error when lint fails");
+            assertTrue(result.contains("Build/lint command failed"), "Error should mention build/lint failure");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testValidateBuildDetailsBlankCommandsSkipsValidation(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("README.md"), "x");
+        var project = new TestProject(tempDir);
+
+        var agent = new BuildAgent(project, null, null);
+        // Both commands are blank - should skip validation entirely and return null
+        var details = new BuildAgent.BuildDetails("", "", "", Set.of(), Map.of());
+
+        String result = agent.validateBuildDetails(details);
+        assertNull(result, "validateBuildDetails should return null when all commands are blank");
     }
 
     @Test

@@ -356,11 +356,13 @@ public class BuildTools {
         public void close() {
             try {
                 if (lock.isValid()) lock.release();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                logger.debug("Error releasing build lock", e);
             }
             try {
                 if (channel.isOpen()) channel.close();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                logger.debug("Error closing build lock channel", e);
             }
         }
     }
@@ -408,7 +410,7 @@ public class BuildTools {
                 ChatMessageType.CUSTOM,
                 LlmOutputMeta.newMessage().withTerminal(true));
         try {
-            var output = Environment.instance.runShellCommand(
+            Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
@@ -467,7 +469,7 @@ public class BuildTools {
                 LlmOutputMeta.DEFAULT);
         try {
             var details = override != null ? override : cm.getProject().awaitBuildDetails();
-            var output = Environment.instance.runShellCommand(
+            Environment.instance.runShellCommand(
                     command,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
