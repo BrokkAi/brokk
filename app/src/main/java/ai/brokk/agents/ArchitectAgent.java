@@ -25,6 +25,7 @@ import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
@@ -290,8 +291,8 @@ public class ArchitectAgent {
                 codeAgentJustSucceeded = true;
 
                 if (verifyCommand != null) {
-                    context = BuildAgent.runExplicitCommand(
-                            context, verifyCommand, cm.getProject().awaitBuildDetails());
+                    BuildAgent.@Nullable BuildDetails override = cm.getProject().awaitBuildDetails();
+                    context = BuildTools.runExplicitCommand(context, verifyCommand, override);
                     if (!context.getBuildError().isBlank()) {
                         codeAgentJustSucceeded = false;
                         reason = StopReason.BUILD_ERROR;

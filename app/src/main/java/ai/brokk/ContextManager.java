@@ -1551,7 +1551,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             BuildDetails details = project.awaitBuildDetails();
             String afterCmd = details.afterTaskListCommand();
             if (!afterCmd.isBlank()) {
-                var context = BuildAgent.runExplicitCommand(liveContext(), afterCmd, details);
+                Context ctx1 = liveContext();
+                var context = BuildTools.runExplicitCommand(ctx1, afterCmd, details);
                 if (!context.getBuildError().isBlank()) {
                     pushContext(ctx -> context);
                     String goal = "The post-task-list verification command failed. Fix the build errors.";

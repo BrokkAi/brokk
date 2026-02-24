@@ -24,6 +24,7 @@ import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildTools;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -480,7 +481,7 @@ public final class BrokkCli implements Callable<Integer> {
 
     private static int runBuildMode(ContextManager cm) throws InterruptedException {
         var io = cm.getIo();
-        String buildError = BuildAgent.runVerification(cm);
+        String buildError = BuildTools.runVerification(cm);
         if (buildError.isEmpty()) {
             logger.debug("Build verification completed successfully.");
         } else {

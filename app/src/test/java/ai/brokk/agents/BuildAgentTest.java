@@ -8,6 +8,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import java.nio.file.Files;
@@ -38,7 +39,7 @@ class BuildAgentTest {
         String template = "tests/runtests.py{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("servers.tests");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules");
 
         assertEquals("tests/runtests.py servers.tests", result);
     }
@@ -48,7 +49,7 @@ class BuildAgentTest {
         String template = "pytest{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("tests.unit", "tests.integration", "tests.e2e");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules");
 
         assertEquals("pytest tests.unit tests.integration tests.e2e", result);
     }
@@ -58,7 +59,7 @@ class BuildAgentTest {
         String template = "jest{{#files}} {{value}}{{/files}}";
         List<String> files = List.of("src/app.test.js", "src/util.test.js");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
+        String result = BuildTools.interpolateMustacheTemplate(template, files, "files");
 
         assertEquals("jest src/app.test.js src/util.test.js", result);
     }
@@ -68,7 +69,7 @@ class BuildAgentTest {
         String template = "pytest{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules");
 
         assertEquals("pytest", result);
     }
@@ -78,7 +79,7 @@ class BuildAgentTest {
         String template = "go test -run '{{#classes}} {{value}}{{/classes}}'";
         List<String> classes = List.of("TestFoo");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
+        String result = BuildTools.interpolateMustacheTemplate(template, classes, "classes");
 
         assertEquals("go test -run ' TestFoo'", result);
     }
@@ -261,7 +262,7 @@ class BuildAgentTest {
         String template = "python{{pyver}} -m pytest";
         List<String> empty = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", "3.11");
+        String result = BuildTools.interpolateMustacheTemplate(template, empty, "modules", "3.11");
 
         assertEquals("python3.11 -m pytest", result);
     }
@@ -271,7 +272,7 @@ class BuildAgentTest {
         String template = "pytest";
         List<String> empty = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", "3.11");
+        String result = BuildTools.interpolateMustacheTemplate(template, empty, "modules", "3.11");
 
         assertEquals("pytest", result);
     }
@@ -281,7 +282,7 @@ class BuildAgentTest {
         String template = "pytest --pyver={{pyver}}";
         List<String> empty = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", null);
+        String result = BuildTools.interpolateMustacheTemplate(template, empty, "modules", null);
 
         assertEquals("pytest --pyver=", result);
     }
@@ -291,7 +292,7 @@ class BuildAgentTest {
         String template = "python{{pyver}} tests/runtests.py{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("tests.unit", "tests.integration");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "3.10");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules", "3.10");
 
         assertEquals("python3.10 tests/runtests.py tests.unit tests.integration", result);
     }
@@ -301,7 +302,7 @@ class BuildAgentTest {
         String template = "uv run {{#modules}}{{value}}{{/modules}}";
         List<String> modules = List.of("tests.e2e");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules", "");
 
         assertEquals("uv run tests.e2e", result);
     }
@@ -449,7 +450,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertTrue(updated.getBuildError().isBlank(), "Build error should be blank on success");
             assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
@@ -477,7 +478,7 @@ class BuildAgentTest {
                 throw new Environment.FailureException("boom", "stdout:\nfail", 1);
             };
 
-            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertFalse(updated.getBuildError().isBlank(), "Build error should be non-blank on failure");
             assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
@@ -510,7 +511,7 @@ class BuildAgentTest {
                 };
             };
 
-            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertFalse(updated.getBuildError().contains("null"), "Build error must not contain the literal 'null'");
         } finally {
@@ -531,7 +532,7 @@ class BuildAgentTest {
 
         var ctxWithError = ctx.withBuildResult(false, "previous failure");
 
-        var updated = BuildAgent.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
+        var updated = BuildTools.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
 
         assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
         assertTrue(io.getOutputLog().contains("No explicit command specified, skipping."), "Should log skip message");
@@ -556,7 +557,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            BuildAgent.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+            BuildTools.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
 
             assertEquals(
                     Duration.ofSeconds(120), capturedTimeout.get(), "Test command should use test-specific timeout");
@@ -584,7 +585,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            BuildAgent.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+            BuildTools.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
 
             assertEquals(
                     Environment.UNLIMITED_TIMEOUT,
@@ -614,7 +615,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            BuildAgent.runVerification(ctx);
+            BuildTools.runVerification(ctx);
 
             assertEquals(
                     Duration.ofSeconds(45),

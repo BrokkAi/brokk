@@ -10,6 +10,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentJava;
@@ -619,7 +620,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
                     String interpolatedCmd;
                     if (listKey != null) {
-                        interpolatedCmd = BuildAgent.interpolateMustacheTemplate(testSomeTemplate, items, listKey);
+                        interpolatedCmd = BuildTools.interpolateMustacheTemplate(testSomeTemplate, items, listKey);
                         publish("Interpolated command with placeholder: " + interpolatedCmd + "\n");
                     } else {
                         interpolatedCmd = testSomeTemplate;

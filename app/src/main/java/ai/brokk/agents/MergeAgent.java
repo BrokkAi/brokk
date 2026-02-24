@@ -16,6 +16,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModifiedFile;
 import ai.brokk.tools.GitTools;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
@@ -296,7 +297,7 @@ public class MergeAgent {
         logger.debug("Running verification step.");
         String buildFailureText;
         try {
-            buildFailureText = BuildAgent.runVerification(buildContext).getBuildError();
+            buildFailureText = BuildTools.runVerification(buildContext).getBuildError();
         } catch (InterruptedException e1) {
             Thread.currentThread().interrupt();
             buildFailureText = ""; // unused

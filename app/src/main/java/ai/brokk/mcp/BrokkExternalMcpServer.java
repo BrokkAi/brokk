@@ -14,6 +14,7 @@ import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.Environment;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -219,7 +220,7 @@ public class BrokkExternalMcpServer {
 
     @Tool("Run build verification (compile and test) without making changes.")
     public String runBuild() throws InterruptedException {
-        String error = BuildAgent.runVerification(cm);
+        String error = BuildTools.runVerification(cm);
         return error.isEmpty() ? "Build successful" : "Build failed:\n\n" + error;
     }
 
@@ -258,7 +259,7 @@ public class BrokkExternalMcpServer {
                 existingDetails.maxBuildAttempts(),
                 existingDetails.afterTaskListCommand());
         if (testFileOpt.isPresent()) {
-            String interpolatedTestCmd = BuildAgent.getBuildLintSomeCommand(cm, bd, List.of(testFileOpt.get()));
+            String interpolatedTestCmd = BuildTools.getBuildLintSomeCommand(cm, bd, List.of(testFileOpt.get()));
 
             ai.brokk.util.BuildVerifier.VerificationResult testResult =
                     ai.brokk.util.BuildVerifier.verify(project, interpolatedTestCmd);

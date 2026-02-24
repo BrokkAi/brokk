@@ -21,6 +21,7 @@ import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -733,7 +734,7 @@ public class CodeAgent {
 
         String buildError;
         try {
-            context = BuildAgent.runVerification(context);
+            context = BuildTools.runVerification(context);
             buildError = context.getBuildError();
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
