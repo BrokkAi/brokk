@@ -140,7 +140,7 @@ body {
   font-size: 12px;
 }
 
-.activity-group + .activity-group {
+.activity-group+.activity-group {
   margin-top: 2px;
 }
 
@@ -280,12 +280,29 @@ body {
 }
 
 /* Segment colors matching chip colors */
-.segment-EDIT { background: #0078D4; }
-.segment-SUMMARY { background: #0C4E8A; }
-.segment-HISTORY { background: #2EA043; }
-.segment-TASK_LIST { background: #0C3F5C; }
-.segment-OTHER { background: #0A5BA0; }
-.segment-INVALID { background: #4A2A2A; }
+.segment-EDIT {
+  background: #0078D4;
+}
+
+.segment-SUMMARY {
+  background: #0C4E8A;
+}
+
+.segment-HISTORY {
+  background: #2EA043;
+}
+
+.segment-TASK_LIST {
+  background: #0C3F5C;
+}
+
+.segment-OTHER {
+  background: #0A5BA0;
+}
+
+.segment-INVALID {
+  background: #4A2A2A;
+}
 
 /* ── Messages (scrollable chat area) ─────────────── */
 
@@ -297,11 +314,15 @@ body {
 }
 
 .message {
-  margin-bottom: 12px;
+  margin-bottom: 4px;
   padding: 8px 12px;
   border-radius: 6px;
   line-height: 1.5;
   word-break: break-word;
+}
+
+.message+.message {
+  border-top: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.06));
 }
 
 .message-user {
@@ -312,8 +333,6 @@ body {
 
 .message-assistant {
   background: transparent;
-  border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
-  padding-left: 12px;
 }
 
 .message-label {
@@ -351,10 +370,21 @@ body {
   color: var(--vscode-foreground);
 }
 
-.message-content h1 { font-size: 1.4em; }
-.message-content h2 { font-size: 1.2em; }
-.message-content h3 { font-size: 1.1em; }
-.message-content h4 { font-size: 1em; }
+.message-content h1 {
+  font-size: 1.4em;
+}
+
+.message-content h2 {
+  font-size: 1.2em;
+}
+
+.message-content h3 {
+  font-size: 1.1em;
+}
+
+.message-content h4 {
+  font-size: 1em;
+}
 
 .message-content h1:first-child,
 .message-content h2:first-child,
@@ -427,65 +457,165 @@ body {
   white-space: pre;
 }
 
-/* ── Syntax Highlighting (Shiki css-variables theme) ─ */
+/* ── Syntax Highlighting (highlight.js) ──────────── */
 
-/* Dark theme defaults (Dark+) */
-:root {
-  --shiki-foreground: var(--vscode-editor-foreground, #D4D4D4);
-  --shiki-background: var(--vscode-editor-background, #1e1e1e);
-  --shiki-token-constant: #569CD6;
-  --shiki-token-string: #CE9178;
-  --shiki-token-comment: #6A9955;
-  --shiki-token-keyword: #569CD6;
-  --shiki-token-parameter: #9CDCFE;
-  --shiki-token-function: #DCDCAA;
-  --shiki-token-string-expression: #CE9178;
-  --shiki-token-punctuation: #D4D4D4;
-  --shiki-token-link: #3794ff;
+/* Dark theme (Dark+) */
+.hljs-keyword {
+  color: #569CD6;
 }
 
-/* Light theme overrides (Light+) */
-body[data-vscode-theme-kind="vscode-light"],
-body[data-vscode-theme-kind="vscode-high-contrast-light"] {
-  --shiki-foreground: var(--vscode-editor-foreground, #1e1e1e);
-  --shiki-background: var(--vscode-editor-background, #ffffff);
-  --shiki-token-constant: #0000FF;
-  --shiki-token-string: #A31515;
-  --shiki-token-comment: #008000;
-  --shiki-token-keyword: #0000FF;
-  --shiki-token-parameter: #001080;
-  --shiki-token-function: #795E26;
-  --shiki-token-string-expression: #A31515;
-  --shiki-token-punctuation: #1e1e1e;
-  --shiki-token-link: #0451a5;
+.hljs-built_in {
+  color: #4EC9B0;
 }
 
-/* Shiki generates <pre> with inline styles using css-variables;
-   ensure the code block inherits our theme vars. */
-.message-content pre[class*="shiki"] {
-  background: var(--shiki-background) !important;
-  color: var(--shiki-foreground);
+.hljs-type {
+  color: #4EC9B0;
 }
 
-.message-content pre[class*="shiki"] code {
-  background: transparent;
-  color: inherit;
+.hljs-literal {
+  color: #569CD6;
 }
 
-/* Shiki diff line highlighting */
-.message-content .has-diff .line {
-  display: inline-block;
-  width: 100%;
+.hljs-number {
+  color: #B5CEA8;
 }
 
-.message-content .diff-line.diff-add,
-.message-content .line.diff-line.diff-add {
-  background: rgba(46, 160, 67, 0.15);
+.hljs-string {
+  color: #CE9178;
 }
 
-.message-content .diff-line.diff-del,
-.message-content .line.diff-line.diff-del {
-  background: rgba(211, 47, 47, 0.15);
+.hljs-comment {
+  color: #6A9955;
+  font-style: italic;
+}
+
+.hljs-function {
+  color: #DCDCAA;
+}
+
+.hljs-title {
+  color: #DCDCAA;
+}
+
+.hljs-params {
+  color: #9CDCFE;
+}
+
+.hljs-variable {
+  color: #9CDCFE;
+}
+
+.hljs-attr {
+  color: #9CDCFE;
+}
+
+.hljs-selector-class {
+  color: #D7BA7D;
+}
+
+.hljs-selector-tag {
+  color: #569CD6;
+}
+
+.hljs-tag {
+  color: #569CD6;
+}
+
+.hljs-name {
+  color: #569CD6;
+}
+
+.hljs-attribute {
+  color: #9CDCFE;
+}
+
+.hljs-symbol {
+  color: #B5CEA8;
+}
+
+.hljs-meta {
+  color: #569CD6;
+}
+
+.hljs-deletion {
+  color: #CE9178;
+}
+
+.hljs-addition {
+  color: #B5CEA8;
+}
+
+/* Light theme overrides */
+body[data-vscode-theme-kind="vscode-light"] .hljs-keyword,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-keyword {
+  color: #0000FF;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-built_in,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-built_in {
+  color: #267F99;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-type,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-type {
+  color: #267F99;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-literal,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-literal {
+  color: #0000FF;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-number,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-number {
+  color: #098658;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-string,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-string {
+  color: #A31515;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-comment,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-comment {
+  color: #008000;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-function,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-function {
+  color: #795E26;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-title,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-title {
+  color: #795E26;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-params,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-params {
+  color: #001080;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-variable,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-variable {
+  color: #001080;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-attr,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-attr {
+  color: #001080;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-tag,
+body[data-vscode-theme-kind="vscode-light"] .hljs-name,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-tag,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-name {
+  color: #800000;
+}
+
+body[data-vscode-theme-kind="vscode-light"] .hljs-meta,
+body[data-vscode-theme-kind="vscode-high-contrast-light"] .hljs-meta {
+  color: #0000FF;
 }
 
 /* ── Edit Blocks (search/replace diffs) ──────────── */
@@ -520,7 +650,7 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   font-size: 11px;
 }
 
-.edit-block[open] > .edit-block-header::after {
+.edit-block[open]>.edit-block-header::after {
   content: "\25B4";
 }
 
@@ -572,8 +702,13 @@ a.file-link:hover {
   font-size: 11px;
 }
 
-.edit-block-adds { color: #2EA043; }
-.edit-block-dels { color: #d32f2f; }
+.edit-block-adds {
+  color: #2EA043;
+}
+
+.edit-block-dels {
+  color: #d32f2f;
+}
 
 .edit-block-body {
   font-size: 12px;
@@ -589,28 +724,7 @@ a.file-link:hover {
   background: transparent;
 }
 
-/* Hide context lines in Shiki/fallback diffs — only show changed lines. */
-.edit-block-body pre.has-diff {
-  overflow: hidden;
-}
-
-/* Context lines are stripped from the HAST in rehype-edit-diff-simple,
-   but this CSS fallback hides any that slip through (e.g. fast render). */
-.edit-block-body pre.has-diff .line:not(.diff-line) {
-  display: none;
-}
-
-.edit-block-body pre.has-diff .diff-line {
-  display: block;
-  font-size: 12px;
-  line-height: 1.4;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  padding: 0 0.8em;
-}
-
-/* Shiki code elements inside edit blocks need pre-wrap for line wrapping */
+/* Edit block diff lines rendered by lowlight */
 .edit-block-body pre code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -719,7 +833,7 @@ a.file-link:hover {
   transition: transform 0.15s;
 }
 
-.tool-call[open] > .tool-call-header::before {
+.tool-call[open]>.tool-call-header::before {
   transform: rotate(90deg);
 }
 
@@ -750,25 +864,7 @@ a.file-link:hover {
 .command-result-header {
   padding: 6px 10px;
   background: rgba(255, 255, 255, 0.04);
-  cursor: pointer;
-  user-select: none;
-  list-style: none;
   color: var(--vscode-foreground);
-}
-
-.command-result-header::before {
-  content: "\25B6 ";
-  font-size: 10px;
-  display: inline-block;
-  transition: transform 0.15s;
-}
-
-.command-result[open] > .command-result-header::before {
-  transform: rotate(90deg);
-}
-
-.command-result-header:hover {
-  background: rgba(255, 255, 255, 0.08);
 }
 
 .command-status.success {
@@ -810,8 +906,6 @@ a.file-link:hover {
 
 .reasoning {
   margin-bottom: 8px;
-  border-left: 2px solid var(--vscode-descriptionForeground, #555);
-  padding-left: 8px;
 }
 
 .reasoning-header {
@@ -826,21 +920,19 @@ a.file-link:hover {
   user-select: none;
 }
 
-.reasoning-header.clickable::before {
-  content: "\25B6 ";
-  font-size: 9px;
-  display: inline-block;
-  transition: transform 0.15s;
+.reasoning-header.clickable::after {
+  content: " (show)";
+  font-size: 10px;
+  opacity: 0.7;
 }
 
-.reasoning-header.clickable.expanded::before {
-  transform: rotate(90deg);
+.reasoning-header.clickable.expanded::after {
+  content: " (hide)";
 }
 
 .reasoning-content {
   font-size: 12px;
   color: var(--vscode-descriptionForeground, #999);
-  white-space: pre-wrap;
   padding: 4px 0;
   max-height: 300px;
   overflow-y: auto;
@@ -873,6 +965,30 @@ a.file-link:hover {
   display: none;
 }
 
+#status-bar.running::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--vscode-textLink-foreground, #3794ff);
+  margin-right: 6px;
+  vertical-align: middle;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
 /* ── Task List ────────────────────────────────────── */
 
 #tasklist {
@@ -896,7 +1012,7 @@ a.file-link:hover {
   line-height: 1.4;
 }
 
-.task-item + .task-item {
+.task-item+.task-item {
   border-top: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.06));
 }
 
@@ -1488,6 +1604,28 @@ a.file-link:hover {
   color: var(--vscode-descriptionForeground, #888);
 }
 
+.welcome-links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.welcome-links a {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+}
+
+.welcome-links a:hover {
+  text-decoration: underline;
+}
+
+.welcome-links-sep {
+  color: var(--vscode-descriptionForeground, #888);
+}
+
 /* ── Empty State ──────────────────────────────────── */
 
 .empty-state {
@@ -1752,10 +1890,11 @@ a.file-link:hover {
 
 .autocomplete-icon {
   flex-shrink: 0;
-  width: 16px;
-  text-align: center;
+  width: auto;
+  font-family: monospace;
   font-size: 11px;
-  opacity: 0.8;
+  color: var(--vscode-menu-foreground, #fff);
+  margin-right: 4px;
 }
 
 .autocomplete-name {

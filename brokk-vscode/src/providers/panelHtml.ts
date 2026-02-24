@@ -17,9 +17,6 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
   const jsUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "media", "panel.js")
   );
-  const workerUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, "media", "markdown-worker.js")
-  );
   const nonce = getNonce();
 
   return `<!DOCTYPE html>
@@ -27,12 +24,12 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'wasm-unsafe-eval'; connect-src ${webview.cspSource}; worker-src blob:;">
+    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src ${webview.cspSource};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${cssUri}" rel="stylesheet">
   <title>Brokk</title>
 </head>
-<body data-worker-url="${workerUri}">
+<body>
   <div id="activity-panel" class="activity-panel collapsed">
     <div id="activity-header" class="activity-header">
       <span id="activity-toggle" class="activity-toggle">&#9654;</span>
@@ -61,9 +58,10 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
             <button id="settings-toggle-key" class="settings-toggle-btn" title="Show/hide key">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3C4.5 3 1.7 5.1 0.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5c-1.2-2.9-4-5-7.5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5S6.1 4.5 8 4.5s3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5zm0-5.5c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
             </button>
+            <button id="settings-clear-key" class="settings-toggle-btn" title="Clear key" style="display:none">&times;</button>
           </div>
           <div id="settings-key-hint" class="settings-hint">
-            Sign up or get your key at <a href="https://brokk.ai">brokk.ai</a>
+            Don't have an account? <a href="https://brokk.ai/signup?utm_source=vscode">Sign up</a>
           </div>
         </div>
         <div class="settings-field">
@@ -84,6 +82,13 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
     <div id="welcome">
       <div class="welcome-title">Start a new conversation to begin coding with Brokk</div>
       <div class="welcome-subtitle">Ask questions, request code reviews, or describe what you'd like to build</div>
+      <div class="welcome-links">
+        <a href="https://brokk.ai/documentation/introduction">Introduction</a>
+        <span class="welcome-links-sep">&middot;</span>
+        <a href="https://brokk.ai/documentation/actions-toolkit">Actions Toolkit</a>
+        <span class="welcome-links-sep">&middot;</span>
+        <a href="https://brokk.ai/documentation/faq">FAQ</a>
+      </div>
     </div>
   </div>
   <div id="status-bar" class="hidden"></div>
@@ -146,11 +151,11 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
         <div class="custom-select" id="code-select">
           <button class="custom-select-trigger">
             <span class="custom-select-label">Code</span>
-            <span class="custom-select-value" id="code-value">(same as primary)</span>
+            <span class="custom-select-value" id="code-value">gemini-3-flash-preview</span>
             <svg class="custom-select-chevron" width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M0 2l4 4 4-4z"/></svg>
           </button>
           <div class="custom-select-dropdown hidden">
-            <div class="custom-select-option selected" data-value=""><span class="option-label">(same as primary)</span></div>
+            <div class="custom-select-option selected" data-value="gemini-3-flash-preview"><span class="option-label">gemini-3-flash-preview</span></div>
           </div>
         </div>
       </div>

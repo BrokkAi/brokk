@@ -10,4 +10,8 @@ export interface EditBlockProperties {
     headerOk: boolean;
     complete?: boolean; // set when block is structurally closed (tail/fence/etc)
     isGitDiff?: boolean;
+    // Pre-computed diff results (set by rehypeEditDiffSimple, consumed by rehypeVscodeRender)
+    diffText?: string;
+    diffAdded?: number[];
+    diffRemoved?: number[];
 }
