@@ -40,10 +40,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jetty.ee10.servlet.FilterHolder;
-import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
-import org.eclipse.jetty.ee10.servlet.ServletHolder;
-import org.eclipse.jetty.server.Server;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jspecify.annotations.NullMarked;
 
@@ -101,92 +97,6 @@ public class BrokkExternalMcpServer {
             logger.error("Failed to start Brokk MCP Server", e);
             System.exit(1);
         }
-    }
-
-    public Integer run(int port, int idleSeconds) {
-        long idleTimeoutMs = idleSeconds * 1000L;
-        Server server = new Server(port);
-
-        AtomicLong lastActivityMs = new AtomicLong(System.currentTimeMillis());
-
-        try {
-            McpJsonMapper mapper = McpJsonDefaults.getMapper();
-
-            HttpServletSseServerTransportProvider transport = HttpServletSseServerTransportProvider.builder()
-                    .jsonMapper(mapper)
-                    .messageEndpoint("/message")
-                    .build();
-
-            var context = new ServletContextHandler();
-            context.setContextPath("/");
-
-            // Activity-tracking filter: records last activity on any request.
-            context.addFilter(
-                    new FilterHolder(new Filter() {
-                        @Override
-                        public void init(FilterConfig cfg) {}
-
-                        @Override
-                        public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain)
-                                throws IOException, ServletException {
-                            lastActivityMs.set(System.currentTimeMillis());
-                            chain.doFilter(req, res);
-                        }
-
-                        @Override
-                        public void destroy() {}
-                    }),
-                    "/*",
-                    null);
-
-            context.addServlet(new ServletHolder(transport), "/*");
-
-            server.setHandler(context);
-            server.start();
-
-            McpServer.sync(transport)
-                    .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
-                    .jsonMapper(mapper)
-                    .tools(toolSpecifications())
-                    .build();
-
-            logger.info("Brokk MCP HTTP Server started on port {}, idle timeout {}s", port, idleSeconds);
-
-            ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "bems-idle-watchdog");
-                t.setDaemon(true);
-                return t;
-            });
-            watchdog.scheduleAtFixedRate(
-                    () -> {
-                        long idleMs = System.currentTimeMillis() - lastActivityMs.get();
-                        if (idleMs >= idleTimeoutMs) {
-                            logger.info("BEMS idle for {}s, shutting down.", idleMs / 1000);
-                            watchdog.shutdown();
-                            try {
-                                server.stop();
-                            } catch (Exception e) {
-                                logger.warn("Error stopping server during idle shutdown", e);
-                            }
-                        }
-                    },
-                    WATCHDOG_INTERVAL_S,
-                    WATCHDOG_INTERVAL_S,
-                    TimeUnit.SECONDS);
-
-            server.join();
-            watchdog.shutdownNow();
-        } catch (Exception e) {
-            logger.error("Failed to run Brokk MCP Server", e);
-            return 1;
-        } finally {
-            try {
-                server.stop();
-            } catch (Exception e) {
-                logger.error("Error stopping Jetty server", e);
-            }
-        }
-        return 0;
     }
 
     public List<McpServerFeatures.SyncToolSpecification> toolSpecifications() {

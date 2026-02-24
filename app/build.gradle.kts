@@ -120,8 +120,6 @@ dependencies {
     implementation(libs.disklrucache)
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
-    implementation(libs.jetty.server)
-    implementation(libs.jetty.ee10.servlet)
     implementation(libs.pcollections)
     implementation(libs.caffeine)
     // For JSON serialization interfaces (used by CodeUnit)
