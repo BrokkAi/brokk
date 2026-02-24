@@ -52,6 +52,7 @@ import java.awt.*;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -808,14 +809,29 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             defaultBranch = "main";
         }
         String originName = repo.remote().getOriginRemoteNameWithFallback();
+        List<String> localBranches;
+        try {
+            localBranches = repo.listLocalBranches();
+        } catch (Exception e) {
+            logger.debug("Failed to list local branches", e);
+            localBranches = List.of();
+        }
 
-        java.util.List<String> options = new java.util.ArrayList<>();
+        List<String> options = new ArrayList<>();
         String autoOption = "Auto (" + autoLabel + ")";
         options.add(autoOption);
         options.add(defaultBranch);
+
         if (originName != null) {
             options.add(originName + "/" + defaultBranch);
         }
+
+        final String finalDefaultBranch = defaultBranch;
+        List<String> otherBranches = localBranches.stream()
+                .filter(b -> !b.equals(finalDefaultBranch))
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+        options.addAll(otherBranches);
 
         baselineSelector.setItems(options);
 
