@@ -689,9 +689,9 @@ class BrokkApp(App):
 
                 # Process prompt queued during startup
                 if self._startup_pending_prompt:
-                    prompt = self._startup_pending_prompt
+                    queued_prompt = self._startup_pending_prompt
                     self._startup_pending_prompt = None
-                    self.run_worker(self._run_job(prompt))
+                    self.run_worker(self._run_job(queued_prompt))
             else:
                 msg = "Executor failed to become ready (timeout)."
                 if chat:
