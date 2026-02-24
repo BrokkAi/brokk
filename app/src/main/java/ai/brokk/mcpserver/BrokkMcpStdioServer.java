@@ -1,4 +1,4 @@
-package ai.brokk.mcp;
+package ai.brokk.mcpserver;
 
 import ai.brokk.ContextManager;
 import ai.brokk.MutedConsoleIO;

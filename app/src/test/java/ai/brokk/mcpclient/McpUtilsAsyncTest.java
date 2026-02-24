@@ -1,4 +1,4 @@
-package ai.brokk.mcp;
+package ai.brokk.mcpclient;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;

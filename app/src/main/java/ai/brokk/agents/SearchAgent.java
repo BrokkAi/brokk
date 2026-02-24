@@ -16,7 +16,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
-import ai.brokk.mcp.McpUtils;
+import ai.brokk.mcpclient.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;

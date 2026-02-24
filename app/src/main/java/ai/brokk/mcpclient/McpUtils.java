@@ -1,7 +1,8 @@
-package ai.brokk.mcp;
+package ai.brokk.mcpclient;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.ExceptionReporter;
 import ai.brokk.util.Environment;
 import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpClient;
@@ -36,23 +37,6 @@ public class McpUtils {
      * Used consistently for both sync and async clients.
      */
     private static final Duration MCP_REQUEST_TIMEOUT = Duration.ofSeconds(60);
-
-    private static Throwable getRootCause(Throwable t) {
-        Throwable r = t;
-        while (r.getCause() != null && r.getCause() != r) {
-            r = r.getCause();
-        }
-        return r;
-    }
-
-    private static String getRootCauseMessage(Throwable t) {
-        Throwable r = getRootCause(t);
-        String msg = r.getMessage();
-        if (msg == null || msg.isBlank()) {
-            return r.getClass().getSimpleName();
-        }
-        return msg;
-    }
 
     private static McpClientTransport buildTransport(URL url, @Nullable String bearerToken) {
         final String baseUrl;
@@ -176,7 +160,7 @@ public class McpUtils {
             return withMcpAsyncClient(
                     url, bearerToken, projectRoot, client -> client.listTools().map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
-            String rootMessage = getRootCauseMessage(e);
+            String rootMessage = ExceptionReporter.getRootCauseMessage(e);
             logger.error(
                     "Failed to fetch tools from MCP server at {}: {} (root cause: {})",
                     url,
@@ -197,7 +181,7 @@ public class McpUtils {
             return withMcpAsyncClient(command, arguments, env, projectRoot, client -> client.listTools()
                     .map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
-            String rootMessage = getRootCauseMessage(e);
+            String rootMessage = ExceptionReporter.getRootCauseMessage(e);
             logger.error(
                     "Failed to fetch tools from MCP server on command '{} {}': {} (root cause: {})",
                     command,
@@ -221,7 +205,7 @@ public class McpUtils {
                         projectRoot,
                         client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
             } catch (Exception e) {
-                String rootMessage = getRootCauseMessage(e);
+                String rootMessage = ExceptionReporter.getRootCauseMessage(e);
                 logger.error(
                         "Failed to call tool '{}' from MCP server at {}: {} (root cause: {})",
                         toolName,
@@ -242,7 +226,7 @@ public class McpUtils {
                         projectRoot,
                         client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
             } catch (Exception e) {
-                String rootMessage = getRootCauseMessage(e);
+                String rootMessage = ExceptionReporter.getRootCauseMessage(e);
                 logger.error(
                         "Failed to call tool '{}' from MCP server on command '{} {}': {} (root cause: {})",
                         toolName,

@@ -7,7 +7,7 @@ import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.mcp.McpConfig;
+import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.ShellConfig;
