@@ -963,17 +963,16 @@ class ChatPanel(Vertical):
     def _filter_tool_call_blocks(self, content: str) -> str:
         """
         Strips tool-call YAML blocks if show_verbose is False.
-        Pattern: `headline` followed by ```yaml ... ```
+        Pattern: `headline` followed by ```yaml ... ``` or ````yaml ... ````
         """
         if self.show_verbose:
             return content
 
         import re
 
-        # Pattern: Optional whitespace, `headline`, optional whitespace, yaml block
-        # Mirroring rehype logic: p > code (headline), followed by pre > code (yaml)
-        # Regex: find `headline` followed by ```yaml ... ```
-        pattern = r"`([^`\n]+)`\s*\n\s*```yaml\n.*?\n```"
+        # Pattern: `headline` followed by yaml block (3+ backticks).
+        # Backreference \2 ensures the closing fence matches the opening.
+        pattern = r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n.*?\n\2"
         replacement = r"*\[Tool Call: \1 (hidden)]*"
 
         return re.sub(pattern, replacement, content, flags=re.DOTALL)
