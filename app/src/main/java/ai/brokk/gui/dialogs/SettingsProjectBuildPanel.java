@@ -324,6 +324,16 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.weightx = 1.0;
         buildConfigPanel.add(testWrapper, buildGbc);
 
+        var globalCommandNote = new JLabel("Note: Disabling global commands defers to module-specific commands.");
+        globalCommandNote.setFont(globalCommandNote
+                .getFont()
+                .deriveFont(Font.ITALIC, globalCommandNote.getFont().getSize() * 0.9f));
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.insets = new Insets(0, 2, 8, 2);
+        buildConfigPanel.add(globalCommandNote, buildGbc);
+        buildGbc.insets = new Insets(2, 2, 2, 2); // Reset insets
+
         // Post-Task List Command
         buildGbc.gridx = 0;
         buildGbc.gridy = buildRow;
