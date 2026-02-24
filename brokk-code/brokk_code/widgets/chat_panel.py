@@ -1043,6 +1043,13 @@ class ChatPanel(Vertical):
         except Exception:
             pass
 
+    def refresh_log(self, show_verbose: bool) -> None:
+        """
+        Refresh the visible log content based on the verbose output setting.
+        (Note: Implementation of filtering will follow in a later task.)
+        """
+        pass
+
     def set_job_running(self, running: bool) -> None:
         """Update job progress state in StatusLine and the help row spinner/timer."""
         try:

@@ -418,6 +418,7 @@ class BrokkApp(App):
         # Footer/help-bar ordering: Context, Tasks, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
+        Binding("ctrl+o", "toggle_output", "Toggle Output", show=True),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
 
@@ -453,6 +454,7 @@ class BrokkApp(App):
         self.resume_session = resume_session
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
+        self.show_verbose_output = True
 
         # Initialize model and reasoning settings from persisted Settings if present,
         # otherwise fall back to safe defaults.
@@ -1887,6 +1889,18 @@ class BrokkApp(App):
             self.run_worker(self._edit_selected_task(result))
 
         self.push_screen(TaskTitleModalScreen("Edit Task", initial=initial), on_done)
+
+    def action_toggle_output(self) -> None:
+        """Toggles the visibility of verbose output (reasoning, tool calls)."""
+        self.show_verbose_output = not self.show_verbose_output
+        state_str = "ON" if self.show_verbose_output else "OFF"
+
+        chat = self._maybe_chat()
+        if chat:
+            chat.refresh_log(show_verbose=self.show_verbose_output)
+            chat.add_system_message_markup(f"Verbose output is now: [bold]{state_str}[/]")
+        else:
+            logger.info("Verbose output toggled to %s", state_str)
 
     def action_toggle_mode(self) -> None:
         """Cycles through agent modes: CODE -> ASK -> LUTZ -> CODE."""
