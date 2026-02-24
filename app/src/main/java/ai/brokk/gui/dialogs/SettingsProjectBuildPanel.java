@@ -185,9 +185,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         var close = new MaterialButton("×");
         close.setMargin(new Insets(0, 4, 0, 4));
-        close.addActionListener(e -> {
-            p.setVisible(false);
-        });
+        close.addActionListener(e -> p.setVisible(false));
         p.add(close, BorderLayout.EAST);
         p.setVisible(false); // Initially hidden
         return p;
@@ -301,7 +299,8 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildWrapper.setOpaque(false);
         buildWrapper.add(buildCleanCommandCheck, BorderLayout.WEST);
         buildWrapper.add(buildCleanCommandField, BorderLayout.CENTER);
-        buildCleanCommandCheck.addActionListener(e -> buildCleanCommandField.setEnabled(buildCleanCommandCheck.isSelected()));
+        buildCleanCommandCheck.addActionListener(
+                e -> buildCleanCommandField.setEnabled(buildCleanCommandCheck.isSelected()));
 
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
@@ -706,7 +705,9 @@ public class SettingsProjectBuildPanel extends JPanel {
             var envVars = computeEnvFromUi();
 
             // Step 1: Build/Lint command
-            String buildCmd = buildCleanCommandCheck.isSelected() ? buildCleanCommandField.getText().trim() : "";
+            String buildCmd = buildCleanCommandCheck.isSelected()
+                    ? buildCleanCommandField.getText().trim()
+                    : "";
             if (!buildCmd.isEmpty()) {
                 publish.accept("--- Verifying Build/Lint Command ---\n");
                 publish.accept("$ " + buildCmd + "\n");
@@ -726,7 +727,9 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (Thread.interrupted()) return "Cancelled";
 
             // Step 2: Test All command
-            String testAllCmd = allTestsCommandCheck.isSelected() ? allTestsCommandField.getText().trim() : "";
+            String testAllCmd = allTestsCommandCheck.isSelected()
+                    ? allTestsCommandField.getText().trim()
+                    : "";
             if (!testAllCmd.isEmpty()) {
                 publish.accept("--- Verifying Test All Command ---\n");
                 publish.accept("$ " + testAllCmd + "\n");
