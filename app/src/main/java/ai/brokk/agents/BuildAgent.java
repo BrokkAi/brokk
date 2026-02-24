@@ -418,6 +418,10 @@ public class BuildAgent {
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
 
                 The lists are DecoratedCollection instances, so you get first/last/index/value fields.
+                
+                Since the lists are file- and class- oriented, for test environments like `go test` and `cargo test`
+                that are function-oriented, we fall back to running all tests.
+                
                 Examples:
 
                 | Build tool        | One-liner a user could write
@@ -425,9 +429,9 @@ public class BuildAgent {
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
                 | **Maven**         | `mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                | **Go**            | `go test -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
+                | **Go**            | `go test`
                 | **.NET CLI**      | `dotnet test --verbosity quiet --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}}|{{/last}}{{/classes}}"`
-                | **Cargo**         | `cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}`
+                | **Cargo**         | `cargo test`
                 | **pytest**        | `uv sync && pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Poetry**        | `poetry install --no-interaction && poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Jest**          | `jest --silent {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
