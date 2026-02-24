@@ -41,6 +41,7 @@ class TokenBar(Static):
         self._used_tokens = 0
         self._max_tokens = 200_000
         self._fragments: List[Dict[str, Any]] = []
+        self._session_cost: Optional[float] = None
         self._test_size: Optional[Size] = None
         self._rendered_text: Text = Text()
         self._segment_layout: list[tuple[int, int, str, List[Dict[str, Any]]]] = []
@@ -52,6 +53,7 @@ class TokenBar(Static):
         used_tokens: int,
         max_tokens: Optional[int] = None,
         fragments: Optional[List[Dict[str, Any]]] = None,
+        session_cost: Optional[float] = None,
     ) -> None:
         """
         Update the displayed token counts and store fragment metadata.
@@ -61,6 +63,7 @@ class TokenBar(Static):
         # to signal absolute token count rendering.
         self._max_tokens = max_tokens if max_tokens is not None else 200_000
         self._fragments = fragments if fragments is not None else []
+        self._session_cost = session_cost
         self._render_bar()
 
     def on_resize(self) -> None:
@@ -97,13 +100,17 @@ class TokenBar(Static):
             self._rendered_text = Text(usage_str, style="dim")
             self._emit_hover(None, None)
         else:
+            cost_hint = ""
+            if self._session_cost is not None and self._session_cost > 0:
+                cost_hint = f" (${self._session_cost:.2f})"
+
             if self._max_tokens > 0:
                 # Clamp used_tokens to 0 for percentage display if negative
                 display_used = max(0, self._used_tokens)
                 pct = max(0.0, min(100.0, 100 * (1 - display_used / self._max_tokens)))
-                usage_str = f" {pct:.1f}% context remaining"
+                usage_str = f" {pct:.1f}% context remaining{cost_hint}"
             else:
-                usage_str = f" {format_token_count(self._used_tokens)} tokens"
+                usage_str = f" {format_token_count(self._used_tokens)} tokens{cost_hint}"
 
             # Reserve space for the text at the end
             bar_width = width - len(usage_str)

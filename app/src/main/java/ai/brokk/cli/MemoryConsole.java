@@ -86,4 +86,10 @@ public abstract class MemoryConsole implements IConsoleIO {
             echoTo.showNotification(role, message);
         }
     }
+
+    @Override
+    public void showNotification(NotificationRole role, String message, @Nullable Double cost) {
+        // Ignore structured cost by default; delegate to the existing implementation.
+        showNotification(role, message);
+    }
 }

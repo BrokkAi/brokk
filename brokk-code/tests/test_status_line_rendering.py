@@ -154,3 +154,42 @@ async def test_status_line_no_timer_regression():
         status_line.set_job_running(True)
         status_line.set_job_running(False)
         await pilot.pause()
+
+
+def test_status_line_cost_rendering():
+    status = StatusLine()
+    mock_metadata = MagicMock()
+    status._metadata = mock_metadata
+
+    # Case 1: No cost (current behavior)
+    status.update_status(
+        mode="LUTZ",
+        model="gpt-4",
+        reasoning="high",
+        workspace="/work",
+        branch="main",
+    )
+    expected_no_cost = "LUTZ • gpt-4 (high) • /work • main"
+    mock_metadata.update.assert_called_with(expected_no_cost)
+
+    # Case 2: Only turn cost
+    status.update_status(turn_cost=0.0123)
+    expected_turn_only = "LUTZ • gpt-4 (high) • /work • main • $0.012 turn"
+    mock_metadata.update.assert_called_with(expected_turn_only)
+
+    # Case 3: Both turn and session cost
+    status.update_status(session_cost=0.4567)
+    expected_both = "LUTZ • gpt-4 (high) • /work • main • $0.012 turn • $0.457 session"
+    mock_metadata.update.assert_called_with(expected_both)
+
+    # Case 4: Fragment hover takes precedence over cost
+    status.set_fragment_info("some-file.txt", 500)
+    from brokk_code.token_format import format_token_count
+
+    size_text = format_token_count(500)
+    expected_fragment = f"some-file.txt ({size_text} tokens)"
+    mock_metadata.update.assert_called_with(expected_fragment)
+
+    # Case 5: Clearing fragment restores cost display
+    status.clear_fragment_info()
+    mock_metadata.update.assert_called_with(expected_both)
