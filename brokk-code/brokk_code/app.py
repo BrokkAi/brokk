@@ -592,6 +592,7 @@ class BrokkApp(App):
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
+            chat.show_verbose = self.show_verbose_output
             chat.set_token_bar_visible(True)
 
             # Load initial prompt history for arrow-key navigation
@@ -1944,6 +1945,7 @@ class BrokkApp(App):
         self.show_verbose_output = not self.show_verbose_output
         chat = self._maybe_chat()
         if chat:
+            chat.show_verbose = self.show_verbose_output
             chat.refresh_log(self.show_verbose_output)
             state = "[bold]ON[/]" if self.show_verbose_output else "[bold]OFF[/]"
             detail = (

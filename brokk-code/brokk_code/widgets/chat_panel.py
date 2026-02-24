@@ -672,6 +672,7 @@ class ChatPanel(Vertical):
 
         # Message History for filtering and re-rendering
         self._message_history: List[Dict[str, Any]] = []
+        self.show_verbose: bool = True
 
         # History Navigation State (Input prompts)
         self._history: list[str] = []
@@ -943,6 +944,9 @@ class ChatPanel(Vertical):
 
     def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
         """Visual rendering implementation for a single history entry."""
+        if not self.show_verbose and kind in ("REASONING", "TOOL_RESULT"):
+            return
+
         log = self.query_one("#chat-log", RichLog)
 
         if kind == "AI":
@@ -1004,16 +1008,13 @@ class ChatPanel(Vertical):
 
     def refresh_log(self, show_verbose: bool) -> None:
         """Clears the RichLog and re-renders history based on the verbosity filter."""
+        self.show_verbose = show_verbose
         log = self.query_one("#chat-log", RichLog)
         log.clear()
 
         for entry in self._message_history:
-            kind = entry["kind"]
-            if not show_verbose and kind in ("REASONING", "TOOL_RESULT"):
-                continue
-            
             self._render_message_entry(
-                kind=kind,
+                kind=entry["kind"],
                 content=entry["content"],
                 **{k: v for k, v in entry.items() if k not in ("kind", "content")}
             )
