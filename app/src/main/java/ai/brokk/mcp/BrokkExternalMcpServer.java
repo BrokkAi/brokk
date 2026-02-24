@@ -18,7 +18,6 @@ import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
-import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,7 +39,7 @@ public class BrokkExternalMcpServer {
     public static int run(ContextManager cm) {
         McpJsonMapper mapper = McpJsonDefaults.getMapper();
         BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
-        McpSyncServer server = McpServer.sync(new StdioServerTransportProvider(mapper))
+        McpServer.sync(new StdioServerTransportProvider(mapper))
                 .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
                 .jsonMapper(mapper)
                 .tools(instance.toolSpecifications())
@@ -109,25 +108,25 @@ public class BrokkExternalMcpServer {
             @P("The goal/prompt for the changes.") String goal,
             @P("Optional list of files to narrow the radius or edit directly.") List<String> files) {
         try {
-            if (files != null && !files.isEmpty()) {
+            if (!files.isEmpty()) {
                 new ai.brokk.tools.WorkspaceTools(cm.liveContext()).addFilesToWorkspace(files);
             }
 
             TaskResult result;
             try (var scope = cm.beginTaskUngrouped(goal)) {
                 if (cm.liveContext().getEditableFragments().findAny().isPresent()) {
-                    StreamingChatModel planModel = cm.getService()
+                    StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
                             .getModel(cm.getProject()
-                                    .getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT));
-                    StreamingChatModel codeModel = cm.getService()
-                            .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE));
+                                    .getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
+                    StreamingChatModel codeModel = java.util.Objects.requireNonNull(cm.getService()
+                            .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
                     var agent = new ArchitectAgent(
                             cm, planModel, codeModel, goal, scope, cm.liveContext(), new MutedConsoleIO(cm.getIo()));
                     result = agent.executeWithScan(false);
                 } else {
-                    StreamingChatModel planModel = cm.getService()
+                    StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
                             .getModel(cm.getProject()
-                                    .getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT));
+                                    .getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
                     var agent = new ai.brokk.agents.SearchAgent(
                             cm.liveContext(),
                             goal,
@@ -211,10 +210,10 @@ public class BrokkExternalMcpServer {
                 return "Error: Repository is not in a merge conflict state.";
             }
 
-            StreamingChatModel planModel = cm.getService()
-                    .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT));
-            StreamingChatModel codeModel = cm.getService()
-                    .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE));
+            StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
+                    .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
+            StreamingChatModel codeModel = java.util.Objects.requireNonNull(cm.getService()
+                    .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
 
             TaskResult result;
             try (var scope = cm.beginTaskUngrouped("Merge")) {
