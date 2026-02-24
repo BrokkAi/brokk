@@ -616,19 +616,11 @@ class ChatInput(TextArea):
         # Handle Enter and Shift+Enter
         if event.key == "enter":
             if event.shift:
-                event.stop()
-                event.prevent_default()
                 self.action_insert_newline()
-                return
             else:
-                event.stop()
-                event.prevent_default()
                 self.action_submit()
-                return
-        elif event.key == "shift+enter":
             event.stop()
             event.prevent_default()
-            self.action_insert_newline()
             return
 
         await super()._on_key(event)
@@ -730,14 +722,19 @@ class ChatPanel(Vertical):
         if event.key == "up":
             # Only navigate history if at the start of the text,
             # or if history navigation is already active.
-            if self._history_index != -1 or chat_input.cursor_at_start_of_text:
+            cursor_row, _ = chat_input.cursor_location
+            if self._history_index != -1 or cursor_row == 0:
                 self._navigate_history(-1)
+                event.stop()
                 event.prevent_default()
         elif event.key == "down":
             # Only navigate history if at the end of the text,
             # or if history navigation is already active.
-            if self._history_index != -1 or chat_input.cursor_at_end_of_text:
+            cursor_row, _ = chat_input.cursor_location
+            last_row = chat_input.document.length - 1
+            if self._history_index != -1 or cursor_row >= last_row:
                 self._navigate_history(1)
+                event.stop()
                 event.prevent_default()
 
     def _navigate_history(self, delta: int) -> None:

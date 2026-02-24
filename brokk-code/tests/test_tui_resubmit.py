@@ -79,9 +79,9 @@ async def test_multiline_paste_and_submit(tmp_path):
         await pilot.click("#chat-input")
 
         # 1. Test Shift+Enter behavior
-        # Note: pilot.press("shift+enter") is the correct way to simulate the key combo in Textual
         await type_text(pilot, "line1")
-        await pilot.press("shift+enter")
+        # Textual pilot uses 'enter' with shift=True for Shift+Enter
+        await pilot.press("enter", shift=True)
         await type_text(pilot, "line2")
 
         # Verify UI state before submit
@@ -120,7 +120,7 @@ async def test_shift_enter_inserts_newline(tmp_path):
         await pilot.click("#chat-input")
 
         await type_text(pilot, "hello")
-        await pilot.press("shift+enter")
+        await pilot.press("enter", shift=True)
         await type_text(pilot, "world")
 
         # Text should have newline
