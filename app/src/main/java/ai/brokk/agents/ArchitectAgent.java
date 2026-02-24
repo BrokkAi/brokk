@@ -1107,6 +1107,7 @@ public class ArchitectAgent {
                 allowed.add("addMethodsToWorkspace");
                 allowed.add("addUrlContentsToWorkspace");
                 allowed.add("dropWorkspaceFragments");
+                allowed.add("executeShellCommand");
                 allowed.add("explainCommit");
 
                 allowed.add("callCodeAgent");

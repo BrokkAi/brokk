@@ -102,6 +102,7 @@ public class ToolRegistry {
             Map.entry("recommendContext", "Recommending context"),
             Map.entry("createOrReplaceTaskList", "Creating or replacing task list"),
             Map.entry("callCodeAgent", "Calling code agent"),
+            Map.entry("executeShellCommand", "Executing shell command"),
             Map.entry("performedInitialReview", "Performed initial review"));
 
     /** Returns a human-readable headline for the given tool. Falls back to the tool name if there is no mapping. */

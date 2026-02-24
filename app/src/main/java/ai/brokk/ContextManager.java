@@ -262,6 +262,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .builder()
                 .register(new SearchTools(this))
                 .register(new GitTools(this))
+                .register(new ShellTools(this.project))
                 .build();
 
         // dummy ConsoleIO until Chrome is constructed; necessary because Chrome starts submitting background tasks
