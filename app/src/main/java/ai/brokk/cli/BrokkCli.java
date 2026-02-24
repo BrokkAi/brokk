@@ -443,7 +443,7 @@ public final class BrokkCli implements Callable<Integer> {
                 var transport = new io.modelcontextprotocol.server.transport.StdioServerTransportProvider(mapper);
                 var server = io.modelcontextprotocol.server.McpServer.sync(transport)
                         .serverInfo("Brokk", ai.brokk.BuildInfo.version)
-                        .tools(toolSpecifications())
+                        .tools(toolSpecifications(cm))
                         .build();
 
                 Runtime.getRuntime().addShutdownHook(new Thread(server::closeGracefully, "BrokkMcpServerShutdown"));
@@ -492,11 +492,11 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         static java.util.List<io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification>
-                toolSpecifications() {
+                toolSpecifications(ContextManager cm) {
             return toolDiscoveryList().stream()
                     .map(tool -> io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification.builder()
                             .tool(tool)
-                            .callHandler(McpServerCommand::stubHandler)
+                            .callHandler((exchange, request) -> handleToolCall(cm, request))
                             .build())
                     .toList();
         }
@@ -580,6 +580,72 @@ public final class BrokkCli implements Callable<Integer> {
                     .description(description)
                     .inputSchema(new io.modelcontextprotocol.spec.McpSchema.JsonSchema(
                             "object", properties, required, false, null, null))
+                    .build();
+        }
+
+        static io.modelcontextprotocol.spec.McpSchema.CallToolResult handleToolCall(
+                ContextManager cm, io.modelcontextprotocol.spec.McpSchema.CallToolRequest request) {
+            try {
+                return switch (request.name()) {
+                    case "scan" -> handleScan(cm, request);
+                    default ->
+                        io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                                .addTextContent("Tool '" + request.name() + "' is not yet implemented")
+                                .isError(true)
+                                .build();
+                };
+            } catch (Exception e) {
+                logger.error("Error executing MCP tool {}", request.name(), e);
+                return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                        .addTextContent("Internal error: " + e.getMessage())
+                        .isError(true)
+                        .build();
+            }
+        }
+
+        private static io.modelcontextprotocol.spec.McpSchema.CallToolResult handleScan(
+                ContextManager cm, io.modelcontextprotocol.spec.McpSchema.CallToolRequest request)
+                throws InterruptedException {
+            var args = request.arguments();
+            String goal = (String) args.get("goal");
+            boolean includeTests = Boolean.TRUE.equals(args.get("include_tests"));
+
+            var scanModel = cm.getService().getScanModel();
+            var agent = new ContextAgent(cm, scanModel, goal, new MutedConsoleIO(cm.getIo()));
+            var recommendations = agent.getRecommendations(cm.liveContext());
+
+            if (!recommendations.success()) {
+                return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                        .addTextContent("Scan failed to complete.")
+                        .isError(true)
+                        .build();
+            }
+
+            var fragments = recommendations.fragments();
+            if (fragments.isEmpty()) {
+                return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                        .addTextContent("No relevant context found for the provided goal.")
+                        .build();
+            }
+
+            var sb = new StringBuilder();
+            sb.append("# Recommended Context\n\n");
+
+            var st = fragments.stream();
+            if (!includeTests) {
+                st = st.filter(f -> f.sourceFiles().join().stream()
+                        .noneMatch(pf -> ContextManager.isTestFile(pf, cm.getAnalyzerUninterrupted())));
+            }
+
+            st.flatMap(f -> toSummaryFragments(cm, f).stream()).forEach(f -> {
+                sb.append("## ").append(f.description().join()).append(":\n");
+                sb.append(f.text().join()).append("\n\n");
+            });
+
+            cm.pushContext(ctx -> ctx.addFragments(fragments));
+
+            return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                    .addTextContent(sb.toString().strip())
                     .build();
         }
 

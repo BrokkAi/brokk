@@ -30,12 +30,22 @@ class McpServerCommandTest {
 
     @Test
     void stubHandler_returnsNotImplemented() {
-        McpSchema.CallToolResult result =
-                BrokkCli.McpServerCommand.stubHandler(null, new McpSchema.CallToolRequest("scan", java.util.Map.of()));
+        McpSchema.CallToolResult result = BrokkCli.McpServerCommand.stubHandler(
+                null, new McpSchema.CallToolRequest("unknown", java.util.Map.of()));
 
         assertEquals(false, result.isError());
         assertEquals(1, result.content().size());
         assertTrue(result.content().getFirst() instanceof McpSchema.TextContent text
                 && "not implemented".equals(text.text()));
+    }
+
+    @Test
+    void handleToolCall_unimplementedTool_returnsError() {
+        McpSchema.CallToolResult result = BrokkCli.McpServerCommand.handleToolCall(
+                null, new McpSchema.CallToolRequest("unknown_tool", java.util.Map.of()));
+
+        assertTrue(result.isError());
+        assertTrue(result.content().getFirst() instanceof McpSchema.TextContent text
+                && text.text().contains("not yet implemented"));
     }
 }
