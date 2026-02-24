@@ -912,6 +912,34 @@ class BuildAgentTest {
     }
 
     @Test
+    void testDetermineVerificationCommand_RespectsDisabledGlobalTest(@TempDir Path tempDir) throws Exception {
+        Files.createDirectories(tempDir.resolve("mod1"));
+        var project = new TestProject(tempDir);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        // Global test command is present but disabled.
+        var details = new BuildAgent.BuildDetails(
+                "lint",
+                true,
+                "global test",
+                false,
+                "",
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1")));
+        project.setBuildDetails(details);
+
+        var cm = new TestContextManager(project);
+        var ctx = cm.liveContext();
+
+        String cmd = BuildAgent.determineVerificationCommand(ctx);
+        // Should fallback to module command since global is disabled.
+        assertEquals("test1", cmd);
+    }
+
+    @Test
     void testVerifyWithRetriesUsesCustomMaxRetries(@TempDir Path tempDir) throws Exception {
         var originalFactory = Environment.shellCommandRunnerFactory;
         try {

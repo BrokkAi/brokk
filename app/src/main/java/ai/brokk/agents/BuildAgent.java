@@ -631,7 +631,9 @@ public class BuildAgent {
         logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
                 buildLintCommand,
+                true,
                 testAllCommand,
+                true,
                 testSomeCommand,
                 deduplicatedPatterns,
                 defaultEnvForProject(),
@@ -742,7 +744,9 @@ public class BuildAgent {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildDetails(
             String buildLintCommand,
+            boolean buildLintEnabled,
             String testAllCommand,
+            boolean testAllEnabled,
             @JsonInclude(JsonInclude.Include.NON_EMPTY) String testSomeCommand,
             @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
@@ -754,10 +758,42 @@ public class BuildAgent {
             @JsonInclude(JsonInclude.Include.NON_EMPTY) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     List<ModuleBuildEntry> modules) {
 
+        public BuildDetails(
+                String buildLintCommand,
+                String testAllCommand,
+                String testSomeCommand,
+                Set<String> exclusionPatterns,
+                Map<String, String> environmentVariables,
+                @Nullable Integer maxBuildAttempts,
+                String afterTaskListCommand,
+                List<ModuleBuildEntry> modules) {
+            this(
+                    buildLintCommand,
+                    true,
+                    testAllCommand,
+                    true,
+                    testSomeCommand,
+                    exclusionPatterns,
+                    environmentVariables,
+                    maxBuildAttempts,
+                    afterTaskListCommand,
+                    modules);
+        }
+
         @VisibleForTesting
         public BuildDetails(
                 String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null, "", List.of());
+            this(
+                    buildLintCommand,
+                    true,
+                    testAllCommand,
+                    true,
+                    testSomeCommand,
+                    exclusionPatterns,
+                    Map.of(),
+                    null,
+                    "",
+                    List.of());
         }
 
         public BuildDetails(
@@ -768,7 +804,9 @@ public class BuildAgent {
                 Map<String, String> environmentVariables) {
             this(
                     buildLintCommand,
+                    true,
                     testAllCommand,
+                    true,
                     testSomeCommand,
                     exclusionPatterns,
                     environmentVariables,
@@ -787,7 +825,9 @@ public class BuildAgent {
                 String afterTaskListCommand) {
             this(
                     buildLintCommand,
+                    true,
                     testAllCommand,
+                    true,
                     testSomeCommand,
                     exclusionPatterns,
                     environmentVariables,
@@ -796,7 +836,8 @@ public class BuildAgent {
                     List.of());
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null, "", List.of());
+        public static final BuildDetails EMPTY =
+                new BuildDetails("", true, "", true, "", Set.of(), Map.of(), null, "", List.of());
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
@@ -805,7 +846,9 @@ public class BuildAgent {
         @JsonCreator
         public static BuildDetails fromJson(
                 @JsonProperty("buildLintCommand") @Nullable String buildLintCommand,
+                @JsonProperty("buildLintEnabled") @Nullable Boolean buildLintEnabled,
                 @JsonProperty("testAllCommand") @Nullable String testAllCommand,
+                @JsonProperty("testAllEnabled") @Nullable Boolean testAllEnabled,
                 @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
                 @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
@@ -841,7 +884,9 @@ public class BuildAgent {
 
             return new BuildDetails(
                     buildLintCommand != null ? buildLintCommand : "",
+                    buildLintEnabled != null ? buildLintEnabled : true,
                     testAllCommand != null ? testAllCommand : "",
+                    testAllEnabled != null ? testAllEnabled : true,
                     testSomeCommand != null ? testSomeCommand : "",
                     patterns,
                     environmentVariables != null ? environmentVariables : Map.of(),
@@ -913,7 +958,7 @@ public class BuildAgent {
         if (testScope == IProject.CodeAgentTestScope.ALL) {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null
                     ? System.getenv("BRK_TESTALL_CMD")
-                    : details.testAllCommand();
+                    : (details.testAllEnabled() ? details.testAllCommand() : "");
 
             if (cmd.isBlank() && !details.modules().isEmpty()) {
                 cmd = details.modules().stream()
@@ -941,7 +986,8 @@ public class BuildAgent {
 
         // No test files; determine which module build/lint commands to run based on changed files
         if (details.modules().isEmpty()) {
-            return interpolateCommandWithPythonVersion(details.buildLintCommand(), projectRoot);
+            String cmd = details.buildLintEnabled() ? details.buildLintCommand() : "";
+            return interpolateCommandWithPythonVersion(cmd, projectRoot);
         }
 
         var affectedModules = workspaceFiles.stream()
@@ -952,7 +998,7 @@ public class BuildAgent {
                 .toList();
 
         if (affectedModules.isEmpty()) {
-            String cmd = details.buildLintCommand();
+            String cmd = details.buildLintEnabled() ? details.buildLintCommand() : "";
             if (cmd.isBlank()) {
                 cmd = details.modules().stream()
                         .map(m -> interpolateCommandWithPythonVersion(m.buildLintCommand(), projectRoot))
