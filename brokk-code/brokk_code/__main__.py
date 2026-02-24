@@ -89,7 +89,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="ACP client profile to target (default: intellij)",
     )
 
-    mcp_parser = subparsers.add_parser("mcp", help="Run in MCP stdio proxy mode")
+    mcp_parser = subparsers.add_parser("mcp", help="Run in MCP stdio server mode")
     _add_common_runtime_args(mcp_parser)
 
     install_parser = subparsers.add_parser("install", help="Install integration settings")

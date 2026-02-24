@@ -7,6 +7,7 @@ import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.context.ContextFragments.SummaryFragment;
+import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
@@ -21,6 +22,7 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
+import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
@@ -28,6 +30,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -68,6 +72,36 @@ public class BrokkExternalMcpServer {
 
     public BrokkExternalMcpServer(ContextManager cm) {
         this.cm = cm;
+    }
+
+    public static void main(String[] args) {
+        System.setProperty("java.awt.headless", "true");
+
+        Path projectPath = Path.of(".").toAbsolutePath().normalize();
+        try (var project = new MainProject(projectPath);
+                var cm = new ContextManager(project)) {
+
+            cm.createHeadless(true);
+            cm.dropWithHistorySemantics(List.of());
+
+            McpJsonMapper mapper = McpJsonDefaults.getMapper();
+            BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
+
+            McpServer.sync(new StdioServerTransportProvider(mapper))
+                    .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
+                    .jsonMapper(mapper)
+                    .requestTimeout(Duration.ofHours(10))
+                    .tools(instance.toolSpecifications())
+                    .build();
+
+            Thread.currentThread().join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.exit(0);
+        } catch (Exception e) {
+            logger.error("Failed to start Brokk MCP Server", e);
+            System.exit(1);
+        }
     }
 
     public Integer run(int port, int idleSeconds) {
