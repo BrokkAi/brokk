@@ -973,7 +973,7 @@ class ChatPanel(Vertical):
         # Pattern: `headline` followed by yaml block (3+ backticks).
         # Backreference \2 ensures the closing fence matches the opening.
         pattern = r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n.*?\n\2"
-        replacement = r"*\[Tool Call: \1 (hidden)]*"
+        replacement = r"*\[Tool Call >> \1 (hidden)]*"
 
         return re.sub(pattern, replacement, content, flags=re.DOTALL)
 
@@ -990,10 +990,10 @@ class ChatPanel(Vertical):
             log.write("")
         elif kind == "REASONING":
             if self.show_verbose:
-                title = "Thinking v (ctrl+o to collapse)"
+                title = "Thinking >> (ctrl+o to collapse)"
                 panel_content = Markdown(content, style="grey50")
             else:
-                title = "Thinking < (ctrl+o to expand)"
+                title = "Thinking << (ctrl+o to expand)"
                 panel_content = Text("...", style="grey50")
 
             panel = Panel(
