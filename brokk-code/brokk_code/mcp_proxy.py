@@ -2,8 +2,7 @@ import asyncio
 import logging
 import signal
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
-from typing import Any, List, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 from mcp.server import Server
@@ -13,15 +12,13 @@ from mcp.types import (
     Tool,
 )
 
-from brokk_code.executor import ExecutorManager, ExecutorError
+from brokk_code.executor import ExecutorManager
 
 logger = logging.getLogger(__name__)
 
 _BEMS_MAIN_CLASS = "ai.brokk.mcpserver.McpMain"
 _BEMS_DEFAULT_PORT = 3001
 _BEMS_DEFAULT_IDLE = 300
-_BEMS_PROBE_TIMEOUT = 120.0
-_BEMS_PROBE_INTERVAL = 0.5
 
 
 class _BemsExecutorManager(ExecutorManager):
@@ -42,7 +39,7 @@ class _BemsExecutorManager(ExecutorManager):
     def _main_class(self) -> str:
         return _BEMS_MAIN_CLASS
 
-    def _get_executor_args(self, exec_id: str) -> List[str]:
+    def _get_executor_args(self, exec_id: str) -> list[str]:
         return ["--port", str(self._port), "--idle", str(self._idle)]
 
     def _make_http_client(self, base_url: str) -> httpx.AsyncClient:
@@ -51,11 +48,9 @@ class _BemsExecutorManager(ExecutorManager):
     async def _await_ready(self, exec_id: str) -> int:
         """
         BEMS listens on the configured port. Drain stdout in the background (so the
-        process doesn't block on a full pipe) and probe the HTTP endpoint
-        until it responds, then return the port.
+        process doesn't block on a full pipe), then return the known port immediately.
         """
         asyncio.get_event_loop().create_task(self._drain_stdout())
-        await _probe_bems(self._port)
         return self._port
 
     async def _drain_stdout(self) -> None:
@@ -71,61 +66,7 @@ class _BemsExecutorManager(ExecutorManager):
         except Exception:
             pass
 
-
-async def _probe_bems(port: int) -> None:
-    """
-    Probe BEMS until it responds on the given port, or raise ExecutorError on timeout.
-    Tries /sse so we can confirm the HTTP endpoint is reachable.
-    """
-    base_url = f"http://127.0.0.1:{port}"
-    probe_client = httpx.AsyncClient(base_url=base_url, timeout=5.0)
-    deadline = asyncio.get_event_loop().time() + _BEMS_PROBE_TIMEOUT
-    try:
-        while asyncio.get_event_loop().time() < deadline:
-            try:
-                async with probe_client.stream("GET", "/sse") as response:
-                    if response.status_code < 500:
-                        return
-            except httpx.ConnectError:
-                pass
-            await asyncio.sleep(_BEMS_PROBE_INTERVAL)
-    finally:
-        await probe_client.aclose()
-
-    raise ExecutorError(
-        f"BEMS did not become reachable on port {port} within {_BEMS_PROBE_TIMEOUT:.0f}s"
-    )
-
-
-def _extract_session_id(sse_data: str) -> Optional[str]:
-    parsed = urlparse(sse_data)
-    return parse_qs(parsed.query).get("sessionId", [None])[0]
-
-
-async def _start_bems_session(base_url: str) -> str:
-    session_client = httpx.AsyncClient(base_url=base_url, timeout=5.0)
-    try:
-        async with session_client.stream("GET", "/sse") as response:
-            if response.status_code >= 500:
-                raise ExecutorError(f"BEMS returned HTTP {response.status_code} from /sse")
-
-            async for line in response.aiter_lines():
-                if not line.startswith("data:"):
-                    continue
-
-                value = line.removeprefix("data:").strip()
-                session_id = _extract_session_id(value)
-                if session_id:
-                    return session_id
-
-            raise ExecutorError("BEMS /sse stream returned no sessionId")
-    finally:
-        await session_client.aclose()
-
-
-async def _fetch_bems_tools(
-    http_client: httpx.AsyncClient, session_id: str
-) -> list[dict[str, Any]]:
+async def _fetch_bems_tools(http_client: httpx.AsyncClient) -> list[dict[str, Any]]:
     """Fetch the MCP tool list from BEMS via its JSON-RPC endpoint."""
     payload = {
         "jsonrpc": "2.0",
@@ -133,14 +74,14 @@ async def _fetch_bems_tools(
         "method": "tools/list",
         "params": {},
     }
-    resp = await http_client.post(f"/message?sessionId={session_id}", json=payload)
+    resp = await http_client.post("/message", json=payload)
     resp.raise_for_status()
     data = resp.json()
     return data.get("result", {}).get("tools", [])
 
 
 async def _call_bems_tool(
-    http_client: httpx.AsyncClient, session_id: str, name: str, arguments: dict[str, Any]
+    http_client: httpx.AsyncClient, name: str, arguments: dict[str, Any]
 ) -> Any:
     """Invoke a BEMS tool via JSON-RPC and return the result content."""
     payload = {
@@ -149,7 +90,7 @@ async def _call_bems_tool(
         "method": "tools/call",
         "params": {"name": name, "arguments": arguments},
     }
-    resp = await http_client.post(f"/message?sessionId={session_id}", json=payload)
+    resp = await http_client.post("/message", json=payload)
     resp.raise_for_status()
     data = resp.json()
     if "error" in data:
@@ -161,10 +102,9 @@ class _BemsConnection:
     """
     Manages a single live connection to BEMS.
 
-    Responsibilities:
-    - Connect to an existing BEMS if available.
-    - Start or restart BEMS only when normal MCP messages fail.
-    - Retry once after recovering from transport/session failures.
+    The proxy tries to use whatever server is already listening on the configured
+    port; on message-level connection failures it restarts the managed process and
+    retries once.
     """
 
     def __init__(
@@ -188,84 +128,58 @@ class _BemsConnection:
 
         self._bems: Optional[_BemsExecutorManager] = None
         self._http_client: Optional[httpx.AsyncClient] = None
-        self._session_id: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
     async def get_tools(self) -> list[dict[str, Any]]:
-        """Fetch and return the MCP tool list with one recovery retry."""
-        for attempt in range(2):
-            try:
-                await self._ensure_http_client()
-                assert self._http_client is not None
-                session_id = await self._ensure_session()
-                return await _fetch_bems_tools(self._http_client, session_id)
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 400 and attempt == 0:
-                    logger.debug("BEMS tools/list failed with HTTP 400; refreshing session.")
-                    self._session_id = None
-                    continue
-                raise
-            except (ExecutorError, httpx.ConnectError, httpx.RemoteProtocolError) as exc:
-                if attempt == 0:
-                    logger.warning(
-                        "BEMS tools/list transport failure (%s); recovering and retrying.",
-                        exc,
-                    )
-                    await self._start_or_restart()
-                    continue
-                raise
-
-        raise RuntimeError("unreachable")
+        """Fetch tool definitions from BEMS."""
+        return await self._request_with_retry(_fetch_bems_tools)
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        """Call a BEMS tool with one recovery retry."""
-        for attempt in range(2):
-            try:
-                await self._ensure_http_client()
-                assert self._http_client is not None
-                session_id = await self._ensure_session()
-                return await _call_bems_tool(self._http_client, session_id, name, arguments)
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 400 and attempt == 0:
-                    logger.debug("BEMS tools/call failed with HTTP 400; refreshing session.")
-                    self._session_id = None
-                    continue
-                raise
-            except (ExecutorError, httpx.ConnectError, httpx.RemoteProtocolError) as exc:
-                if attempt == 0:
-                    logger.warning(
-                        "BEMS tools/call transport failure (%s); recovering and retrying.",
-                        exc,
-                    )
-                    await self._start_or_restart()
-                    continue
-                raise
-
-        raise RuntimeError("unreachable")
+        """Call a BEMS tool, restarting and retrying on connection failure."""
+        return await self._request_with_retry(
+            lambda http_client: _call_bems_tool(http_client, name, arguments)
+        )
 
     async def stop(self) -> None:
-        """Shut down the HTTP client and the managed BEMS process (if we own it)."""
+        """Shut down the managed BEMS process (if we own it)."""
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
         if self._bems is not None:
             await self._bems.stop()
             self._bems = None
-        self._session_id = None
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _ensure_http_client(self) -> None:
+    async def _request_with_retry(
+        self, send: Callable[[httpx.AsyncClient], Awaitable[Any]]
+    ) -> Any:
+        """Run one normal MCP message and recover only on transport failure."""
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(base_url=self._base_url, timeout=300.0)
 
+        for attempt in range(3):
+            try:
+                assert self._http_client is not None
+                return await send(self._http_client)
+            except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+                if attempt == 2:
+                    logger.error("BEMS request failed after retry: %s", exc)
+                    raise
+                logger.warning(
+                    "BEMS transport failed (%s); restarting managed BEMS and retrying.",
+                    exc,
+                )
+                await self._restart()
+                await asyncio.sleep(2.0)
+
     async def _start_fresh(self) -> None:
-        """Launch a new BEMS subprocess and set up the HTTP client."""
+        """Launch a new BEMS subprocess and replace the HTTP client."""
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
@@ -283,10 +197,9 @@ class _BemsConnection:
         self._bems = bems
         assert bems._http_client is not None
         self._http_client = bems._http_client
-        self._session_id = None
 
     async def _restart(self) -> None:
-        """Stop any existing BEMS and start a fresh one."""
+        """Stop any managed BEMS and start a fresh one."""
         logger.info("Restarting BEMS...")
         if self._bems is not None:
             old = self._bems
@@ -295,22 +208,7 @@ class _BemsConnection:
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
-        self._session_id = None
         await self._start_fresh()
-
-    async def _start_or_restart(self) -> None:
-        if self._bems is None:
-            logger.info("Starting BEMS...")
-            await self._start_fresh()
-        else:
-            await self._restart()
-
-    async def _ensure_session(self) -> str:
-        """Return an active BEMS session id, creating one if needed."""
-        if self._session_id is not None:
-            return self._session_id
-        self._session_id = await _start_bems_session(self._base_url)
-        return self._session_id
 
 
 async def run_mcp_proxy(
@@ -341,15 +239,16 @@ async def run_mcp_proxy(
 
     @server.list_tools()
     async def list_tools() -> list[Tool]:
-        bems_tools_raw = await conn.get_tools()
-        return [
+        mcp_tools_raw = await conn.get_tools()
+        mcp_tools = [
             Tool(
                 name=t["name"],
                 description=t.get("description", ""),
                 inputSchema=t.get("inputSchema", {"type": "object", "properties": {}}),
             )
-            for t in bems_tools_raw
+            for t in mcp_tools_raw
         ]
+        return mcp_tools
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
