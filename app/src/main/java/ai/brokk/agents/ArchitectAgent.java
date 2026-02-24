@@ -621,7 +621,7 @@ public class ArchitectAgent {
                 stringResult =
                         """
                         # Search results
-                        Search Agent successfully completed.
+                        Search Agent successfully completed; the workspace has been updated as requested.
 
                         ## Reasoning summary
                         %s
