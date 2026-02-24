@@ -501,6 +501,12 @@ class BrokkApp(App):
         self._reported_refresh_errors: set[str] = set()
         self._reasoning_target: str = "planner"
 
+        # Accumulators for LLM usage costs (USD).
+        # current_job_cost resets at the start of each new job submission.
+        # session_total_cost accumulates for the lifetime of the App instance.
+        self.current_job_cost: float = 0.0
+        self.session_total_cost: float = 0.0
+
         self._tasklist_restore_focus_widget: Any | None = None
 
         # Shutdown coordination flags and lock
@@ -570,6 +576,8 @@ class BrokkApp(App):
                 reasoning=getattr(self, "reasoning_level", None),
                 workspace=workspace,
                 branch=getattr(self, "current_branch", "unknown"),
+                turn_cost=getattr(self, "current_job_cost", None),
+                session_cost=getattr(self, "session_total_cost", None),
             )
         except Exception:
             # Swallow all errors when updating UI that's possibly not mounted in tests.
@@ -780,7 +788,9 @@ class BrokkApp(App):
                     used = context_data.get("usedTokens", 0)
                     max_tokens = context_data.get("maxTokens")
                     fragments = context_data.get("fragments")
-                    chat.set_token_usage(used, max_tokens, fragments)
+                    chat.set_token_usage(
+                        used, max_tokens, fragments, session_cost=self.session_total_cost
+                    )
 
                 self._update_statusline()
 
@@ -1293,10 +1303,12 @@ class BrokkApp(App):
         return list(dict.fromkeys(attached_fragment_ids))
 
     async def _run_job(self, task_input: str) -> None:
+        self.current_job_cost = 0.0
         self.job_in_progress = True
-        chat = self.query_one(ChatPanel)
-        chat.set_job_running(True)
-        chat.set_response_pending()
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
+            chat.set_response_pending()
         attached_fragment_ids: List[str] = []
         try:
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)
@@ -1325,10 +1337,14 @@ class BrokkApp(App):
                         attached_fragment_ids,
                     )
 
-            chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
+            if chat:
+                chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
+            else:
+                logger.error("Job failed: %s", e)
         finally:
-            chat.set_response_finished()
-            chat.set_job_running(False)
+            if chat:
+                chat.set_response_finished()
+                chat.set_job_running(False)
 
             # Yield to the event loop to allow any rapid subsequent submissions
             # triggered by the cancellation to be processed before we check _pending_prompt.
@@ -1375,23 +1391,37 @@ class BrokkApp(App):
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
         data = event.get("data", {})
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
 
         if event_type == "LLM_TOKEN":
-            chat.append_token(
-                token=data.get("token", ""),
-                message_type=data.get("messageType", "AI"),
-                is_new_message=bool(data.get("isNewMessage", False)),
-                is_reasoning=bool(data.get("isReasoning", False)),
-                is_terminal=bool(data.get("isTerminal", False)),
-            )
+            if chat:
+                chat.append_token(
+                    token=data.get("token", ""),
+                    message_type=data.get("messageType", "AI"),
+                    is_new_message=bool(data.get("isNewMessage", False)),
+                    is_reasoning=bool(data.get("isReasoning", False)),
+                    is_terminal=bool(data.get("isTerminal", False)),
+                )
         elif event_type == "NOTIFICATION":
             level = data.get("level", "INFO")
             msg = data.get("message", "")
-            chat.add_system_message(msg, level=level)
+            cost = data.get("cost")
+
+            if level.upper() == "COST" and isinstance(cost, (int, float)):
+                increment = float(cost)
+                # Use rounding to avoid floating point precision artifacts
+                # (e.g. 0.1 + 0.05 = 0.15000000000000002)
+                # LLM costs often go to 4+ decimal places.
+                self.current_job_cost = round(self.current_job_cost + increment, 6)
+                self.session_total_cost = round(self.session_total_cost + increment, 6)
+                self._update_statusline()
+
+            if chat:
+                chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
             msg = data.get("message", "Unknown error")
-            chat.add_system_message(msg, level="ERROR")
+            if chat:
+                chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
         elif event_type == "COMMAND_RESULT":
             stage = data.get("stage", "command")

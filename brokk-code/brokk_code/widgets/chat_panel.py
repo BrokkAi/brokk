@@ -1060,11 +1060,12 @@ class ChatPanel(Vertical):
         used: int,
         max_tokens: Optional[int] = None,
         fragments: Optional[List[Dict[str, Any]]] = None,
+        session_cost: Optional[float] = None,
     ) -> None:
         """Updates the token usage display in the spinner area."""
         try:
             token_bar = self.query_one("#chat-token-bar", TokenBar)
-            token_bar.update_tokens(used, max_tokens, fragments)
+            token_bar.update_tokens(used, max_tokens, fragments, session_cost=session_cost)
         except Exception:
             pass
 

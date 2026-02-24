@@ -130,8 +130,53 @@ class HeadlessHttpConsoleTest {
         var data = (Map<String, Object>) event.data();
         assertEquals("INFO", data.get("level"));
         assertEquals("Test notification", data.get("message"));
+        // Legacy notifications should not include structured cost
+        assertFalse(data.containsKey("cost"));
 
         cleanup();
+    }
+
+    @Test
+    void testCostNotification_IncludesNumericCostField() throws Exception {
+        double cost = 0.123;
+        String message = "Estimated cost: $0.123";
+
+        console.showNotification(IConsoleIO.NotificationRole.COST, message, cost);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("NOTIFICATION", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("COST", data.get("level"));
+        assertEquals(message, data.get("message"));
+        assertTrue(data.containsKey("cost"));
+
+        // The JobEvent data map should carry a numeric cost value
+        Object costValue = data.get("cost");
+        assertNotNull(costValue);
+        assertTrue(costValue instanceof Double, "cost should be a Double but was " + costValue.getClass());
+        assertEquals(cost, (Double) costValue, 1e-9);
+    }
+
+    @Test
+    void testLegacyCostNotification_HasNoStructuredCost() throws Exception {
+        console.showNotification(IConsoleIO.NotificationRole.COST, "Legacy cost message");
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("NOTIFICATION", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("COST", data.get("level"));
+        assertEquals("Legacy cost message", data.get("message"));
+        assertFalse(data.containsKey("cost"));
     }
 
     @Test

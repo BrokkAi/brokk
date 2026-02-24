@@ -87,6 +87,22 @@ public class HeadlessHttpConsole extends MemoryConsole {
     }
 
     @Override
+    public void showNotification(NotificationRole role, String message, @Nullable Double cost) {
+        if (role == NotificationRole.COST && cost != null) {
+            // Enriched payload for cost notifications: include structured numeric cost.
+            var data = Map.of(
+                    "level", role.name(),
+                    "message", message,
+                    "cost", cost);
+            appendEvent("NOTIFICATION", data);
+            return;
+        }
+
+        // For non-cost notifications or when cost is not provided, preserve legacy behavior.
+        showNotification(role, message);
+    }
+
+    @Override
     public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
         return unused -> HeadlessHttpConsole.this;
     }
