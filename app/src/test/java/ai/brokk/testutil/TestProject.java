@@ -39,6 +39,7 @@ public class TestProject implements IProject {
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
+    private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
 
     public TestProject(Path root) {
@@ -120,6 +121,16 @@ public class TestProject implements IProject {
     @Override
     public boolean hasGit() {
         return hasGit;
+    }
+
+    @Override
+    public boolean isGitConfigDeclined() {
+        return gitConfigDeclined;
+    }
+
+    @Override
+    public void setGitConfigDeclined(boolean declined) {
+        this.gitConfigDeclined = declined;
     }
 
     @Override

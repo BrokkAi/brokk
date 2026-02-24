@@ -313,4 +313,14 @@ public final class WorktreeProject extends AbstractProject {
     public void setShellConfig(@Nullable ShellConfig config) {
         parent.setShellConfig(config);
     }
+
+    @Override
+    public boolean isGitConfigDeclined() {
+        return parent.isGitConfigDeclined();
+    }
+
+    @Override
+    public void setGitConfigDeclined(boolean declined) {
+        parent.setGitConfigDeclined(declined);
+    }
 }
