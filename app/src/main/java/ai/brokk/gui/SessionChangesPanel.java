@@ -600,6 +600,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         final long thisGeneration = updateGeneration.incrementAndGet();
 
+        // Capture EDT-owned state before starting background task
+        final String baselineRef = this.reviewBaselineRef;
+
         SwingUtilities.invokeLater(() -> {
             showDiffLoading();
             reviewTabListener.onReviewTabStateChanged(
@@ -607,7 +610,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
 
         CompletableFuture<RefreshResult> future = LoggingFuture.supplyAsync(() -> {
-            var state = resolveBaselineState();
+            var state = resolveBaselineState(baselineRef);
             var reviewCtx = ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
             var changes = reviewCtx.changes();
             var prepared = DiffService.preparePerFileSummaries(changes);
@@ -652,9 +655,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private BaselineState lastBaselineState = null;
 
-    private BaselineState resolveBaselineState() {
-        if (reviewBaselineRef != null) {
-            return new BaselineState(reviewBaselineRef, reviewBaselineRef, false, false);
+    private BaselineState resolveBaselineState(@Nullable String baselineRef) {
+        if (baselineRef != null) {
+            return new BaselineState(baselineRef, baselineRef, false, false);
         }
         return computeAutoBaselineState();
     }
@@ -1377,8 +1380,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.setBusy(true);
         guidedReviewBtn.setProgress(0);
 
+        final String baselineRef = this.reviewBaselineRef;
+
         LoggingFuture.supplyAsync(() -> {
-                    var state = resolveBaselineState();
+                    var state = resolveBaselineState(baselineRef);
                     return ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
                 })
                 .thenAccept(this::generateGuidedReviewAsync)
