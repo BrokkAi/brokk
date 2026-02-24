@@ -613,12 +613,19 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
 
+        # Handle Enter and Shift+Enter
         if event.key == "enter":
-            event.stop()
-            event.prevent_default()
-            self.action_submit()
-            return
-        if event.key == "shift+enter":
+            if event.shift:
+                event.stop()
+                event.prevent_default()
+                self.action_insert_newline()
+                return
+            else:
+                event.stop()
+                event.prevent_default()
+                self.action_submit()
+                return
+        elif event.key == "shift+enter":
             event.stop()
             event.prevent_default()
             self.action_insert_newline()
