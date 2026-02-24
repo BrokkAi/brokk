@@ -418,10 +418,10 @@ public class BuildAgent {
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
 
                 The lists are DecoratedCollection instances, so you get first/last/index/value fields.
-                
+
                 Since the lists are file- and class- oriented, for test environments like `go test` and `cargo test`
                 that are function-oriented, we fall back to running all tests.
-                
+
                 Examples:
 
                 | Build tool        | One-liner a user could write

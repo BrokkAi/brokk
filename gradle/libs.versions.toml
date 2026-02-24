@@ -22,6 +22,7 @@ jediterm = "3.54"
 jediterm-pty = "2.69"
 pty4j = "0.13.11"
 lz4 = "1.10.3"
+jetty = "12.0.16"
 
 [libraries]
 # Logging
@@ -134,6 +135,9 @@ maven-resolver-connector-basic = { module = "org.apache.maven.resolver:maven-res
 maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-resolver-transport-http", version.ref = "maven-resolver" }
 
 jackson-jq = "net.thisptr:jackson-jq:1.6.0"
+
+jetty-server = { module = "org.eclipse.jetty:jetty-server", version.ref = "jetty" }
+jetty-ee10-servlet = { module = "org.eclipse.jetty.ee10:jetty-ee10-servlet", version.ref = "jetty" }
 
 # NEW: DiskLruCache library
 disklrucache = "com.jakewharton:disklrucache:2.0.2"

@@ -22,12 +22,15 @@ import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
-import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
+import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
+import org.eclipse.jetty.ee10.servlet.ServletHolder;
+import org.eclipse.jetty.server.Server;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jspecify.annotations.NullMarked;
 
@@ -38,7 +41,7 @@ public class BrokkExternalMcpServer {
     private static final List<String> BASE_TOOL_NAMES = List.of(
             "scan",
             "code",
-            "build",
+            "runBuild",
             "configureBuild",
             "merge",
             "searchSymbols",
@@ -57,7 +60,17 @@ public class BrokkExternalMcpServer {
     }
 
     public static void main(String[] args) {
+        int port = 3001;
+        if (args.length > 0) {
+            try {
+                port = Integer.parseInt(args[0]);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid port provided: {}. Using default 3001.", args[0]);
+            }
+        }
+
         Path projectPath = Path.of(".").toAbsolutePath().normalize();
+        Server server = new Server(port);
         try (var project = new MainProject(projectPath);
                 var cm = new ContextManager(project)) {
 
@@ -69,19 +82,38 @@ public class BrokkExternalMcpServer {
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
 
-            // Using Stdio transport instead of HTTP as HttpServerTransportProvider was not found
-            McpServer.sync(new StdioServerTransportProvider(mapper))
+            HttpServletSseServerTransportProvider transport = HttpServletSseServerTransportProvider.builder()
+                    .jsonMapper(mapper)
+                    .baseUrl("http://localhost:" + port)
+                    .sseEndpoint("/sse")
+                    .messageEndpoint("/message")
+                    .build();
+
+            var context = new ServletContextHandler();
+            context.setContextPath("/");
+            context.addServlet(new ServletHolder(transport), "/*");
+
+            server.setHandler(context);
+            server.start();
+
+            McpServer.sync(transport)
                     .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
                     .jsonMapper(mapper)
                     .tools(instance.toolSpecifications())
                     .build();
 
-            logger.info("Brokk MCP Stdio Server started.");
+            logger.info("Brokk MCP HTTP Server started on port " + port);
 
-            Thread.currentThread().join();
+            server.join();
         } catch (Exception e) {
             logger.error("Failed to start Brokk MCP Server", e);
             System.exit(1);
+        } finally {
+            try {
+                server.stop();
+            } catch (Exception e) {
+                logger.error("Error stopping Jetty server", e);
+            }
         }
     }
 
@@ -90,6 +122,7 @@ public class BrokkExternalMcpServer {
         ToolRegistry registry = ToolRegistry.fromBase(ToolRegistry.empty())
                 .register(this)
                 .register(searchTools)
+                .register(new WorkspaceTools(cm.liveContext()))
                 .build();
 
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
@@ -132,19 +165,16 @@ public class BrokkExternalMcpServer {
             return "Scan failed to find recommendations.";
         }
 
-        StringBuilder sb = new StringBuilder();
-        recommendations.fragments().stream()
+        String result = recommendations.fragments().stream()
                 .filter(f -> includeTests
                         || f.sourceFiles().join().stream()
                                 .noneMatch(pf -> ContextManager.isTestFile(pf, cm.getAnalyzerUninterrupted())))
                 .flatMap(f -> toSummaryFragments(f).stream())
-                .forEach(f -> {
-                    sb.append("## ").append(f.description().join()).append(":\n");
-                    sb.append(f.text().join()).append("\n\n");
-                });
+                .map(f -> "## " + f.description().join() + ":\n" + f.text().join() + "\n\n")
+                .collect(java.util.stream.Collectors.joining());
 
         cm.pushContext(ctx -> ctx.addFragments(recommendations.fragments()));
-        return sb.toString();
+        return result;
     }
 
     @Tool("Implement changes asked for in the goal. Will search for relevant files if none are provided.")
@@ -188,12 +218,13 @@ public class BrokkExternalMcpServer {
     }
 
     @Tool("Run build verification (compile and test) without making changes.")
-    public String build() throws InterruptedException {
+    public String runBuild() throws InterruptedException {
         String error = BuildAgent.runVerification(cm);
-        return error.isEmpty() ? "Build successful" : "Build failed:\n" + error;
+        return error.isEmpty() ? "Build successful" : "Build failed:\n\n" + error;
     }
 
-    @Tool("Configure build and test commands for the project. You can assume it has already been configured unless you are told otherwise.")
+    @Tool(
+            "Configure build and test commands for the project. You can assume it has already been configured unless you are told otherwise.")
     public String configureBuild(
             @P("Command to build or lint incrementally, e.g. 'mvn compile', 'cargo check'. Must not be null.")
                     String buildOnlyCmd,
@@ -227,10 +258,7 @@ public class BrokkExternalMcpServer {
                 existingDetails.maxBuildAttempts(),
                 existingDetails.afterTaskListCommand());
         if (testFileOpt.isPresent()) {
-            String interpolatedTestCmd = BuildAgent.getBuildLintSomeCommand(
-                    cm,
-                    bd,
-                    List.of(testFileOpt.get()));
+            String interpolatedTestCmd = BuildAgent.getBuildLintSomeCommand(cm, bd, List.of(testFileOpt.get()));
 
             ai.brokk.util.BuildVerifier.VerificationResult testResult =
                     ai.brokk.util.BuildVerifier.verify(project, interpolatedTestCmd);

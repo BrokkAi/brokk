@@ -26,7 +26,7 @@ class McpServerCommandTest {
             assertTrue(names.containsAll(Set.of(
                     "scan",
                     "code",
-                    "build",
+                    "runBuild",
                     "configureBuild",
                     "merge",
                     "searchSymbols",
