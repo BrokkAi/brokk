@@ -16,8 +16,11 @@ def mock_executor():
 
 
 def test_brokk_app_cost_tracking_basic(mock_executor):
-    """Verify that COST notifications update job and session totals."""
+    """Verify that COST notifications update job and session totals and are NOT logged to chat."""
     app = BrokkApp(executor=mock_executor)
+    # Mock chat to verify suppression
+    mock_chat = MagicMock()
+    app._maybe_chat = MagicMock(return_value=mock_chat)
 
     # Simulate a COST event
     event = {
@@ -29,6 +32,17 @@ def test_brokk_app_cost_tracking_basic(mock_executor):
 
     assert app.current_job_cost == 0.10
     assert app.session_total_cost == 0.10
+    # Verify chat was NOT notified
+    mock_chat.add_system_message.assert_not_called()
+
+    # Simulate an INFO event
+    info_event = {
+        "type": "NOTIFICATION",
+        "data": {"level": "INFO", "message": "Working..."},
+    }
+    app._handle_event(info_event)
+    # Verify non-COST notifications still go to chat
+    mock_chat.add_system_message.assert_called_with("Working...", level="INFO")
 
     # Simulate another COST event in the same job
     event2 = {
