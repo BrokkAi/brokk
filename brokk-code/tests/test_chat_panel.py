@@ -507,10 +507,14 @@ async def test_chat_panel_history_and_filtering():
         panel.add_user_message("Hello Brokk")
         panel.add_system_message("System online", level="INFO")
         panel.add_tool_result_message("Executed: ls -la")
-        
+
         # Simulate LLM stream with reasoning and AI content
-        panel.append_token("Thinking...", "AI", is_new_message=True, is_reasoning=True, is_terminal=True)
-        panel.append_token("Hello!", "AI", is_new_message=True, is_reasoning=False, is_terminal=True)
+        panel.append_token(
+            "Thinking...", "AI", is_new_message=True, is_reasoning=True, is_terminal=True
+        )
+        panel.append_token(
+            "Hello!", "AI", is_new_message=True, is_reasoning=False, is_terminal=True
+        )
         await pilot.pause()
 
         # Check internal history recording
@@ -539,7 +543,7 @@ async def test_chat_panel_history_and_filtering():
         assert "Hello Brokk" in content_filtered
         assert "System online" in content_filtered
         assert "Hello!" in content_filtered
-        
+
         # Verbose items should be hidden
         assert "Thinking..." not in content_filtered
         assert "Executed: ls -la" not in content_filtered
@@ -579,15 +583,15 @@ async def test_app_toggle_output_integration():
     ):
         async with app.run_test() as pilot:
             chat = app.query_one(ChatPanel)
-            
+
             # Initial state
             assert app.show_verbose_output is True
-            
+
             # Toggle OFF
             await pilot.press("ctrl+o")
             assert app.show_verbose_output is False
             assert chat._show_verbose is False
-            
+
             # Toggle ON
             await pilot.press("ctrl+o")
             assert app.show_verbose_output is True
