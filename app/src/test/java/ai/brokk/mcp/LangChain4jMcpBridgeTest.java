@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.mcpserver.LangChain4jMcpBridge;
+import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -70,5 +71,39 @@ class LangChain4jMcpBridgeTest {
         assertTrue(required.contains("intParam"));
         assertTrue(required.contains("listParam"));
         assertTrue(required.contains("boolParam"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testFragmentRemovalDescriptionPropagation() {
+        // WorkspaceTools.dropWorkspaceFragments uses List<FragmentRemoval>
+        // FragmentRemoval has @D annotations on its fields.
+        List<ToolSpecification> specs = ToolSpecifications.toolSpecificationsFrom(WorkspaceTools.class);
+        ToolSpecification dropSpec = specs.stream()
+                .filter(s -> s.name().equals("dropWorkspaceFragments"))
+                .findFirst()
+                .orElseThrow();
+
+        assertNotNull(dropSpec.parameters());
+        McpSchema.JsonSchema mcpSchema = LangChain4jMcpBridge.toMcpSchema(dropSpec.parameters());
+
+        Map<String, Object> props = mcpSchema.properties();
+        Map<String, Object> fragmentsParam = (Map<String, Object>) props.get("fragments");
+        assertNotNull(fragmentsParam);
+
+        Map<String, Object> items = (Map<String, Object>) fragmentsParam.get("items");
+        assertEquals("object", items.get("type"));
+
+        Map<String, Object> itemProps = (Map<String, Object>) items.get("properties");
+
+        // Verify @D content from FragmentRemoval record
+        Map<String, Object> fragmentId = (Map<String, Object>) itemProps.get("fragmentId");
+        assertEquals("The alphanumeric ID exactly as listed in <workspace_toc>", fragmentId.get("description"));
+
+        Map<String, Object> keyFacts = (Map<String, Object>) itemProps.get("keyFacts");
+        assertEquals(WorkspaceTools.KEY_FACTS_DESCRIPTION, keyFacts.get("description"));
+
+        Map<String, Object> dropReason = (Map<String, Object>) itemProps.get("dropReason");
+        assertEquals(WorkspaceTools.DROP_REASON_DESCRIPTION, dropReason.get("description"));
     }
 }
