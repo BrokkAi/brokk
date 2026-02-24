@@ -3,6 +3,7 @@ package ai.brokk.cli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.mcp.BrokkMcpStdioServer;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.util.Map;
 import java.util.Set;
@@ -13,7 +14,7 @@ class McpServerCommandTest {
 
     @Test
     void toolDiscoveryList_containsExpectedTools() {
-        Set<String> names = BrokkCli.McpServerCommand.toolDiscoveryList().stream()
+        Set<String> names = BrokkMcpStdioServer.toolDiscoveryList().stream()
                 .map(McpSchema.Tool::name)
                 .collect(Collectors.toSet());
 
@@ -32,7 +33,7 @@ class McpServerCommandTest {
     @Test
     void stubHandler_returnsNotImplemented() {
         McpSchema.CallToolResult result =
-                BrokkCli.McpServerCommand.stubHandler(null, new McpSchema.CallToolRequest("unknown", Map.of()));
+                BrokkMcpStdioServer.stubHandler(null, new McpSchema.CallToolRequest("unknown", Map.of()));
 
         assertEquals(false, result.isError());
         assertEquals(1, result.content().size());
@@ -43,7 +44,7 @@ class McpServerCommandTest {
     @Test
     void handleToolCall_unimplementedTool_returnsError() {
         McpSchema.CallToolResult result =
-                BrokkCli.McpServerCommand.handleToolCall(null, new McpSchema.CallToolRequest("unknown_tool", Map.of()));
+                BrokkMcpStdioServer.handleToolCall(null, new McpSchema.CallToolRequest("unknown_tool", Map.of()));
 
         assertTrue(result.isError());
         assertTrue(result.content().getFirst() instanceof McpSchema.TextContent text
