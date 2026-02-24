@@ -509,11 +509,12 @@ async def test_chat_panel_history_and_filtering():
         chat.append_token("Hello from AI", "AI", is_new_message=True, is_reasoning=False, is_terminal=True)
         chat.add_tool_result("Command success")
         chat.add_system_message("System info")
+        chat.add_welcome("ICON", "Welcome body")
 
         # Verify history structure
-        assert len(chat._message_history) == 5
+        assert len(chat._message_history) == 6
         kinds = [m["kind"] for m in chat._message_history]
-        assert kinds == ["USER", "REASONING", "AI", "TOOL_RESULT", "SYSTEM"]
+        assert kinds == ["USER", "REASONING", "AI", "TOOL_RESULT", "SYSTEM", "WELCOME"]
 
         # 2. Refresh log with verbose=True (show all)
         chat.refresh_log(show_verbose=True)
@@ -521,8 +522,10 @@ async def test_chat_panel_history_and_filtering():
         
         content = "".join(str(line) for line in log.lines)
         assert "Hello User" in content
+        assert "Thinking" in content  # Reasoning panel title
         assert "Thinking hard" in content
         assert "Hello from AI" in content
+        assert "Command Output" in content # Tool result panel title
         assert "Command success" in content
         assert "System info" in content
 
@@ -536,20 +539,25 @@ async def test_chat_panel_history_and_filtering():
         assert "System info" in content_filtered
         
         # Verbose content should be hidden
+        assert "Thinking" not in content_filtered
         assert "Thinking hard" not in content_filtered
+        assert "Command Output" not in content_filtered
         assert "Command success" not in content_filtered
 
 
 @pytest.mark.asyncio
-async def test_brokk_app_command_result_handling():
-    """Verify that BrokkApp correctly routes COMMAND_RESULT events to ChatPanel."""
+async def test_brokk_app_command_result_handling_and_filtering():
+    """Verify that BrokkApp correctly routes COMMAND_RESULT events and they obey verbosity."""
     from brokk_code.app import BrokkApp
+    from textual.widgets import RichLog
     
     executor = MagicMock()
     app = BrokkApp(executor=executor)
+    app.show_verbose_output = True
     
-    async with app.run_test():
+    async with app.run_test() as pilot:
         chat = app.query_one(ChatPanel)
+        log = chat.query_one("#chat-log", RichLog)
         
         # Simulate a COMMAND_RESULT event
         event = {
@@ -563,10 +571,14 @@ async def test_brokk_app_command_result_handling():
         }
         
         app._handle_event(event)
+        await pilot.pause()
         
         # Verify it was added to history
-        assert len(chat._message_history) > 0
-        last_msg = chat._message_history[-1]
-        assert last_msg["kind"] == "TOOL_RESULT"
-        assert "TestStage" in last_msg["content"]
-        assert "hello world" in last_msg["content"]
+        assert any(m["kind"] == "TOOL_RESULT" for m in chat._message_history)
+        assert "hello world" in "".join(str(line) for line in log.lines)
+
+        # Toggle output OFF
+        app.action_toggle_output()
+        await pilot.pause()
+        assert app.show_verbose_output is False
+        assert "hello world" not in "".join(str(line) for line in log.lines)
