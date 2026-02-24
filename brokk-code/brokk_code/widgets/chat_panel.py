@@ -738,7 +738,7 @@ class ChatPanel(Vertical):
             # Only navigate history if at the end of the text,
             # or if history navigation is already active.
             cursor_row, _ = chat_input.cursor_location
-            last_row = chat_input.document.length - 1
+            last_row = chat_input.document.line_count - 1
             if self._history_index != -1 or cursor_row >= last_row:
                 self._navigate_history(1)
                 event.stop()
