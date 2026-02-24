@@ -454,7 +454,7 @@ class BrokkApp(App):
         self.resume_session = resume_session
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
-        self.show_verbose_output: bool = True
+        self.show_verbose_output: bool = False
 
         # Initialize model and reasoning settings from persisted Settings if present,
         # otherwise fall back to safe defaults.

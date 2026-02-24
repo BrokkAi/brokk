@@ -194,17 +194,17 @@ def test_action_toggle_output_state_and_refresh():
     app._maybe_chat = MagicMock(return_value=mock_chat)
 
     # Initial state
-    assert app.show_verbose_output is True
-
-    # Toggle 1: True -> False
-    app.action_toggle_output()
     assert app.show_verbose_output is False
-    mock_chat.refresh_log.assert_called_with(False)
 
-    # Toggle 2: False -> True
+    # Toggle 1: False -> True
     app.action_toggle_output()
     assert app.show_verbose_output is True
     mock_chat.refresh_log.assert_called_with(True)
+
+    # Toggle 2: True -> False
+    app.action_toggle_output()
+    assert app.show_verbose_output is False
+    mock_chat.refresh_log.assert_called_with(False)
 
 
 @pytest.mark.asyncio
@@ -220,11 +220,11 @@ async def test_ctrl_o_keypress_toggles_output_in_running_app():
     app._poll_tasklist = _noop  # type: ignore[method-assign]
     app._poll_context = _noop  # type: ignore[method-assign]
 
-    assert app.show_verbose_output is True
+    assert app.show_verbose_output is False
 
     async with app.run_test() as pilot:
         await pilot.press("ctrl+o")
-        assert app.show_verbose_output is False
+        assert app.show_verbose_output is True
 
         await pilot.press("ctrl+o")
-        assert app.show_verbose_output is True
+        assert app.show_verbose_output is False

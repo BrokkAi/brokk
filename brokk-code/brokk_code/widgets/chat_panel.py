@@ -960,6 +960,24 @@ class ChatPanel(Vertical):
         self._is_reasoning = False
         self._current_message_type = None
 
+    def _filter_tool_call_blocks(self, content: str) -> str:
+        """
+        Strips tool-call YAML blocks if show_verbose is False.
+        Pattern: `headline` followed by ```yaml ... ```
+        """
+        if self.show_verbose:
+            return content
+
+        import re
+
+        # Pattern: Optional whitespace, `headline`, optional whitespace, yaml block
+        # Mirroring rehype logic: p > code (headline), followed by pre > code (yaml)
+        # Regex: find `headline` followed by ```yaml ... ```
+        pattern = r"`([^`\n]+)`\s*\n\s*```yaml\n.*?\n```"
+        replacement = r"*\[Tool Call: \1 (hidden)]*"
+
+        return re.sub(pattern, replacement, content, flags=re.DOTALL)
+
     def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
         """Visual rendering implementation for a single history entry."""
         if not self.show_verbose and kind == "TOOL_RESULT":
@@ -968,7 +986,8 @@ class ChatPanel(Vertical):
         log = self.query_one("#chat-log", RichLog)
 
         if kind == "AI":
-            log.write(Markdown(content))
+            filtered_content = self._filter_tool_call_blocks(content)
+            log.write(Markdown(filtered_content))
             log.write("")
         elif kind == "REASONING":
             if self.show_verbose:

@@ -570,7 +570,7 @@ async def test_brokk_app_command_result_handling_and_filtering():
     app._poll_tasklist = _noop  # type: ignore[method-assign]
     app._poll_context = _noop  # type: ignore[method-assign]
 
-    app.show_verbose_output = True
+    app.show_verbose_output = False
 
     async with app.run_test() as pilot:
         chat = app.query_one(ChatPanel)
@@ -592,10 +592,51 @@ async def test_brokk_app_command_result_handling_and_filtering():
 
         # Verify it was added to history
         assert any(m["kind"] == "TOOL_RESULT" for m in chat._message_history)
-        assert "hello world" in "".join(str(line) for line in log.lines)
+        # Verbose is OFF by default, so it should NOT be in the rendered log lines
+        assert "hello world" not in "".join(str(line) for line in log.lines)
 
-        # Toggle output OFF
+        # Toggle output ON
         app.action_toggle_output()
         await pilot.pause()
-        assert app.show_verbose_output is False
-        assert "hello world" not in "".join(str(line) for line in log.lines)
+        assert app.show_verbose_output is True
+        assert "hello world" in "".join(str(line) for line in log.lines)
+
+
+@pytest.mark.asyncio
+async def test_ai_tool_call_filtering():
+    """Verify that tool-call YAML blocks in AI messages are filtered when verbose is off."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        log = chat.query_one("#chat-log", RichLog)
+
+        tool_markdown = (
+            "I will check the file.\n\n`read_file` \n```yaml\npath: foo.py\n```\n\nDone."
+        )
+
+        # 1. Verbose ON
+        chat.show_verbose = True
+        chat.add_markdown(tool_markdown)
+        await pilot.pause()
+
+        content_verbose = "".join(str(line) for line in log.lines)
+        assert "read_file" in content_verbose
+        assert "path: foo.py" in content_verbose
+
+        # 2. Verbose OFF
+        log.clear()
+        chat.refresh_log(show_verbose=False)
+        await pilot.pause()
+
+        content_filtered = "".join(str(line) for line in log.lines)
+        assert "I will check the file." in content_filtered
+        assert "Done." in content_filtered
+        assert "[Tool Call: read_file (hidden)]" in content_filtered
+        assert "path: foo.py" not in content_filtered
