@@ -255,6 +255,10 @@ public final class JobRunner {
         };
     }
 
+    static SearchPrompts.Objective objectiveForLutzSearchPhase() {
+        return objectiveForMode(Mode.LUTZ);
+    }
+
     public static Mode parseMode(JobSpec spec) {
         try {
             var tags = spec.tags();
@@ -1229,9 +1233,7 @@ public final class JobRunner {
     void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
             throws InterruptedException {
         var context = cm.liveContext();
-        // LUTZ mode always uses TASKS_ONLY for the search/planning phase to ensure
-        // a consistent task list structure for the subsequent execution loop.
-        var searchAgent = new SearchAgent(context, taskInput, plannerModel, SearchPrompts.Objective.TASKS_ONLY, scope);
+        var searchAgent = new SearchAgent(context, taskInput, plannerModel, objectiveForLutzSearchPhase(), scope);
         var taskListResult = searchAgent.execute();
         scope.append(taskListResult);
     }
