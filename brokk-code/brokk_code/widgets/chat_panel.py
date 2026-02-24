@@ -279,6 +279,13 @@ class MentionSuggestions(ListView):
 class CollapsibleBlock(Static):
     """A small widget for collapsible reasoning or tool outputs."""
 
+    can_focus = True
+
+    BINDINGS = [
+        Binding("ctrl+o", "toggle_block", "Toggle", show=False),
+        Binding("enter", "toggle_block", "Toggle", show=False),
+    ]
+
     def __init__(self, title: str, content: str, expanded: bool = False, **kwargs) -> None:
         super().__init__(**kwargs)
         self.title = title
@@ -296,10 +303,13 @@ class CollapsibleBlock(Static):
         arrow = "▼" if self.expanded else "▶"
         return f"{arrow} {self.title}"
 
-    def on_click(self) -> None:
+    def action_toggle_block(self) -> None:
         self.expanded = not self.expanded
         self.toggle_class("is-expanded")
         self.query_one("#header", Static).update(self._get_header_text())
+
+    def on_click(self) -> None:
+        self.action_toggle_block()
 
 
 class ChatInput(TextArea):
@@ -320,6 +330,7 @@ class ChatInput(TextArea):
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
         Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
         Binding("escape", "hide_autocomplete", "Hide Autocomplete", show=False),
+        Binding("ctrl+o", "toggle_latest_block", "Toggle Output", show=False),
     ]
 
     class Submitted(Message):
@@ -398,6 +409,15 @@ class ChatInput(TextArea):
             reason_sug = self.app.query_one(ReasoningSuggestions)
             if reason_sug.display:
                 reason_sug.display = False
+        except Exception:
+            pass
+
+    def action_toggle_latest_block(self) -> None:
+        """Toggles the most recent collapsible block in the chat log."""
+        try:
+            blocks = list(self.app.query(CollapsibleBlock))
+            if blocks:
+                blocks[-1].action_toggle_block()
         except Exception:
             pass
 

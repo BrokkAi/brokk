@@ -478,6 +478,12 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     background: $surface-lighten-1;
 }
 
+.collapsible-block:focus .collapsible-header {
+    color: $accent;
+    background: $surface-lighten-1;
+    text-style: bold;
+}
+
 .collapsible-body {
     width: 100%;
     height: auto;
