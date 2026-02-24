@@ -418,6 +418,7 @@ class BrokkApp(App):
         # Footer/help-bar ordering: Context, Tasks, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
+        Binding("ctrl+o", "toggle_output", "Toggle Output", show=True),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
 
@@ -453,6 +454,7 @@ class BrokkApp(App):
         self.resume_session = resume_session
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
+        self.show_verbose_output: bool = True
 
         # Initialize model and reasoning settings from persisted Settings if present,
         # otherwise fall back to safe defaults.
@@ -1422,6 +1424,24 @@ class BrokkApp(App):
             if chat:
                 chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
+        elif event_type == "COMMAND_RESULT":
+            if chat:
+                stage = data.get("stage", "Command")
+                command = data.get("command", "")
+                success = data.get("success", False)
+                output = data.get("output", "").strip()
+                exception = data.get("exception")
+
+                status = "[bold green]Success[/]" if success else "[bold red]Failed[/]"
+                header = f"**{stage}**: `{command}` ({status})"
+                
+                parts = [header]
+                if output:
+                    parts.append(f"```\n{output}\n```")
+                if exception:
+                    parts.append(f"**Error**: {exception}")
+                
+                chat.add_tool_result("\n\n".join(parts))
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
@@ -1918,6 +1938,20 @@ class BrokkApp(App):
             self.run_worker(self._edit_selected_task(result))
 
         self.push_screen(TaskTitleModalScreen("Edit Task", initial=initial), on_done)
+
+    def action_toggle_output(self) -> None:
+        """Toggles visibility of reasoning and tool output."""
+        self.show_verbose_output = not self.show_verbose_output
+        chat = self._maybe_chat()
+        if chat:
+            chat.refresh_log(self.show_verbose_output)
+            state = "[bold]ON[/]" if self.show_verbose_output else "[bold]OFF[/]"
+            detail = (
+                "reasoning and tool results visible"
+                if self.show_verbose_output
+                else "reasoning and tool results hidden"
+            )
+            chat.add_system_message_markup(f"Verbose output: {state} ({detail})")
 
     def action_toggle_mode(self) -> None:
         """Cycles through agent modes: CODE -> ASK -> LUTZ -> CODE."""

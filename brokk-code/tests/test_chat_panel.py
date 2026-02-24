@@ -538,3 +538,35 @@ async def test_chat_panel_history_and_filtering():
         # Verbose content should be hidden
         assert "Thinking hard" not in content_filtered
         assert "Command success" not in content_filtered
+
+
+@pytest.mark.asyncio
+async def test_brokk_app_command_result_handling():
+    """Verify that BrokkApp correctly routes COMMAND_RESULT events to ChatPanel."""
+    from brokk_code.app import BrokkApp
+    
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+    
+    async with app.run_test():
+        chat = app.query_one(ChatPanel)
+        
+        # Simulate a COMMAND_RESULT event
+        event = {
+            "type": "COMMAND_RESULT",
+            "data": {
+                "stage": "TestStage",
+                "command": "echo hello",
+                "success": True,
+                "output": "hello world"
+            }
+        }
+        
+        app._handle_event(event)
+        
+        # Verify it was added to history
+        assert len(chat._message_history) > 0
+        last_msg = chat._message_history[-1]
+        assert last_msg["kind"] == "TOOL_RESULT"
+        assert "TestStage" in last_msg["content"]
+        assert "hello world" in last_msg["content"]
