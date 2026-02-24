@@ -1393,6 +1393,30 @@ class BrokkApp(App):
             msg = data.get("message", "Unknown error")
             chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
+        elif event_type == "COMMAND_RESULT":
+            stage = data.get("stage", "command")
+            cmd = data.get("command", "")
+            skipped = bool(data.get("skipped", False))
+            success = bool(data.get("success", False))
+            output = str(data.get("output", "")).strip()
+            exception = data.get("exception")
+
+            # Format a concise summary
+            status = "SKIPPED" if skipped else ("SUCCESS" if success else "FAILED")
+            cmd_short = (cmd[:50] + "...") if len(cmd) > 50 else cmd
+            msg = f"[{stage}] {cmd_short} -> {status}"
+
+            if skipped and data.get("skipReason"):
+                msg += f" ({data.get('skipReason')})"
+
+            # Include a snippet of output if it failed or succeeded with output
+            if output:
+                snippet = (output[:200] + "...") if len(output) > 200 else output
+                msg += f"\n[dim]{snippet}[/]"
+            if exception:
+                msg += f"\n[bold red]Error:[/] {exception}"
+
+            chat.add_tool_result_message(msg)
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):

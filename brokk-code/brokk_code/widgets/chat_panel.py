@@ -1015,6 +1015,12 @@ class ChatPanel(Vertical):
         self._append_history("SYSTEM", text, level=level, markup=True)
         self._render_system(text, level=level, markup=True)
 
+    def add_tool_result_message(self, text: str) -> None:
+        """Renders and records a command/tool result as verbose output."""
+        self._append_history("TOOL_RESULT", text)
+        if self._show_verbose:
+            self._render_system(text, level="INFO", markup=True)
+
     def append_message(self, author: str, text: str) -> None:
         """Legacy helper for simple messages."""
         if author == "User":
@@ -1086,8 +1092,7 @@ class ChatPanel(Vertical):
                 )
             elif kind == "TOOL_RESULT":
                 if self._show_verbose:
-                    # Generic tool result rendering for now
-                    self._render_system(f"Tool Result: {content}", level="INFO")
+                    self._render_system(content, level="INFO", markup=True)
 
     def set_job_running(self, running: bool) -> None:
         """Update job progress state in StatusLine and the help row spinner/timer."""
