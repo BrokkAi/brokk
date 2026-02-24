@@ -137,6 +137,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private volatile CompletableFuture<?> activeDiffCalculation = null;
 
     private record RefreshResult(
+            DiffService.CumulativeChanges changes,
             List<Map.Entry<String, FileDiff>> prepared,
             @Nullable StalenessInfo staleness,
             @Nullable MergeAgent.MergeConflict conflict,
@@ -605,27 +606,28 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     new ReviewTabState("Review (...)", "Computing branch-based changes...", computeUncommittedCount()));
         });
 
-        LoggingFuture.supplyAsync(() -> {
-                    var state = resolveBaselineState();
-                    var reviewCtx = ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
-                    return new ComputedUpdate(state, reviewCtx);
-                })
-                .thenAccept(computed -> {
-                    if (thisGeneration != updateGeneration.get()) {
+        CompletableFuture<RefreshResult> future = LoggingFuture.supplyAsync(() -> {
+            var state = resolveBaselineState();
+            var reviewCtx = ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
+            var changes = reviewCtx.changes();
+            var prepared = DiffService.preparePerFileSummaries(changes);
+            StalenessInfo staleness = (lastReviewState != null) ? computeStaleness() : null;
+            var conflict = ConflictInspector.inspectFromProject(cm.getProject()).orElse(null);
+            var autoState = computeAutoBaselineState();
+            return new RefreshResult(changes, prepared, staleness, conflict, state, autoState);
+        });
+
+        this.activeDiffCalculation = future;
+
+        future.thenAccept(res -> SwingUtilities.invokeLater(() -> {
+                    if (thisGeneration != updateGeneration.get() || future != activeDiffCalculation) {
                         return;
                     }
-
-                    lastCumulativeChanges = computed.scope.changes();
-                    deferredUpdateHelper.requestUpdate();
-
-                    SwingUtilities.invokeLater(() -> {
-                        if (thisGeneration != updateGeneration.get()) return;
-                        emitReviewTabStateFromResult(computed.scope.changes(), computed.state.baselineLabel());
-                    });
-                })
+                    applyRefreshResult(res);
+                }))
                 .exceptionally(ex -> {
                     if (thisGeneration != updateGeneration.get()) return null;
-                    logger.warn("Failed to compute cumulative changes", ex);
+                    logger.warn("Failed to compute changes", ex);
                     SwingUtilities.invokeLater(() -> {
                         if (thisGeneration != updateGeneration.get()) return;
                         showDiffError("Failed to compute changes: " + ex.getMessage());
@@ -635,8 +637,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     return null;
                 });
     }
-
-    private record ComputedUpdate(BaselineState state, ReviewScope scope) {}
 
     /**
      * Result of baseline resolution.
@@ -706,42 +706,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Called by DeferredUpdateHelper when the panel becomes visible (or immediately if already visible).
-     * This handles only the GUI update using the cached lastCumulativeChanges.
+     * Called by DeferredUpdateHelper when the panel becomes visible.
      */
     private void performRefresh() {
-        assert SwingUtilities.isEventDispatchThread();
-
-        var result = lastCumulativeChanges;
-        if (result == null) {
-            return;
-        }
-
-        if (activeDiffCalculation != null) {
-            activeDiffCalculation.cancel(true);
-        }
-
-        showDiffLoading();
-
-        CompletableFuture<RefreshResult> future = LoggingFuture.supplyAsync(() -> {
-            var prepared = DiffService.preparePerFileSummaries(result);
-            StalenessInfo staleness = (lastReviewState != null) ? computeStaleness() : null;
-            var conflict = ConflictInspector.inspectFromProject(cm.getProject()).orElse(null);
-            var currentState = resolveBaselineState();
-            var autoState = computeAutoBaselineState();
-            return new RefreshResult(prepared, staleness, conflict, currentState, autoState);
-        });
-
-        activeDiffCalculation = future;
-
-        future.thenAccept(res -> SwingUtilities.invokeLater(() -> {
-            if (future != activeDiffCalculation) return;
-            applyRefreshResult(res, result);
-        }));
+        requestUpdate();
     }
 
-    private void applyRefreshResult(RefreshResult res, DiffService.CumulativeChanges result) {
+    private void applyRefreshResult(RefreshResult res) {
         assert SwingUtilities.isEventDispatchThread();
+        this.lastCumulativeChanges = res.changes();
         this.lastPreparedPerFile = res.prepared;
         this.currentConflict = res.conflict;
         this.resolveConflictsBtn.setEnabled(res.conflict != null);
@@ -750,7 +723,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         PanelMode nextMode = currentMode;
         if (res.currentState.isError()) {
             nextMode = PanelMode.ERROR;
-        } else if (result.filesChanged() == 0 && (currentMode != PanelMode.REVIEW)) {
+        } else if (res.changes().filesChanged() == 0 && (currentMode != PanelMode.REVIEW)) {
             nextMode = PanelMode.EMPTY;
         } else if (currentMode != PanelMode.REVIEW) {
             nextMode = PanelMode.PREVIEW;
@@ -759,8 +732,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         // Ensure button states and labels are correct after transition from LOADING
         updateGuidedReviewButton();
-        emitReviewTabStateFromResult(result, res.currentState.baselineLabel());
-        updateContent(result, res.prepared, res.currentState.baselineLabel(), res.autoState.baselineLabel());
+        emitReviewTabStateFromResult(res.changes(), res.currentState.baselineLabel());
+        updateContent(res.changes(), res.prepared, res.currentState.baselineLabel(), res.autoState.baselineLabel());
 
         codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(res.staleness));
     }
