@@ -134,7 +134,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private record RefreshResult(
             List<Map.Entry<String, FileDiff>> prepared,
-            StalenessInfo staleness,
+            @Nullable StalenessInfo staleness,
             @Nullable MergeAgent.MergeConflict conflict,
             BaselineState currentState,
             BaselineState autoState) {}
@@ -741,9 +741,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         emitReviewTabStateFromResult(result, res.currentState.baselineLabel());
         updateContent(result, res.prepared, res.currentState.baselineLabel(), res.autoState.baselineLabel());
 
-        if (res.staleness != null) {
-            codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(res.staleness));
-        }
+        codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(res.staleness));
     }
 
     private void emitReviewTabStateFromCached() {
@@ -1303,7 +1301,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     return Map.entry(scope, prepared);
                 }))
                 .thenAccept(entry -> {
-                    var scope = entry.getKey();
                     var prepared = entry.getValue();
 
                     SwingUtilities.invokeLater(() -> {
@@ -1719,7 +1716,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private @Nullable String formatStalenessMessage(StalenessInfo staleness) {
+    private @Nullable String formatStalenessMessage(@Nullable StalenessInfo staleness) {
+        if (staleness == null) {
+            return null;
+        }
         int commits = staleness.commitsBehind();
         int uncommitted = staleness.uncommittedChanges();
         boolean differentBranch = staleness.differentBranch();
