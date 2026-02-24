@@ -30,6 +30,25 @@ Token-by-token model output.
 - `isReasoning` (boolean)
 - `isTerminal` (boolean)
 
+### `TOOL_CALL`
+
+Emitted when the LLM requests a tool execution.
+
+`data` object:
+- `id` (string): Unique identifier for the tool call.
+- `name` (string): Name of the tool being called.
+- `arguments` (string): JSON-formatted string of tool arguments.
+
+### `TOOL_OUTPUT`
+
+Emitted when a tool execution completes.
+
+`data` object:
+- `id` (string): Matches the `id` from the corresponding `TOOL_CALL`.
+- `name` (string): Name of the tool that was executed.
+- `status` (string): Execution status (`SUCCESS`, `REQUEST_ERROR`, `INTERNAL_ERROR`, or `FATAL`).
+- `resultText` (string): The textual output or error message from the tool.
+
 ### `NOTIFICATION`
 
 Human-readable progress/status messages.
