@@ -6,7 +6,6 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.ContextAgent;
-import ai.brokk.cli.CliConsole;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.mcpserver.LangChain4jMcpBridge;
 import ai.brokk.project.MainProject;
@@ -75,10 +74,7 @@ public class BrokkExternalMcpServer {
         try (var project = new MainProject(projectPath);
                 var cm = new ContextManager(project)) {
 
-            // Initialize ContextManager the way BrokkCli does (headless)
-            var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-            cm.createHeadless(bd, false, new CliConsole());
-            cm.dropWithHistorySemantics(List.of());
+            cm.createHeadless(false);
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);

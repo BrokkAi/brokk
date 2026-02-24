@@ -2704,25 +2704,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @TestOnly
     void createHeadless() {
-        createHeadless(BuildDetails.EMPTY, true);
+        createHeadless(true, new HeadlessConsole());
+        var mp = project.getMainProject();
+        // configure a placeholder build so awaitBuildDetails() doesn't block indefinitely
+        if (mp.loadBuildDetails().isEmpty()) {
+            mp.setBuildDetails(BuildDetails.EMPTY);
+        }
     }
 
-    public void createHeadless(BuildDetails buildDetails, boolean createNewSession) {
-        createHeadless(buildDetails, createNewSession, new HeadlessConsole());
+    public void createHeadless(boolean createNewSession) {
+        createHeadless(createNewSession, new HeadlessConsole());
+        ensureBuildDetailsAsync();
     }
 
-    public void createHeadless(BuildDetails buildDetails, boolean createNewSession, IConsoleIO io) {
+    /**
+     * Semi-internal functionality; Setting build details is caller's responsibility!
+     */
+    public void createHeadless(boolean createNewSession, IConsoleIO io) {
         this.io = io;
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
 
         cleanupOldHistoryAsync();
-        // we deliberately don't infer style guide or build details here -- if they already exist, great;
-        // otherwise we leave them empty
-        var mp = project.getMainProject();
-        if (mp.loadBuildDetails().isEmpty()) {
-            mp.setBuildDetails(buildDetails);
-        }
 
         // no AnalyzerListener, instead we will block for it to be ready
         // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService
