@@ -39,6 +39,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialProgressButton;
+import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.ThemeColors;
@@ -61,6 +62,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.Icon;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
@@ -198,6 +200,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private boolean diffActive = false;
 
+    private volatile CompletableFuture<?> activeBranchLoad = null;
+
+    @Nullable
+    private Icon defaultComboIcon = null;
+
+    private record BranchLoadResult(String defaultBranch, @Nullable String originName, List<String> localBranches) {}
+
     private List<FileComparisonInfo> fileComparisons = List.of();
 
     public record ReviewTabState(String title, String tooltip, int uncommittedCount) {}
@@ -231,6 +240,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.comparisonLabel.setOpaque(false);
 
         this.baselineSelector = FuzzyComboBox.forStrings(List.of());
+        this.defaultComboIcon = this.baselineSelector.getButton().getIcon();
         this.baselineSelector.setOpaque(false);
         this.baselineSelector.setSelectionChangeListener(item -> {
             if (item == null || item.startsWith("Auto")) {
@@ -806,45 +816,71 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void updateBaselineOptions(String autoLabel) {
-        String defaultBranch;
-        try {
-            defaultBranch = repo.getDefaultBranch();
-        } catch (Exception e) {
-            logger.debug("Failed to get default branch", e);
-            defaultBranch = "main";
-        }
-        String originName = repo.remote().getOriginRemoteNameWithFallback();
-        List<String> localBranches;
-        try {
-            localBranches = repo.listLocalBranches();
-        } catch (Exception e) {
-            logger.debug("Failed to list local branches", e);
-            localBranches = List.of();
+        if (activeBranchLoad != null && !activeBranchLoad.isDone()) {
+            activeBranchLoad.cancel(true);
         }
 
-        List<String> options = new ArrayList<>();
-        String autoOption = "Auto (" + autoLabel + ")";
-        options.add(autoOption);
-        options.add(defaultBranch);
+        baselineSelector.getButton().setIcon(SpinnerIconUtil.getSpinner(chrome, false));
 
-        if (originName != null) {
-            options.add(originName + "/" + defaultBranch);
-        }
+        CompletableFuture<BranchLoadResult> future = LoggingFuture.supplyAsync(() -> {
+            String defaultBranch;
+            try {
+                defaultBranch = repo.getDefaultBranch();
+            } catch (Exception e) {
+                logger.debug("Failed to get default branch", e);
+                defaultBranch = "main";
+            }
+            String originName = repo.remote().getOriginRemoteNameWithFallback();
+            List<String> localBranches;
+            try {
+                localBranches = repo.listLocalBranches();
+            } catch (Exception e) {
+                logger.debug("Failed to list local branches", e);
+                localBranches = List.of();
+            }
+            return new BranchLoadResult(defaultBranch, originName, localBranches);
+        });
+        this.activeBranchLoad = future;
 
-        final String finalDefaultBranch = defaultBranch;
-        List<String> otherBranches = localBranches.stream()
-                .filter(b -> !b.equals(finalDefaultBranch))
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
-        options.addAll(otherBranches);
+        future.thenAccept(result -> SwingUtilities.invokeLater(() -> {
+                    if (future != this.activeBranchLoad) return;
 
-        baselineSelector.setItems(options);
+                    baselineSelector.getButton().setIcon(defaultComboIcon);
 
-        if (reviewBaselineRef == null) {
-            baselineSelector.setSelectedItem(autoOption);
-        } else {
-            baselineSelector.setSelectedItem(reviewBaselineRef);
-        }
+                    List<String> options = new ArrayList<>();
+                    String autoOption = "Auto (" + autoLabel + ")";
+                    options.add(autoOption);
+
+                    String defaultBranch = result.defaultBranch();
+                    options.add(defaultBranch);
+
+                    String originName = result.originName();
+                    if (originName != null) {
+                        options.add(originName + "/" + defaultBranch);
+                    }
+
+                    List<String> otherBranches = result.localBranches().stream()
+                            .filter(b -> !b.equals(defaultBranch))
+                            .sorted(String.CASE_INSENSITIVE_ORDER)
+                            .toList();
+                    options.addAll(otherBranches);
+
+                    baselineSelector.setItems(options);
+
+                    if (reviewBaselineRef == null) {
+                        baselineSelector.setSelectedItem(autoOption);
+                    } else {
+                        baselineSelector.setSelectedItem(reviewBaselineRef);
+                    }
+                }))
+                .exceptionally(ex -> {
+                    SwingUtilities.invokeLater(() -> {
+                        if (future == this.activeBranchLoad) {
+                            baselineSelector.getButton().setIcon(defaultComboIcon);
+                        }
+                    });
+                    return null;
+                });
     }
 
     private void updateBaselineLabel() {
