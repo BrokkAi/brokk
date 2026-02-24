@@ -5,6 +5,7 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
+import ai.brokk.tools.SearchTools;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
@@ -158,15 +159,11 @@ public class BrokkMcpStdioServer {
             @Nullable ContextManager cm, McpSchema.CallToolRequest request) {
         try {
             return switch (request.name()) {
-                case "scan" -> {
-                    if (cm == null) {
-                        yield McpSchema.CallToolResult.builder()
-                                .addTextContent("Internal error: tool 'scan' requires a ContextManager")
-                                .isError(true)
-                                .build();
-                    }
-                    yield handleScan(cm, request);
-                }
+                case "scan" -> handleScan(requireContextManager(cm, "scan"), request);
+                case "find_symbols" -> handleFindSymbols(requireContextManager(cm, "find_symbols"), request);
+                case "find_usages" -> handleFindUsages(requireContextManager(cm, "find_usages"), request);
+                case "list_identifiers" ->
+                    handleListIdentifiers(requireContextManager(cm, "list_identifiers"), request);
                 default ->
                     McpSchema.CallToolResult.builder()
                             .addTextContent("Tool '" + request.name() + "' is not yet implemented")
@@ -183,6 +180,66 @@ public class BrokkMcpStdioServer {
                     .isError(true)
                     .build();
         }
+    }
+
+    private static McpSchema.CallToolResult handleFindSymbols(ContextManager cm, McpSchema.CallToolRequest request) {
+        var args = request.arguments();
+        @SuppressWarnings("unchecked")
+        List<String> patterns = (List<String>) args.get("patterns");
+        String goal = (String) args.getOrDefault("goal", "");
+        boolean includeTests = Boolean.TRUE.equals(args.get("include_tests"));
+
+        if (patterns == null || patterns.isEmpty()) {
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Missing required argument 'patterns'")
+                    .isError(true)
+                    .build();
+        }
+
+        String result = new SearchTools(cm).searchSymbols(patterns, goal, includeTests);
+        return McpSchema.CallToolResult.builder().addTextContent(result).build();
+    }
+
+    private static McpSchema.CallToolResult handleFindUsages(ContextManager cm, McpSchema.CallToolRequest request) {
+        var args = request.arguments();
+        @SuppressWarnings("unchecked")
+        List<String> targets = (List<String>) args.get("targets");
+        String goal = (String) args.getOrDefault("goal", "");
+        boolean includeTests = Boolean.TRUE.equals(args.get("include_tests"));
+
+        if (targets == null || targets.isEmpty()) {
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Missing required argument 'targets'")
+                    .isError(true)
+                    .build();
+        }
+
+        String result = new SearchTools(cm).scanUsages(targets, goal, includeTests);
+        return McpSchema.CallToolResult.builder().addTextContent(result).build();
+    }
+
+    private static McpSchema.CallToolResult handleListIdentifiers(
+            ContextManager cm, McpSchema.CallToolRequest request) {
+        var args = request.arguments();
+        String dir = (String) args.get("dir");
+        String goal = (String) args.getOrDefault("goal", "");
+
+        if (dir == null) {
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Missing required argument 'dir'")
+                    .isError(true)
+                    .build();
+        }
+
+        String result = new SearchTools(cm).skimDirectory(dir, goal);
+        return McpSchema.CallToolResult.builder().addTextContent(result).build();
+    }
+
+    private static ContextManager requireContextManager(@Nullable ContextManager cm, String toolName) {
+        if (cm == null) {
+            throw new IllegalStateException("Internal error: tool '" + toolName + "' requires a ContextManager");
+        }
+        return cm;
     }
 
     private static McpSchema.CallToolResult handleScan(ContextManager cm, McpSchema.CallToolRequest request)
