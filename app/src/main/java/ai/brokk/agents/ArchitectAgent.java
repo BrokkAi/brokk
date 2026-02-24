@@ -739,10 +739,9 @@ public class ArchitectAgent {
                     .name("callCodeAgent")
                     .arguments("{\"instructions\": \"%s\", \"deferBuild\": false}".formatted(goal))
                     .build();
+
             io.beforeToolCall(req);
             var initialSummary = callCodeAgent(goal, false);
-            // We don't have a ToolExecutionResult here as it returns String, but we can synthesize one
-            // for the hook if consistency is desired.
             io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
 
             architectMessages.add(new UserMessage(
@@ -846,9 +845,11 @@ public class ArchitectAgent {
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
+
                     io.beforeToolCall(answerReq);
                     var toolResult = tr.executeTool(answerReq);
                     io.afterToolOutput(toolResult);
+
                     io.llmOutput(
                             "Project final answer: " + toolResult.resultText(),
                             ChatMessageType.AI,
@@ -865,9 +866,11 @@ public class ArchitectAgent {
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
+
                     io.beforeToolCall(abortReq);
                     var toolResult = tr.executeTool(abortReq);
                     io.afterToolOutput(toolResult);
+
                     io.llmOutput(
                             "Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     return resultWithMessages(StopReason.LLM_ABORTED);

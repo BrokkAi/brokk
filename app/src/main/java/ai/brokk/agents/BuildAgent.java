@@ -143,9 +143,7 @@ public class BuildAgent {
                 .name("listTrackedFiles")
                 .arguments("{\"directoryPath\": \".\"}") // Request root dir
                 .build();
-        project.getConsoleIO().beforeToolCall(initialRequest);
         ToolExecutionResult initialResult = tr.executeTool(initialRequest);
-        project.getConsoleIO().afterToolOutput(initialResult);
         chatHistory.add(new UserMessage(
                 """
         Here are the contents of the project root directory:
@@ -287,6 +285,7 @@ public class BuildAgent {
                 project.getConsoleIO().beforeToolCall(reportRequest);
                 var terminalResult = tr.executeTool(reportRequest);
                 project.getConsoleIO().afterToolOutput(terminalResult);
+
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     // The assertion was here, but requireNonNull is more explicit for NullAway
                     return requireNonNull(
@@ -302,6 +301,7 @@ public class BuildAgent {
                 project.getConsoleIO().beforeToolCall(abortRequest);
                 var terminalResult = tr.executeTool(abortRequest);
                 project.getConsoleIO().afterToolOutput(terminalResult);
+
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     assert abortReason != null;
                     return BuildDetails.EMPTY;
