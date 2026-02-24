@@ -118,6 +118,7 @@ public final class MainProject extends AbstractProject {
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
     private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
     private static final String MIGRATION_DECLINED_KEY = "styleMdMigrationDeclined";
+    private static final String GIT_CONFIG_DECLINED_KEY = "gitConfigDeclined";
 
     // Old keys for migration
     private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
@@ -1367,6 +1368,21 @@ public final class MainProject extends AbstractProject {
 
     public void setMigrationDeclined(boolean declined) {
         projectProps.setProperty(MIGRATION_DECLINED_KEY, String.valueOf(declined));
+        saveProjectProperties();
+    }
+
+    @Override
+    public boolean isGitConfigDeclined() {
+        return Boolean.parseBoolean(projectProps.getProperty(GIT_CONFIG_DECLINED_KEY, "false"));
+    }
+
+    @Override
+    public void setGitConfigDeclined(boolean declined) {
+        if (declined) {
+            projectProps.setProperty(GIT_CONFIG_DECLINED_KEY, "true");
+        } else {
+            projectProps.remove(GIT_CONFIG_DECLINED_KEY);
+        }
         saveProjectProperties();
     }
 
