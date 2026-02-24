@@ -12,6 +12,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.swing.JOptionPane;
@@ -268,20 +269,20 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
     @Override
     public void beforeToolCall(ToolExecutionRequest request) {
-        var data = Map.of(
-                "id", request.id(),
-                "name", request.name(),
-                "arguments", request.arguments());
+        var data = new HashMap<String, Object>();
+        putIfNonNull(data, "id", request.id());
+        putIfNonNull(data, "name", request.name());
+        putIfNonNull(data, "arguments", request.arguments());
         appendEvent("TOOL_CALL", data);
     }
 
     @Override
     public void afterToolOutput(ToolExecutionResult result) {
-        var data = Map.of(
-                "id", result.toolId(),
-                "name", result.toolName(),
-                "status", result.status().name(),
-                "resultText", result.resultText());
+        var data = new HashMap<String, Object>();
+        putIfNonNull(data, "id", result.toolId());
+        putIfNonNull(data, "name", result.toolName());
+        putIfNonNull(data, "status", result.status().name());
+        putIfNonNull(data, "resultText", result.resultText());
         appendEvent("TOOL_OUTPUT", data);
     }
 
@@ -345,6 +346,12 @@ public class HeadlessHttpConsole extends MemoryConsole {
             case JOptionPane.PLAIN_MESSAGE -> "INFO";
             default -> "INFO";
         };
+    }
+
+    private static void putIfNonNull(Map<String, Object> data, String key, @Nullable Object value) {
+        if (value != null) {
+            data.put(key, value);
+        }
     }
 
     /**

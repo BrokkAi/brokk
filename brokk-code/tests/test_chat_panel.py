@@ -346,10 +346,10 @@ async def test_chat_help_line_includes_shift_tab_mode_after_history() -> None:
         help_line = chat.query_one("#chat-help", Static)
         rendered = _static_rendered_text(help_line)
 
-        assert "Up/Down: History" in rendered
+        assert "↑/↓: History" in rendered
         assert "Shift+Tab: Mode" in rendered
         assert "/commands" not in rendered
-        assert rendered.index("Up/Down: History") < rendered.index("Shift+Tab: Mode")
+        assert rendered.index("↑/↓: History") < rendered.index("Shift+Tab: Mode")
 
 
 @pytest.mark.asyncio
@@ -486,3 +486,305 @@ async def test_mention_autocomplete_ignores_email_like_text():
 
         assert mentions.display is False
         app.executor.get_completions.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_panel_history_and_filtering():
+    """Verify that ChatPanel records history and filters correctly during refresh_log."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        log = chat.query_one("#chat-log", RichLog)
+
+        # 1. Add various message types
+        chat.add_user_message("Hello User")
+        chat.append_token(
+            "Thinking hard", "AI", is_new_message=True, is_reasoning=True, is_terminal=True
+        )
+        chat.append_token(
+            "Hello from AI", "AI", is_new_message=True, is_reasoning=False, is_terminal=True
+        )
+        chat.add_tool_result("Command success")
+        chat.add_system_message("System info")
+        chat.add_welcome("ICON", "Welcome body")
+
+        # Verify history structure
+        assert len(chat._message_history) == 6
+        kinds = [m["kind"] for m in chat._message_history]
+        assert kinds == ["USER", "REASONING", "AI", "TOOL_RESULT", "SYSTEM", "WELCOME"]
+
+        # 2. Refresh log with verbose=True (show all)
+        chat.refresh_log(show_verbose=True)
+        await pilot.pause()
+
+        content = "".join(str(line) for line in log.lines)
+        assert "Hello User" in content
+        assert "Thinking [-] (ctrl+o to collapse)" in content  # Reasoning panel title
+        assert "Thinking hard" in content
+        assert "Hello from AI" in content
+        assert "Command Output [-] (ctrl+o to collapse)" in content  # Tool result panel title
+        assert "Command success" in content
+        assert "System info" in content
+
+        # 3. Refresh log with verbose=False (collapse REASONING and hide TOOL_RESULT)
+        chat.refresh_log(show_verbose=False)
+        await pilot.pause()
+
+        content_filtered = "".join(str(line) for line in log.lines)
+        assert "Hello User" in content_filtered
+        assert "Hello from AI" in content_filtered
+        assert "System info" in content_filtered
+
+        # REASONING should show header with collapse hint, but content hidden
+        assert "Thinking [+] (ctrl+o to expand)" in content_filtered
+        assert "Thinking hard" not in content_filtered
+
+        # TOOL_RESULT should render collapsed header, but content hidden
+        assert "Command Output [+] (ctrl+o to expand)" in content_filtered
+        assert "Command success" not in content_filtered
+
+
+@pytest.mark.asyncio
+async def test_brokk_app_command_result_handling_and_filtering():
+    """Verify that BrokkApp correctly routes COMMAND_RESULT events and they obey verbosity."""
+    from textual.widgets import RichLog
+
+    from brokk_code.app import BrokkApp
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    # Avoid starting background workers during this integration test.
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    app.show_verbose_output = False
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+        log = chat.query_one("#chat-log", RichLog)
+
+        # Simulate a COMMAND_RESULT event
+        event = {
+            "type": "COMMAND_RESULT",
+            "data": {
+                "stage": "TestStage",
+                "command": "echo hello",
+                "success": True,
+                "output": "hello world",
+            },
+        }
+
+        app._handle_event(event)
+        await pilot.pause()
+
+        # Verify it was added to history
+        assert any(m["kind"] == "TOOL_RESULT" for m in chat._message_history)
+        # Verbose is OFF by default, so it should NOT be in the rendered log lines
+        assert "hello world" not in "".join(str(line) for line in log.lines)
+
+        # Toggle output ON
+        app.action_toggle_output()
+        await pilot.pause()
+        assert app.show_verbose_output is True
+        assert "hello world" in "".join(str(line) for line in log.lines)
+
+
+@pytest.mark.asyncio
+async def test_ai_tool_call_filtering():
+    """Verify that tool-call YAML blocks in AI messages are filtered when verbose is off."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+
+        tool_markdown = (
+            "I will check the file.\n\n`read_file` \n```yaml\npath: foo.py\n```\n\nDone."
+        )
+
+        # 1. Verbose ON - content should be stored unfiltered in history
+        chat.show_verbose = True
+        chat.add_markdown(tool_markdown)
+        await pilot.pause()
+
+        # History stores raw content
+        assert len(chat._message_history) == 1
+        assert chat._message_history[0]["content"] == tool_markdown
+
+        # 2. Clear and test with Verbose OFF
+        chat._message_history.clear()
+        chat.show_verbose = False
+        chat.add_markdown(tool_markdown)
+        await pilot.pause()
+
+        # History still stores raw content (filtering happens at render time)
+        assert len(chat._message_history) == 1
+        assert chat._message_history[0]["content"] == tool_markdown
+
+        # But _filter_tool_call_blocks should collapse it
+        filtered = chat._filter_tool_call_blocks(tool_markdown)
+        assert "path: foo.py" not in filtered
+        assert "Tool Call: read_file [+] (ctrl+o to expand)" in filtered
+        assert "I will check the file." in filtered
+        assert "Done." in filtered
+
+
+@pytest.mark.asyncio
+async def test_filter_tool_call_blocks_noop_when_verbose():
+    """Verify that _filter_tool_call_blocks returns content unchanged when verbose is True."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.show_verbose = True
+
+        # Use four backticks to mirror ExplanationRenderer format
+        content = "`Adding files to workspace`\n````yaml\nfoo: bar\n````\nAfter."
+
+        filtered = panel._filter_tool_call_blocks(content)
+        assert filtered == content
+
+
+@pytest.mark.asyncio
+async def test_filter_tool_call_blocks_collapses_four_backtick_yaml():
+    """Verify that four-backtick YAML blocks are collapsed when verbose is False."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.show_verbose = False
+
+        # Use four backticks to mirror ExplanationRenderer format
+        content = "`Adding files to workspace`\n````yaml\nfoo: bar\n````\nAfter."
+
+        filtered = panel._filter_tool_call_blocks(content)
+
+        # YAML content should be hidden
+        assert "foo: bar" not in filtered
+        # Summary marker should be present
+        assert "Tool Call: Adding files to workspace [+] (ctrl+o to expand)" in filtered
+        # Surrounding content preserved
+        assert "After." in filtered
+
+
+@pytest.mark.asyncio
+async def test_filter_tool_call_blocks_triple_backtick_compatibility():
+    """Verify that triple-backtick YAML blocks are also collapsed for robustness."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.show_verbose = False
+
+        # Use triple backticks (legacy format)
+        content = "`read_file`\n```yaml\npath: foo.py\n```\nDone."
+
+        filtered = panel._filter_tool_call_blocks(content)
+
+        # YAML content should be hidden
+        assert "path: foo.py" not in filtered
+        # Summary marker should be present
+        assert "Tool Call: read_file [+] (ctrl+o to expand)" in filtered
+        # Surrounding content preserved
+        assert "Done." in filtered
+
+
+@pytest.mark.asyncio
+async def test_tool_call_visibility_toggle_integration():
+    """
+    Integration-style test: verify that toggling output via BrokkApp.action_toggle_output
+    correctly refreshes the visibility of tool calls in existing AI messages.
+    """
+    from textual.widgets import RichLog
+
+    from brokk_code.app import BrokkApp
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    # Start with verbose OFF
+    app.show_verbose_output = False
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+
+        tool_markdown = (
+            "Thinking about a file.\n\n`list_files` \n```yaml\ndirectory: src\n```\n\nFinished."
+        )
+
+        # Add message while verbose is OFF
+        chat.add_markdown(tool_markdown)
+        await pilot.pause()
+
+        # Verify the raw content is in history
+        assert any(m["content"] == tool_markdown for m in chat._message_history)
+
+        # Verify filtering works correctly based on show_verbose state
+        chat.show_verbose = False
+        filtered_off = chat._filter_tool_call_blocks(tool_markdown)
+        assert "directory: src" not in filtered_off
+        assert "Tool Call: list_files [+] (ctrl+o to expand)" in filtered_off
+
+        # Toggle output ON
+        app.action_toggle_output()
+        await pilot.pause()
+        assert app.show_verbose_output is True
+        rendered_on = "".join(str(line) for line in chat.query_one("#chat-log", RichLog).lines)
+        assert "Tool Call: list_files [-] (ctrl+o to collapse)" in rendered_on
+
+        # With verbose ON, filtering should be a no-op
+        chat.show_verbose = True
+        filtered_on = chat._filter_tool_call_blocks(tool_markdown)
+        assert filtered_on == tool_markdown
+        assert "directory: src" in filtered_on
+
+        # Toggle output OFF again
+        app.action_toggle_output()
+        await pilot.pause()
+        assert app.show_verbose_output is False
+
+        # Verify filtering works again when off
+        chat.show_verbose = False
+        filtered_off_again = chat._filter_tool_call_blocks(tool_markdown)
+        assert "Tool Call: list_files [+] (ctrl+o to expand)" in filtered_off_again
+        assert "directory: src" not in filtered_off_again

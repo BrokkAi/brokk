@@ -15,6 +15,10 @@ from textual.widgets import ListItem, ListView, LoadingIndicator, RichLog, Stati
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 
+# Arrow glyphs for UI display (ASCII-only source)
+UP_ARROW = chr(0x2191)  # ↑
+DOWN_ARROW = chr(0x2193)  # ↓
+
 
 class ModeSuggestions(ListView):
     """A popup list for selecting agent modes."""
@@ -683,7 +687,11 @@ class ChatPanel(Vertical):
         self._job_start_time: Optional[float] = None
         self._timer_interval: Optional[Any] = None
 
-        # History Navigation State
+        # Message History for filtering and re-rendering
+        self._message_history: List[Dict[str, Any]] = []
+        self.show_verbose: bool = True
+
+        # History Navigation State (Input prompts)
         self._history: list[str] = []
         self._history_index: int = -1  # -1 means no history navigation active
         self._draft_buffer: str = ""  # Stores text before history navigation started
@@ -702,7 +710,7 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                "Enter: Submit  Ctrl+J: Newline  Up/Down: History  Shift+Tab: Mode",
+                f"Enter: Send  Ctrl+J: Newline  {UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode",
                 id="chat-help",
             )
 
@@ -939,10 +947,7 @@ class ChatPanel(Vertical):
 
     def _flush_message(self) -> None:
         """Renders the accumulated buffer as Markdown or a reasoning Panel."""
-        log = self.query_one("#chat-log", RichLog)
-
         # If the buffer is empty or only whitespace, clear per-message state
-        # so we don't leave a stale reasoning/typing mode active for subsequent messages.
         if not self._current_message_buffer.strip():
             self._current_message_buffer = ""
             self._is_reasoning = False
@@ -950,73 +955,204 @@ class ChatPanel(Vertical):
             return
 
         content = self._current_message_buffer.strip()
+        kind = "REASONING" if self._is_reasoning else "AI"
 
-        if self._is_reasoning:
+        self._message_history.append({"kind": kind, "content": content})
+        self._render_message_entry(kind, content)
+
+        self._current_message_buffer = ""
+        self._is_reasoning = False
+        self._current_message_type = None
+
+    def _filter_tool_call_blocks(self, content: str) -> str:
+        """
+        Strips tool-call YAML blocks if show_verbose is False.
+        Pattern: `headline` followed by ```yaml ... ``` or ````yaml ... ````
+        """
+        if self.show_verbose:
+            return content
+
+        import re
+
+        # Pattern: `headline` followed by yaml block (3+ backticks).
+        # Backreference \2 ensures the closing fence matches the opening.
+        pattern = r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n.*?\n\2"
+        replacement = r"*Tool Call: \1 [+] (ctrl+o to expand)*"
+
+        return re.sub(pattern, replacement, content, flags=re.DOTALL)
+
+    def _collapsible_title(self, label: str, expanded: bool) -> str:
+        """Returns a consistent title for collapsible output sections."""
+        state = "[-]" if expanded else "[+]"
+        action = "collapse" if expanded else "expand"
+        return f"{label} {state} (ctrl+o to {action})"
+
+    def _render_tool_call_panel(self, name: str, yaml_body: str) -> Panel:
+        """Renders a tool call block using the same collapsible panel style as reasoning."""
+        if self.show_verbose:
+            body = Markdown(f"```yaml\n{yaml_body}\n```")
+        else:
+            body = Text("...", style="grey50")
+
+        return Panel(
+            body,
+            title=self._collapsible_title(f"Tool Call: {name}", self.show_verbose),
+            title_align="center",
+            border_style="grey37",
+        )
+
+    def _render_ai_content(self, log: RichLog, content: str) -> None:
+        """Renders AI markdown and tool-call YAML blocks with consistent formatting."""
+        import re
+
+        pattern = re.compile(
+            r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n(.*?)\n\2",
+            flags=re.DOTALL,
+        )
+
+        position = 0
+        matched_tool_call = False
+        for match in pattern.finditer(content):
+            matched_tool_call = True
+            before = content[position : match.start()]
+            if before.strip():
+                log.write(Markdown(before))
+                log.write("")
+
+            tool_name = match.group(1)
+            yaml_body = match.group(3)
+            log.write(self._render_tool_call_panel(tool_name, yaml_body))
+            log.write("")
+            position = match.end()
+
+        if not matched_tool_call:
+            filtered_content = self._filter_tool_call_blocks(content)
+            log.write(Markdown(filtered_content))
+            log.write("")
+            return
+
+        after = content[position:]
+        if after.strip():
+            log.write(Markdown(after))
+            log.write("")
+
+    def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
+        """Visual rendering implementation for a single history entry."""
+        log = self.query_one("#chat-log", RichLog)
+
+        if kind == "AI":
+            self._render_ai_content(log, content)
+        elif kind == "REASONING":
+            if self.show_verbose:
+                panel_content = Markdown(content, style="grey50")
+            else:
+                panel_content = Text("...", style="grey50")
+
             panel = Panel(
-                Markdown(content, style="grey50"),
-                title="Thinking",
+                panel_content,
+                title=self._collapsible_title("Thinking", self.show_verbose),
+                title_align="center",
                 border_style="grey37",
             )
             log.write(panel)
-            log.write("")  # Spacer
-            self._current_message_buffer = ""
-            self._is_reasoning = False
-            self._current_message_type = None
-        else:
+            log.write("")
+        elif kind == "USER":
+            log.write(
+                Panel(
+                    Text(content, justify="left"),
+                    title="You",
+                    title_align="right",
+                    border_style="blue",
+                )
+            )
+            log.write("")
+        elif kind == "SYSTEM":
+            level = kwargs.get("level", "INFO")
+            markup = kwargs.get("markup", False)
+            style_map = {
+                "INFO": "italic grey50",
+                "WARNING": "bold yellow",
+                "ERROR": "bold red",
+                "COST": "bold green",
+            }
+            style = style_map.get(level.upper(), "italic grey50")
+            prefix = f"[{level}] " if level != "INFO" else ""
+
+            if markup:
+                log.write(f"[{style}]{prefix}{content}[/]")
+            else:
+                log.write(Text(f"{prefix}{content}", style=style))
+        elif kind == "TOOL_RESULT":
+            if self.show_verbose:
+                panel_content = Markdown(content)
+            else:
+                panel_content = Text("...", style="grey50")
+            panel = Panel(
+                panel_content,
+                title=self._collapsible_title("Command Output", self.show_verbose),
+                title_align="center",
+                border_style="grey37",
+            )
+            log.write(panel)
+            log.write("")
+        elif kind == "WELCOME":
+            icon = kwargs.get("icon", "")
+            log.write(Text(icon, style="#D04040"))
             log.write(Markdown(content))
-            log.write("")  # Spacer
-            self._current_message_buffer = ""
-            self._current_message_type = None
+            log.write("")
+        elif kind == "LEGACY_AUTHOR":
+            author = kwargs.get("author", "System")
+            output = Text()
+            output.append(f"{author}: ", style="bold green")
+            output.append(content)
+            log.write(output)
+
+    def refresh_log(self, show_verbose: bool) -> None:
+        """Clears the RichLog and re-renders history based on the verbosity filter."""
+        self.show_verbose = show_verbose
+        log = self.query_one("#chat-log", RichLog)
+        log.clear()
+
+        for entry in self._message_history:
+            self._render_message_entry(
+                kind=entry["kind"],
+                content=entry["content"],
+                **{k: v for k, v in entry.items() if k not in ("kind", "content")},
+            )
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""
-        log = self.query_one("#chat-log", RichLog)
-        log.write(Markdown(content))
-        log.write("")
+        self._message_history.append({"kind": "AI", "content": content})
+        self._render_message_entry("AI", content)
 
     def add_welcome(self, icon: str, body: str) -> None:
         """Renders the welcome message: icon in Brokk red, followed by Markdown body."""
-        log = self.query_one("#chat-log", RichLog)
-        log.write(Text(icon, style="#D04040"))
-        log.write(Markdown(body))
-        log.write("")
+        self._message_history.append({"kind": "WELCOME", "content": body, "icon": icon})
+        self._render_message_entry("WELCOME", body, icon=icon)
 
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""
-        log = self.query_one("#chat-log", RichLog)
-        log.write(
-            Panel(Text(text, justify="left"), title="You", title_align="right", border_style="blue")
-        )
-        log.write("")
+        self._message_history.append({"kind": "USER", "content": text})
+        self._render_message_entry("USER", text)
 
     def add_system_message(self, text: str, level: str = "INFO") -> None:
         """Renders a system message styled by level. Treats text as plain text."""
-        log = self.query_one("#chat-log", RichLog)
-        style_map = {
-            "INFO": "italic grey50",
-            "WARNING": "bold yellow",
-            "ERROR": "bold red",
-            "COST": "bold green",
-        }
-        style = style_map.get(level.upper(), "italic grey50")
-
-        prefix = f"[{level}] " if level != "INFO" else ""
-        # Using Text object ensures 'text' containing markup like [/] doesn't crash parsing
-        log.write(Text(f"{prefix}{text}", style=style))
+        self._message_history.append(
+            {"kind": "SYSTEM", "content": text, "level": level, "markup": False}
+        )
+        self._render_message_entry("SYSTEM", text, level=level, markup=False)
 
     def add_system_message_markup(self, text: str, level: str = "INFO") -> None:
         """Renders a system message and allows intentional Rich markup in 'text'."""
-        log = self.query_one("#chat-log", RichLog)
-        style_map = {
-            "INFO": "italic grey50",
-            "WARNING": "bold yellow",
-            "ERROR": "bold red",
-            "COST": "bold green",
-        }
-        style = style_map.get(level.upper(), "italic grey50")
+        self._message_history.append(
+            {"kind": "SYSTEM", "content": text, "level": level, "markup": True}
+        )
+        self._render_message_entry("SYSTEM", text, level=level, markup=True)
 
-        prefix = f"[{level}] " if level != "INFO" else ""
-        log.write(f"[{style}]{prefix}{text}[/]")
+    def add_tool_result(self, text: str) -> None:
+        """Renders a tool or command result block."""
+        self._message_history.append({"kind": "TOOL_RESULT", "content": text})
+        self._render_message_entry("TOOL_RESULT", text)
 
     def append_message(self, author: str, text: str) -> None:
         """Legacy helper for simple messages."""
@@ -1026,12 +1162,10 @@ class ChatPanel(Vertical):
             level = "ERROR" if author == "Error" else "INFO"
             self.add_system_message(text, level=level)
         else:
-            log = self.query_one("#chat-log", RichLog)
-            # Use Text objects for the author and message to avoid markup injection/crashes
-            output = Text()
-            output.append(f"{author}: ", style="bold green")
-            output.append(text)
-            log.write(output)
+            self._message_history.append(
+                {"kind": "LEGACY_AUTHOR", "content": text, "author": author}
+            )
+            self._render_message_entry("LEGACY_AUTHOR", text, author=author)
 
     def set_token_bar_visible(self, visible: bool) -> None:
         """Toggles the visibility of the token usage bar."""

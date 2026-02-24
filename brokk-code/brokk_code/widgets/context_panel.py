@@ -10,6 +10,12 @@ from textual.widgets import Label, Static
 
 from brokk_code.token_format import format_token_count
 
+# Arrow glyphs for UI display (ASCII-only source)
+UP_ARROW = chr(0x2191)  # ↑
+DOWN_ARROW = chr(0x2193)  # ↓
+LEFT_ARROW = chr(0x2190)  # ←
+RIGHT_ARROW = chr(0x2192)  # →
+
 
 class ContextFragmentItem(Static):
     """A compact chip-like widget representing a single context fragment."""
@@ -148,6 +154,7 @@ class ContextPanel(Vertical):
         # Add manual entries for the ones we skipped above but want to show
         manual = [
             "[bold bright_magenta]Esc[/] Close",
+            f"[b]{UP_ARROW}{DOWN_ARROW}{LEFT_ARROW}{RIGHT_ARROW}[/b] Nav",
             "[b]Space[/b] Toggle",
             "[b]Enter[/b] Select",
         ]
