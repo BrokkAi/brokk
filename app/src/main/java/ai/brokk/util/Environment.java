@@ -144,12 +144,26 @@ public class Environment {
             @Nullable ShellConfig shellConfig,
             Map<String, String> environment)
             throws SubprocessException, InterruptedException {
-        return runShellCommand(command, root, outputConsumer, timeout, shellConfig, environment, null);
+        return runShellCommand(command, root, false, outputConsumer, timeout, shellConfig, environment, null);
     }
 
     public String runShellCommand(
             String command,
             Path root,
+            Consumer<String> outputConsumer,
+            Duration timeout,
+            @Nullable ShellConfig shellConfig,
+            Map<String, String> environment,
+            @Nullable Consumer<Process> processConsumer)
+            throws SubprocessException, InterruptedException {
+        return runShellCommand(
+                command, root, false, outputConsumer, timeout, shellConfig, environment, processConsumer);
+    }
+
+    public String runShellCommand(
+            String command,
+            Path root,
+            boolean sandbox,
             Consumer<String> outputConsumer,
             Duration timeout,
             @Nullable ShellConfig shellConfig,
@@ -166,7 +180,7 @@ public class Environment {
 
         // Production path: use the new overload with full support
         return runShellCommandInternal(
-                command, root, false, timeout, outputConsumer, shellConfig, environment, processConsumer);
+                command, root, sandbox, timeout, outputConsumer, shellConfig, environment, processConsumer);
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
