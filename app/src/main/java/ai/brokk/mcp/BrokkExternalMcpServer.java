@@ -6,8 +6,10 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.cli.CliConsole;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.mcpserver.LangChain4jMcpBridge;
+import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
@@ -19,6 +21,7 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
@@ -36,24 +39,47 @@ public class BrokkExternalMcpServer {
         this.cm = cm;
     }
 
-    public static int run(ContextManager cm) {
-        McpJsonMapper mapper = McpJsonDefaults.getMapper();
-        BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
-        McpServer.sync(new StdioServerTransportProvider(mapper))
-                .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
-                .jsonMapper(mapper)
-                .tools(instance.toolSpecifications())
-                .build();
-
-        logger.info("Brokk MCP Stdio Server started.");
-        // The SDK's Stdio transport starts processing when the server is built or upon explicit start if async.
-        // For sync server with stdio, we just need to keep the process alive.
-        try {
-            Thread.currentThread().join();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+    public static void main(String[] args) {
+        int port = 8080;
+        if (args.length > 0) {
+            try {
+                port = Integer.parseInt(args[0]);
+            } catch (NumberFormatException e) {
+                System.err.println("Invalid port: " + args[0]);
+                System.exit(1);
+            }
         }
-        return 0;
+
+        Path projectPath = Path.of(".").toAbsolutePath().normalize();
+        try (var project = new MainProject(projectPath);
+                var cm = new ContextManager(project)) {
+
+            // Initialize ContextManager the way BrokkCli does (headless)
+            var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+            cm.createHeadless(bd, false, new CliConsole());
+            cm.dropWithHistorySemantics(List.of());
+
+            McpJsonMapper mapper = McpJsonDefaults.getMapper();
+            BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
+
+            // Using Stdio transport instead of HTTP as HttpServerTransportProvider was not found
+            McpServer.sync(new StdioServerTransportProvider(mapper))
+                    .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
+                    .jsonMapper(mapper)
+                    .tools(instance.toolSpecifications())
+                    .build();
+
+            logger.info("Brokk MCP Stdio Server started.");
+
+            try {
+                Thread.currentThread().join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        } catch (Exception e) {
+            logger.error("Failed to start Brokk MCP Server", e);
+            System.exit(1);
+        }
     }
 
     public List<McpServerFeatures.SyncToolSpecification> toolSpecifications() {
