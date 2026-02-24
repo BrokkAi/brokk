@@ -670,7 +670,11 @@ class ChatPanel(Vertical):
         self._job_start_time: Optional[float] = None
         self._timer_interval: Optional[Any] = None
 
-        # History Navigation State
+        # UI State for Verbose Filtering
+        self._show_verbose: bool = True
+        self._message_history: List[Dict[str, Any]] = []
+
+        # History Navigation State (Prompt History)
         self._history: list[str] = []
         self._history_index: int = -1  # -1 means no history navigation active
         self._draft_buffer: str = ""  # Stores text before history navigation started
@@ -919,12 +923,50 @@ class ChatPanel(Vertical):
         if is_terminal:
             self._flush_message()
 
-    def _flush_message(self) -> None:
-        """Renders the accumulated buffer as Markdown or a reasoning Panel."""
-        log = self.query_one("#chat-log", RichLog)
+    def _append_history(self, kind: str, content: str, **meta) -> None:
+        """Internal helper to record a message in history."""
+        self._message_history.append({"kind": kind, "content": content, "meta": meta})
 
-        # If the buffer is empty or only whitespace, clear per-message state
-        # so we don't leave a stale reasoning/typing mode active for subsequent messages.
+    def _render_user(self, text: str) -> None:
+        log = self.query_one("#chat-log", RichLog)
+        log.write(
+            Panel(Text(text, justify="left"), title="You", title_align="right", border_style="blue")
+        )
+        log.write("")
+
+    def _render_ai(self, content: str) -> None:
+        log = self.query_one("#chat-log", RichLog)
+        log.write(Markdown(content))
+        log.write("")
+
+    def _render_reasoning(self, content: str) -> None:
+        log = self.query_one("#chat-log", RichLog)
+        panel = Panel(
+            Markdown(content, style="grey50"),
+            title="Thinking",
+            border_style="grey37",
+        )
+        log.write(panel)
+        log.write("")
+
+    def _render_system(self, text: str, level: str = "INFO", markup: bool = False) -> None:
+        log = self.query_one("#chat-log", RichLog)
+        style_map = {
+            "INFO": "italic grey50",
+            "WARNING": "bold yellow",
+            "ERROR": "bold red",
+            "COST": "bold green",
+        }
+        style = style_map.get(level.upper(), "italic grey50")
+        prefix = f"[{level}] " if level != "INFO" else ""
+
+        if markup:
+            log.write(f"[{style}]{prefix}{text}[/]")
+        else:
+            log.write(Text(f"{prefix}{text}", style=style))
+
+    def _flush_message(self) -> None:
+        """Renders the accumulated buffer and records it in history."""
         if not self._current_message_buffer.strip():
             self._current_message_buffer = ""
             self._is_reasoning = False
@@ -932,23 +974,18 @@ class ChatPanel(Vertical):
             return
 
         content = self._current_message_buffer.strip()
+        kind = "REASONING" if self._is_reasoning else "AI"
+        self._append_history(kind, content)
 
-        if self._is_reasoning:
-            panel = Panel(
-                Markdown(content, style="grey50"),
-                title="Thinking",
-                border_style="grey37",
-            )
-            log.write(panel)
-            log.write("")  # Spacer
-            self._current_message_buffer = ""
-            self._is_reasoning = False
-            self._current_message_type = None
+        if kind == "REASONING":
+            if self._show_verbose:
+                self._render_reasoning(content)
         else:
-            log.write(Markdown(content))
-            log.write("")  # Spacer
-            self._current_message_buffer = ""
-            self._current_message_type = None
+            self._render_ai(content)
+
+        self._current_message_buffer = ""
+        self._is_reasoning = False
+        self._current_message_type = None
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""
@@ -964,41 +1001,19 @@ class ChatPanel(Vertical):
         log.write("")
 
     def add_user_message(self, text: str) -> None:
-        """Renders a user message with distinct styling."""
-        log = self.query_one("#chat-log", RichLog)
-        log.write(
-            Panel(Text(text, justify="left"), title="You", title_align="right", border_style="blue")
-        )
-        log.write("")
+        """Renders and records a user message."""
+        self._append_history("USER", text)
+        self._render_user(text)
 
     def add_system_message(self, text: str, level: str = "INFO") -> None:
-        """Renders a system message styled by level. Treats text as plain text."""
-        log = self.query_one("#chat-log", RichLog)
-        style_map = {
-            "INFO": "italic grey50",
-            "WARNING": "bold yellow",
-            "ERROR": "bold red",
-            "COST": "bold green",
-        }
-        style = style_map.get(level.upper(), "italic grey50")
-
-        prefix = f"[{level}] " if level != "INFO" else ""
-        # Using Text object ensures 'text' containing markup like [/] doesn't crash parsing
-        log.write(Text(f"{prefix}{text}", style=style))
+        """Renders and records a system message (plain text)."""
+        self._append_history("SYSTEM", text, level=level, markup=False)
+        self._render_system(text, level=level, markup=False)
 
     def add_system_message_markup(self, text: str, level: str = "INFO") -> None:
-        """Renders a system message and allows intentional Rich markup in 'text'."""
-        log = self.query_one("#chat-log", RichLog)
-        style_map = {
-            "INFO": "italic grey50",
-            "WARNING": "bold yellow",
-            "ERROR": "bold red",
-            "COST": "bold green",
-        }
-        style = style_map.get(level.upper(), "italic grey50")
-
-        prefix = f"[{level}] " if level != "INFO" else ""
-        log.write(f"[{style}]{prefix}{text}[/]")
+        """Renders and records a system message (with markup)."""
+        self._append_history("SYSTEM", text, level=level, markup=True)
+        self._render_system(text, level=level, markup=True)
 
     def append_message(self, author: str, text: str) -> None:
         """Legacy helper for simple messages."""
@@ -1008,8 +1023,9 @@ class ChatPanel(Vertical):
             level = "ERROR" if author == "Error" else "INFO"
             self.add_system_message(text, level=level)
         else:
+            # Custom author
+            self._append_history("AI", text, author=author)
             log = self.query_one("#chat-log", RichLog)
-            # Use Text objects for the author and message to avoid markup injection/crashes
             output = Text()
             output.append(f"{author}: ", style="bold green")
             output.append(text)
@@ -1046,9 +1062,32 @@ class ChatPanel(Vertical):
     def refresh_log(self, show_verbose: bool) -> None:
         """
         Refresh the visible log content based on the verbose output setting.
-        (Note: Implementation of filtering will follow in a later task.)
+        Clears the log and replays recorded history.
         """
-        pass
+        self._show_verbose = show_verbose
+        log = self.query_one("#chat-log", RichLog)
+        log.clear()
+
+        for entry in self._message_history:
+            kind = entry["kind"]
+            content = entry["content"]
+            meta = entry.get("meta", {})
+
+            if kind == "USER":
+                self._render_user(content)
+            elif kind == "AI":
+                self._render_ai(content)
+            elif kind == "REASONING":
+                if self._show_verbose:
+                    self._render_reasoning(content)
+            elif kind == "SYSTEM":
+                self._render_system(
+                    content, level=meta.get("level", "INFO"), markup=meta.get("markup", False)
+                )
+            elif kind == "TOOL_RESULT":
+                if self._show_verbose:
+                    # Generic tool result rendering for now
+                    self._render_system(f"Tool Result: {content}", level="INFO")
 
     def set_job_running(self, running: bool) -> None:
         """Update job progress state in StatusLine and the help row spinner/timer."""
