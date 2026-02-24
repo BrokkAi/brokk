@@ -36,6 +36,7 @@ import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.git.GitWorkflow;
+import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialProgressButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -159,7 +160,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final JLabel branchLabel;
 
-    private final JLabel baselineLabel;
+    private final JLabel comparisonLabel;
+
+    private final FuzzyComboBox<String> baselineSelector;
 
     private final MaterialButton commitBtn;
 
@@ -223,8 +226,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.branchLabel.setOpaque(false);
         this.branchLabel.setFont(this.branchLabel.getFont().deriveFont(Font.BOLD));
 
-        this.baselineLabel = new JLabel();
-        this.baselineLabel.setOpaque(false);
+        this.comparisonLabel = new JLabel("Changes vs ");
+        this.comparisonLabel.setOpaque(false);
+
+        this.baselineSelector = FuzzyComboBox.forStrings(List.of());
+        this.baselineSelector.setOpaque(false);
+        this.baselineSelector.setSelectionChangeListener(item -> {
+            if (item == null || item.startsWith("Auto")) {
+                reviewBaselineRef = null;
+            } else {
+                reviewBaselineRef = item;
+            }
+            requestUpdate();
+        });
+        // Set a reasonable width for the selector
+        this.baselineSelector.setPreferredSize(new Dimension(180, 24));
 
         this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
 
@@ -308,10 +324,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         leftHeader.setLayout(new BoxLayout(leftHeader, BoxLayout.X_AXIS));
         leftHeader.setOpaque(false);
         branchLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
-        baselineLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        comparisonLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        baselineSelector.setAlignmentY(Component.CENTER_ALIGNMENT);
         leftHeader.add(branchLabel);
         leftHeader.add(Box.createHorizontalStrut(12));
-        leftHeader.add(baselineLabel);
+        leftHeader.add(comparisonLabel);
+        leftHeader.add(baselineSelector);
         headerPanel.add(leftHeader, BorderLayout.WEST);
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
@@ -756,6 +774,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     public void updateContent(
             DiffService.CumulativeChanges res, List<Map.Entry<String, FileDiff>> prepared, String baselineLabel) {
 
+        updateBaselineOptions(baselineLabel);
         refreshUI(res, prepared);
     }
 
@@ -784,6 +803,33 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new BufferSource.StringSource(entry.getValue().newText(), "", entry.getKey(), null));
     }
 
+    private void updateBaselineOptions(String autoLabel) {
+        String defaultBranch;
+        try {
+            defaultBranch = repo.getDefaultBranch();
+        } catch (Exception e) {
+            logger.debug("Failed to get default branch", e);
+            defaultBranch = "main";
+        }
+        String originName = repo.remote().getOriginRemoteNameWithFallback();
+
+        java.util.List<String> options = new java.util.ArrayList<>();
+        String autoOption = "Auto (" + autoLabel + ")";
+        options.add(autoOption);
+        options.add(defaultBranch);
+        if (originName != null) {
+            options.add(originName + "/" + defaultBranch);
+        }
+
+        baselineSelector.setItems(options);
+
+        if (reviewBaselineRef == null) {
+            baselineSelector.setSelectedItem(autoOption);
+        } else {
+            baselineSelector.setSelectedItem(reviewBaselineRef);
+        }
+    }
+
     private void updateBaselineLabel() {
         String currentBranch = "unknown";
         try {
@@ -793,12 +839,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
         branchLabel.setText("Branch: " + currentBranch);
 
-        String branchBaseline = resolvedBaselineBranch != null ? resolvedBaselineBranch : "branch";
-
-        if (reviewBaselineRef != null) {
-            baselineLabel.setText("Changes from " + repo.shortHash(reviewBaselineRef));
+        if (currentMode == PanelMode.REVIEW) {
+            comparisonLabel.setText(
+                    "Changes from " + (reviewBaselineRef != null ? repo.shortHash(reviewBaselineRef) : ""));
+            baselineSelector.setVisible(false);
         } else {
-            baselineLabel.setText("Changes vs " + branchBaseline);
+            comparisonLabel.setText("Changes vs ");
+            baselineSelector.setVisible(true);
         }
     }
 
