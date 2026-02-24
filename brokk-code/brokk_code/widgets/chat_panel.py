@@ -292,6 +292,7 @@ class ChatInput(TextArea):
 
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
+        Binding("ctrl+j", "submit", "Submit", show=False),
         Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
         Binding("escape", "hide_autocomplete", "Hide Autocomplete", show=False),
     ]
@@ -596,11 +597,11 @@ class ChatInput(TextArea):
                 event.stop()
                 event.prevent_default()
                 return
-            if event.key in ("tab", "enter"):
-                # Flag that we want to submit immediately if Enter was used on slash suggestions.
+            if event.key in ("tab", "enter", "ctrl+j"):
+                # Flag that we want to submit immediately if Enter or Ctrl+J was used on slash suggestions.
                 # Only apply this to 'suggestions' (SlashCommandSuggestions),
                 # not mode/reasoning menus.
-                if event.key == "enter" and active_popup == suggestions:
+                if event.key in ("enter", "ctrl+j") and active_popup == suggestions:
                     self.submit_after_accept = True
 
                 self.action_accept_suggestion()
@@ -613,10 +614,10 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
 
-        # Handle Enter and Shift+Enter
-        if event.key == "enter":
+        # Handle Enter, Ctrl+J and Shift+Enter
+        if event.key in ("enter", "ctrl+j"):
             is_shift = getattr(event, "shift", False)
-            if is_shift:
+            if is_shift and event.key == "enter":
                 self.action_insert_newline()
             else:
                 self.action_submit()

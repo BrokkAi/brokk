@@ -140,6 +140,28 @@ async def test_shift_enter_inserts_newline(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ctrl_j_submits(tmp_path):
+    """
+    Verify that Ctrl+J submits the input.
+    """
+    stub = StubExecutor(workspace_dir=tmp_path, auto_release=True)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        await pilot.click("#chat-input")
+
+        await type_text(pilot, "hello ctrl+j")
+        await pilot.press("ctrl+j")
+        await pilot.pause()
+
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 1
+        assert submits[0]["input"] == "hello ctrl+j"
+        assert chat_input.text == ""
+
+
+@pytest.mark.asyncio
 async def test_large_paste_submits_as_job(tmp_path):
     """
     Verify that large inputs submit normally as jobs.
