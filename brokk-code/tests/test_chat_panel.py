@@ -592,3 +592,27 @@ async def test_app_toggle_output_integration():
             await pilot.press("ctrl+o")
             assert app.show_verbose_output is True
             assert chat._show_verbose is True
+
+
+@pytest.mark.asyncio
+async def test_chat_panel_history_truncation():
+    """Verify that _message_history respects its maximum size limit."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel._max_message_history = 10  # Set a small limit for testing
+
+        # Add more than 10 messages
+        for i in range(15):
+            panel.add_user_message(f"Message {i}")
+
+        assert len(panel._message_history) == 10
+        # The first 5 should have been popped
+        assert panel._message_history[0]["content"] == "Message 5"
+        assert panel._message_history[-1]["content"] == "Message 14"

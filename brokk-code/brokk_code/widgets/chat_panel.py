@@ -673,6 +673,7 @@ class ChatPanel(Vertical):
         # UI State for Verbose Filtering
         self._show_verbose: bool = True
         self._message_history: List[Dict[str, Any]] = []
+        self._max_message_history: int = 200
 
         # History Navigation State (Prompt History)
         self._history: list[str] = []
@@ -924,8 +925,10 @@ class ChatPanel(Vertical):
             self._flush_message()
 
     def _append_history(self, kind: str, content: str, **meta) -> None:
-        """Internal helper to record a message in history."""
+        """Internal helper to record a message in history, maintaining size limits."""
         self._message_history.append({"kind": kind, "content": content, "meta": meta})
+        if len(self._message_history) > self._max_message_history:
+            self._message_history.pop(0)
 
     def _render_user(self, text: str) -> None:
         log = self.query_one("#chat-log", RichLog)
