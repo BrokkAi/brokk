@@ -526,14 +526,14 @@ async def test_chat_panel_history_and_filtering():
 
         content = "".join(str(line) for line in log.lines)
         assert "Hello User" in content
-        assert "Thinking" in content  # Reasoning panel title
+        assert "Thinking v (ctrl+o to collapse)" in content  # Reasoning panel title
         assert "Thinking hard" in content
         assert "Hello from AI" in content
         assert "Command Output" in content  # Tool result panel title
         assert "Command success" in content
         assert "System info" in content
 
-        # 3. Refresh log with verbose=False (hide REASONING and TOOL_RESULT)
+        # 3. Refresh log with verbose=False (collapse REASONING and hide TOOL_RESULT)
         chat.refresh_log(show_verbose=False)
         await pilot.pause()
 
@@ -542,9 +542,11 @@ async def test_chat_panel_history_and_filtering():
         assert "Hello from AI" in content_filtered
         assert "System info" in content_filtered
 
-        # Verbose content should be hidden
-        assert "Thinking" not in content_filtered
+        # REASONING should show header with collapse hint, but content hidden
+        assert "Thinking < (ctrl+o to expand)" in content_filtered
         assert "Thinking hard" not in content_filtered
+
+        # TOOL_RESULT content should be hidden
         assert "Command Output" not in content_filtered
         assert "Command success" not in content_filtered
 

@@ -962,7 +962,7 @@ class ChatPanel(Vertical):
 
     def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
         """Visual rendering implementation for a single history entry."""
-        if not self.show_verbose and kind in ("REASONING", "TOOL_RESULT"):
+        if not self.show_verbose and kind == "TOOL_RESULT":
             return
 
         log = self.query_one("#chat-log", RichLog)
@@ -971,9 +971,16 @@ class ChatPanel(Vertical):
             log.write(Markdown(content))
             log.write("")
         elif kind == "REASONING":
+            if self.show_verbose:
+                title = "Thinking v (ctrl+o to collapse)"
+                panel_content = Markdown(content, style="grey50")
+            else:
+                title = "Thinking < (ctrl+o to expand)"
+                panel_content = Text("...", style="grey50")
+
             panel = Panel(
-                Markdown(content, style="grey50"),
-                title="Thinking",
+                panel_content,
+                title=title,
                 border_style="grey37",
             )
             log.write(panel)
