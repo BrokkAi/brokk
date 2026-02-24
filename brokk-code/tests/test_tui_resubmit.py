@@ -152,14 +152,23 @@ async def test_ctrl_j_inserts_newline(tmp_path):
         await pilot.click("#chat-input")
 
         await type_text(pilot, "hello")
+        # In Textual, ctrl+j is often aliased or handled specifically;
+        # this verifies our binding in ChatInput works as expected.
         await pilot.press("ctrl+j")
         await type_text(pilot, "world")
         await pilot.pause()
 
-        # Should not submit
+        # Verify no submission occurred
         submits = [c for c in stub.calls if c["type"] == "submit"]
         assert len(submits) == 0
         assert chat_input.text == "hello\nworld"
+
+        # Now verify it CAN submit with enter after ctrl+j newline
+        await pilot.press("enter")
+        await pilot.pause()
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 1
+        assert submits[0]["input"] == "hello\nworld"
 
 
 @pytest.mark.asyncio
