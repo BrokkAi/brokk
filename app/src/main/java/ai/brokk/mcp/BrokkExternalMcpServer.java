@@ -13,6 +13,8 @@ import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
+import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.Environment;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -26,7 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -76,11 +78,7 @@ public class BrokkExternalMcpServer {
 
             logger.info("Brokk MCP Stdio Server started.");
 
-            try {
-                Thread.currentThread().join();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            Thread.currentThread().join();
         } catch (Exception e) {
             logger.error("Failed to start Brokk MCP Server", e);
             System.exit(1);
@@ -113,10 +111,10 @@ public class BrokkExternalMcpServer {
 
     private boolean isJqOnPath() {
         try {
-            ai.brokk.util.Environment.instance.runShellCommand(
+            Environment.instance.runShellCommand(
                     "jq --version", cm.getProject().getRoot(), out -> {}, java.time.Duration.ofSeconds(2));
             return true;
-        } catch (Exception e) {
+        } catch (Environment.SubprocessException | InterruptedException e) {
             return false;
         }
     }
@@ -124,168 +122,157 @@ public class BrokkExternalMcpServer {
     @Tool("Agentic scan for relevant files and classes. Returns a summary of recommended context.")
     public String scan(
             @P("The goal or prompt to scan for.") String goal,
-            @P("Include test files in the results. Default: false.") boolean includeTests) {
-        try {
-            var scanModel = cm.getService().getScanModel();
-            var agent = new ContextAgent(cm, scanModel, goal, new MutedConsoleIO(cm.getIo()));
-            var recommendations = agent.getRecommendations(cm.liveContext());
+            @P("Include test files in the results. Default: false.") boolean includeTests)
+            throws InterruptedException {
+        var scanModel = cm.getService().getScanModel();
+        var agent = new ContextAgent(cm, scanModel, goal, new MutedConsoleIO(cm.getIo()));
+        var recommendations = agent.getRecommendations(cm.liveContext());
 
-            if (!recommendations.success()) {
-                return "Scan failed to find recommendations.";
-            }
-
-            StringBuilder sb = new StringBuilder();
-            recommendations.fragments().stream()
-                    .filter(f -> includeTests
-                            || f.sourceFiles().join().stream()
-                                    .noneMatch(pf -> ContextManager.isTestFile(pf, cm.getAnalyzerUninterrupted())))
-                    .flatMap(f -> toSummaryFragments(f).stream())
-                    .forEach(f -> {
-                        sb.append("## ").append(f.description().join()).append(":\n");
-                        sb.append(f.text().join()).append("\n\n");
-                    });
-
-            cm.pushContext(ctx -> ctx.addFragments(recommendations.fragments()));
-            return sb.toString();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "Scan interrupted: " + e.getMessage();
-        } catch (Exception e) {
-            return "Scan failed: " + e.getMessage();
+        if (!recommendations.success()) {
+            return "Scan failed to find recommendations.";
         }
+
+        StringBuilder sb = new StringBuilder();
+        recommendations.fragments().stream()
+                .filter(f -> includeTests
+                        || f.sourceFiles().join().stream()
+                                .noneMatch(pf -> ContextManager.isTestFile(pf, cm.getAnalyzerUninterrupted())))
+                .flatMap(f -> toSummaryFragments(f).stream())
+                .forEach(f -> {
+                    sb.append("## ").append(f.description().join()).append(":\n");
+                    sb.append(f.text().join()).append("\n\n");
+                });
+
+        cm.pushContext(ctx -> ctx.addFragments(recommendations.fragments()));
+        return sb.toString();
     }
 
     @Tool("Implement changes asked for in the goal. Will search for relevant files if none are provided.")
     public String code(
             @P("The goal/prompt for the changes.") String goal,
-            @P("Optional list of files to narrow the radius or edit directly.") List<String> files) {
-        try {
-            if (!files.isEmpty()) {
-                new ai.brokk.tools.WorkspaceTools(cm.liveContext()).addFilesToWorkspace(files);
-            }
-
-            TaskResult result;
-            try (var scope = cm.beginTaskUngrouped(goal)) {
-                if (cm.liveContext().getEditableFragments().findAny().isPresent()) {
-                    StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
-                            .getModel(cm.getProject()
-                                    .getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
-                    StreamingChatModel codeModel = java.util.Objects.requireNonNull(cm.getService()
-                            .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
-                    var agent = new ArchitectAgent(
-                            cm, planModel, codeModel, goal, scope, cm.liveContext(), new MutedConsoleIO(cm.getIo()));
-                    result = agent.executeWithScan(false);
-                } else {
-                    StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
-                            .getModel(cm.getProject()
-                                    .getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
-                    var agent = new ai.brokk.agents.SearchAgent(
-                            cm.liveContext(),
-                            goal,
-                            planModel,
-                            SearchPrompts.Objective.CODE_ONLY,
-                            scope,
-                            new MutedConsoleIO(cm.getIo()),
-                            ai.brokk.agents.SearchAgent.ScanConfig.defaults());
-                    result = agent.execute();
-                }
-                scope.append(result);
-            }
-
-            return result.stopDetails().explanation();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "Code execution interrupted: " + e.getMessage();
-        } catch (Exception e) {
-            return "Code execution failed: " + e.getMessage();
+            @P("Optional list of files to narrow the radius or edit directly.") List<String> files)
+            throws InterruptedException {
+        if (!files.isEmpty()) {
+            new WorkspaceTools(cm.liveContext()).addFilesToWorkspace(files);
         }
+
+        TaskResult result;
+        try (var scope = cm.beginTaskUngrouped(goal)) {
+            if (cm.liveContext().getEditableFragments().findAny().isPresent()) {
+                StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
+                        .getModel(
+                                cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
+                StreamingChatModel codeModel = java.util.Objects.requireNonNull(cm.getService()
+                        .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
+                var agent = new ArchitectAgent(
+                        cm, planModel, codeModel, goal, scope, cm.liveContext(), new MutedConsoleIO(cm.getIo()));
+                result = agent.executeWithScan(false);
+            } else {
+                StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
+                        .getModel(
+                                cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
+                var agent = new ai.brokk.agents.SearchAgent(
+                        cm.liveContext(),
+                        goal,
+                        planModel,
+                        SearchPrompts.Objective.CODE_ONLY,
+                        scope,
+                        new MutedConsoleIO(cm.getIo()),
+                        ai.brokk.agents.SearchAgent.ScanConfig.defaults());
+                result = agent.execute();
+            }
+            scope.append(result);
+        }
+
+        return result.stopDetails().explanation();
     }
 
     @Tool("Run build verification (compile and test) without making changes.")
-    public String build() {
-        try {
-            String error = BuildAgent.runVerification(cm);
-            return error.isEmpty() ? "Build successful" : "Build failed:\n" + error;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "Build interrupted: " + e.getMessage();
-        } catch (Exception e) {
-            return "Build failed: " + e.getMessage();
-        }
+    public String build() throws InterruptedException {
+        String error = BuildAgent.runVerification(cm);
+        return error.isEmpty() ? "Build successful" : "Build failed:\n" + error;
     }
 
-    @Tool("Configure build and test commands for the project. These settings are persisted.")
+    @Tool("Configure build and test commands for the project. You can assume it has already been configured unless you are told otherwise.")
     public String configureBuild(
-            @P("Command to build or lint incrementally, e.g. 'mvn compile', 'cargo check'.") @Nullable
+            @P("Command to build or lint incrementally, e.g. 'mvn compile', 'cargo check'. Must not be null.")
                     String buildOnlyCmd,
-            @P("Command to run all tests. Use for global verification.") @Nullable String testAllCmd,
-            @P("Mustache template for running specific tests. Supports {{#files}}, {{#classes}}, {{#fqclasses}}.")
-                    @Nullable
-                    String testSomeCmd) {
-        try {
-            var project = cm.getProject();
-            var existingDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+            @P(
+                            "Mustache template for running specific tests. Supports {{#files}}, {{#classes}}, {{#fqclasses}}. Must not be null.")
+                    String testSomeCmd)
+            throws InterruptedException {
+        var project = cm.getProject();
+        var existingDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
 
-            String buildCmd = buildOnlyCmd != null ? buildOnlyCmd : existingDetails.buildLintCommand();
-            String testAll = testAllCmd != null ? testAllCmd : existingDetails.testAllCommand();
-            String testSome = testSomeCmd != null ? testSomeCmd : existingDetails.testSomeCommand();
-
-            if (testAllCmd != null) {
-                project.setCodeAgentTestScope(ai.brokk.project.IProject.CodeAgentTestScope.ALL);
-            } else if (testSomeCmd != null) {
-                project.setCodeAgentTestScope(ai.brokk.project.IProject.CodeAgentTestScope.WORKSPACE);
-            }
-
-            var bd = new BuildAgent.BuildDetails(
-                    buildCmd,
-                    testAll,
-                    testSome,
-                    existingDetails.exclusionPatterns(),
-                    existingDetails.environmentVariables(),
-                    existingDetails.maxBuildAttempts(),
-                    existingDetails.afterTaskListCommand());
-
-            project.setBuildDetails(bd);
-            project.saveBuildDetails(bd);
-
-            return "Build configuration updated.";
-        } catch (Exception e) {
-            return "Failed to configure build: " + e.getMessage();
+        // 1. Verify buildOnlyCmd
+        ai.brokk.util.BuildVerifier.VerificationResult buildResult =
+                ai.brokk.util.BuildVerifier.verify(project, buildOnlyCmd);
+        if (!buildResult.success()) {
+            return "Configuration failed: buildOnlyCmd ('" + buildOnlyCmd + "') failed with exit code "
+                    + buildResult.exitCode() + ":\n" + buildResult.output();
         }
+
+        // 2. Verify testSomeCmd
+        // Find a test file to verify the template works
+        var testFileOpt = project.getAllFiles().stream()
+                .filter(f -> cm.getAnalyzerUninterrupted().containsTests(f))
+                .findFirst();
+
+        var bd = new BuildAgent.BuildDetails(
+                buildOnlyCmd,
+                existingDetails.testAllCommand(),
+                testSomeCmd,
+                existingDetails.exclusionPatterns(),
+                existingDetails.environmentVariables(),
+                existingDetails.maxBuildAttempts(),
+                existingDetails.afterTaskListCommand());
+        if (testFileOpt.isPresent()) {
+            String interpolatedTestCmd = BuildAgent.getBuildLintSomeCommand(
+                    cm,
+                    bd,
+                    List.of(testFileOpt.get()));
+
+            ai.brokk.util.BuildVerifier.VerificationResult testResult =
+                    ai.brokk.util.BuildVerifier.verify(project, interpolatedTestCmd);
+            if (!testResult.success()) {
+                return "Configuration failed: testSomeCmd verification failed using command '" + interpolatedTestCmd
+                        + "'. Exit code " + testResult.exitCode() + ":\n" + testResult.output();
+            }
+        }
+
+        // 3. Persist only if both succeeded
+        project.setCodeAgentTestScope(ai.brokk.project.IProject.CodeAgentTestScope.WORKSPACE);
+        project.setBuildDetails(bd);
+        project.saveBuildDetails(bd);
+
+        return "Build configuration verified (build and test) and updated.";
     }
 
     @Tool("Solve all merge/rebase/cherry-pick conflicts in the repository.")
-    public String merge() {
-        try {
-            var conflictOpt = ai.brokk.agents.ConflictInspector.inspectFromProject(cm.getProject());
-            if (conflictOpt.isEmpty()) {
-                return "Error: Repository is not in a merge conflict state.";
-            }
-
-            StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
-                    .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
-            StreamingChatModel codeModel = java.util.Objects.requireNonNull(cm.getService()
-                    .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
-
-            TaskResult result;
-            try (var scope = cm.beginTaskUngrouped("Merge")) {
-                var mergeAgent = new ai.brokk.agents.MergeAgent(
-                        cm,
-                        planModel,
-                        codeModel,
-                        conflictOpt.get(),
-                        scope,
-                        ai.brokk.agents.MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
-                result = mergeAgent.execute();
-                scope.append(result);
-            }
-            return result.stopDetails().explanation();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "Merge interrupted: " + e.getMessage();
-        } catch (Exception e) {
-            return "Merge failed: " + e.getMessage();
+    public String merge() throws InterruptedException, java.io.IOException, GitAPIException {
+        var conflictOpt = ai.brokk.agents.ConflictInspector.inspectFromProject(cm.getProject());
+        if (conflictOpt.isEmpty()) {
+            return "Error: Repository is not in a merge conflict state.";
         }
+
+        StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
+                .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
+        StreamingChatModel codeModel = java.util.Objects.requireNonNull(cm.getService()
+                .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
+
+        TaskResult result;
+        try (var scope = cm.beginTaskUngrouped("Merge")) {
+            var mergeAgent = new ai.brokk.agents.MergeAgent(
+                    cm,
+                    planModel,
+                    codeModel,
+                    conflictOpt.get(),
+                    scope,
+                    ai.brokk.agents.MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+            result = mergeAgent.execute();
+            scope.append(result);
+        }
+        return result.stopDetails().explanation();
     }
 
     private List<SummaryFragment> toSummaryFragments(ai.brokk.context.ContextFragment fragment) {
