@@ -558,6 +558,16 @@ async def test_brokk_app_command_result_handling_and_filtering():
 
     executor = MagicMock()
     app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    # Avoid starting background workers during this integration test.
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
     app.show_verbose_output = True
 
     async with app.run_test() as pilot:
