@@ -14,6 +14,8 @@ import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.tools.ToolExecutionResult;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Panel;
@@ -731,6 +733,85 @@ class HeadlessHttpConsoleTest {
         assertThrows(UnsupportedOperationException.class, () -> snapshot.add(AiMessage.from("oops")));
         assertThrows(UnsupportedOperationException.class, () -> snapshot.remove(0));
         assertThrows(UnsupportedOperationException.class, snapshot::clear);
+    }
+
+    @Test
+    void testBeforeToolCall_MapsToToolCallEvent() throws Exception {
+        var request = ToolExecutionRequest.builder()
+                .id("call-123")
+                .name("testTool")
+                .arguments("{\"arg\": \"val\"}")
+                .build();
+
+        console.beforeToolCall(request);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("TOOL_CALL", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("call-123", data.get("id"));
+        assertEquals("testTool", data.get("name"));
+        assertEquals("{\"arg\": \"val\"}", data.get("arguments"));
+
+        cleanup();
+    }
+
+    @Test
+    void testAfterToolOutput_MapsToToolOutputEvent() throws Exception {
+        var request = ToolExecutionRequest.builder()
+                .id("call-123")
+                .name("testTool")
+                .arguments("{\"arg\": \"val\"}")
+                .build();
+        var result = ToolExecutionResult.success(request, "Success message");
+
+        console.afterToolOutput(result);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("TOOL_OUTPUT", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("call-123", data.get("id"));
+        assertEquals("testTool", data.get("name"));
+        assertEquals("SUCCESS", data.get("status"));
+        assertEquals("Success message", data.get("resultText"));
+
+        cleanup();
+    }
+
+    @Test
+    void testAfterToolOutput_ErrorStatus_MapsToToolOutputEvent() throws Exception {
+        var request = ToolExecutionRequest.builder()
+                .id("call-456")
+                .name("badTool")
+                .arguments("{}")
+                .build();
+        var result = ToolExecutionResult.requestError(request, "Invalid parameters");
+
+        console.afterToolOutput(result);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("TOOL_OUTPUT", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("call-456", data.get("id"));
+        assertEquals("badTool", data.get("name"));
+        assertEquals("REQUEST_ERROR", data.get("status"));
+        assertEquals("Invalid parameters", data.get("resultText"));
+
+        cleanup();
     }
 
     @Test
