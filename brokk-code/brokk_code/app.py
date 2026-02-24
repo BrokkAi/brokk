@@ -1445,13 +1445,13 @@ class BrokkApp(App):
 
                 status = "[bold green]Success[/]" if success else "[bold red]Failed[/]"
                 header = f"**{stage}**: `{command}` ({status})"
-                
+
                 parts = [header]
                 if output:
                     parts.append(f"```\n{output}\n```")
                 if exception:
                     parts.append(f"**Error**: {exception}")
-                
+
                 chat.add_tool_result("\n\n".join(parts))
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")

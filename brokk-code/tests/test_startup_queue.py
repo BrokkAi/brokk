@@ -32,9 +32,11 @@ class StubExecutor(ExecutorManager):
     async def get_health_live(self):
         return {"version": "test", "protocolVersion": "1", "execId": "test-id"}
 
+
 @pytest.fixture(autouse=True)
 def _set_test_api_key(monkeypatch):
     monkeypatch.setenv("BROKK_API_KEY", "test-api-key")
+
 
 @pytest.mark.asyncio
 async def test_startup_prompt_queued_and_executed(tmp_path):
@@ -51,6 +53,7 @@ async def test_startup_prompt_queued_and_executed(tmp_path):
             # 1. Simulate prompt submission while not ready
             app._executor_ready = False
             from brokk_code.widgets.chat_panel import ChatPanel
+
             chat = app.query_one(ChatPanel)
 
             # Submit via the panel
@@ -73,6 +76,7 @@ async def test_startup_prompt_queued_and_executed(tmp_path):
             mock_run_job.assert_called_once_with("Hello Brokk")
             assert app._startup_pending_prompt is None
 
+
 @pytest.mark.asyncio
 async def test_multiple_startup_prompts_collapse(tmp_path):
     """Verifies that multiple prompts submitted before readiness collapse to the last one."""
@@ -83,6 +87,7 @@ async def test_multiple_startup_prompts_collapse(tmp_path):
         app._executor_ready = False
 
         from brokk_code.widgets.chat_panel import ChatPanel
+
         chat = app.query_one(ChatPanel)
 
         chat.post_message(ChatPanel.Submitted("Prompt 1"))

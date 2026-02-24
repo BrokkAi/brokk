@@ -505,8 +505,12 @@ async def test_chat_panel_history_and_filtering():
 
         # 1. Add various message types
         chat.add_user_message("Hello User")
-        chat.append_token("Thinking hard", "AI", is_new_message=True, is_reasoning=True, is_terminal=True)
-        chat.append_token("Hello from AI", "AI", is_new_message=True, is_reasoning=False, is_terminal=True)
+        chat.append_token(
+            "Thinking hard", "AI", is_new_message=True, is_reasoning=True, is_terminal=True
+        )
+        chat.append_token(
+            "Hello from AI", "AI", is_new_message=True, is_reasoning=False, is_terminal=True
+        )
         chat.add_tool_result("Command success")
         chat.add_system_message("System info")
         chat.add_welcome("ICON", "Welcome body")
@@ -519,25 +523,25 @@ async def test_chat_panel_history_and_filtering():
         # 2. Refresh log with verbose=True (show all)
         chat.refresh_log(show_verbose=True)
         await pilot.pause()
-        
+
         content = "".join(str(line) for line in log.lines)
         assert "Hello User" in content
         assert "Thinking" in content  # Reasoning panel title
         assert "Thinking hard" in content
         assert "Hello from AI" in content
-        assert "Command Output" in content # Tool result panel title
+        assert "Command Output" in content  # Tool result panel title
         assert "Command success" in content
         assert "System info" in content
 
         # 3. Refresh log with verbose=False (hide REASONING and TOOL_RESULT)
         chat.refresh_log(show_verbose=False)
         await pilot.pause()
-        
+
         content_filtered = "".join(str(line) for line in log.lines)
         assert "Hello User" in content_filtered
         assert "Hello from AI" in content_filtered
         assert "System info" in content_filtered
-        
+
         # Verbose content should be hidden
         assert "Thinking" not in content_filtered
         assert "Thinking hard" not in content_filtered
@@ -548,17 +552,18 @@ async def test_chat_panel_history_and_filtering():
 @pytest.mark.asyncio
 async def test_brokk_app_command_result_handling_and_filtering():
     """Verify that BrokkApp correctly routes COMMAND_RESULT events and they obey verbosity."""
-    from brokk_code.app import BrokkApp
     from textual.widgets import RichLog
-    
+
+    from brokk_code.app import BrokkApp
+
     executor = MagicMock()
     app = BrokkApp(executor=executor)
     app.show_verbose_output = True
-    
+
     async with app.run_test() as pilot:
         chat = app.query_one(ChatPanel)
         log = chat.query_one("#chat-log", RichLog)
-        
+
         # Simulate a COMMAND_RESULT event
         event = {
             "type": "COMMAND_RESULT",
@@ -566,13 +571,13 @@ async def test_brokk_app_command_result_handling_and_filtering():
                 "stage": "TestStage",
                 "command": "echo hello",
                 "success": True,
-                "output": "hello world"
-            }
+                "output": "hello world",
+            },
         }
-        
+
         app._handle_event(event)
         await pilot.pause()
-        
+
         # Verify it was added to history
         assert any(m["kind"] == "TOOL_RESULT" for m in chat._message_history)
         assert "hello world" in "".join(str(line) for line in log.lines)

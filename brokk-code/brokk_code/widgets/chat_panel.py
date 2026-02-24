@@ -952,7 +952,7 @@ class ChatPanel(Vertical):
 
         content = self._current_message_buffer.strip()
         kind = "REASONING" if self._is_reasoning else "AI"
-        
+
         self._message_history.append({"kind": kind, "content": content})
         self._render_message_entry(kind, content)
 
@@ -999,7 +999,7 @@ class ChatPanel(Vertical):
             }
             style = style_map.get(level.upper(), "italic grey50")
             prefix = f"[{level}] " if level != "INFO" else ""
-            
+
             if markup:
                 log.write(f"[{style}]{prefix}{content}[/]")
             else:
@@ -1034,7 +1034,7 @@ class ChatPanel(Vertical):
             self._render_message_entry(
                 kind=entry["kind"],
                 content=entry["content"],
-                **{k: v for k, v in entry.items() if k not in ("kind", "content")}
+                **{k: v for k, v in entry.items() if k not in ("kind", "content")},
             )
 
     def add_markdown(self, content: str) -> None:
@@ -1054,12 +1054,16 @@ class ChatPanel(Vertical):
 
     def add_system_message(self, text: str, level: str = "INFO") -> None:
         """Renders a system message styled by level. Treats text as plain text."""
-        self._message_history.append({"kind": "SYSTEM", "content": text, "level": level, "markup": False})
+        self._message_history.append(
+            {"kind": "SYSTEM", "content": text, "level": level, "markup": False}
+        )
         self._render_message_entry("SYSTEM", text, level=level, markup=False)
 
     def add_system_message_markup(self, text: str, level: str = "INFO") -> None:
         """Renders a system message and allows intentional Rich markup in 'text'."""
-        self._message_history.append({"kind": "SYSTEM", "content": text, "level": level, "markup": True})
+        self._message_history.append(
+            {"kind": "SYSTEM", "content": text, "level": level, "markup": True}
+        )
         self._render_message_entry("SYSTEM", text, level=level, markup=True)
 
     def add_tool_result(self, text: str) -> None:
@@ -1075,7 +1079,9 @@ class ChatPanel(Vertical):
             level = "ERROR" if author == "Error" else "INFO"
             self.add_system_message(text, level=level)
         else:
-            self._message_history.append({"kind": "LEGACY_AUTHOR", "content": text, "author": author})
+            self._message_history.append(
+                {"kind": "LEGACY_AUTHOR", "content": text, "author": author}
+            )
             self._render_message_entry("LEGACY_AUTHOR", text, author=author)
 
     def set_token_bar_visible(self, visible: bool) -> None:
