@@ -60,9 +60,19 @@ class McpServerCommandTest {
     @Test
     void handleToolCall_searchTools_delegation() throws Exception {
         Path tempDir = Files.createTempDirectory("mcp-test");
+        // Ensure a real Java analyzer is used by creating a file with recognized extension
+        Files.createDirectories(tempDir.resolve("src/main/java/ai/brokk/cli"));
+        Files.writeString(
+                tempDir.resolve("src/main/java/ai/brokk/cli/BrokkCli.java"),
+                "package ai.brokk.cli; public class BrokkCli { public static void main(String[] args) {} }");
+
         try (var project = new MainProject(tempDir)) {
             ContextManager cm = new ContextManager(project);
             cm.createHeadless(ai.brokk.agents.BuildAgent.BuildDetails.EMPTY, false, new CliConsole());
+
+            // Wait for analyzer to pick up the file and classes
+            cm.getAnalyzerWrapper().requestRebuild();
+            cm.liveContext().awaitContentsAreComputed(java.time.Duration.ofSeconds(10));
 
             // Test find_symbols
             var symbolsResult = BrokkMcpStdioServer.handleToolCall(
@@ -85,6 +95,33 @@ class McpServerCommandTest {
                     cm, new McpSchema.CallToolRequest("list_identifiers", Map.of("dir", ".", "goal", "test list")));
             assertFalse(identifiersResult.isError());
             assertTrue(identifiersResult.content().getFirst() instanceof McpSchema.TextContent);
+
+            // Test fetch_summary (Class FQN)
+            var summaryResult = BrokkMcpStdioServer.handleToolCall(
+                    cm,
+                    new McpSchema.CallToolRequest(
+                            "fetch_summary", Map.of("targets", List.of("ai.brokk.cli.BrokkCli"))));
+            assertFalse(summaryResult.isError());
+            String summaryText =
+                    ((McpSchema.TextContent) summaryResult.content().getFirst()).text();
+            assertTrue(summaryText.contains("class BrokkCli"), "Summary should contain class definition");
+
+            // Test fetch_source (Class FQN)
+            var sourceResult = BrokkMcpStdioServer.handleToolCall(
+                    cm,
+                    new McpSchema.CallToolRequest("fetch_source", Map.of("targets", List.of("ai.brokk.cli.BrokkCli"))));
+            assertFalse(sourceResult.isError());
+            String sourceText = ((McpSchema.TextContent) sourceResult.content().getFirst()).text();
+            assertTrue(sourceText.contains("public class BrokkCli"), "Source should contain full class code");
+
+            // Test fetch_source (Method selector)
+            var methodResult = BrokkMcpStdioServer.handleToolCall(
+                    cm,
+                    new McpSchema.CallToolRequest(
+                            "fetch_source", Map.of("targets", List.of("ai.brokk.cli.BrokkCli.main"))));
+            assertFalse(methodResult.isError());
+            String methodText = ((McpSchema.TextContent) methodResult.content().getFirst()).text();
+            assertTrue(methodText.contains("public static void main"), "Source should contain method code");
         }
     }
 }

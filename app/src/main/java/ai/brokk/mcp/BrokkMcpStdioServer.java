@@ -164,6 +164,8 @@ public class BrokkMcpStdioServer {
                 case "find_usages" -> handleFindUsages(requireContextManager(cm, "find_usages"), request);
                 case "list_identifiers" ->
                     handleListIdentifiers(requireContextManager(cm, "list_identifiers"), request);
+                case "fetch_summary" -> handleFetchSummary(requireContextManager(cm, "fetch_summary"), request);
+                case "fetch_source" -> handleFetchSource(requireContextManager(cm, "fetch_source"), request);
                 default ->
                     McpSchema.CallToolResult.builder()
                             .addTextContent("Tool '" + request.name() + "' is not yet implemented")
@@ -233,6 +235,104 @@ public class BrokkMcpStdioServer {
 
         String result = new SearchTools(cm).skimDirectory(dir, goal);
         return McpSchema.CallToolResult.builder().addTextContent(result).build();
+    }
+
+    private static McpSchema.CallToolResult handleFetchSummary(ContextManager cm, McpSchema.CallToolRequest request) {
+        var args = request.arguments();
+        @SuppressWarnings("unchecked")
+        List<String> targets = (List<String>) args.get("targets");
+
+        if (targets == null || targets.isEmpty()) {
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Missing required argument 'targets'")
+                    .isError(true)
+                    .build();
+        }
+
+        java.util.Set<String> classNames;
+        try {
+            classNames = cm.getAnalyzer().getAllDeclarations().stream()
+                    .filter(ai.brokk.analyzer.CodeUnit::isClass)
+                    .map(ai.brokk.analyzer.CodeUnit::fqName)
+                    .collect(java.util.stream.Collectors.toSet());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Operation interrupted")
+                    .isError(true)
+                    .build();
+        }
+
+        var filePatterns = new ArrayList<String>();
+        var classes = new ArrayList<String>();
+
+        for (var target : targets.stream().filter(s -> !s.isBlank()).toList()) {
+            if (classNames.contains(target)) {
+                classes.add(target);
+            } else {
+                filePatterns.add(target);
+            }
+        }
+
+        var searchTools = new SearchTools(cm);
+        var sb = new StringBuilder();
+        if (!filePatterns.isEmpty()) {
+            sb.append(searchTools.getFileSummaries(filePatterns));
+        }
+        if (!classes.isEmpty()) {
+            if (!sb.isEmpty()) sb.append("\n\n");
+            sb.append(searchTools.getClassSkeletons(classes));
+        }
+
+        return McpSchema.CallToolResult.builder()
+                .addTextContent(sb.toString().strip())
+                .build();
+    }
+
+    private static McpSchema.CallToolResult handleFetchSource(ContextManager cm, McpSchema.CallToolRequest request) {
+        var args = request.arguments();
+        @SuppressWarnings("unchecked")
+        List<String> targets = (List<String>) args.get("targets");
+
+        if (targets == null || targets.isEmpty()) {
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Missing required argument 'targets'")
+                    .isError(true)
+                    .build();
+        }
+
+        java.util.Set<String> classNames;
+        try {
+            var analyzer = cm.getAnalyzer();
+            classNames = analyzer.getAllDeclarations().stream()
+                    .filter(ai.brokk.analyzer.CodeUnit::isClass)
+                    .map(ai.brokk.analyzer.CodeUnit::fqName)
+                    .collect(java.util.stream.Collectors.toSet());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Operation interrupted")
+                    .isError(true)
+                    .build();
+        }
+
+        var cleaned = targets.stream().filter(s -> !s.isBlank()).toList();
+        var classes = cleaned.stream().filter(classNames::contains).toList();
+        var methods = cleaned.stream().filter(t -> !classNames.contains(t)).toList();
+
+        var searchTools = new SearchTools(cm);
+        var sb = new StringBuilder();
+        if (!classes.isEmpty()) {
+            sb.append(searchTools.getClassSources(classes));
+        }
+        if (!methods.isEmpty()) {
+            if (!sb.isEmpty()) sb.append("\n\n");
+            sb.append(searchTools.getMethodSources(methods));
+        }
+
+        return McpSchema.CallToolResult.builder()
+                .addTextContent(sb.toString().strip())
+                .build();
     }
 
     private static ContextManager requireContextManager(@Nullable ContextManager cm, String toolName) {
