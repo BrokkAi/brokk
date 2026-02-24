@@ -814,7 +814,10 @@ public class SearchAgent {
                 Context contextAtTurnStart = context;
 
                 for (var req : primaryCalls) {
+                    agent.io.beforeToolCall(req);
                     ToolExecutionResult toolResult = executeTool(req);
+                    agent.io.afterToolOutput(toolResult);
+
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                         var details =
                                 new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
@@ -850,7 +853,10 @@ public class SearchAgent {
                 boolean executedNonHygiene = categoriesSeen.stream().anyMatch(c -> c != ToolCategory.WORKSPACE_HYGIENE);
                 boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
                 if (terminalRequest != null && contextSafeForTerminal) {
+                    agent.io.beforeToolCall(terminalRequest);
                     var termExec = executeTool(terminalRequest);
+                    agent.io.afterToolOutput(termExec);
+
                     sessionMessages.add(termExec.toExecutionResultMessage());
 
                     if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
@@ -962,6 +968,7 @@ public class SearchAgent {
             wst.setContext(context);
 
             var result = tr.executeTool(req);
+
             if (agent.isWorkspaceTool(req, tr)) {
                 agent.updateDroppedHistory(context, wst.getContext());
                 context = wst.getContext();

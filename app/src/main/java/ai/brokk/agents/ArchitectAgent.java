@@ -729,7 +729,21 @@ public class ArchitectAgent {
     private TaskResult executeInternal() throws InterruptedException {
         // run code agent first
         try {
+            // Note: callCodeAgent(String, boolean) is a @Tool method on ArchitectAgent.
+            // When ArchitectAgent calls it directly here, it bypasses ToolRegistry.executeTool
+            // and thus bypasses the console hooks. However, since this is a direct method call
+            // and we want these events in the headless log, we should manually emit them or
+            // use the registry. Given the current structure, we manually instrument this call.
+
+            var req = ToolExecutionRequest.builder()
+                    .name("callCodeAgent")
+                    .arguments("{\"instructions\": \"%s\", \"deferBuild\": false}".formatted(goal))
+                    .build();
+
+            io.beforeToolCall(req);
             var initialSummary = callCodeAgent(goal, false);
+            io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
+
             architectMessages.add(new UserMessage(
                     "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
                             + initialSummary));
@@ -831,7 +845,11 @@ public class ArchitectAgent {
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
+
+                    io.beforeToolCall(answerReq);
                     var toolResult = tr.executeTool(answerReq);
+                    io.afterToolOutput(toolResult);
+
                     io.llmOutput(
                             "Project final answer: " + toolResult.resultText(),
                             ChatMessageType.AI,
@@ -848,7 +866,11 @@ public class ArchitectAgent {
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
+
+                    io.beforeToolCall(abortReq);
                     var toolResult = tr.executeTool(abortReq);
+                    io.afterToolOutput(toolResult);
+
                     io.llmOutput(
                             "Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     return resultWithMessages(StopReason.LLM_ABORTED);
@@ -859,7 +881,11 @@ public class ArchitectAgent {
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
                 wst.setContext(context);
+
+                io.beforeToolCall(req);
                 ToolExecutionResult toolResult = tr.executeTool(req);
+                io.afterToolOutput(toolResult);
+
                 context = wst.getContext();
                 architectMessages.add(toolResult.toExecutionResultMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
@@ -888,7 +914,9 @@ public class ArchitectAgent {
                     Callable<SearchTaskResult> task = () -> {
                         // Ensure a clean slate for this thread before invoking the tool
                         threadlocalSearchResult.remove();
+                        io.beforeToolCall(req);
                         var toolResult = trForSearchBatch.executeTool(req);
+                        io.afterToolOutput(toolResult);
                         var saOutput = requireNonNull(threadlocalSearchResult.get());
                         logger.debug("Finished SearchAgent task for request: {}", req.name());
                         return new SearchTaskResult(toolResult, saOutput.taskResult(), saOutput.objective());
@@ -981,7 +1009,10 @@ public class ArchitectAgent {
             // code agent calls are done serially
             var initialContext = context;
             for (var req : codeAgentReqs) {
+                io.beforeToolCall(req);
                 ToolExecutionResult toolResult = tr.executeTool(req);
+                io.afterToolOutput(toolResult);
+
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                     var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
                     this.lastFatalReason = null;
