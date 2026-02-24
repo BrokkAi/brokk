@@ -486,3 +486,109 @@ async def test_mention_autocomplete_ignores_email_like_text():
 
         assert mentions.display is False
         app.executor.get_completions.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_panel_history_and_filtering():
+    """Verify that message history is recorded and filtered correctly by refresh_log."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+
+        # 1. Add various message types
+        panel.add_user_message("Hello Brokk")
+        panel.add_system_message("System online", level="INFO")
+        panel.add_tool_result_message("Executed: ls -la")
+        
+        # Simulate LLM stream with reasoning and AI content
+        panel.append_token("Thinking...", "AI", is_new_message=True, is_reasoning=True, is_terminal=True)
+        panel.append_token("Hello!", "AI", is_new_message=True, is_reasoning=False, is_terminal=True)
+        await pilot.pause()
+
+        # Check internal history recording
+        history = panel._message_history
+        kinds = [m["kind"] for m in history]
+        assert "USER" in kinds
+        assert "SYSTEM" in kinds
+        assert "TOOL_RESULT" in kinds
+        assert "REASONING" in kinds
+        assert "AI" in kinds
+
+        # 2. Test refresh_log(show_verbose=True)
+        panel.refresh_log(show_verbose=True)
+        await pilot.pause()
+        content_verbose = "".join(str(line) for line in log.lines)
+        assert "Hello Brokk" in content_verbose
+        assert "System online" in content_verbose
+        assert "Executed: ls -la" in content_verbose
+        assert "Thinking..." in content_verbose
+        assert "Hello!" in content_verbose
+
+        # 3. Test refresh_log(show_verbose=False)
+        panel.refresh_log(show_verbose=False)
+        await pilot.pause()
+        content_filtered = "".join(str(line) for line in log.lines)
+        assert "Hello Brokk" in content_filtered
+        assert "System online" in content_filtered
+        assert "Hello!" in content_filtered
+        
+        # Verbose items should be hidden
+        assert "Thinking..." not in content_filtered
+        assert "Executed: ls -la" not in content_filtered
+
+
+@pytest.mark.asyncio
+async def test_chat_panel_refresh_log_empty():
+    """Verify refresh_log doesn't crash with empty history."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel()
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one(ChatPanel)
+        # Should not raise
+        panel.refresh_log(show_verbose=True)
+        panel.refresh_log(show_verbose=False)
+
+
+@pytest.mark.asyncio
+async def test_app_toggle_output_integration():
+    """Integration test for BrokkApp.action_toggle_output."""
+    from unittest.mock import MagicMock, patch
+    from brokk_code.app import BrokkApp
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatPanel)
+            
+            # Initial state
+            assert app.show_verbose_output is True
+            
+            # Toggle OFF
+            await pilot.press("ctrl+o")
+            assert app.show_verbose_output is False
+            assert chat._show_verbose is False
+            
+            # Toggle ON
+            await pilot.press("ctrl+o")
+            assert app.show_verbose_output is True
+            assert chat._show_verbose is True
