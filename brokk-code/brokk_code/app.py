@@ -1957,13 +1957,6 @@ class BrokkApp(App):
         if chat:
             chat.show_verbose = self.show_verbose_output
             chat.refresh_log(self.show_verbose_output)
-            state = "[bold]ON[/]" if self.show_verbose_output else "[bold]OFF[/]"
-            detail = (
-                "reasoning and tool results visible"
-                if self.show_verbose_output
-                else "reasoning and tool results hidden"
-            )
-            chat.add_system_message_markup(f"Verbose output: {state} ({detail})")
 
     def action_toggle_mode(self) -> None:
         """Cycles through agent modes: CODE -> ASK -> LUTZ -> CODE."""

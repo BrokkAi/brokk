@@ -761,6 +761,28 @@ class HeadlessHttpConsoleTest {
     }
 
     @Test
+    void testBeforeToolCall_NullArguments_DoesNotThrowAndOmitsField() throws Exception {
+        var request =
+                ToolExecutionRequest.builder().id("call-123").name("testTool").build();
+
+        assertDoesNotThrow(() -> console.beforeToolCall(request));
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.getFirst();
+        assertEquals("TOOL_CALL", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("call-123", data.get("id"));
+        assertEquals("testTool", data.get("name"));
+        assertFalse(data.containsKey("arguments"));
+
+        cleanup();
+    }
+
+    @Test
     void testAfterToolOutput_MapsToToolOutputEvent() throws Exception {
         var request = ToolExecutionRequest.builder()
                 .id("call-123")

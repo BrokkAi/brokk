@@ -200,7 +200,6 @@ def test_action_toggle_output_state_and_refresh():
     app.action_toggle_output()
     assert app.show_verbose_output is False
     mock_chat.refresh_log.assert_called_with(False)
-    mock_chat.add_system_message_markup.assert_called()
 
     # Toggle 2: False -> True
     app.action_toggle_output()
