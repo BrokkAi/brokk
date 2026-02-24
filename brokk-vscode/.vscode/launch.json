@@ -21,6 +21,17 @@
         "${workspaceFolder}/.."
       ],
       "outFiles": ["${workspaceFolder}/out/**/*.js"]
+    },
+    {
+      "name": "Run Extension (No Workspace)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--new-window",
+        "--disable-workspace-trust"
+      ],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"]
     }
   ]
 }
