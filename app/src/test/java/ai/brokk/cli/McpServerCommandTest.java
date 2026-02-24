@@ -36,16 +36,7 @@ class McpServerCommandTest {
                     "getClassSkeletons",
                     "getClassSources",
                     "getMethodSources",
-                    "getSymbolLocations",
-                    "findFilesContaining",
-                    "findFilenames",
-                    "searchFileContents",
-                    "getFileContents",
-                    "listFiles",
-                    "getGitLog",
-                    "searchGitCommitMessages",
-                    "xpathQuery",
-                    "jq")));
+                    "getSymbolLocations")));
         }
     }
 }

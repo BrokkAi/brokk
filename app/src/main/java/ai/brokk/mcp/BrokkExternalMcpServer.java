@@ -33,7 +33,7 @@ import org.jspecify.annotations.NullMarked;
 public class BrokkExternalMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkExternalMcpServer.class);
 
-    private static final List<String> EXPOSED_TOOL_NAMES = List.of(
+    private static final List<String> BASE_TOOL_NAMES = List.of(
             "scan",
             "code",
             "build",
@@ -46,16 +46,7 @@ public class BrokkExternalMcpServer {
             "getClassSkeletons",
             "getClassSources",
             "getMethodSources",
-            "getSymbolLocations",
-            "findFilesContaining",
-            "findFilenames",
-            "searchFileContents",
-            "getFileContents",
-            "listFiles",
-            "getGitLog",
-            "searchGitCommitMessages",
-            "xpathQuery",
-            "jq");
+            "getSymbolLocations");
 
     private final ContextManager cm;
 
@@ -103,7 +94,31 @@ public class BrokkExternalMcpServer {
                 .register(searchTools)
                 .build();
 
-        return LangChain4jMcpBridge.toolSpecificationsFrom(registry, EXPOSED_TOOL_NAMES);
+        List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
+
+        var allFiles = cm.getProject().getAllFiles();
+        boolean hasXml = allFiles.stream().anyMatch(f -> f.toString().endsWith(".xml"));
+        boolean hasJson = allFiles.stream().anyMatch(f -> f.toString().endsWith(".json"));
+
+        if (hasXml) {
+            toolNames.add("xpathQuery");
+        }
+
+        if (hasJson && !isJqOnPath()) {
+            toolNames.add("jq");
+        }
+
+        return LangChain4jMcpBridge.toolSpecificationsFrom(registry, toolNames);
+    }
+
+    private boolean isJqOnPath() {
+        try {
+            ai.brokk.util.Environment.instance.runShellCommand(
+                    "jq --version", cm.getProject().getRoot(), out -> {}, java.time.Duration.ofSeconds(2));
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @Tool("Agentic scan for relevant files and classes. Returns a summary of recommended context.")
