@@ -1630,7 +1630,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             }
             var mapper = new ObjectMapper();
             mapper.enable(SerializationFeature.INDENT_OUTPUT);
-            mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+            mapper.setDefaultPropertyInclusion(JsonInclude.Include.NON_NULL);
             mapper.writeValue(file.toFile(), report);
         }
 
