@@ -715,10 +715,10 @@ public class SettingsProjectBuildPanel extends JPanel {
             var envVars = computeEnvFromUi();
 
             // Step 1: Build/Lint command
-            String buildCmd = buildCleanCommandCheck.isSelected()
-                    ? buildCleanCommandField.getText().trim()
-                    : "";
-            if (!buildCmd.isEmpty()) {
+            boolean buildEnabled = buildCleanCommandCheck.isSelected();
+            String buildCmd = buildCleanCommandField.getText().trim();
+
+            if (buildEnabled && !buildCmd.isEmpty()) {
                 publish.accept("--- Verifying Build/Lint Command ---\n");
                 publish.accept("$ " + buildCmd + "\n");
                 var result =
@@ -737,10 +737,10 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (Thread.interrupted()) return "Cancelled";
 
             // Step 2: Test All command
-            String testAllCmd = allTestsCommandCheck.isSelected()
-                    ? allTestsCommandField.getText().trim()
-                    : "";
-            if (!testAllCmd.isEmpty()) {
+            boolean testEnabled = allTestsCommandCheck.isSelected();
+            String testAllCmd = allTestsCommandField.getText().trim();
+
+            if (testEnabled && !testAllCmd.isEmpty()) {
                 publish.accept("--- Verifying Test All Command ---\n");
                 publish.accept("$ " + testAllCmd + "\n");
                 var result = BuildVerifier.verifyStreaming(
@@ -956,15 +956,13 @@ public class SettingsProjectBuildPanel extends JPanel {
             chrome.toolError("Error loading build details: " + e.getMessage() + ". Using defaults.");
         }
 
-        String buildCmd = details.buildLintCommand();
-        buildCleanCommandCheck.setSelected(!buildCmd.isBlank());
-        buildCleanCommandField.setText(buildCmd);
-        buildCleanCommandField.setEnabled(buildCleanCommandCheck.isSelected());
+        buildCleanCommandCheck.setSelected(details.buildLintEnabled());
+        buildCleanCommandField.setText(details.buildLintCommand());
+        buildCleanCommandField.setEnabled(details.buildLintEnabled());
 
-        String testCmd = details.testAllCommand();
-        allTestsCommandCheck.setSelected(!testCmd.isBlank());
-        allTestsCommandField.setText(testCmd);
-        allTestsCommandField.setEnabled(allTestsCommandCheck.isSelected());
+        allTestsCommandCheck.setSelected(details.testAllEnabled());
+        allTestsCommandField.setText(details.testAllCommand());
+        allTestsCommandField.setEnabled(details.testAllEnabled());
         afterTaskListCommandField.setText(details.afterTaskListCommand());
 
         modulesList.clear();
@@ -1023,8 +1021,13 @@ public class SettingsProjectBuildPanel extends JPanel {
         // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
         var diskDetails = project.awaitBuildDetails();
         var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
-        var newBuildLint = buildCleanCommandCheck.isSelected() ? buildCleanCommandField.getText() : "";
-        var newTestAll = allTestsCommandCheck.isSelected() ? allTestsCommandField.getText() : "";
+
+        boolean blEnabled = buildCleanCommandCheck.isSelected();
+        String newBuildLint = buildCleanCommandField.getText();
+
+        boolean taEnabled = allTestsCommandCheck.isSelected();
+        String newTestAll = allTestsCommandField.getText();
+
         var newAfterTaskList = afterTaskListCommandField.getText();
 
         // Primary language
@@ -1042,7 +1045,9 @@ public class SettingsProjectBuildPanel extends JPanel {
         // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
         var newDetails = new BuildAgent.BuildDetails(
                 newBuildLint,
+                blEnabled,
                 newTestAll,
+                taEnabled,
                 "", // Global testSome is deprecated in UI
                 diskDetails.exclusionPatterns(),
                 envVars,
