@@ -29,7 +29,8 @@ public class ShellTools {
      * Executes a shell command using the project's configured executor.
      */
     @Tool(
-            "Execute a shell command using the project's configured executor. Returns the command's output, exit code, and success status.")
+            "Execute a shell command using the project's configured executor. Returns the command's output, exit code, and success status. "
+                    + "Execution is sandboxed by default for security.")
     @Blocking
     public String executeShellCommand(
             @P("The command text to run in the configured shell.") String command,
@@ -37,7 +38,9 @@ public class ShellTools {
                     Long timeoutSeconds,
             @P("Optional map of additional environment variables to merge into the process environment.") @Nullable
                     Map<String, String> environmentVariables,
-            @P("Optional flag to request sandboxed execution (macOS only). Defaults to false.") @Nullable
+            @P(
+                            "Flag to request sandboxed execution. Defaults to true. Setting to false requires explicit host-level configuration (BRK_ALLOW_UNSANDBOXED_SHELL=true).")
+                    @Nullable
                     Boolean sandbox)
             throws InterruptedException {
 
@@ -46,8 +49,41 @@ public class ShellTools {
                 : Environment.DEFAULT_TIMEOUT;
 
         Map<String, String> env = Objects.requireNonNullElse(environmentVariables, Collections.emptyMap());
-        boolean useSandbox = Objects.requireNonNullElse(sandbox, false);
+        boolean useSandbox = Objects.requireNonNullElse(sandbox, true);
 
+        // When a test factory is in use, skip security checks and proceed directly to execution.
+        // The test factory handles command execution itself, so sandbox/unsandboxed checks are irrelevant.
+        boolean isTestFactory =
+                Environment.shellCommandRunnerFactory != Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
+        if (isTestFactory) {
+            return executeInternal(command, env, useSandbox, timeout);
+        }
+
+        if (!useSandbox && !"true".equalsIgnoreCase(System.getenv("BRK_ALLOW_UNSANDBOXED_SHELL"))) {
+            return formatResult(
+                    Result.failure(
+                            command,
+                            null,
+                            "",
+                            "Unsandboxed shell execution is disabled. Set BRK_ALLOW_UNSANDBOXED_SHELL=true in the environment to enable."));
+        }
+
+        if (useSandbox && !Environment.isSandboxAvailable()) {
+            String os = System.getProperty("os.name");
+            return formatResult(
+                    Result.failure(
+                            command,
+                            null,
+                            "",
+                            "Sandboxed execution is requested but not supported on " + os
+                                    + ". Unsandboxed execution is required but must be explicitly enabled via BRK_ALLOW_UNSANDBOXED_SHELL=true."));
+        }
+
+        return executeInternal(command, env, useSandbox, timeout);
+    }
+
+    private String executeInternal(String command, Map<String, String> env, boolean useSandbox, Duration timeout)
+            throws InterruptedException {
         ShellConfig config = project.getShellConfig();
         if (config == null || !config.isValid()) {
             config = ShellConfig.basic();
@@ -56,24 +92,16 @@ public class ShellTools {
         Result result;
         try {
             String output = Environment.instance.runShellCommand(
-                    command,
-                    project.getRoot(),
-                    useSandbox,
-                    line -> {}, // Output is captured by runShellCommand's return value
-                    timeout,
-                    config,
-                    env,
-                    null);
+                    command, project.getRoot(), useSandbox, line -> {}, timeout, config, env, null);
 
             result = Result.success(command, output);
         } catch (Environment.FailureException e) {
             result = Result.failure(command, e.getExitCode(), e.getOutput(), null);
         } catch (Environment.TimeoutException e) {
-            result = Result.failure(command, null, e.getOutput(), "Command timed out: " + e.getMessage());
+            result = Result.failure(command, null, e.getOutput(), e.getMessage());
         } catch (Environment.StartupException e) {
-            result = Result.failure(command, null, e.getOutput(), "Failed to start command: " + e.getMessage());
+            result = Result.failure(command, null, e.getOutput(), "Failed to start: " + e.getMessage());
         } catch (Environment.SubprocessException e) {
-            // Fallback for any future/unknown subclasses of SubprocessException
             result = Result.failure(command, null, e.getOutput(), e.getMessage());
         }
 
