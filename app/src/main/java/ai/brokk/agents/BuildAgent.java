@@ -143,7 +143,9 @@ public class BuildAgent {
                 .name("listTrackedFiles")
                 .arguments("{\"directoryPath\": \".\"}") // Request root dir
                 .build();
+        project.getConsoleIO().beforeToolCall(initialRequest);
         ToolExecutionResult initialResult = tr.executeTool(initialRequest);
+        project.getConsoleIO().afterToolOutput(initialResult);
         chatHistory.add(new UserMessage(
                 """
         Here are the contents of the project root directory:
@@ -282,7 +284,9 @@ public class BuildAgent {
 
             // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
+                project.getConsoleIO().beforeToolCall(reportRequest);
                 var terminalResult = tr.executeTool(reportRequest);
+                project.getConsoleIO().afterToolOutput(terminalResult);
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     // The assertion was here, but requireNonNull is more explicit for NullAway
                     return requireNonNull(
@@ -295,7 +299,9 @@ public class BuildAgent {
                     continue;
                 }
             } else if (abortRequest != null) {
+                project.getConsoleIO().beforeToolCall(abortRequest);
                 var terminalResult = tr.executeTool(abortRequest);
+                project.getConsoleIO().afterToolOutput(terminalResult);
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     assert abortReason != null;
                     return BuildDetails.EMPTY;
@@ -313,7 +319,9 @@ public class BuildAgent {
                 String toolName = request.name();
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
 
+                project.getConsoleIO().beforeToolCall(request);
                 ToolExecutionResult execResult = tr.executeTool(request);
+                project.getConsoleIO().afterToolOutput(execResult);
 
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
