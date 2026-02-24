@@ -200,6 +200,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private boolean diffActive = false;
 
+    @Nullable
     private volatile CompletableFuture<?> activeBranchLoad = null;
 
     @Nullable
@@ -816,8 +817,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void updateBaselineOptions(String autoLabel) {
-        if (activeBranchLoad != null && !activeBranchLoad.isDone()) {
-            activeBranchLoad.cancel(true);
+        var currentLoad = activeBranchLoad;
+        if (currentLoad != null && !currentLoad.isDone()) {
+            currentLoad.cancel(true);
         }
 
         baselineSelector.getButton().setIcon(SpinnerIconUtil.getSpinner(chrome, false));
