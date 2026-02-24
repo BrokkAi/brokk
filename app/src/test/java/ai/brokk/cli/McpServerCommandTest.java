@@ -27,6 +27,7 @@ class McpServerCommandTest {
                     "scan",
                     "code",
                     "build",
+                    "configureBuild",
                     "merge",
                     "searchSymbols",
                     "scanUsages",

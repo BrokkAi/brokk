@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -159,6 +160,46 @@ public class BrokkExternalMcpServer {
             return "Build interrupted: " + e.getMessage();
         } catch (Exception e) {
             return "Build failed: " + e.getMessage();
+        }
+    }
+
+    @Tool("Configure build and test commands for the project. These settings are persisted.")
+    public String configureBuild(
+            @P("Command to build or lint incrementally, e.g. 'mvn compile', 'cargo check'.") @Nullable
+                    String buildOnlyCmd,
+            @P("Command to run all tests. Use for global verification.") @Nullable String testAllCmd,
+            @P("Mustache template for running specific tests. Supports {{#files}}, {{#classes}}, {{#fqclasses}}.")
+                    @Nullable
+                    String testSomeCmd) {
+        try {
+            var project = cm.getProject();
+            var existingDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
+
+            String buildCmd = buildOnlyCmd != null ? buildOnlyCmd : existingDetails.buildLintCommand();
+            String testAll = testAllCmd != null ? testAllCmd : existingDetails.testAllCommand();
+            String testSome = testSomeCmd != null ? testSomeCmd : existingDetails.testSomeCommand();
+
+            if (testAllCmd != null) {
+                project.setCodeAgentTestScope(ai.brokk.project.IProject.CodeAgentTestScope.ALL);
+            } else if (testSomeCmd != null) {
+                project.setCodeAgentTestScope(ai.brokk.project.IProject.CodeAgentTestScope.WORKSPACE);
+            }
+
+            var bd = new BuildAgent.BuildDetails(
+                    buildCmd,
+                    testAll,
+                    testSome,
+                    existingDetails.exclusionPatterns(),
+                    existingDetails.environmentVariables(),
+                    existingDetails.maxBuildAttempts(),
+                    existingDetails.afterTaskListCommand());
+
+            project.setBuildDetails(bd);
+            project.saveBuildDetails(bd);
+
+            return "Build configuration updated.";
+        } catch (Exception e) {
+            return "Failed to configure build: " + e.getMessage();
         }
     }
 
