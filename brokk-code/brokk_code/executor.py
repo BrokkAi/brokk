@@ -268,11 +268,13 @@ class ExecutorManager:
 
         if self.jar_override:
             self.resolved_jar_path = self.jar_override
+            print(f"Running in dev mode with JAR: {self.jar_override}")
             cmd = self._get_direct_java_command(self.jar_override, exec_id)
         else:
             dev_jar = self._find_dev_jar()
             if dev_jar:
                 self.resolved_jar_path = dev_jar
+                print(f"Running in dev mode with local JAR: {dev_jar}")
                 cmd = self._get_direct_java_command(dev_jar, exec_id)
             else:
                 cmd = await self._get_jbang_command(exec_id)
