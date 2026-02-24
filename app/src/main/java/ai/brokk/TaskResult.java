@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import dev.langchain4j.exception.ContextTooLargeException;
+import dev.langchain4j.exception.OverthinkingException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -60,6 +61,8 @@ public record TaskResult(Context context, StopDetails stopDetails) {
         TOOL_ERROR,
         /** the LLM exceeded the context size limit */
         LLM_CONTEXT_SIZE,
+        /** the LLM exceeded the output size limit */
+        LLM_OVERTHINKING,
         /** hit the mercy rule ceiling */
         TURN_LIMIT;
     }
@@ -93,6 +96,17 @@ public record TaskResult(Context context, StopDetails stopDetails) {
                           - Remove or drop unneeded Workspace files/fragments
                           - Prefer summaries over full files where possible
                           - Narrow the goal/query to a smaller scope
+                        """
+                                .stripIndent()
+                                .stripTrailing());
+            }
+            if (response.error() instanceof OverthinkingException) {
+                return new TaskResult.StopDetails(
+                        StopReason.LLM_OVERTHINKING,
+                        """
+                        The LLM exhausted its output tokens before generating a response.
+
+                        This is a bug in the model or its configuration, there's nothing we can do from the client side here.
                         """
                                 .stripIndent()
                                 .stripTrailing());
