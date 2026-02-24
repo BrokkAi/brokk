@@ -140,9 +140,9 @@ async def test_shift_enter_inserts_newline(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_ctrl_j_submits(tmp_path):
+async def test_ctrl_j_inserts_newline(tmp_path):
     """
-    Verify that Ctrl+J submits the input.
+    Verify that Ctrl+J inserts a newline instead of submitting.
     """
     stub = StubExecutor(workspace_dir=tmp_path, auto_release=True)
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
@@ -151,14 +151,15 @@ async def test_ctrl_j_submits(tmp_path):
         chat_input = app.query_one("#chat-input")
         await pilot.click("#chat-input")
 
-        await type_text(pilot, "hello ctrl+j")
+        await type_text(pilot, "hello")
         await pilot.press("ctrl+j")
+        await type_text(pilot, "world")
         await pilot.pause()
 
+        # Should not submit
         submits = [c for c in stub.calls if c["type"] == "submit"]
-        assert len(submits) == 1
-        assert submits[0]["input"] == "hello ctrl+j"
-        assert chat_input.text == ""
+        assert len(submits) == 0
+        assert chat_input.text == "hello\nworld"
 
 
 @pytest.mark.asyncio
