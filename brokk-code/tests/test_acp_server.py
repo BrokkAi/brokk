@@ -5,6 +5,7 @@ from brokk_code.acp_server import (
     DEFAULT_MODEL_SELECTION,
     DEFAULT_REASONING_LEVEL,
     REASONING_LEVEL_IDS,
+    BufferedExecutorEventMapper,
     BrokkAcpBridge,
     _available_model_names,
     _build_available_models,
@@ -328,6 +329,77 @@ def test_map_executor_status_token_mojibake_is_minimally_normalized() -> None:
         "sessionUpdate": "agent_message_chunk",
         "text": "\n**Brokk** performing initial workspace review...",
     }
+
+
+def test_buffered_executor_event_mapper_hides_non_terminal_and_shows_terminal() -> None:
+    mapper = BufferedExecutorEventMapper(_text_block, _thought_block)
+
+    updates = mapper.map_event(
+        {
+            "type": "LLM_TOKEN",
+            "data": {
+                "token": "partial ",
+                "messageType": "AI",
+                "isNewMessage": True,
+                "isTerminal": False,
+            },
+        }
+    )
+    assert updates == []
+
+    updates = mapper.map_event(
+        {
+            "type": "LLM_TOKEN",
+            "data": {
+                "token": "answer",
+                "messageType": "AI",
+                "isNewMessage": False,
+                "isTerminal": False,
+            },
+        }
+    )
+    assert updates == []
+
+    updates = mapper.map_event(
+        {
+            "type": "NOTIFICATION",
+            "data": {"level": "INFO", "message": "progress"},
+        }
+    )
+    assert updates == [
+        {"sessionUpdate": "agent_thought_chunk", "text": "partial answer"},
+        {"sessionUpdate": "agent_message_chunk", "text": "\n\n[INFO] progress\n"},
+    ]
+
+    updates = mapper.map_event(
+        {
+            "type": "LLM_TOKEN",
+            "data": {
+                "token": "done",
+                "messageType": "CUSTOM",
+                "isNewMessage": True,
+                "isTerminal": True,
+            },
+        }
+    )
+    assert updates == [{"sessionUpdate": "agent_message_chunk", "text": "done"}]
+
+
+def test_buffered_executor_event_mapper_reasoning_stays_thought_even_if_terminal() -> None:
+    mapper = BufferedExecutorEventMapper(_text_block, _thought_block)
+    updates = mapper.map_event(
+        {
+            "type": "LLM_TOKEN",
+            "data": {
+                "token": "thinking",
+                "messageType": "AI",
+                "isNewMessage": True,
+                "isReasoning": True,
+                "isTerminal": True,
+            },
+        }
+    )
+    assert updates == [{"sessionUpdate": "agent_thought_chunk", "text": "thinking"}]
 
 
 def test_extract_session_id_for_cancel() -> None:

@@ -61,11 +61,12 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+        boolean effectiveIsNewMessage = isNewMessage(type, meta.isNewMessage());
         super.llmOutput(token, type, meta);
         var data = Map.of(
                 "token", token,
                 "messageType", type.name(),
-                "isNewMessage", meta.isNewMessage(),
+                "isNewMessage", effectiveIsNewMessage,
                 "isReasoning", meta.isReasoning(),
                 "isTerminal", meta.isTerminal());
         appendEvent("LLM_TOKEN", data);

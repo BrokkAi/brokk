@@ -414,6 +414,97 @@ def map_executor_event_to_session_update(
     return None
 
 
+def _coerce_executor_event_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return bool(value)
+
+
+@dataclass
+class _BufferedLlmMessage:
+    text: str
+    message_type: str
+    is_reasoning: bool
+    is_terminal: bool
+
+
+class BufferedExecutorEventMapper:
+    """Buffers LLM token events into logical messages before choosing ACP update type."""
+
+    def __init__(
+        self,
+        update_agent_message_text: Callable[[str], Any],
+        update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+    ) -> None:
+        self._update_agent_message_text = update_agent_message_text
+        self._update_agent_thought_text = update_agent_thought_text
+        self._current: Optional[_BufferedLlmMessage] = None
+
+    def map_event(self, event: dict[str, Any]) -> list[Any]:
+        event_type = event.get("type")
+        if event_type != "LLM_TOKEN":
+            flushed = self.flush()
+            update = map_executor_event_to_session_update(
+                event, self._update_agent_message_text, self._update_agent_thought_text
+            )
+            if update is None:
+                return flushed
+            return [*flushed, update]
+
+        data = event.get("data", {})
+        token = data.get("token", "")
+        if not token:
+            return []
+        token = _normalize_status_token(token)
+
+        is_reasoning = _coerce_executor_event_bool(data.get("isReasoning", False))
+        is_terminal = _coerce_executor_event_bool(data.get("isTerminal", False))
+        is_new_message = _coerce_executor_event_bool(data.get("isNewMessage", False))
+        message_type = str(data.get("messageType", "AI") or "AI").upper()
+
+        should_flush_before_append = False
+        if self._current is not None:
+            should_flush_before_append = (
+                is_new_message
+                or self._current.message_type != message_type
+                or self._current.is_reasoning != is_reasoning
+            )
+
+        updates: list[Any] = []
+        if should_flush_before_append:
+            updates.extend(self.flush())
+
+        if self._current is None:
+            self._current = _BufferedLlmMessage(
+                text=token,
+                message_type=message_type,
+                is_reasoning=is_reasoning,
+                is_terminal=is_terminal,
+            )
+        else:
+            self._current.text += token
+            self._current.is_terminal = is_terminal
+
+        if is_terminal:
+            updates.extend(self.flush())
+        return updates
+
+    def flush(self) -> list[Any]:
+        if self._current is None or not self._current.text:
+            self._current = None
+            return []
+
+        message = self._current
+        self._current = None
+        if message.is_reasoning and self._update_agent_thought_text:
+            return [self._update_agent_thought_text(message.text)]
+
+        if not message.is_terminal and self._update_agent_thought_text:
+            return [self._update_agent_thought_text(message.text)]
+
+        return [self._update_agent_message_text(message.text)]
+
+
 def _normalize_status_token(token: str) -> str:
     # Pass tokens through as-is, with only minimal normalization for known mojibake.
     return token.replace("â€¦", "...")
@@ -659,14 +750,15 @@ class BrokkAcpBridge:
         self._active_job_by_session[session_id] = job_id
 
         try:
+            buffered_mapper = BufferedExecutorEventMapper(
+                update_agent_message_text=update_agent_message_text,
+                update_agent_thought_text=update_agent_thought_text,
+            )
             async for event in self.executor.stream_events(job_id):
-                update = map_executor_event_to_session_update(
-                    event,
-                    update_agent_message_text,
-                    update_agent_thought_text,
-                )
-                if update:
+                for update in buffered_mapper.map_event(event):
                     await send_update(session_id, update)
+            for update in buffered_mapper.flush():
+                await send_update(session_id, update)
             try:
                 context_data = await self.executor.get_context()
                 fragment_resources: dict[str, dict[str, Any]] = {}
