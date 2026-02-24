@@ -3,6 +3,8 @@ package ai.brokk;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.context.Context;
 import ai.brokk.gui.InstructionsPanel;
+import ai.brokk.tools.ToolExecutionResult;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -155,6 +157,22 @@ public interface IConsoleIO {
 
     default void updateContextHistoryTable(Context context) {
         // pass
+    }
+
+    /**
+     * Notifies the console that a tool is about to be called.
+     * Default implementation is a no-op.
+     */
+    default void beforeToolCall(ToolExecutionRequest request) {
+        // no-op
+    }
+
+    /**
+     * Notifies the console that a tool call has completed.
+     * Default implementation is a no-op.
+     */
+    default void afterToolOutput(ToolExecutionResult result) {
+        // no-op
     }
 
     default InstructionsPanel getInstructionsPanel() {

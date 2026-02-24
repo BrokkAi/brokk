@@ -961,7 +961,10 @@ public class SearchAgent {
             agent.metrics.recordToolCall(req.name());
             wst.setContext(context);
 
+            agent.io.beforeToolCall(req);
             var result = tr.executeTool(req);
+            agent.io.afterToolOutput(result);
+
             if (agent.isWorkspaceTool(req, tr)) {
                 agent.updateDroppedHistory(context, wst.getContext());
                 context = wst.getContext();

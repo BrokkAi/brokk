@@ -7,6 +7,8 @@ import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.tools.ToolExecutionResult;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
 import java.io.IOException;
@@ -262,6 +264,25 @@ public class HeadlessHttpConsole extends MemoryConsole {
     public void updateContextHistoryTable(Context context) {
         var data = Map.of("name", "contextHistoryUpdated", "value", true, "count", 1);
         appendEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public void beforeToolCall(ToolExecutionRequest request) {
+        var data = Map.of(
+                "id", request.id(),
+                "name", request.name(),
+                "arguments", request.arguments());
+        appendEvent("TOOL_CALL", data);
+    }
+
+    @Override
+    public void afterToolOutput(ToolExecutionResult result) {
+        var data = Map.of(
+                "id", result.toolId(),
+                "name", result.toolName(),
+                "status", result.status().name(),
+                "resultText", result.resultText());
+        appendEvent("TOOL_OUTPUT", data);
     }
 
     /**

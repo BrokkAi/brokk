@@ -312,7 +312,9 @@ public class BuildAgent {
             for (var request : otherRequests) {
                 String toolName = request.name();
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
+
                 ToolExecutionResult execResult = tr.executeTool(request);
+
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
                 // Log tool result for debugging

@@ -859,7 +859,11 @@ public class ArchitectAgent {
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
                 wst.setContext(context);
+
+                io.beforeToolCall(req);
                 ToolExecutionResult toolResult = tr.executeTool(req);
+                io.afterToolOutput(toolResult);
+
                 context = wst.getContext();
                 architectMessages.add(toolResult.toExecutionResultMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
