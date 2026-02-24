@@ -615,10 +615,17 @@ class ChatInput(TextArea):
 
         # Handle Enter and Shift+Enter
         if event.key == "enter":
-            if event.shift:
+            is_shift = getattr(event, "shift", False)
+            if is_shift:
                 self.action_insert_newline()
             else:
                 self.action_submit()
+            event.stop()
+            event.prevent_default()
+            return
+
+        if event.key == "shift+enter":
+            self.action_insert_newline()
             event.stop()
             event.prevent_default()
             return
