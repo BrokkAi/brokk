@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.modelcontextprotocol.spec.McpSchema;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -30,8 +31,8 @@ class McpServerCommandTest {
 
     @Test
     void stubHandler_returnsNotImplemented() {
-        McpSchema.CallToolResult result = BrokkCli.McpServerCommand.stubHandler(
-                null, new McpSchema.CallToolRequest("unknown", java.util.Map.of()));
+        McpSchema.CallToolResult result =
+                BrokkCli.McpServerCommand.stubHandler(null, new McpSchema.CallToolRequest("unknown", Map.of()));
 
         assertEquals(false, result.isError());
         assertEquals(1, result.content().size());
@@ -41,8 +42,8 @@ class McpServerCommandTest {
 
     @Test
     void handleToolCall_unimplementedTool_returnsError() {
-        McpSchema.CallToolResult result = BrokkCli.McpServerCommand.handleToolCall(
-                null, new McpSchema.CallToolRequest("unknown_tool", java.util.Map.of()));
+        McpSchema.CallToolResult result =
+                BrokkCli.McpServerCommand.handleToolCall(null, new McpSchema.CallToolRequest("unknown_tool", Map.of()));
 
         assertTrue(result.isError());
         assertTrue(result.content().getFirst() instanceof McpSchema.TextContent text

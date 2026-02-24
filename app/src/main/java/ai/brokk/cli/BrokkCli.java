@@ -25,7 +25,16 @@ import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import io.modelcontextprotocol.json.McpJsonDefaults;
+import io.modelcontextprotocol.server.McpServer;
+import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
+import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.server.McpSyncServerExchange;
+import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
+import io.modelcontextprotocol.spec.McpSchema;
+import java.io.FilterInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
@@ -36,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -435,13 +445,13 @@ public final class BrokkCli implements Callable<Integer> {
                 var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
                 prepareHeadless(cm, bd, false);
 
-                var stdinClosed = new java.util.concurrent.CountDownLatch(1);
+                var stdinClosed = new CountDownLatch(1);
                 var originalIn = System.in;
                 System.setIn(new EofNotifyingInputStream(originalIn, stdinClosed));
 
-                var mapper = io.modelcontextprotocol.json.McpJsonDefaults.getMapper();
-                var transport = new io.modelcontextprotocol.server.transport.StdioServerTransportProvider(mapper);
-                var server = io.modelcontextprotocol.server.McpServer.sync(transport)
+                var mapper = McpJsonDefaults.getMapper();
+                var transport = new StdioServerTransportProvider(mapper);
+                McpSyncServer server = McpServer.sync(transport)
                         .serverInfo("Brokk", ai.brokk.BuildInfo.version)
                         .tools(toolSpecifications(cm))
                         .build();
@@ -464,16 +474,16 @@ public final class BrokkCli implements Callable<Integer> {
             }
         }
 
-        private static final class EofNotifyingInputStream extends java.io.FilterInputStream {
-            private final java.util.concurrent.CountDownLatch eofLatch;
+        private static final class EofNotifyingInputStream extends FilterInputStream {
+            private final CountDownLatch eofLatch;
 
-            private EofNotifyingInputStream(java.io.InputStream in, java.util.concurrent.CountDownLatch eofLatch) {
+            private EofNotifyingInputStream(InputStream in, CountDownLatch eofLatch) {
                 super(in);
                 this.eofLatch = eofLatch;
             }
 
             @Override
-            public int read() throws java.io.IOException {
+            public int read() throws IOException {
                 int v = super.read();
                 if (v == -1) {
                     eofLatch.countDown();
@@ -482,7 +492,7 @@ public final class BrokkCli implements Callable<Integer> {
             }
 
             @Override
-            public int read(byte[] b, int off, int len) throws java.io.IOException {
+            public int read(byte[] b, int off, int len) throws IOException {
                 int n = super.read(b, off, len);
                 if (n == -1) {
                     eofLatch.countDown();
@@ -491,123 +501,108 @@ public final class BrokkCli implements Callable<Integer> {
             }
         }
 
-        static java.util.List<io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification>
-                toolSpecifications(ContextManager cm) {
+        static List<SyncToolSpecification> toolSpecifications(ContextManager cm) {
             return toolDiscoveryList().stream()
-                    .map(tool -> io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification.builder()
+                    .map(tool -> SyncToolSpecification.builder()
                             .tool(tool)
                             .callHandler((exchange, request) -> handleToolCall(cm, request))
                             .build())
                     .toList();
         }
 
-        static java.util.List<io.modelcontextprotocol.spec.McpSchema.Tool> toolDiscoveryList() {
-            return java.util.List.of(
+        static List<McpSchema.Tool> toolDiscoveryList() {
+            return List.of(
                     stubTool(
                             "scan",
                             "Agentic scan for relevant files and classes",
-                            java.util.Map.of(
-                                    "goal", java.util.Map.of("type", "string"),
-                                    "files",
-                                            java.util.Map.of(
-                                                    "type", "array", "items", java.util.Map.of("type", "string")),
-                                    "include_tests", java.util.Map.of("type", "boolean")),
-                            java.util.List.of("goal")),
+                            Map.of(
+                                    "goal", Map.of("type", "string"),
+                                    "files", Map.of("type", "array", "items", Map.of("type", "string")),
+                                    "include_tests", Map.of("type", "boolean")),
+                            List.of("goal")),
                     stubTool(
                             "find_symbols",
                             "Symbol search using regex patterns",
-                            java.util.Map.of(
-                                    "patterns",
-                                            java.util.Map.of(
-                                                    "type", "array", "items", java.util.Map.of("type", "string")),
-                                    "goal", java.util.Map.of("type", "string"),
-                                    "include_tests", java.util.Map.of("type", "boolean")),
-                            java.util.List.of("patterns", "goal")),
+                            Map.of(
+                                    "patterns", Map.of("type", "array", "items", Map.of("type", "string")),
+                                    "goal", Map.of("type", "string"),
+                                    "include_tests", Map.of("type", "boolean")),
+                            List.of("patterns", "goal")),
                     stubTool(
                             "find_usages",
                             "Find where symbols are used",
-                            java.util.Map.of(
-                                    "targets",
-                                            java.util.Map.of(
-                                                    "type", "array", "items", java.util.Map.of("type", "string")),
-                                    "goal", java.util.Map.of("type", "string"),
-                                    "include_tests", java.util.Map.of("type", "boolean")),
-                            java.util.List.of("targets", "goal")),
+                            Map.of(
+                                    "targets", Map.of("type", "array", "items", Map.of("type", "string")),
+                                    "goal", Map.of("type", "string"),
+                                    "include_tests", Map.of("type", "boolean")),
+                            List.of("targets", "goal")),
                     stubTool(
                             "list_identifiers",
                             "List identifiers in a directory",
-                            java.util.Map.of(
-                                    "dir", java.util.Map.of("type", "string"),
-                                    "goal", java.util.Map.of("type", "string")),
-                            java.util.List.of("dir")),
+                            Map.of("dir", Map.of("type", "string"), "goal", Map.of("type", "string")),
+                            List.of("dir")),
                     stubTool(
                             "fetch_summary",
                             "Get declarations for classes or files",
-                            java.util.Map.of(
-                                    "targets",
-                                    java.util.Map.of("type", "array", "items", java.util.Map.of("type", "string"))),
-                            java.util.List.of("targets")),
+                            Map.of("targets", Map.of("type", "array", "items", Map.of("type", "string"))),
+                            List.of("targets")),
                     stubTool(
                             "fetch_source",
                             "Get full source code for classes or methods",
-                            java.util.Map.of(
-                                    "targets",
-                                    java.util.Map.of("type", "array", "items", java.util.Map.of("type", "string"))),
-                            java.util.List.of("targets")),
+                            Map.of("targets", Map.of("type", "array", "items", Map.of("type", "string"))),
+                            List.of("targets")),
                     stubTool(
                             "code",
                             "Implement changes described in a goal",
-                            java.util.Map.of(
-                                    "goal", java.util.Map.of("type", "string"),
-                                    "files",
-                                            java.util.Map.of(
-                                                    "type", "array", "items", java.util.Map.of("type", "string")),
-                                    "autocommit", java.util.Map.of("type", "boolean")),
-                            java.util.List.of("goal")),
+                            Map.of(
+                                    "goal", Map.of("type", "string"),
+                                    "files", Map.of("type", "array", "items", Map.of("type", "string")),
+                                    "autocommit", Map.of("type", "boolean")),
+                            List.of("goal")),
                     // Optional parity tools for discovery:
-                    stubTool("build", "Run build verification", java.util.Map.of(), java.util.List.of()),
-                    stubTool("merge", "Resolve merge conflicts", java.util.Map.of(), java.util.List.of()));
+                    stubTool("build", "Run build verification", Map.of(), List.of()),
+                    stubTool("merge", "Resolve merge conflicts", Map.of(), List.of()));
         }
 
-        static io.modelcontextprotocol.spec.McpSchema.Tool stubTool(
-                String name,
-                String description,
-                java.util.Map<String, Object> properties,
-                java.util.List<String> required) {
-            return io.modelcontextprotocol.spec.McpSchema.Tool.builder()
+        static McpSchema.Tool stubTool(
+                String name, String description, Map<String, Object> properties, List<String> required) {
+            return McpSchema.Tool.builder()
                     .name(name)
                     .title(name)
                     .description(description)
-                    .inputSchema(new io.modelcontextprotocol.spec.McpSchema.JsonSchema(
-                            "object", properties, required, false, null, null))
+                    .inputSchema(new McpSchema.JsonSchema("object", properties, required, false, null, null))
                     .build();
         }
 
-        static io.modelcontextprotocol.spec.McpSchema.CallToolResult handleToolCall(
-                ContextManager cm, io.modelcontextprotocol.spec.McpSchema.CallToolRequest request) {
+        static McpSchema.CallToolResult handleToolCall(ContextManager cm, McpSchema.CallToolRequest request) {
             try {
                 return switch (request.name()) {
                     case "scan" -> handleScan(cm, request);
                     default ->
-                        io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                        McpSchema.CallToolResult.builder()
                                 .addTextContent("Tool '" + request.name() + "' is not yet implemented")
                                 .isError(true)
                                 .build();
                 };
             } catch (Exception e) {
                 logger.error("Error executing MCP tool {}", request.name(), e);
-                return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                return McpSchema.CallToolResult.builder()
                         .addTextContent("Internal error: " + e.getMessage())
                         .isError(true)
                         .build();
             }
         }
 
-        private static io.modelcontextprotocol.spec.McpSchema.CallToolResult handleScan(
-                ContextManager cm, io.modelcontextprotocol.spec.McpSchema.CallToolRequest request)
+        private static McpSchema.CallToolResult handleScan(ContextManager cm, McpSchema.CallToolRequest request)
                 throws InterruptedException {
             var args = request.arguments();
             String goal = (String) args.get("goal");
+            if (goal == null) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Missing required argument 'goal'")
+                        .isError(true)
+                        .build();
+            }
             boolean includeTests = Boolean.TRUE.equals(args.get("include_tests"));
 
             var scanModel = cm.getService().getScanModel();
@@ -615,7 +610,7 @@ public final class BrokkCli implements Callable<Integer> {
             var recommendations = agent.getRecommendations(cm.liveContext());
 
             if (!recommendations.success()) {
-                return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                return McpSchema.CallToolResult.builder()
                         .addTextContent("Scan failed to complete.")
                         .isError(true)
                         .build();
@@ -623,7 +618,7 @@ public final class BrokkCli implements Callable<Integer> {
 
             var fragments = recommendations.fragments();
             if (fragments.isEmpty()) {
-                return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                return McpSchema.CallToolResult.builder()
                         .addTextContent("No relevant context found for the provided goal.")
                         .build();
             }
@@ -644,15 +639,13 @@ public final class BrokkCli implements Callable<Integer> {
 
             cm.pushContext(ctx -> ctx.addFragments(fragments));
 
-            return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+            return McpSchema.CallToolResult.builder()
                     .addTextContent(sb.toString().strip())
                     .build();
         }
 
-        static io.modelcontextprotocol.spec.McpSchema.CallToolResult stubHandler(
-                io.modelcontextprotocol.server.McpSyncServerExchange exchange,
-                io.modelcontextprotocol.spec.McpSchema.CallToolRequest request) {
-            return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+        static McpSchema.CallToolResult stubHandler(McpSyncServerExchange exchange, McpSchema.CallToolRequest request) {
+            return McpSchema.CallToolResult.builder()
                     .addTextContent("not implemented")
                     .isError(false)
                     .build();
