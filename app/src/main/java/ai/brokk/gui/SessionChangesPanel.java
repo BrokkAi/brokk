@@ -607,8 +607,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private record BaselineState(
             String baselineLabel, String resolvedLeftRef, boolean isWorkingTreeComparison, boolean isError) {}
 
-    private @Nullable String resolvedBaselineBranch = null;
-
     /** Cached baseline state from last resolution, for use in getEmptyStateMessage() */
     @Nullable
     private BaselineState lastBaselineState = null;
@@ -636,8 +634,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     baseline = upstreamRefCandidate;
                 }
             }
-
-            resolvedBaselineBranch = baseline;
 
             String label = baseline;
             boolean isWorkingTreeComparison = false;
