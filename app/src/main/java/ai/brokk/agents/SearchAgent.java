@@ -304,7 +304,7 @@ public class SearchAgent {
         @Nullable PendingTerminal pendingTerminal = null;
         DropMode dropMode = calculateDropMode(currentState.context());
 
-        for (int turn = 0; turn < MAX_TOTAL_TURNS; ) {
+        for (int turn = 0; turn < MAX_TOTAL_TURNS || (pendingTerminal != null && turn < MAX_TOTAL_TURNS + 1); ) {
             SearchState stateAtTurnStart = currentState;
 
             if (pendingTerminal != null) {
@@ -312,14 +312,8 @@ public class SearchAgent {
                 assert hasDroppableFragments(currentState.context());
             }
 
-            // Pending terminals are finalized at the loop level on the final iteration to avoid
-            // any prompt/tool-registry preparation (and especially an extra LLM call) when we
-            // have no remaining turns.
-            if (turn == MAX_TOTAL_TURNS - 1 && pendingTerminal != null) {
-                return finalizePendingTerminal(pendingTerminal, currentState.context());
-            }
-
-            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropMode, pendingTerminal, turn, MAX_TOTAL_TURNS);
+            int maxTurnsThisRun = MAX_TOTAL_TURNS + (pendingTerminal != null ? 1 : 0);
+            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropMode, pendingTerminal, turn, maxTurnsThisRun);
             var outcome = sta.executeTurn();
 
             switch (outcome) {
@@ -910,7 +904,7 @@ public class SearchAgent {
                 agent.currentState = agent.currentState.withPresentedRelatedFiles(updatedRelated);
             }
 
-            DropMode effectiveDropMode = isFinalTurn() ? DropMode.NORMAL : dropMode;
+            DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
 
             // update pins before generating prompt
             if (effectiveDropMode == DropMode.DROP_ONLY) {
@@ -936,24 +930,30 @@ public class SearchAgent {
 
             @Nullable UserMessage extraUserMessage = null;
 
-            List<String> allowedToolNames;
-            List<String> agentTerminalTools;
+            List<String> allowedOrdinaryTools;
+            List<String> terminalTools;
 
             if (pendingTerminal == null) {
-                allowedToolNames = agent.calculateAllowedToolNames(context, effectiveDropMode);
-                agentTerminalTools =
-                        effectiveDropMode == DropMode.DROP_ONLY ? List.of() : agent.calculateTerminalTools();
+                if (isFinalTurn()) {
+                    allowedOrdinaryTools = List.of();
+                    terminalTools = agent.calculateTerminalTools();
+                } else {
+                    allowedOrdinaryTools = agent.calculateAllowedToolNames(context, effectiveDropMode);
+                    terminalTools =
+                            effectiveDropMode == DropMode.DROP_ONLY ? List.of() : agent.calculateTerminalTools();
+                }
             } else {
                 messages = new ArrayList<>(messages);
                 extraUserMessage = new UserMessage(
                         "Search is complete. Please perform a final cleanup of the Workspace using 'dropWorkspaceFragments' to remove any remaining irrelevant information.");
                 messages.add(extraUserMessage);
 
-                allowedToolNames = agent.hasDroppableFragments(context) ? List.of("dropWorkspaceFragments") : List.of();
-                agentTerminalTools = List.of();
+                allowedOrdinaryTools =
+                        agent.hasDroppableFragments(context) ? List.of("dropWorkspaceFragments") : List.of();
+                terminalTools = List.of();
             }
 
-            var allAllowed = Streams.concat(allowedToolNames.stream(), agentTerminalTools.stream())
+            var allAllowed = Streams.concat(allowedOrdinaryTools.stream(), terminalTools.stream())
                     .toList();
             var toolSpecs = tr.getTools(allAllowed);
             return new TurnPrompt(messages, toolSpecs, extraUserMessage);
