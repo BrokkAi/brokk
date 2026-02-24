@@ -580,10 +580,17 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             return;
         }
 
+        if (activeDiffCalculation != null) {
+            activeDiffCalculation.cancel(true);
+        }
+
         final long thisGeneration = updateGeneration.incrementAndGet();
 
-        SwingUtilities.invokeLater(() -> reviewTabListener.onReviewTabStateChanged(
-                new ReviewTabState("Review (...)", "Computing branch-based changes...", computeUncommittedCount())));
+        SwingUtilities.invokeLater(() -> {
+            showDiffLoading();
+            reviewTabListener.onReviewTabStateChanged(
+                    new ReviewTabState("Review (...)", "Computing branch-based changes...", computeUncommittedCount()));
+        });
 
         LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
@@ -610,6 +617,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     logger.warn("Failed to compute cumulative changes", ex);
                     SwingUtilities.invokeLater(() -> {
                         if (thisGeneration != updateGeneration.get()) return;
+                        showDiffError("Failed to compute changes: " + ex.getMessage());
                         reviewTabListener.onReviewTabStateChanged(
                                 new ReviewTabState("Review", "Failed to compute changes", computeUncommittedCount()));
                     });
@@ -1207,6 +1215,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         JLabel loadingLabel =
                 new JLabel("Loading changes...", SpinnerIconUtil.getSpinner(chrome, false), SwingConstants.CENTER);
         diffContainer.add(loadingLabel, BorderLayout.CENTER);
+        diffContainer.revalidate();
+        diffContainer.repaint();
+    }
+
+    private void showDiffError(String message) {
+        diffContainer.removeAll();
+        JLabel errorLabel = new JLabel(message, SwingConstants.CENTER);
+        errorLabel.setForeground(UIManager.getColor("ErrorText.foreground"));
+        diffContainer.add(errorLabel, BorderLayout.CENTER);
         diffContainer.revalidate();
         diffContainer.repaint();
     }
