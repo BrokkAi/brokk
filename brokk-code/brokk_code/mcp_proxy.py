@@ -17,36 +17,46 @@ from brokk_code.executor import ExecutorManager, ExecutorError
 
 logger = logging.getLogger(__name__)
 
-_BEMS_MAIN_CLASS = "ai.brokk.mcp.BrokkExternalMcpServer"
+_BEMS_MAIN_CLASS = "ai.brokk.mcp.McpMain"
 _BEMS_DEFAULT_PORT = 3001
-_BEMS_BASE_URL = f"http://127.0.0.1:{_BEMS_DEFAULT_PORT}"
+_BEMS_DEFAULT_IDLE = 300
 _BEMS_PROBE_TIMEOUT = 120.0
 _BEMS_PROBE_INTERVAL = 0.5
 
 
 class _BemsExecutorManager(ExecutorManager):
-    """ExecutorManager variant that launches BrokkExternalMcpServer instead of HeadlessExecutorMain."""
+    """ExecutorManager variant that launches McpMain instead of HeadlessExecutorMain."""
+
+    def __init__(
+        self,
+        *args: Any,
+        port: int = _BEMS_DEFAULT_PORT,
+        idle: int = _BEMS_DEFAULT_IDLE,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._port = port
+        self._idle = idle
 
     @property
     def _main_class(self) -> str:
         return _BEMS_MAIN_CLASS
 
     def _get_executor_args(self, exec_id: str) -> List[str]:
-        # BEMS takes only the port as a positional argument.
-        return [str(_BEMS_DEFAULT_PORT)]
+        return ["--port", str(self._port), "--idle", str(self._idle)]
 
     def _make_http_client(self, base_url: str) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=base_url, timeout=300.0)
 
     async def _await_ready(self, exec_id: str) -> int:
         """
-        BEMS listens on a fixed port. Drain stdout in the background (so the
+        BEMS listens on the configured port. Drain stdout in the background (so the
         process doesn't block on a full pipe) and probe the HTTP endpoint
         until it responds, then return the port.
         """
         asyncio.get_event_loop().create_task(self._drain_stdout())
-        await _probe_bems()
-        return _BEMS_DEFAULT_PORT
+        await _probe_bems(self._port)
+        return self._port
 
     async def _drain_stdout(self) -> None:
         """Consume subprocess stdout so the process never blocks on a full pipe."""
@@ -62,12 +72,13 @@ class _BemsExecutorManager(ExecutorManager):
             pass
 
 
-async def _probe_bems() -> None:
+async def _probe_bems(port: int) -> None:
     """
-    Probe BEMS until it responds on its fixed port, or raise ExecutorError on timeout.
+    Probe BEMS until it responds on the given port, or raise ExecutorError on timeout.
     Tries a tools/list call rather than /sse so we also confirm JSON-RPC is up.
     """
-    probe_client = httpx.AsyncClient(base_url=_BEMS_BASE_URL, timeout=5.0)
+    base_url = f"http://127.0.0.1:{port}"
+    probe_client = httpx.AsyncClient(base_url=base_url, timeout=5.0)
     deadline = asyncio.get_event_loop().time() + _BEMS_PROBE_TIMEOUT
     try:
         while asyncio.get_event_loop().time() < deadline:
@@ -85,8 +96,7 @@ async def _probe_bems() -> None:
         await probe_client.aclose()
 
     raise ExecutorError(
-        f"BEMS did not become reachable on port {_BEMS_DEFAULT_PORT} "
-        f"within {_BEMS_PROBE_TIMEOUT:.0f}s"
+        f"BEMS did not become reachable on port {port} within {_BEMS_PROBE_TIMEOUT:.0f}s"
     )
 
 
@@ -139,12 +149,17 @@ class _BemsConnection:
         executor_version: Optional[str],
         executor_snapshot: bool,
         vendor: Optional[str],
+        port: int = _BEMS_DEFAULT_PORT,
+        idle: int = _BEMS_DEFAULT_IDLE,
     ) -> None:
         self._workspace_dir = workspace_dir
         self._jar_path = jar_path
         self._executor_version = executor_version
         self._executor_snapshot = executor_snapshot
         self._vendor = vendor
+        self._port = port
+        self._idle = idle
+        self._base_url = f"http://127.0.0.1:{port}"
 
         self._bems: Optional[_BemsExecutorManager] = None
         self._http_client: Optional[httpx.AsyncClient] = None
@@ -196,9 +211,9 @@ class _BemsConnection:
     # ------------------------------------------------------------------
 
     async def _is_alive(self) -> bool:
-        """Return True if BEMS is already answering on its fixed port."""
+        """Return True if BEMS is already answering on the configured port."""
         if self._http_client is None:
-            probe = httpx.AsyncClient(base_url=_BEMS_BASE_URL, timeout=3.0)
+            probe = httpx.AsyncClient(base_url=self._base_url, timeout=3.0)
             try:
                 resp = await probe.post(
                     "/message",
@@ -212,7 +227,7 @@ class _BemsConnection:
 
             if alive:
                 # An existing BEMS is running (not started by us); attach to it.
-                self._http_client = httpx.AsyncClient(base_url=_BEMS_BASE_URL, timeout=300.0)
+                self._http_client = httpx.AsyncClient(base_url=self._base_url, timeout=300.0)
                 self._start_keepalive()
             return alive
 
@@ -239,6 +254,8 @@ class _BemsConnection:
             executor_version=self._executor_version,
             executor_snapshot=self._executor_snapshot,
             vendor=self._vendor,
+            port=self._port,
+            idle=self._idle,
         )
         await bems.start()
         self._bems = bems
@@ -286,7 +303,7 @@ class _BemsConnection:
         """
         while True:
             try:
-                async with httpx.AsyncClient(base_url=_BEMS_BASE_URL, timeout=None) as client:
+                async with httpx.AsyncClient(base_url=self._base_url, timeout=None) as client:
                     async with client.stream("GET", "/sse") as response:
                         # Consume the stream; we only care that it stays open.
                         async for _ in response.aiter_bytes(chunk_size=4096):
@@ -304,6 +321,8 @@ async def run_mcp_proxy(
     executor_version: Optional[str] = None,
     executor_snapshot: bool = True,
     vendor: Optional[str] = None,
+    port: int = _BEMS_DEFAULT_PORT,
+    idle: int = _BEMS_DEFAULT_IDLE,
 ) -> None:
     """
     Lazily connect to (or start) BrokkExternalMcpServer over HTTP, then expose
@@ -316,6 +335,8 @@ async def run_mcp_proxy(
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
         vendor=vendor,
+        port=port,
+        idle=idle,
     )
 
     # Eagerly ensure BEMS is up before we accept any MCP requests.

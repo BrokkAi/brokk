@@ -8,7 +8,6 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.mcpserver.LangChain4jMcpBridge;
-import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
@@ -31,7 +30,6 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -52,7 +50,6 @@ import org.jspecify.annotations.NullMarked;
 public class BrokkExternalMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkExternalMcpServer.class);
 
-    private static final long IDLE_TIMEOUT_MS = 5 * 60 * 1000L;
     private static final long WATCHDOG_INTERVAL_S = 30L;
 
     private static final List<String> BASE_TOOL_NAMES = List.of(
@@ -76,29 +73,15 @@ public class BrokkExternalMcpServer {
         this.cm = cm;
     }
 
-    public static void main(String[] args) {
-        int port = 3001;
-        if (args.length > 0) {
-            try {
-                port = Integer.parseInt(args[0]);
-            } catch (NumberFormatException e) {
-                logger.warn("Invalid port provided: {}. Using default 3001.", args[0]);
-            }
-        }
-
-        Path projectPath = Path.of(".").toAbsolutePath().normalize();
+    public Integer run(int port, int idleSeconds) {
+        long idleTimeoutMs = idleSeconds * 1000L;
         Server server = new Server(port);
 
         AtomicLong lastActivityMs = new AtomicLong(System.currentTimeMillis());
         AtomicInteger activeSseConnections = new AtomicInteger(0);
 
-        try (var project = new MainProject(projectPath);
-                var cm = new ContextManager(project)) {
-
-            cm.createHeadless(false);
-
+        try {
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
-            BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
 
             HttpServletSseServerTransportProvider transport = HttpServletSseServerTransportProvider.builder()
                     .jsonMapper(mapper)
@@ -152,10 +135,10 @@ public class BrokkExternalMcpServer {
             McpServer.sync(transport)
                     .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
                     .jsonMapper(mapper)
-                    .tools(instance.toolSpecifications())
+                    .tools(toolSpecifications())
                     .build();
 
-            logger.info("Brokk MCP HTTP Server started on port {}", port);
+            logger.info("Brokk MCP HTTP Server started on port {}, idle timeout {}s", port, idleSeconds);
 
             ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "bems-idle-watchdog");
@@ -168,7 +151,7 @@ public class BrokkExternalMcpServer {
                             return;
                         }
                         long idleMs = System.currentTimeMillis() - lastActivityMs.get();
-                        if (idleMs >= IDLE_TIMEOUT_MS) {
+                        if (idleMs >= idleTimeoutMs) {
                             logger.info("BEMS idle for {}s, shutting down.", idleMs / 1000);
                             watchdog.shutdown();
                             try {
@@ -185,8 +168,8 @@ public class BrokkExternalMcpServer {
             server.join();
             watchdog.shutdownNow();
         } catch (Exception e) {
-            logger.error("Failed to start Brokk MCP Server", e);
-            System.exit(1);
+            logger.error("Failed to run Brokk MCP Server", e);
+            return 1;
         } finally {
             try {
                 server.stop();
@@ -194,6 +177,7 @@ public class BrokkExternalMcpServer {
                 logger.error("Error stopping Jetty server", e);
             }
         }
+        return 0;
     }
 
     public List<McpServerFeatures.SyncToolSpecification> toolSpecifications() {
