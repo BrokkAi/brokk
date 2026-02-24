@@ -44,7 +44,8 @@ public class LangChain4jMcpBridge {
                             .tool(mcpTool)
                             .callHandler((exchange, request) -> {
                                 try {
-                                    String jsonArgs = OBJECT_MAPPER.writeValueAsString(request.arguments());
+                                    var args = request.arguments() != null ? request.arguments() : Map.of();
+                                    String jsonArgs = OBJECT_MAPPER.writeValueAsString(args);
                                     ToolExecutionRequest lc4jRequest = ToolExecutionRequest.builder()
                                             .id("1")
                                             .name(spec.name())
