@@ -85,6 +85,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     /** The operational mode of the panel. */
     private enum PanelMode {
+        /** Initial loading state or during range calculation */
+        LOADING,
         /** Live preview of uncommitted changes vs auto-resolved branch baseline */
         PREVIEW,
         /** Frozen review with explicit commit range */
@@ -95,7 +97,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         ERROR
     }
 
-    private PanelMode currentMode = PanelMode.PREVIEW;
+    private PanelMode currentMode = PanelMode.LOADING;
 
     private void setMode(PanelMode newMode) {
         assert SwingUtilities.isEventDispatchThread();
@@ -113,7 +115,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             diffContainer.repaint();
         }
 
-        if (newMode == PanelMode.EMPTY || newMode == PanelMode.ERROR) {
+        if (newMode == PanelMode.LOADING) {
+            mainCardLayout.show(cardsPanel, "LOADING");
+        } else if (newMode == PanelMode.EMPTY || newMode == PanelMode.ERROR) {
             diffCore.updateFileComparisons(List.of());
             emptyLabel.setText(getEmptyStateMessage());
             mainCardLayout.show(cardsPanel, "EMPTY");
@@ -334,10 +338,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.cardsPanel = new JPanel(mainCardLayout);
         this.cardsPanel.setOpaque(false);
 
+        var loadingPanel = new JPanel(new BorderLayout());
+        loadingPanel.setOpaque(false);
+        var centralLoadingLabel =
+                new JLabel("Loading changes...", SpinnerIconUtil.getSpinner(chrome, false), SwingConstants.CENTER);
+        loadingPanel.add(centralLoadingLabel, BorderLayout.CENTER);
+
         this.emptyLabel = new JLabel("", SwingConstants.CENTER);
         this.emptyLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
+        this.cardsPanel.add(loadingPanel, "LOADING");
         this.cardsPanel.add(emptyLabel, "EMPTY");
         this.cardsPanel.add(mainSplitPane, "MAIN");
+
+        this.mainCardLayout.show(cardsPanel, "LOADING");
 
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(false);
@@ -602,10 +615,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         return;
                     }
 
-                    if (!computed.scope.changes().equals(lastCumulativeChanges)) {
-                        lastCumulativeChanges = computed.scope.changes();
-                        deferredUpdateHelper.requestUpdate();
-                    }
+                    lastCumulativeChanges = computed.scope.changes();
+                    deferredUpdateHelper.requestUpdate();
 
                     SwingUtilities.invokeLater(() -> {
                         if (thisGeneration != updateGeneration.get()) return;
@@ -739,13 +750,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         PanelMode nextMode = currentMode;
         if (res.currentState.isError()) {
             nextMode = PanelMode.ERROR;
-        } else if (result.filesChanged() == 0 && currentMode != PanelMode.REVIEW) {
+        } else if (result.filesChanged() == 0 && (currentMode != PanelMode.REVIEW)) {
             nextMode = PanelMode.EMPTY;
         } else if (currentMode != PanelMode.REVIEW) {
             nextMode = PanelMode.PREVIEW;
         }
         setMode(nextMode);
 
+        // Ensure button states and labels are correct after transition from LOADING
+        updateGuidedReviewButton();
         emitReviewTabStateFromResult(result, res.currentState.baselineLabel());
         updateContent(result, res.prepared, res.currentState.baselineLabel(), res.autoState.baselineLabel());
 
