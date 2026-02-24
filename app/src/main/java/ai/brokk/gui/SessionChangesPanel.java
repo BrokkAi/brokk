@@ -1066,7 +1066,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
         fileTreePanel.updateData(fileComparisons, root, projectName);
 
         if (!nextComparisons.isEmpty()) {
-            this.diffCore.showFile(0);
+            // Attempt to restore selection if the same file exists in the new list
+            int currentIndex = diffCore.getCurrentIndex();
+            ProjectFile selectedFile = null;
+            if (currentIndex >= 0 && currentIndex < fileComparisons.size()) {
+                selectedFile = fileComparisons.get(currentIndex).file();
+            }
+
+            int nextIndex = 0;
+            if (selectedFile != null) {
+                for (int i = 0; i < nextComparisons.size(); i++) {
+                    if (selectedFile.equals(nextComparisons.get(i).file())) {
+                        nextIndex = i;
+                        break;
+                    }
+                }
+            }
+            this.diffCore.showFile(nextIndex);
         } else {
             diffContainer.removeAll();
             diffContainer.add(new JLabel("No file changes to display", SwingConstants.CENTER), BorderLayout.CENTER);
