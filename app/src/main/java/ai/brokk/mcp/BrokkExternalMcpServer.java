@@ -23,11 +23,25 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.FilterConfig;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jetty.ee10.servlet.FilterHolder;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.server.Server;
@@ -37,6 +51,9 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public class BrokkExternalMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkExternalMcpServer.class);
+
+    private static final long IDLE_TIMEOUT_MS = 5 * 60 * 1000L;
+    private static final long WATCHDOG_INTERVAL_S = 30L;
 
     private static final List<String> BASE_TOOL_NAMES = List.of(
             "scan",
@@ -71,6 +88,10 @@ public class BrokkExternalMcpServer {
 
         Path projectPath = Path.of(".").toAbsolutePath().normalize();
         Server server = new Server(port);
+
+        AtomicLong lastActivityMs = new AtomicLong(System.currentTimeMillis());
+        AtomicInteger activeSseConnections = new AtomicInteger(0);
+
         try (var project = new MainProject(projectPath);
                 var cm = new ContextManager(project)) {
 
@@ -88,6 +109,41 @@ public class BrokkExternalMcpServer {
 
             var context = new ServletContextHandler();
             context.setContextPath("/");
+
+            // Activity-tracking filter: records last activity on /message and /sse,
+            // and tracks active SSE connection count.
+            context.addFilter(
+                    new FilterHolder(new Filter() {
+                        @Override
+                        public void init(FilterConfig cfg) {}
+
+                        @Override
+                        public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain)
+                                throws IOException, ServletException {
+                            lastActivityMs.set(System.currentTimeMillis());
+                            String path = ((HttpServletRequest) req).getRequestURI();
+                            boolean isSse = path.endsWith("/sse");
+                            if (isSse) {
+                                activeSseConnections.incrementAndGet();
+                            }
+                            try {
+                                chain.doFilter(req, res);
+                            } finally {
+                                if (isSse) {
+                                    activeSseConnections.decrementAndGet();
+                                    // SSE disconnect is also activity — reset the clock so the
+                                    // idle window starts from when the client disconnected.
+                                    lastActivityMs.set(System.currentTimeMillis());
+                                }
+                            }
+                        }
+
+                        @Override
+                        public void destroy() {}
+                    }),
+                    "/*",
+                    null);
+
             context.addServlet(new ServletHolder(transport), "/*");
 
             server.setHandler(context);
@@ -99,9 +155,35 @@ public class BrokkExternalMcpServer {
                     .tools(instance.toolSpecifications())
                     .build();
 
-            logger.info("Brokk MCP HTTP Server started on port " + port);
+            logger.info("Brokk MCP HTTP Server started on port {}", port);
+
+            ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "bems-idle-watchdog");
+                t.setDaemon(true);
+                return t;
+            });
+            watchdog.scheduleAtFixedRate(
+                    () -> {
+                        if (activeSseConnections.get() > 0) {
+                            return;
+                        }
+                        long idleMs = System.currentTimeMillis() - lastActivityMs.get();
+                        if (idleMs >= IDLE_TIMEOUT_MS) {
+                            logger.info("BEMS idle for {}s, shutting down.", idleMs / 1000);
+                            watchdog.shutdown();
+                            try {
+                                server.stop();
+                            } catch (Exception e) {
+                                logger.warn("Error stopping server during idle shutdown", e);
+                            }
+                        }
+                    },
+                    WATCHDOG_INTERVAL_S,
+                    WATCHDOG_INTERVAL_S,
+                    TimeUnit.SECONDS);
 
             server.join();
+            watchdog.shutdownNow();
         } catch (Exception e) {
             logger.error("Failed to start Brokk MCP Server", e);
             System.exit(1);

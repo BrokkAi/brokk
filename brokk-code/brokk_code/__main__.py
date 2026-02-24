@@ -89,6 +89,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="ACP client profile to target (default: intellij)",
     )
 
+    mcp_parser = subparsers.add_parser("mcp", help="Run in MCP stdio proxy mode")
+    _add_common_runtime_args(mcp_parser)
+
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
@@ -148,6 +151,24 @@ def main():
                 executor_version=args.executor_version,
                 executor_snapshot=args.executor_snapshot,
                 ide=args.ide,
+                vendor=args.vendor,
+            )
+        )
+        return
+
+    if args.command == "mcp":
+        try:
+            from brokk_code.mcp_proxy import run_mcp_proxy
+        except ImportError:
+            print("Error: Could not import MCP proxy module.", file=sys.stderr)
+            sys.exit(1)
+
+        asyncio.run(
+            run_mcp_proxy(
+                workspace_dir=workspace_path,
+                jar_path=jar_path,
+                executor_version=args.executor_version,
+                executor_snapshot=args.executor_snapshot,
                 vendor=args.vendor,
             )
         )
