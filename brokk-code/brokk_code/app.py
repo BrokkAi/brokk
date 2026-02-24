@@ -490,6 +490,7 @@ class BrokkApp(App):
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
+        self._startup_pending_prompt: Optional[str] = None
         self._pending_updated_at: float = 0
         self._pending_generation: int = 0
         self._pending_min_wait_until: float = 0.0
@@ -688,6 +689,12 @@ class BrokkApp(App):
                 self._executor_ready = True
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
+
+                # Process prompt queued during startup
+                if self._startup_pending_prompt:
+                    queued_prompt = self._startup_pending_prompt
+                    self._startup_pending_prompt = None
+                    self.run_worker(self._run_job(queued_prompt))
             else:
                 msg = "Executor failed to become ready (timeout)."
                 if chat:
@@ -1155,6 +1162,9 @@ class BrokkApp(App):
                 if self._pending_generation == 1:
                     chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
+            elif not self._executor_ready:
+                self._startup_pending_prompt = raw_text
+                chat.add_system_message("Queuing prompt until Brokk is ready...")
             else:
                 self.run_worker(self._run_job(raw_text))
 

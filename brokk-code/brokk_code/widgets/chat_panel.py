@@ -292,6 +292,7 @@ class ChatInput(TextArea):
 
     BINDINGS = [
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
+        Binding("ctrl+j", "insert_newline", "Insert Newline", show=False),
         Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
         Binding("escape", "hide_autocomplete", "Hide Autocomplete", show=False),
     ]
@@ -613,15 +614,27 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
 
+        # Handle Enter, Ctrl+J and Shift+Enter
         if event.key == "enter":
+            is_shift = getattr(event, "shift", False)
+            if is_shift:
+                self.action_insert_newline()
+            else:
+                self.action_submit()
             event.stop()
             event.prevent_default()
-            self.action_submit()
             return
-        if event.key == "shift+enter":
+
+        if event.key == "ctrl+j":
+            self.action_insert_newline()
             event.stop()
             event.prevent_default()
+            return
+
+        if event.key == "shift+enter":
             self.action_insert_newline()
+            event.stop()
+            event.prevent_default()
             return
 
         await super()._on_key(event)
@@ -693,7 +706,7 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                "Enter: Submit  Shift+Enter: Newline  Up/Down: History  Shift+Tab: Mode",
+                "Enter: Submit  Ctrl+J: Newline  Up/Down: History  Shift+Tab: Mode",
                 id="chat-help",
             )
 
@@ -727,14 +740,19 @@ class ChatPanel(Vertical):
         if event.key == "up":
             # Only navigate history if at the start of the text,
             # or if history navigation is already active.
-            if self._history_index != -1 or chat_input.cursor_at_start_of_text:
+            cursor_row, _ = chat_input.cursor_location
+            if self._history_index != -1 or cursor_row == 0:
                 self._navigate_history(-1)
+                event.stop()
                 event.prevent_default()
         elif event.key == "down":
             # Only navigate history if at the end of the text,
             # or if history navigation is already active.
-            if self._history_index != -1 or chat_input.cursor_at_end_of_text:
+            cursor_row, _ = chat_input.cursor_location
+            last_row = chat_input.document.line_count - 1
+            if self._history_index != -1 or cursor_row >= last_row:
                 self._navigate_history(1)
+                event.stop()
                 event.prevent_default()
 
     def _navigate_history(self, delta: int) -> None:
