@@ -27,14 +27,12 @@ import jakarta.servlet.FilterConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
-import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -77,23 +75,19 @@ public class BrokkExternalMcpServer {
         Server server = new Server(port);
 
         AtomicLong lastActivityMs = new AtomicLong(System.currentTimeMillis());
-        AtomicInteger activeSseConnections = new AtomicInteger(0);
 
         try {
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
 
             HttpServletSseServerTransportProvider transport = HttpServletSseServerTransportProvider.builder()
                     .jsonMapper(mapper)
-                    .baseUrl("http://localhost:" + port)
-                    .sseEndpoint("/sse")
                     .messageEndpoint("/message")
                     .build();
 
             var context = new ServletContextHandler();
             context.setContextPath("/");
 
-            // Activity-tracking filter: records last activity on /message and /sse,
-            // and tracks active SSE connection count.
+            // Activity-tracking filter: records last activity on any request.
             context.addFilter(
                     new FilterHolder(new Filter() {
                         @Override
@@ -103,21 +97,7 @@ public class BrokkExternalMcpServer {
                         public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain)
                                 throws IOException, ServletException {
                             lastActivityMs.set(System.currentTimeMillis());
-                            String path = ((HttpServletRequest) req).getRequestURI();
-                            boolean isSse = path.endsWith("/sse");
-                            if (isSse) {
-                                activeSseConnections.incrementAndGet();
-                            }
-                            try {
-                                chain.doFilter(req, res);
-                            } finally {
-                                if (isSse) {
-                                    activeSseConnections.decrementAndGet();
-                                    // SSE disconnect is also activity — reset the clock so the
-                                    // idle window starts from when the client disconnected.
-                                    lastActivityMs.set(System.currentTimeMillis());
-                                }
-                            }
+                            chain.doFilter(req, res);
                         }
 
                         @Override
@@ -146,9 +126,6 @@ public class BrokkExternalMcpServer {
             });
             watchdog.scheduleAtFixedRate(
                     () -> {
-                        if (activeSseConnections.get() > 0) {
-                            return;
-                        }
                         long idleMs = System.currentTimeMillis() - lastActivityMs.get();
                         if (idleMs >= idleTimeoutMs) {
                             logger.info("BEMS idle for {}s, shutting down.", idleMs / 1000);

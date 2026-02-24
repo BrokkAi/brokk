@@ -66,6 +66,7 @@ class _BemsExecutorManager(ExecutorManager):
         except Exception:
             pass
 
+
 async def _fetch_bems_tools(http_client: httpx.AsyncClient) -> list[dict[str, Any]]:
     """Fetch the MCP tool list from BEMS via its JSON-RPC endpoint."""
     payload = {
@@ -156,9 +157,7 @@ class _BemsConnection:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _request_with_retry(
-        self, send: Callable[[httpx.AsyncClient], Awaitable[Any]]
-    ) -> Any:
+    async def _request_with_retry(self, send: Callable[[httpx.AsyncClient], Awaitable[Any]]) -> Any:
         """Run one normal MCP message and recover only on transport failure."""
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(base_url=self._base_url, timeout=300.0)
