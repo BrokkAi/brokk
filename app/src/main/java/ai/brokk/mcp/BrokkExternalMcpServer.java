@@ -7,6 +7,8 @@ import ai.brokk.agents.ContextAgent;
 import ai.brokk.mcpserver.LangChain4jMcpBridge;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
+import io.modelcontextprotocol.json.McpJsonDefaults;
+import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServer;
@@ -25,17 +27,18 @@ public class BrokkExternalMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkExternalMcpServer.class);
 
     public static int run(ContextManager cm) {
-        McpSyncServer server = McpServer.sync(new StdioServerTransportProvider())
+        McpJsonMapper mapper = McpJsonDefaults.getMapper();
+        McpSyncServer server = McpServer.sync(new StdioServerTransportProvider(mapper))
                 .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
+                .jsonMapper(mapper)
                 .tools(toolSpecifications(cm))
                 .build();
 
         logger.info("Brokk MCP Stdio Server started.");
-        // McpSyncServer in this SDK version is typically started by the transport or remains active until close
+        // The SDK's Stdio transport starts processing when the server is built or upon explicit start if async.
+        // For sync server with stdio, we just need to keep the process alive.
         try {
-            while (true) {
-                Thread.sleep(1000);
-            }
+            Thread.currentThread().join();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

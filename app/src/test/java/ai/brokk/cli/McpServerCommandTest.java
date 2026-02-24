@@ -42,7 +42,20 @@ class McpServerCommandTest {
                     "searchSymbols",
                     "scanUsages",
                     "skimDirectory",
-                    "getFileSummaries")));
+                    "getFileSummaries",
+                    "getClassSkeletons",
+                    "getClassSources",
+                    "getMethodSources",
+                    "getSymbolLocations",
+                    "findFilesContaining",
+                    "findFilenames",
+                    "searchFileContents",
+                    "getFileContents",
+                    "listFiles",
+                    "getGitLog",
+                    "searchGitCommitMessages",
+                    "xpathQuery",
+                    "jq")));
         }
     }
 
@@ -66,7 +79,7 @@ class McpServerCommandTest {
             // Test build (empty build command should fail or return error message)
             var buildResult =
                     BrokkExternalMcpServer.handleToolCall(cm, new McpSchema.CallToolRequest("build", Map.of()));
-            // It might be an error if no build command is configured
+            // It might be an error if no build command is configured, but it should return a result
             assertTrue(buildResult.content().getFirst() instanceof McpSchema.TextContent);
         }
     }
