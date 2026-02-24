@@ -64,16 +64,6 @@ public class BrokkExternalMcpServer {
     }
 
     public static void main(String[] args) {
-        int port = 8080;
-        if (args.length > 0) {
-            try {
-                port = Integer.parseInt(args[0]);
-            } catch (NumberFormatException e) {
-                System.err.println("Invalid port: " + args[0]);
-                System.exit(1);
-            }
-        }
-
         Path projectPath = Path.of(".").toAbsolutePath().normalize();
         try (var project = new MainProject(projectPath);
                 var cm = new ContextManager(project)) {
