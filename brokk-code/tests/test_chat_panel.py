@@ -640,3 +640,70 @@ async def test_ai_tool_call_filtering():
         assert "Done." in content_filtered
         assert "[Tool Call: read_file (hidden)]" in content_filtered
         assert "path: foo.py" not in content_filtered
+
+
+@pytest.mark.asyncio
+async def test_tool_call_visibility_toggle_integration():
+    """
+    Integration-style test: verify that toggling output via BrokkApp.action_toggle_output
+    correctly refreshes the visibility of tool calls in existing AI messages.
+    """
+    from textual.widgets import RichLog
+
+    from brokk_code.app import BrokkApp
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    # Start with verbose OFF
+    app.show_verbose_output = False
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+        log = chat.query_one("#chat-log", RichLog)
+
+        tool_markdown = (
+            "Thinking about a file.\n\n"
+            "`list_files` \n"
+            "```yaml\n"
+            "directory: src\n"
+            "```\n\n"
+            "Finished."
+        )
+
+        # Add message while verbose is OFF
+        chat.add_markdown(tool_markdown)
+        await pilot.pause()
+
+        # Verify content is filtered
+        content_initial = "".join(str(line) for line in log.lines)
+        assert "Thinking about a file." in content_initial
+        assert "[Tool Call: list_files (hidden)]" in content_initial
+        assert "directory: src" not in content_initial
+
+        # Toggle output ON
+        app.action_toggle_output()
+        await pilot.pause()
+
+        # Verify content is now fully visible
+        content_verbose = "".join(str(line) for line in log.lines)
+        assert "Thinking about a file." in content_verbose
+        assert "directory: src" in content_verbose
+        assert "[Tool Call: list_files (hidden)]" not in content_verbose
+
+        # Toggle output OFF again
+        app.action_toggle_output()
+        await pilot.pause()
+
+        # Verify content is filtered again
+        content_final = "".join(str(line) for line in log.lines)
+        assert "[Tool Call: list_files (hidden)]" in content_final
+        assert "directory: src" not in content_final
