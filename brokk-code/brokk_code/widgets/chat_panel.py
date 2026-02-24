@@ -15,6 +15,10 @@ from textual.widgets import ListItem, ListView, LoadingIndicator, RichLog, Stati
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 
+# Arrow glyphs for UI display (ASCII-only source)
+UP_ARROW = chr(0x2191)  # ↑
+DOWN_ARROW = chr(0x2193)  # ↓
+
 
 class ModeSuggestions(ListView):
     """A popup list for selecting agent modes."""
@@ -706,7 +710,7 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                "Enter: Submit  Ctrl+J: Newline  Up/Down: History  Shift+Tab: Mode",
+                f"Enter: Send  Ctrl+J: Newline  {UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode",
                 id="chat-help",
             )
 
@@ -973,32 +977,81 @@ class ChatPanel(Vertical):
         # Pattern: `headline` followed by yaml block (3+ backticks).
         # Backreference \2 ensures the closing fence matches the opening.
         pattern = r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n.*?\n\2"
-        replacement = r"*\[Tool Call >> \1 (hidden)]*"
+        replacement = r"*Tool Call: \1 [+] (ctrl+o to expand)*"
 
         return re.sub(pattern, replacement, content, flags=re.DOTALL)
 
-    def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
-        """Visual rendering implementation for a single history entry."""
-        if not self.show_verbose and kind == "TOOL_RESULT":
-            return
+    def _collapsible_title(self, label: str, expanded: bool) -> str:
+        """Returns a consistent title for collapsible output sections."""
+        state = "[-]" if expanded else "[+]"
+        action = "collapse" if expanded else "expand"
+        return f"{label} {state} (ctrl+o to {action})"
 
-        log = self.query_one("#chat-log", RichLog)
+    def _render_tool_call_panel(self, name: str, yaml_body: str) -> Panel:
+        """Renders a tool call block using the same collapsible panel style as reasoning."""
+        if self.show_verbose:
+            body = Markdown(f"```yaml\n{yaml_body}\n```")
+        else:
+            body = Text("...", style="grey50")
 
-        if kind == "AI":
+        return Panel(
+            body,
+            title=self._collapsible_title(f"Tool Call: {name}", self.show_verbose),
+            title_align="center",
+            border_style="grey37",
+        )
+
+    def _render_ai_content(self, log: RichLog, content: str) -> None:
+        """Renders AI markdown and tool-call YAML blocks with consistent formatting."""
+        import re
+
+        pattern = re.compile(
+            r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n(.*?)\n\2",
+            flags=re.DOTALL,
+        )
+
+        position = 0
+        matched_tool_call = False
+        for match in pattern.finditer(content):
+            matched_tool_call = True
+            before = content[position : match.start()]
+            if before.strip():
+                log.write(Markdown(before))
+                log.write("")
+
+            tool_name = match.group(1)
+            yaml_body = match.group(3)
+            log.write(self._render_tool_call_panel(tool_name, yaml_body))
+            log.write("")
+            position = match.end()
+
+        if not matched_tool_call:
             filtered_content = self._filter_tool_call_blocks(content)
             log.write(Markdown(filtered_content))
             log.write("")
+            return
+
+        after = content[position:]
+        if after.strip():
+            log.write(Markdown(after))
+            log.write("")
+
+    def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
+        """Visual rendering implementation for a single history entry."""
+        log = self.query_one("#chat-log", RichLog)
+
+        if kind == "AI":
+            self._render_ai_content(log, content)
         elif kind == "REASONING":
             if self.show_verbose:
-                title = "Thinking >> (ctrl+o to collapse)"
                 panel_content = Markdown(content, style="grey50")
             else:
-                title = "Thinking << (ctrl+o to expand)"
                 panel_content = Text("...", style="grey50")
 
             panel = Panel(
                 panel_content,
-                title=title,
+                title=self._collapsible_title("Thinking", self.show_verbose),
+                title_align="center",
                 border_style="grey37",
             )
             log.write(panel)
@@ -1030,10 +1083,15 @@ class ChatPanel(Vertical):
             else:
                 log.write(Text(f"{prefix}{content}", style=style))
         elif kind == "TOOL_RESULT":
+            if self.show_verbose:
+                panel_content = Markdown(content)
+            else:
+                panel_content = Text("...", style="grey50")
             panel = Panel(
-                Markdown(content),
-                title="Command Output",
-                border_style="dim",
+                panel_content,
+                title=self._collapsible_title("Command Output", self.show_verbose),
+                title_align="center",
+                border_style="grey37",
             )
             log.write(panel)
             log.write("")

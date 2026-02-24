@@ -346,10 +346,10 @@ async def test_chat_help_line_includes_shift_tab_mode_after_history() -> None:
         help_line = chat.query_one("#chat-help", Static)
         rendered = _static_rendered_text(help_line)
 
-        assert "Up/Down: History" in rendered
+        assert "↑/↓: History" in rendered
         assert "Shift+Tab: Mode" in rendered
         assert "/commands" not in rendered
-        assert rendered.index("Up/Down: History") < rendered.index("Shift+Tab: Mode")
+        assert rendered.index("↑/↓: History") < rendered.index("Shift+Tab: Mode")
 
 
 @pytest.mark.asyncio
@@ -526,10 +526,10 @@ async def test_chat_panel_history_and_filtering():
 
         content = "".join(str(line) for line in log.lines)
         assert "Hello User" in content
-        assert "Thinking >> (ctrl+o to collapse)" in content  # Reasoning panel title
+        assert "Thinking [-] (ctrl+o to collapse)" in content  # Reasoning panel title
         assert "Thinking hard" in content
         assert "Hello from AI" in content
-        assert "Command Output" in content  # Tool result panel title
+        assert "Command Output [-] (ctrl+o to collapse)" in content  # Tool result panel title
         assert "Command success" in content
         assert "System info" in content
 
@@ -543,11 +543,11 @@ async def test_chat_panel_history_and_filtering():
         assert "System info" in content_filtered
 
         # REASONING should show header with collapse hint, but content hidden
-        assert "Thinking << (ctrl+o to expand)" in content_filtered
+        assert "Thinking [+] (ctrl+o to expand)" in content_filtered
         assert "Thinking hard" not in content_filtered
 
-        # TOOL_RESULT content should be hidden
-        assert "Command Output" not in content_filtered
+        # TOOL_RESULT should render collapsed header, but content hidden
+        assert "Command Output [+] (ctrl+o to expand)" in content_filtered
         assert "Command success" not in content_filtered
 
 
@@ -641,7 +641,7 @@ async def test_ai_tool_call_filtering():
         # But _filter_tool_call_blocks should collapse it
         filtered = chat._filter_tool_call_blocks(tool_markdown)
         assert "path: foo.py" not in filtered
-        assert "[Tool Call >> read_file (hidden)]" in filtered
+        assert "Tool Call: read_file [+] (ctrl+o to expand)" in filtered
         assert "I will check the file." in filtered
         assert "Done." in filtered
 
@@ -689,7 +689,7 @@ async def test_filter_tool_call_blocks_collapses_four_backtick_yaml():
         # YAML content should be hidden
         assert "foo: bar" not in filtered
         # Summary marker should be present
-        assert "[Tool Call >> Adding files to workspace (hidden)]" in filtered
+        assert "Tool Call: Adding files to workspace [+] (ctrl+o to expand)" in filtered
         # Surrounding content preserved
         assert "After." in filtered
 
@@ -716,7 +716,7 @@ async def test_filter_tool_call_blocks_triple_backtick_compatibility():
         # YAML content should be hidden
         assert "path: foo.py" not in filtered
         # Summary marker should be present
-        assert "[Tool Call >> read_file (hidden)]" in filtered
+        assert "Tool Call: read_file [+] (ctrl+o to expand)" in filtered
         # Surrounding content preserved
         assert "Done." in filtered
 
@@ -727,6 +727,8 @@ async def test_tool_call_visibility_toggle_integration():
     Integration-style test: verify that toggling output via BrokkApp.action_toggle_output
     correctly refreshes the visibility of tool calls in existing AI messages.
     """
+    from textual.widgets import RichLog
+
     from brokk_code.app import BrokkApp
 
     executor = MagicMock()
@@ -761,12 +763,14 @@ async def test_tool_call_visibility_toggle_integration():
         chat.show_verbose = False
         filtered_off = chat._filter_tool_call_blocks(tool_markdown)
         assert "directory: src" not in filtered_off
-        assert "[Tool Call >> list_files (hidden)]" in filtered_off
+        assert "Tool Call: list_files [+] (ctrl+o to expand)" in filtered_off
 
         # Toggle output ON
         app.action_toggle_output()
         await pilot.pause()
         assert app.show_verbose_output is True
+        rendered_on = "".join(str(line) for line in chat.query_one("#chat-log", RichLog).lines)
+        assert "Tool Call: list_files [-] (ctrl+o to collapse)" in rendered_on
 
         # With verbose ON, filtering should be a no-op
         chat.show_verbose = True
@@ -782,5 +786,5 @@ async def test_tool_call_visibility_toggle_integration():
         # Verify filtering works again when off
         chat.show_verbose = False
         filtered_off_again = chat._filter_tool_call_blocks(tool_markdown)
-        assert "[Tool Call >> list_files (hidden)]" in filtered_off_again
+        assert "Tool Call: list_files [+] (ctrl+o to expand)" in filtered_off_again
         assert "directory: src" not in filtered_off_again
