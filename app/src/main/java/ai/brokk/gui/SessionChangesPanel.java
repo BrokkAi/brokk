@@ -123,6 +123,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             mainCardLayout.show(cardsPanel, "EMPTY");
         } else {
             mainCardLayout.show(cardsPanel, "MAIN");
+            // Call updateLayoutForMode after switching cards to ensure proper component visibility/layout
             updateLayoutForMode(newMode);
         }
     }
@@ -351,7 +352,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.cardsPanel.add(emptyLabel, "EMPTY");
         this.cardsPanel.add(mainSplitPane, "MAIN");
 
-        this.mainCardLayout.show(cardsPanel, "LOADING");
+        setMode(PanelMode.LOADING);
 
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(false);
