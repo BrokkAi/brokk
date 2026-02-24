@@ -570,6 +570,7 @@ async def test_chat_panel_refresh_log_empty():
 async def test_app_toggle_output_integration():
     """Integration test for BrokkApp.action_toggle_output."""
     from unittest.mock import MagicMock, patch
+
     from brokk_code.app import BrokkApp
 
     executor = MagicMock()
