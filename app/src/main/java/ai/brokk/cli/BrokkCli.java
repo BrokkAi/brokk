@@ -62,8 +62,7 @@ import picocli.CommandLine;
             BrokkCli.ListIdentifiersCommand.class,
             BrokkCli.FetchSummaryCommand.class,
             BrokkCli.FetchSourceCommand.class,
-            BrokkCli.InstallCommand.class,
-            BrokkCli.McpServerCommand.class
+            BrokkCli.InstallCommand.class
         })
 public final class BrokkCli implements Callable<Integer> {
     private static final Logger logger = LogManager.getLogger(BrokkCli.class);
@@ -109,8 +108,7 @@ public final class BrokkCli implements Callable<Integer> {
                         List.of("scan", "find-symbols", "find-usages", "list-identifiers")),
                 new CommandGroup("Commands (Semantic Retrieval)", List.of("fetch-summary", "fetch-source")),
                 new CommandGroup("Commands (Agentic Coding)", List.of("code", "merge", "build")),
-                new CommandGroup("Commands (Account)", List.of("status", "login", "logout", "newsession")),
-                new CommandGroup("Commands (Integrations)", List.of("mcp")));
+                new CommandGroup("Commands (Account)", List.of("status", "login", "logout", "newsession")));
     }
 
     private static String renderCommandGroups(CommandLine.Model.CommandSpec spec) {
@@ -409,34 +407,6 @@ public final class BrokkCli implements Callable<Integer> {
         } catch (IOException e) {
             throw new IOException(
                     "Failed to read --goal from @" + rawPath + ". Ensure the file exists and is readable.", e);
-        }
-    }
-
-    @CommandLine.Command(
-            name = "mcp",
-            description = "Start an MCP stdio server to allow other tools to use Brokk's capabilities.")
-    static final class McpServerCommand implements Callable<Integer> {
-        @CommandLine.Mixin
-        ProjectSelectionMixin projectSelection = new ProjectSelectionMixin();
-
-        @Override
-        @Blocking
-        public Integer call() throws Exception {
-            var projectPath = normalizeProjectPath(projectSelection.projectPath);
-            if (!validateProject(projectPath)) {
-                return 1;
-            }
-
-            applyApiKeyOverrideFromEnvIfPresent();
-
-            try (var project = new MainProject(projectPath);
-                    var cm = new ContextManager(project)) {
-
-                var bd = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-                prepareHeadless(cm, bd, false);
-
-                return BrokkMcpStdioServer.run(cm);
-            }
         }
     }
 
