@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager.AnalyzerCallback;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.ReviewAgent;
@@ -75,7 +76,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * A panel that displays an aggregated diff of changes for the current session/branch.
  */
-public class SessionChangesPanel extends JPanel implements ThemeAware {
+public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(SessionChangesPanel.class);
     private final Chrome chrome;
     private final ContextManager cm;
@@ -218,6 +219,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private volatile CompletableFuture<?> activeBranchLoad = null;
+
+    @Nullable
+    private volatile BranchLoadResult cachedBranchLoad = null;
 
     @Nullable
     private Icon defaultComboIcon = null;
@@ -384,6 +388,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         add(cardsPanel, BorderLayout.CENTER);
 
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
+        cm.addAnalyzerCallback(this);
 
         var dummyPanel =
                 new BrokkDiffPanel(new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
@@ -835,6 +840,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void updateBaselineOptions(String autoLabel) {
+        BranchLoadResult cached = cachedBranchLoad;
+        if (cached != null) {
+            applyBranchLoadResult(cached, autoLabel);
+            return;
+        }
+
         var currentLoad = activeBranchLoad;
         if (currentLoad != null && !currentLoad.isDone()) {
             currentLoad.cancel(true);
@@ -864,34 +875,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         future.thenAccept(result -> SwingUtilities.invokeLater(() -> {
                     if (future != this.activeBranchLoad) return;
-
-                    baselineSelector.getButton().setIcon(defaultComboIcon);
-
-                    List<String> options = new ArrayList<>();
-                    String autoOption = "Auto (" + autoLabel + ")";
-                    options.add(autoOption);
-
-                    String defaultBranch = result.defaultBranch();
-                    options.add(defaultBranch);
-
-                    String originName = result.originName();
-                    if (originName != null) {
-                        options.add(originName + "/" + defaultBranch);
-                    }
-
-                    List<String> otherBranches = result.localBranches().stream()
-                            .filter(b -> !b.equals(defaultBranch))
-                            .sorted(String.CASE_INSENSITIVE_ORDER)
-                            .toList();
-                    options.addAll(otherBranches);
-
-                    baselineSelector.setItems(options);
-
-                    if (reviewBaselineRef == null) {
-                        baselineSelector.setSelectedItem(autoOption);
-                    } else {
-                        baselineSelector.setSelectedItem(reviewBaselineRef);
-                    }
+                    this.cachedBranchLoad = result;
+                    applyBranchLoadResult(result, autoLabel);
                 }))
                 .exceptionally(ex -> {
                     SwingUtilities.invokeLater(() -> {
@@ -901,6 +886,38 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     });
                     return null;
                 });
+    }
+
+    private void applyBranchLoadResult(BranchLoadResult result, String autoLabel) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        baselineSelector.getButton().setIcon(defaultComboIcon);
+
+        List<String> options = new ArrayList<>();
+        String autoOption = "Auto (" + autoLabel + ")";
+        options.add(autoOption);
+
+        String defaultBranch = result.defaultBranch();
+        options.add(defaultBranch);
+
+        String originName = result.originName();
+        if (originName != null) {
+            options.add(originName + "/" + defaultBranch);
+        }
+
+        List<String> otherBranches = result.localBranches().stream()
+                .filter(b -> !b.equals(defaultBranch))
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+        options.addAll(otherBranches);
+
+        baselineSelector.setItems(options);
+
+        if (reviewBaselineRef == null) {
+            baselineSelector.setSelectedItem(autoOption);
+        } else {
+            baselineSelector.setSelectedItem(reviewBaselineRef);
+        }
     }
 
     private void updateBaselineLabel() {
@@ -2134,7 +2151,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         guidedReviewBtn.repaint();
     }
 
+    @Override
+    public void onRepoChange() {
+        cachedBranchLoad = null;
+        requestUpdate();
+    }
+
     public void dispose() {
+        cm.removeAnalyzerCallback(this);
         diffCore.clearCache();
     }
 }
