@@ -1,9 +1,8 @@
-package ai.brokk.cli;
+package ai.brokk.mcpserver;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
-import ai.brokk.mcp.BrokkExternalMcpServer;
 import ai.brokk.project.MainProject;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import java.nio.file.Files;

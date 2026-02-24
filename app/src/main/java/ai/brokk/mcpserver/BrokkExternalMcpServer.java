@@ -1,4 +1,4 @@
-package ai.brokk.mcp;
+package ai.brokk.mcpserver;
 
 import ai.brokk.ContextManager;
 import ai.brokk.MutedConsoleIO;
@@ -7,7 +7,6 @@ import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.context.ContextFragments.SummaryFragment;
-import ai.brokk.mcpserver.LangChain4jMcpBridge;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;

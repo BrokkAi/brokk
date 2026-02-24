@@ -17,7 +17,7 @@ from brokk_code.executor import ExecutorManager, ExecutorError
 
 logger = logging.getLogger(__name__)
 
-_BEMS_MAIN_CLASS = "ai.brokk.mcp.McpMain"
+_BEMS_MAIN_CLASS = "ai.brokk.mcpserver.McpMain"
 _BEMS_DEFAULT_PORT = 3001
 _BEMS_DEFAULT_IDLE = 300
 _BEMS_PROBE_TIMEOUT = 120.0
