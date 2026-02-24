@@ -82,7 +82,6 @@ public class BrokkExternalMcpServer {
                 var cm = new ContextManager(project)) {
 
             cm.createHeadless(true);
-            cm.dropWithHistorySemantics(List.of());
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
@@ -211,6 +210,11 @@ public class BrokkExternalMcpServer {
         if (hasJson && !isJqOnPath()) {
             toolNames.add("jq");
         }
+
+        registry.setPreExecutionHook(() -> {
+            logger.debug("Clearing Brokk session before tool execution");
+            cm.dropWithHistorySemantics(List.of());
+        });
 
         return LangChain4jMcpBridge.toolSpecificationsFrom(registry, toolNames);
     }

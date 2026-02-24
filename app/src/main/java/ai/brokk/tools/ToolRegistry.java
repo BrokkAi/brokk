@@ -54,6 +54,9 @@ public class ToolRegistry {
     // Backing map for tools. Use a synchronized LinkedHashMap for deterministic ordering while remaining thread-safe.
     private final Map<String, ToolInvocationTarget> toolMap;
 
+    /** Hook to run before every tool execution (e.g. to clear session state). */
+    private @Nullable Runnable preExecutionHook;
+
     // Internal record to hold method and the instance it belongs to
     private record ToolInvocationTarget(Method method, Object instance) {}
 
@@ -123,6 +126,11 @@ public class ToolRegistry {
      */
     private ToolRegistry(Map<String, ToolInvocationTarget> initialMap) {
         this.toolMap = Collections.synchronizedMap(new LinkedHashMap<>(initialMap));
+    }
+
+    /** Sets a hook to be run immediately before any tool in this registry is executed. */
+    public void setPreExecutionHook(@Nullable Runnable hook) {
+        this.preExecutionHook = hook;
     }
 
     /** Returns an empty, sealed root registry (primarily for tests). */
@@ -232,6 +240,10 @@ public class ToolRegistry {
     }
 
     private ToolExecutionResult executeToolInternal(ToolExecutionRequest request) throws InterruptedException {
+        if (preExecutionHook != null) {
+            preExecutionHook.run();
+        }
+
         ValidatedInvocation validated;
         try {
             validated = validateTool(request);
