@@ -129,6 +129,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private volatile List<Map.Entry<String, FileDiff>> lastPreparedPerFile = null;
 
+    @Nullable
+    private volatile CompletableFuture<?> activeDiffCalculation = null;
+
+    private record RefreshResult(
+            List<Map.Entry<String, FileDiff>> prepared,
+            StalenessInfo staleness,
+            @Nullable MergeAgent.MergeConflict conflict,
+            BaselineState currentState,
+            BaselineState autoState) {}
+
     /** Monotonically increasing token to track the latest requestUpdate invocation. */
     private final AtomicLong updateGeneration = new AtomicLong(0);
 
@@ -685,29 +695,41 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         var result = lastCumulativeChanges;
         if (result == null) {
-            // No cached result yet; nothing to display
             return;
         }
 
-        var prepared = DiffService.preparePerFileSummaries(result);
-        lastPreparedPerFile = prepared;
-
-        StalenessInfo staleness = null;
-        if (lastReviewState != null) {
-            staleness = computeStaleness();
+        if (activeDiffCalculation != null) {
+            activeDiffCalculation.cancel(true);
         }
 
-        // Detect conflicts
-        var detectedConflict = ConflictInspector.inspectFromProject(cm.getProject());
-        this.currentConflict = detectedConflict.orElse(null);
-        resolveConflictsBtn.setEnabled(currentConflict != null);
+        showDiffLoading();
 
-        var currentState = resolveBaselineState();
-        var autoState = computeAutoBaselineState();
-        lastBaselineState = currentState;
+        CompletableFuture<RefreshResult> future = LoggingFuture.supplyAsync(() -> {
+            var prepared = DiffService.preparePerFileSummaries(result);
+            StalenessInfo staleness = (lastReviewState != null) ? computeStaleness() : null;
+            var conflict = ConflictInspector.inspectFromProject(cm.getProject()).orElse(null);
+            var currentState = resolveBaselineState();
+            var autoState = computeAutoBaselineState();
+            return new RefreshResult(prepared, staleness, conflict, currentState, autoState);
+        });
+
+        activeDiffCalculation = future;
+
+        future.thenAccept(res -> SwingUtilities.invokeLater(() -> {
+            if (future != activeDiffCalculation) return;
+            applyRefreshResult(res, result);
+        }));
+    }
+
+    private void applyRefreshResult(RefreshResult res, DiffService.CumulativeChanges result) {
+        assert SwingUtilities.isEventDispatchThread();
+        this.lastPreparedPerFile = res.prepared;
+        this.currentConflict = res.conflict;
+        this.resolveConflictsBtn.setEnabled(res.conflict != null);
+        this.lastBaselineState = res.currentState;
 
         PanelMode nextMode = currentMode;
-        if (currentState.isError()) {
+        if (res.currentState.isError()) {
             nextMode = PanelMode.ERROR;
         } else if (result.filesChanged() == 0 && currentMode != PanelMode.REVIEW) {
             nextMode = PanelMode.EMPTY;
@@ -716,11 +738,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
         setMode(nextMode);
 
-        emitReviewTabStateFromResult(result, currentState.baselineLabel());
-        updateContent(result, prepared, currentState.baselineLabel(), autoState.baselineLabel());
+        emitReviewTabStateFromResult(result, res.currentState.baselineLabel());
+        updateContent(result, res.prepared, res.currentState.baselineLabel(), res.autoState.baselineLabel());
 
-        if (staleness != null) {
-            codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
+        if (res.staleness != null) {
+            codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(res.staleness));
         }
     }
 
@@ -1182,6 +1204,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
+    private void showDiffLoading() {
+        diffContainer.removeAll();
+        JLabel loadingLabel =
+                new JLabel("Loading changes...", SpinnerIconUtil.getSpinner(chrome, false), SwingConstants.CENTER);
+        diffContainer.add(loadingLabel, BorderLayout.CENTER);
+        diffContainer.revalidate();
+        diffContainer.repaint();
+    }
+
     @Blocking
     private void ensureReviewSession(ReviewScope reviewCtx) {
         // Check if any overlapping session is already active
@@ -1257,16 +1288,32 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         String fromRef = oldest.equals("WORKING") ? "HEAD" : oldest + "^";
         String toRef = newest.equals("WORKING") ? "WORKING" : newest;
 
-        LoggingFuture.supplyAsync(() -> ReviewScope.fromBaseline(cm, fromRef, toRef))
-                .thenAccept(scope -> {
+        if (activeDiffCalculation != null) {
+            activeDiffCalculation.cancel(true);
+        }
+
+        showDiffLoading();
+
+        CompletableFuture<ReviewScope> future =
+                LoggingFuture.supplyAsync(() -> ReviewScope.fromBaseline(cm, fromRef, toRef));
+        activeDiffCalculation = future;
+
+        future.thenCompose(scope -> LoggingFuture.supplyAsync(() -> {
                     var prepared = DiffService.preparePerFileSummaries(scope.changes());
-                    lastPreparedPerFile = prepared;
-                    var root = cm.getProject().getRoot();
+                    return Map.entry(scope, prepared);
+                }))
+                .thenAccept(entry -> {
+                    var scope = entry.getKey();
+                    var prepared = entry.getValue();
 
                     SwingUtilities.invokeLater(() -> {
-                        String projectName = "Project";
-                        if (root.getFileName() != null)
-                            projectName = root.getFileName().toString();
+                        if (future != activeDiffCalculation) return;
+
+                        lastPreparedPerFile = prepared;
+                        var root = cm.getProject().getRoot();
+                        String projectName =
+                                root.getFileName() != null ? root.getFileName().toString() : "Project";
+
                         refreshDiffAndFileTree(
                                 prepared.stream()
                                         .map(this::toFileComparisonInfo)
@@ -1277,7 +1324,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     });
                 })
                 .exceptionally(ex -> {
-                    logger.error("Failed to compute selection diff", ex);
+                    if (!future.isCancelled()) {
+                        logger.error("Failed to compute selection diff", ex);
+                    }
                     return null;
                 });
     }
