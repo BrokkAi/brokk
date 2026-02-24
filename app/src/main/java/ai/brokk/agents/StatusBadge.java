@@ -14,7 +14,8 @@ public final class StatusBadge {
         return switch (reason) {
             case SUCCESS -> badge("success", "brightgreen");
             case INTERRUPTED -> badge("interrupted", "yellow");
-            case READ_ONLY_EDIT, LLM_ABORTED, LLM_CONTEXT_SIZE, TURN_LIMIT -> badge(formatLabel(reason), "orange");
+            case READ_ONLY_EDIT, LLM_ABORTED, LLM_CONTEXT_SIZE, LLM_OVERTHINKING, TURN_LIMIT ->
+                badge(formatLabel(reason), "orange");
             case LLM_ERROR, PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, IO_ERROR, TOOL_ERROR ->
                 badge(formatLabel(reason), "red");
         };
@@ -38,6 +39,7 @@ public final class StatusBadge {
             case LLM_ABORTED -> "LLM aborted";
             case TOOL_ERROR -> "tool error";
             case LLM_CONTEXT_SIZE -> "context overflow";
+            case LLM_OVERTHINKING -> "output limit reached";
             case TURN_LIMIT -> "turn limit reached";
         };
     }
