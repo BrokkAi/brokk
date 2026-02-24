@@ -33,6 +33,30 @@ import org.jspecify.annotations.NullMarked;
 public class BrokkExternalMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkExternalMcpServer.class);
 
+    private static final List<String> EXPOSED_TOOL_NAMES = List.of(
+            "scan",
+            "code",
+            "build",
+            "configureBuild",
+            "merge",
+            "searchSymbols",
+            "scanUsages",
+            "skimDirectory",
+            "getFileSummaries",
+            "getClassSkeletons",
+            "getClassSources",
+            "getMethodSources",
+            "getSymbolLocations",
+            "findFilesContaining",
+            "findFilenames",
+            "searchFileContents",
+            "getFileContents",
+            "listFiles",
+            "getGitLog",
+            "searchGitCommitMessages",
+            "xpathQuery",
+            "jq");
+
     private final ContextManager cm;
 
     public BrokkExternalMcpServer(ContextManager cm) {
@@ -89,10 +113,7 @@ public class BrokkExternalMcpServer {
                 .register(searchTools)
                 .build();
 
-        List<McpServerFeatures.SyncToolSpecification> specs = new ArrayList<>();
-        specs.addAll(LangChain4jMcpBridge.toolSpecificationsFrom(this, registry));
-        specs.addAll(LangChain4jMcpBridge.toolSpecificationsFrom(searchTools, registry));
-        return specs;
+        return LangChain4jMcpBridge.toolSpecificationsFrom(registry, EXPOSED_TOOL_NAMES);
     }
 
     @Tool("Agentic scan for relevant files and classes. Returns a summary of recommended context.")

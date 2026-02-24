@@ -5,7 +5,6 @@ import ai.brokk.tools.ToolRegistry;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
 import dev.langchain4j.model.chat.request.json.JsonBooleanSchema;
 import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
@@ -15,6 +14,7 @@ import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,8 +27,8 @@ public class LangChain4jMcpBridge {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(
-            Object toolProvider, ToolRegistry registry) {
-        return ToolSpecifications.toolSpecificationsFrom(toolProvider).stream()
+            ToolRegistry registry, Collection<String> toolNames) {
+        return registry.getTools(toolNames).stream()
                 .map(spec -> {
                     McpSchema.JsonSchema inputSchema = spec.parameters() != null
                             ? toMcpSchema(spec.parameters())
