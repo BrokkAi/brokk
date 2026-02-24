@@ -634,7 +634,6 @@ public class ArchitectAgent {
             } else {
                 stringResult =
                         """
-                        # Search Answer
                         %s
 
                         ## Reasoning summary

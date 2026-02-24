@@ -1382,6 +1382,10 @@ public class SearchAgent {
             return createResult(
                     context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, pendingTerminal.resultText()));
         }
+        if ("answer".equals(pendingTerminal.toolName()) || "askForClarification".equals(pendingTerminal.toolName())) {
+            return createResult(
+                    context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, pendingTerminal.resultText()));
+        }
         return createResult(context);
     }
 
