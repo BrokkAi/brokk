@@ -79,6 +79,7 @@ async def test_multiline_paste_and_submit(tmp_path):
         await pilot.click("#chat-input")
 
         # 1. Test Shift+Enter behavior
+        # Note: pilot.press("shift+enter") is the correct way to simulate the key combo in Textual
         await type_text(pilot, "line1")
         await pilot.press("shift+enter")
         await type_text(pilot, "line2")
@@ -86,12 +87,16 @@ async def test_multiline_paste_and_submit(tmp_path):
         # Verify UI state before submit
         assert chat_input.text == "line1\nline2"
 
+        # Plain enter should submit
         await pilot.press("enter")
         await pilot.pause()
 
         # 2. Test "Paste" behavior (direct text setting)
         multiline_paste = "first line\nsecond line\nthird line"
         chat_input.text = multiline_paste
+        # Verify text area handles newline content correctly
+        assert chat_input.text == multiline_paste
+
         await pilot.press("enter")
         await pilot.pause()
 
@@ -100,6 +105,38 @@ async def test_multiline_paste_and_submit(tmp_path):
         assert len(submits) == 2
         assert submits[0]["input"] == "line1\nline2"
         assert submits[1]["input"] == multiline_paste
+
+
+@pytest.mark.asyncio
+async def test_shift_enter_inserts_newline(tmp_path):
+    """
+    Explicitly verify that Shift+Enter inserts a newline and does NOT submit.
+    """
+    stub = StubExecutor(workspace_dir=tmp_path, auto_release=True)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        await pilot.click("#chat-input")
+
+        await type_text(pilot, "hello")
+        await pilot.press("shift+enter")
+        await type_text(pilot, "world")
+
+        # Text should have newline
+        assert chat_input.text == "hello\nworld"
+
+        # Submit count should still be 0
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 0
+
+        # Now submit with Enter
+        await pilot.press("enter")
+        await pilot.pause()
+
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 1
+        assert submits[0]["input"] == "hello\nworld"
 
 
 @pytest.mark.asyncio
