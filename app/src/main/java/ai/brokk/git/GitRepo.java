@@ -2260,6 +2260,10 @@ public class GitRepo implements Closeable, IGitRepo {
      * @throws GitRepoException if the regex is invalid
      */
     public List<CommitInfo> searchCommits(String query) throws GitAPIException {
+        return searchCommits(query, Integer.MAX_VALUE);
+    }
+
+    public List<CommitInfo> searchCommits(String query, int limit) throws GitAPIException {
         var matches = new ArrayList<CommitInfo>();
 
         Pattern pattern = null;
@@ -2302,6 +2306,9 @@ public class GitRepo implements Closeable, IGitRepo {
 
             if (match) {
                 matches.add(this.fromRevCommit(commit));
+                if (matches.size() >= limit) {
+                    break;
+                }
             }
         }
         return matches;

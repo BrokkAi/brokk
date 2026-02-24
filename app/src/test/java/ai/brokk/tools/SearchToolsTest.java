@@ -140,7 +140,7 @@ public class SearchToolsTest {
 
     @Test
     void testSearchGitCommitMessages_invalidRegexFallback() {
-        String result = searchTools.searchGitCommitMessages("[[", "testing invalid regex fallback");
+        String result = searchTools.searchGitCommitMessages("[[", "testing invalid regex fallback", 200);
 
         // We should get the commit we added that contains the substring "[["
         assertTrue(result.contains("Commit with [[ pattern"), "Commit message should appear in the result");
@@ -157,7 +157,7 @@ public class SearchToolsTest {
     @Test
     void testfindFilesContaining_invalidRegexThrows() throws Exception {
         // SearchTools.compilePatterns throws on invalid regex for this tool
-        String result = searchTools.findFilesContaining(List.of("[["), "testing invalid regex error");
+        String result = searchTools.findFilesContaining(List.of("[["), "testing invalid regex error", 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
@@ -419,7 +419,7 @@ public class SearchToolsTest {
         Files.writeString(txt, "line1\nline2 MATCH\nline3\nline4");
         mockProjectFiles.add(new ProjectFile(projectRoot, "grep_test.txt"));
 
-        String result = searchTools.searchFileContents("MATCH", "**/grep_test.txt", 1);
+        String result = searchTools.searchFileContents("MATCH", "**/grep_test.txt", 1, 200);
 
         assertTrue(result.contains("grep_test.txt"));
         assertTrue(result.contains("1: line1"));
@@ -431,7 +431,7 @@ public class SearchToolsTest {
     @Test
     void testSearchFileContents_invalidRegexThrows() throws Exception {
         // "[[" is invalid regex, should return error message
-        String result = searchTools.searchFileContents("[[", "README.md", 0);
+        String result = searchTools.searchFileContents("[[", "README.md", 0, 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
@@ -483,7 +483,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "root.txt"));
 
         // Verify that **/root.txt matches a file at the project root via the retry logic
-        String result = searchTools.searchFileContents("found", "**/root.txt", 0);
+        String result = searchTools.searchFileContents("found", "**/root.txt", 0, 200);
         assertTrue(result.contains("root.txt"), "Should find file at root even with **/ prefix");
     }
 
@@ -547,7 +547,7 @@ public class SearchToolsTest {
         // Match 1 (idx 1) -> lines 0, 1, 2
         // Match 2 (idx 3) -> lines 2, 3, 4
         // De-duped output should show L1, L2, L3, L4, L5 exactly once.
-        String result = searchTools.searchFileContents("MATCH", "context_test.txt", 1);
+        String result = searchTools.searchFileContents("MATCH", "context_test.txt", 1, 200);
 
         assertTrue(result.contains("1: L1"));
         assertTrue(result.contains("2: L2 MATCH"));
@@ -561,7 +561,7 @@ public class SearchToolsTest {
 
         // Verify clamping: contextLines=999 should be clamped to 50
         // Our file is small, so it should just show everything.
-        String resultsCapped = searchTools.searchFileContents("MATCH", "context_test.txt", 999);
+        String resultsCapped = searchTools.searchFileContents("MATCH", "context_test.txt", 999, 200);
         assertTrue(resultsCapped.contains("7: L7"));
     }
 
