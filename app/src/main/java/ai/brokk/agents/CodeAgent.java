@@ -13,9 +13,11 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
@@ -84,6 +86,160 @@ public class CodeAgent {
     static final int MAX_APPLY_FAILURES = 3;
     /** maximum consecutive build failures before giving up */
     final int MAX_BUILD_FAILURES;
+
+    public enum DiffPresentation {
+        NONE,
+        WORKSPACE_FRAGMENT,
+        INLINE
+    }
+
+    @Blocking
+    public static String cumulativeDiffForChanges(Context from, Context to) {
+        var delta = ContextDelta.between(from, to).join();
+        return cumulativeDiffForFragments(from, to, delta.getChangedFragments());
+    }
+
+    @Blocking
+    public static String cumulativeDiffForFragments(Context from, Context to, Set<ContextFragment> changedFragments) {
+        if (changedFragments.isEmpty()) {
+            return "";
+        }
+
+        return changedFragments.stream()
+                .map(newFrag -> {
+                    var fragInTo = to.allFragments()
+                            .filter(newFrag::hasSameSource)
+                            .findFirst()
+                            .orElse(null);
+                    if (fragInTo == null) {
+                        return null;
+                    }
+                    var oldFrag = from.allFragments()
+                            .filter(fragInTo::hasSameSource)
+                            .findFirst()
+                            .orElse(null);
+                    return DiffService.diff(oldFrag, fragInTo).join();
+                })
+                .filter(Objects::nonNull)
+                .map(DiffService.FragmentDiff::diff)
+                .collect(Collectors.joining("\n\n"));
+    }
+
+    public static String formatPostFailureResponse(
+            TaskResult.StopReason reason,
+            String explanation,
+            DiffPresentation diffPresentation,
+            @Nullable String inlineDiffText) {
+
+        String base =
+                switch (reason) {
+                    case READ_ONLY_EDIT ->
+                        """
+                            **Constraint Violation: Read-Only File**
+
+                            The Code Agent thought that your instructions implied that it should modify a file marked read-only in the Workspace:
+                            %s
+
+                            To proceed, do one of the following:
+                            1. Add the file for editing with addFilesToWorkspace([...]).
+                            2. Clarify how to accomplish the task without modifying this file.
+                            """
+                                .formatted(explanation);
+                    case PARSE_ERROR ->
+                        """
+                            **Parse Error: Invalid Response Format**
+
+                            The Code Agent couldn't parse the response after multiple attempts:
+                            %s
+
+                            Possible solutions:
+                            1. Slim down the Workspace to essentials so that Code Agent can focus more easily on following its instructions.
+                            2. Give CodeAgent a smaller pieces of the task, possibly with deferBuild set.
+                            """
+                                .formatted(explanation);
+                    case APPLY_ERROR ->
+                        """
+                            **Apply Error: Edit Blocks Failed**
+
+                            The Code Agent couldn't apply edits after multiple attempts:
+                            %s
+
+                            Possible solutions:
+                            1. Slim down the Workspace to essentials so that Code Agent can focus more easily on following its instructions.
+                            2. Give CodeAgent a smaller pieces of the task, possibly with deferBuild set.
+                            """
+                                .formatted(explanation);
+                    case BUILD_ERROR ->
+                        """
+                            **Build Error: Failed to Compile/Test**
+
+                            %s
+
+                            The Code Agent applied changes but could not make them pass verification.
+
+                            If the verification is failing because of environmental issues that you cannot solve,
+                            e.g. permissions issues or system-level dependencies, you should abort with an explanation
+                            of the problem.
+                            """
+                                .formatted(explanation);
+                    case IO_ERROR ->
+                        """
+                            **IO Error: File System Issue**
+
+                            An error occurred while reading or writing files:
+                            %s
+
+                            This may be a transient issue. You can retry.
+                            """
+                                .formatted(explanation);
+                    default ->
+                        """
+                            **Code Agent Failed**
+
+                            Reason: %s
+                            Details: %s
+                            """
+                                .formatted(reason, explanation);
+                };
+
+        String postscript =
+                switch (diffPresentation) {
+                    case NONE -> "";
+                    case WORKSPACE_FRAGMENT ->
+                        """
+                        **Code Agent changes (unified diff)**
+
+                        A unified diff of the Code Agent's changes is available in the Workspace under 'Last Code Agent Changes'.
+
+                        If this is going in the wrong direction entirely, call `undoLastChanges` to revert and start over.
+                        """
+                                .stripIndent()
+                                .stripTrailing();
+                    case INLINE -> {
+                        String diff = Objects.toString(inlineDiffText, "").strip();
+                        if (diff.isBlank()) {
+                            yield "";
+                        }
+                        yield """
+                        **Code Agent changes (unified diff)**
+
+                        ```diff
+                        %s
+                        ```
+
+                        If this is going in the wrong direction entirely, revert the changes and start over.
+                        """
+                                .formatted(diff)
+                                .stripIndent()
+                                .stripTrailing();
+                    }
+                };
+
+        if (postscript.isBlank()) {
+            return base.stripTrailing();
+        }
+        return base.stripTrailing() + "\n\n" + postscript;
+    }
 
     private final boolean allowPromotion;
 

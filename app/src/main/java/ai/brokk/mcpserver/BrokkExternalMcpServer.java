@@ -5,7 +5,9 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SearchPrompts;
@@ -26,6 +28,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -155,25 +159,29 @@ public class BrokkExternalMcpServer {
     @Tool("Implement changes asked for in the goal. Will search for relevant files if none are provided.")
     public String code(
             @P("The goal/prompt for the changes.") String goal,
-            @P("Optional list of files to narrow the radius or edit directly.") List<String> files)
+            @P("Optional list of files to narrow the radius or edit directly.") List<String> files,
+            @P("Defer build/verification. Set to true when your changes are an intermediate step.") boolean deferBuild)
             throws InterruptedException {
         if (!files.isEmpty()) {
             new WorkspaceTools(cm.liveContext()).addFilesToWorkspace(files);
         }
 
+        var initialContext = cm.liveContext();
+
         TaskResult result;
         try (var scope = cm.beginTaskUngrouped(goal)) {
             if (cm.liveContext().getEditableFragments().findAny().isPresent()) {
-                StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
+                StreamingChatModel planModel = Objects.requireNonNull(cm.getService()
                         .getModel(
                                 cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
-                StreamingChatModel codeModel = java.util.Objects.requireNonNull(cm.getService()
+                StreamingChatModel codeModel = Objects.requireNonNull(cm.getService()
                         .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
                 var agent = new ArchitectAgent(
                         cm, planModel, codeModel, goal, scope, cm.liveContext(), new MutedConsoleIO(cm.getIo()));
+                agent.setDeferBuildForInitialCodeAgentCall(deferBuild);
                 result = agent.executeWithScan(false);
             } else {
-                StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
+                StreamingChatModel planModel = Objects.requireNonNull(cm.getService()
                         .getModel(
                                 cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
                 var agent = new ai.brokk.agents.SearchAgent(
@@ -189,7 +197,69 @@ public class BrokkExternalMcpServer {
             scope.append(result);
         }
 
-        return result.stopDetails().explanation();
+        var finalContext = result.context();
+        var stopDetails = result.stopDetails();
+        var reason = stopDetails.reason();
+
+        var delta = ContextDelta.between(initialContext, finalContext).join();
+        var changedFragments = delta.getChangedFragments();
+        var changedFragmentList = changedFragments.stream()
+                .map(cf -> cf.shortDescription().join())
+                .sorted()
+                .collect(Collectors.joining(", "));
+        var unifiedDiff = CodeAgent.cumulativeDiffForFragments(initialContext, finalContext, changedFragments);
+
+        String explanation = stopDetails.explanation();
+        if (reason == TaskResult.StopReason.BUILD_ERROR) {
+            String buildError = finalContext.getBuildError();
+            if (!buildError.isBlank() && !explanation.contains(buildError)) {
+                explanation = (explanation.isBlank() ? "" : (explanation.stripTrailing() + "\n\n")) + buildError;
+            }
+        }
+
+        String changedFragmentsText = changedFragmentList.isBlank() ? "(None)" : changedFragmentList;
+        String diffSection = unifiedDiff.isBlank()
+                ? "## Diff\n(No file changes)"
+                : """
+                ## Diff
+                ```diff
+                %s
+                ```
+                """
+                        .formatted(unifiedDiff.strip())
+                        .stripIndent()
+                        .stripTrailing();
+
+        if (reason == TaskResult.StopReason.SUCCESS) {
+            String statusLine = deferBuild ? "Success (build deferred)." : "Success.";
+            return """
+                    # Status
+                    %s
+
+                    # Changed fragments
+                    %s
+
+                    %s
+                    """
+                    .formatted(statusLine, changedFragmentsText, diffSection)
+                    .stripIndent()
+                    .stripTrailing();
+        }
+
+        var diffPresentation =
+                unifiedDiff.isBlank() ? CodeAgent.DiffPresentation.NONE : CodeAgent.DiffPresentation.INLINE;
+        String failureText = CodeAgent.formatPostFailureResponse(reason, explanation, diffPresentation, unifiedDiff);
+        return """
+                %s
+
+                # Changed fragments
+                %s
+
+                %s
+                """
+                .formatted(failureText, changedFragmentsText, diffSection)
+                .stripIndent()
+                .stripTrailing();
     }
 
     @Tool("Run build verification (compile and test) without making changes.")
