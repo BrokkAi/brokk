@@ -616,7 +616,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (reviewBaselineRef != null) {
             return new BaselineState(reviewBaselineRef, reviewBaselineRef, false, false);
         }
+        return computeAutoBaselineState();
+    }
 
+    private BaselineState computeAutoBaselineState() {
         try {
             String defaultBranch = repo.getDefaultBranch();
             String currentBranch = repo.getCurrentBranch();
@@ -688,11 +691,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.currentConflict = detectedConflict.orElse(null);
         resolveConflictsBtn.setEnabled(currentConflict != null);
 
-        var state = resolveBaselineState();
-        lastBaselineState = state;
+        var currentState = resolveBaselineState();
+        var autoState = computeAutoBaselineState();
+        lastBaselineState = currentState;
 
         PanelMode nextMode = currentMode;
-        if (state.isError()) {
+        if (currentState.isError()) {
             nextMode = PanelMode.ERROR;
         } else if (result.filesChanged() == 0 && currentMode != PanelMode.REVIEW) {
             nextMode = PanelMode.EMPTY;
@@ -701,10 +705,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
         setMode(nextMode);
 
-        String label = state.baselineLabel();
-
-        emitReviewTabStateFromResult(result, label);
-        updateContent(result, prepared, label);
+        emitReviewTabStateFromResult(result, currentState.baselineLabel());
+        updateContent(result, prepared, currentState.baselineLabel(), autoState.baselineLabel());
 
         if (staleness != null) {
             codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
@@ -769,9 +771,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     public void updateContent(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, FileDiff>> prepared, String baselineLabel) {
+            DiffService.CumulativeChanges res,
+            List<Map.Entry<String, FileDiff>> prepared,
+            String currentLabel,
+            String autoLabel) {
 
-        updateBaselineOptions(baselineLabel);
+        updateBaselineOptions(autoLabel);
         refreshUI(res, prepared);
     }
 
