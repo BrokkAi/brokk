@@ -115,6 +115,25 @@ public class ShellTools {
             boolean outputTruncated,
             @Nullable String exception) {
 
+        /**
+         * Converts this result to a structured data map compatible with the headless event model.
+         */
+        public Map<String, Object> toEventData(String stage) {
+            Map<String, Object> data = new java.util.LinkedHashMap<>();
+            data.put("stage", stage);
+            data.put("command", command);
+            data.put("success", success);
+            data.put("output", output);
+            data.put("outputTruncated", outputTruncated);
+            if (exitCode != null) {
+                data.put("exitCode", exitCode);
+            }
+            if (exception != null && !exception.isBlank()) {
+                data.put("exception", exception);
+            }
+            return data;
+        }
+
         public static Result success(String command, String output) {
             return create(command, true, 0, output, null);
         }
