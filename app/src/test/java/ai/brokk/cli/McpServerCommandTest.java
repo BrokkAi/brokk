@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
-import ai.brokk.mcpserver.BrokkMcpStdioServer;
 import ai.brokk.project.MainProject;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.nio.file.Files;

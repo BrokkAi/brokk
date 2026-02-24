@@ -17,7 +17,6 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.git.GitRepoFactory;
-import ai.brokk.mcpserver.BrokkMcpStdioServer;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
