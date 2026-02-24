@@ -179,7 +179,7 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
         panel.append_token("   ", "AI", is_new_message=True, is_reasoning=True, is_terminal=True)
         await pilot.pause()
 
-        # Ensure nothing meaningful was rendered as a Thinking panel
+        # Ensure nothing meaningful was rendered as a Thinking block
         combined = "".join(str(line) for line in log.lines)
         assert "Thinking" not in combined
 
@@ -188,7 +188,7 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
         await pilot.pause()
 
         combined = "".join(str(line) for line in log.lines)
-        # Should contain the Markdown-rendered Hello, and still not contain a Thinking panel.
+        # Should contain the Markdown-rendered Hello, and still not contain a Thinking block.
         assert "Hello" in combined
         assert "Thinking" not in combined
 

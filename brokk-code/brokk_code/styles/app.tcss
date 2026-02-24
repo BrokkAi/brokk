@@ -457,3 +457,34 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     margin-top: 1;
     color: $text-disabled;
 }
+
+/* Collapsible Blocks */
+
+.collapsible-block {
+    margin: 0 0 1 0;
+    width: 100%;
+    height: auto;
+}
+
+.collapsible-header {
+    width: 100%;
+    height: 1;
+    color: $text-disabled;
+    padding: 0 1;
+}
+
+.collapsible-header:hover {
+    color: $accent;
+    background: $surface-lighten-1;
+}
+
+.collapsible-body {
+    width: 100%;
+    height: auto;
+    padding-left: 2;
+    display: none;
+}
+
+.collapsible-block.is-expanded .collapsible-body {
+    display: block;
+}

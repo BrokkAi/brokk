@@ -2,8 +2,8 @@ import asyncio
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import re
 from rich.markdown import Markdown
-from rich.panel import Panel
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
@@ -274,6 +274,32 @@ class MentionSuggestions(ListView):
             self.display = False
             if value:
                 self.post_message(self.MentionSelected(value))
+
+
+class CollapsibleBlock(Static):
+    """A small widget for collapsible reasoning or tool outputs."""
+
+    def __init__(self, title: str, content: str, expanded: bool = False, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.title = title
+        self.content = content
+        self.expanded = expanded
+        self.add_class("collapsible-block")
+        if self.expanded:
+            self.add_class("is-expanded")
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._get_header_text(), id="header", classes="collapsible-header")
+        yield Static(Markdown(self.content), id="body", classes="collapsible-body")
+
+    def _get_header_text(self) -> str:
+        arrow = "▼" if self.expanded else "▶"
+        return f"{arrow} {self.title}"
+
+    def on_click(self) -> None:
+        self.expanded = not self.expanded
+        self.toggle_class("is-expanded")
+        self.query_one("#header", Static).update(self._get_header_text())
 
 
 class ChatInput(TextArea):
@@ -919,12 +945,18 @@ class ChatPanel(Vertical):
         if is_terminal:
             self._flush_message()
 
+    def _get_tool_title(self, content: str) -> str:
+        """Extracts a human-readable title from tool output markup."""
+        # Tool outputs from ExplanationRenderer look like: `Headline` \n ````yaml ...
+        match = re.search(r"`([^`]+)`", content)
+        if match:
+            return match.group(1)
+        return "Tool Output"
+
     def _flush_message(self) -> None:
-        """Renders the accumulated buffer as Markdown or a reasoning Panel."""
+        """Renders the accumulated buffer as Markdown or a collapsible block."""
         log = self.query_one("#chat-log", RichLog)
 
-        # If the buffer is empty or only whitespace, clear per-message state
-        # so we don't leave a stale reasoning/typing mode active for subsequent messages.
         if not self._current_message_buffer.strip():
             self._current_message_buffer = ""
             self._is_reasoning = False
@@ -932,23 +964,22 @@ class ChatPanel(Vertical):
             return
 
         content = self._current_message_buffer.strip()
+        msg_type = (self._current_message_type or "AI").upper()
 
         if self._is_reasoning:
-            panel = Panel(
-                Markdown(content, style="grey50"),
-                title="Thinking",
-                border_style="grey37",
-            )
-            log.write(panel)
-            log.write("")  # Spacer
-            self._current_message_buffer = ""
-            self._is_reasoning = False
-            self._current_message_type = None
+            log.write(CollapsibleBlock(title="Thinking...", content=content))
+            log.write("")
+        elif msg_type == "CUSTOM":
+            title = self._get_tool_title(content)
+            log.write(CollapsibleBlock(title=title, content=content))
+            log.write("")
         else:
             log.write(Markdown(content))
-            log.write("")  # Spacer
-            self._current_message_buffer = ""
-            self._current_message_type = None
+            log.write("")
+
+        self._current_message_buffer = ""
+        self._is_reasoning = False
+        self._current_message_type = None
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""
