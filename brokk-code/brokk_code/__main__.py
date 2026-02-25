@@ -1,8 +1,10 @@
 import argparse
 import asyncio
 import os
+import re
 import sys
 from pathlib import Path
+from typing import Any
 
 from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.workspace import resolve_workspace_dir
@@ -131,13 +133,20 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         help="GitHub repository name",
     )
-    # Mapping note: Java HeadlessExecCli defaults to 'claude-opus-4-5' (or latest stable).
-    # Python CLI uses 'claude-3-5-sonnet-latest' as a balanced default.
+    # Default to a fast planner model for issue creation. Reasoning is disabled
+    # explicitly in the headless submit path for this command.
     issue_create_parser.add_argument(
         "--planner-model",
         type=str,
-        default="claude-3-5-sonnet-latest",
-        help="LLM model for planning (default: claude-3-5-sonnet-latest)",
+        default="gemini-3-flash-preview",
+        help="LLM model for planning (default: gemini-3-flash-preview)",
+    )
+    issue_create_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full headless executor output (events/tokens) for debugging",
     )
 
     return parser
@@ -149,6 +158,8 @@ async def run_headless_job(
     planner_model: str,
     mode: str,
     tags: dict[str, str],
+    planner_reasoning_level: str | None = None,
+    verbose: bool = False,
     jar_path: Path | None = None,
     executor_version: str | None = None,
     executor_snapshot: bool = True,
@@ -163,49 +174,224 @@ async def run_headless_job(
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
         vendor=vendor,
+        exit_on_stdin_eof=True,
     )
 
+    stage = "initializing"
+    job_id: str | None = None
+    last_state: str | None = None
+    error_messages: list[str] = []
+    created_issue_url: str | None = None
+    token_url_scan_buffer = ""
+    spinner_index = 0
+    spinner_active = False
+    spinner_label = "Creating issue"
+    spinner_frames = "|/-\\"
+    spinner_enabled = sys.stdout.isatty() and not verbose
+
+    def _event_data(event: dict[str, Any]) -> dict[str, Any]:
+        raw = event.get("data")
+        return raw if isinstance(raw, dict) else {}
+
+    def _extract_message(event: dict[str, Any]) -> str:
+        data = _event_data(event)
+        for key in ("message", "text", "detail", "error"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for key in ("message", "text", "detail", "error"):
+            value = event.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    def _record_issue_url(text: str) -> None:
+        nonlocal created_issue_url, token_url_scan_buffer
+        if created_issue_url or not text:
+            return
+        token_url_scan_buffer = (token_url_scan_buffer + text)[-8192:]
+        match = re.search(r"https://github\.com/[^\s)\]>\"]+/issues/\d+", token_url_scan_buffer)
+        if match:
+            created_issue_url = match.group(0)
+
+    def _record_issue_url_from_issue_writer_notification(message: str) -> None:
+        # Java executor success path emits:
+        # "ISSUE_WRITER: issue created <id> <htmlUrl>"
+        if created_issue_url or not message:
+            return
+        normalized = message.strip()
+        if not normalized.startswith("ISSUE_WRITER: issue created"):
+            return
+        _record_issue_url(normalized)
+
+    def _record_issue_url_from_structured_issue_created(event: dict[str, Any]) -> None:
+        if created_issue_url:
+            return
+        data = _event_data(event)
+        issue_url = data.get("issueUrl")
+        if isinstance(issue_url, str) and issue_url.strip():
+            _record_issue_url(issue_url.strip())
+
+    def _render_spinner() -> None:
+        nonlocal spinner_index, spinner_active
+        if mode != "ISSUE_WRITER" or not spinner_enabled:
+            return
+        frame = spinner_frames[spinner_index % len(spinner_frames)]
+        spinner_index += 1
+        sys.stdout.write(f"\r{spinner_label}... {frame}")
+        sys.stdout.flush()
+        spinner_active = True
+
+    def _clear_spinner() -> None:
+        nonlocal spinner_active
+        if not spinner_enabled or not spinner_active:
+            return
+        sys.stdout.write("\r" + (" " * (len(spinner_label) + 8)) + "\r")
+        sys.stdout.flush()
+        spinner_active = False
+
+    def _update_shutdown_context() -> None:
+        context_parts = [f"mode={mode}", f"stage={stage}"]
+        if job_id:
+            context_parts.append(f"job_id={job_id}")
+        if last_state:
+            context_parts.append(f"last_state={last_state}")
+        if error_messages:
+            context_parts.append(f"last_error={error_messages[-1]}")
+        manager.shutdown_context = ", ".join(context_parts)
+
     try:
+        stage = "starting executor"
+        _update_shutdown_context()
         await manager.start()
 
         # Create session before wait_ready to satisfy Java-side readiness requirements
+        stage = "creating executor session"
+        _update_shutdown_context()
         await manager.create_session(name=f"Headless {mode}")
 
+        stage = "waiting for executor readiness"
+        _update_shutdown_context()
         if not await manager.wait_ready():
-            print("Error: Executor failed to become ready.", file=sys.stderr)
+            print(
+                f"Error during {mode} job ({stage}): executor failed to become ready.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
-        print(f"Submitting {mode} job...")
+        stage = "submitting job"
+        _update_shutdown_context()
+        _render_spinner()
         job_id = await manager.submit_job(
             task_input=task_input,
             planner_model=planner_model,
+            reasoning_level=planner_reasoning_level,
             mode=mode,
             tags=tags,
         )
-        print(f"Job submitted: {job_id}")
+        _update_shutdown_context()
 
+        stage = "streaming job events"
+        _update_shutdown_context()
         async for event in manager.stream_events(job_id):
+            _render_spinner()
             event_type = event.get("type")
+            data = _event_data(event)
             if event_type == "NOTIFICATION":
-                print(f"[{event.get('level', 'INFO')}] {event.get('message')}")
+                message = _extract_message(event)
+                if not message:
+                    continue
+                _record_issue_url_from_issue_writer_notification(message)
+                _record_issue_url(message)
+                level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
+                # Keep headless issue mode quiet by default: warnings/errors matter,
+                # routine INFO/COST/CONFIRM notifications do not.
+                if not verbose and level not in {"WARN", "WARNING", "ERROR"}:
+                    continue
+                _clear_spinner()
+                print(f"[{level}] {message}")
             elif event_type == "STATE_CHANGE":
-                print(f"Job state: {event.get('state')}")
-            elif event_type == "TOKEN":
-                # Print tokens without newlines to stream text
-                sys.stdout.write(event.get("text", ""))
-                sys.stdout.flush()
+                last_state = str(data.get("state", event.get("state", "UNKNOWN")))
+                _update_shutdown_context()
+                if verbose:
+                    _clear_spinner()
+                    print(f"Job state: {last_state}")
+            elif event_type in {"TOKEN", "LLM_TOKEN"}:
+                text = str(data.get("token", event.get("text", "")))
+                _record_issue_url(text)
+                if verbose and text:
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
+                continue
             elif event_type == "ERROR":
-                print(f"\nError event: {event.get('message')}", file=sys.stderr)
+                message = _extract_message(event) or "Unknown error event"
+                _record_issue_url(message)
+                error_messages.append(message)
+                _update_shutdown_context()
+                _clear_spinner()
+                print(f"\nError event: {message}", file=sys.stderr)
+            elif event_type == "ISSUE_CREATED":
+                _record_issue_url_from_structured_issue_created(event)
+                if verbose:
+                    _clear_spinner()
+                    print(f"[ISSUE_CREATED] {data}")
+            elif event_type == "COMMAND_RESULT":
+                if verbose:
+                    _clear_spinner()
+                    print(f"[COMMAND_RESULT] {data}")
+                _record_issue_url(str(data.get("output", "")))
+                _record_issue_url(str(data.get("resultText", "")))
+                _record_issue_url(str(data.get("command", "")))
+                _record_issue_url(str(data.get("exception", "")))
+            elif event_type == "TOOL_OUTPUT":
+                if verbose:
+                    _clear_spinner()
+                    print(f"[TOOL_OUTPUT] {data}")
+                _record_issue_url(str(data.get("output", "")))
+                _record_issue_url(str(data.get("text", "")))
+                _record_issue_url(str(data.get("resultText", "")))
 
-        print("\nJob finished.")
+        if last_state in {"FAILED", "CANCELLED"}:
+            _clear_spinner()
+            detail = f" Last error: {error_messages[-1]}" if error_messages else ""
+            print(
+                f"\n{mode} job ended with state {last_state}.{detail}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if error_messages and last_state != "COMPLETED":
+            _clear_spinner()
+            detail = f" Last error: {error_messages[-1]}"
+            observed_state = last_state or "UNKNOWN"
+            print(
+                f"\n{mode} job ended with errors (last observed state: {observed_state}).{detail}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        _clear_spinner()
+        if mode == "ISSUE_WRITER":
+            if created_issue_url:
+                print(f"Issue created: {created_issue_url}")
+            else:
+                print("Issue created.")
+        else:
+            print("Job finished.")
 
     except ExecutorError as e:
-        print(f"Executor error: {e}", file=sys.stderr)
+        _clear_spinner()
+        _update_shutdown_context()
+        print(f"Executor error during {mode} job ({stage}): {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f"Unexpected error: {e}", file=sys.stderr)
+        _clear_spinner()
+        _update_shutdown_context()
+        print(f"Unexpected error during {mode} job ({stage}): {e}", file=sys.stderr)
         sys.exit(1)
     finally:
+        _clear_spinner()
+        _update_shutdown_context()
         await manager.stop()
 
 
@@ -283,6 +469,8 @@ def main():
                 workspace_dir=workspace_path,
                 task_input=args.prompt,
                 planner_model=args.planner_model,
+                planner_reasoning_level="disable",
+                verbose=args.verbose,
                 mode="ISSUE_WRITER",
                 tags=tags,
                 jar_path=jar_path,
