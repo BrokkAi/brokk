@@ -8,6 +8,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.project.MainProject;
@@ -353,22 +354,28 @@ public class BrokkExternalMcpServer {
     @Tool(
             """
             ALWAYS use the `callCodeAgent` tool to make changes to code; it is faster and more accurate than doing so by hand.
-            Code Agent will search for relevant files if none are provided. Code Agent is as smart as you are, so you only have to
+            Code Agent is as smart as you are, so you only have to
             describe what you want and it will perform the changes. However! Code Agent does not have access to your
             conversation history or your thinking process, and it starts fresh with each command, so your requests must
-            be self-contained, complete, and unambiguous.""")
+            be self-contained, complete, and unambiguous.
+            When possible, prefer giving Code Agent complete tasks that allow it to verify the build and run tests, since it is
+            easier to fix regressions when they are introduced rather than later. In general, the size of tasks should be
+            bounded by your ability to accurately describe the changes you need at the current stage. If you give
+            Code Agent a task that is too difficult, it will tell you what it changed and (if it can run build/tests)
+            what problems it could not resolve.
+            """)
     public String callCodeAgent(
-            @P(
-                            "Instructions for the changes. If there is context needed outside the files being edited, make sure to include it here.")
-                    String instructions,
+            @P("Instructions for the changes. If there is context needed outside the files being edited, make sure to include it here.")
+            String instructions,
             @P("List of files to edit, including new files to create. Specify full project-relative paths.")
-                    List<String> files,
-            @P("Defer build and tests. Set to true when your changes are an intermediate step.") boolean deferBuild) {
-        if (files.isEmpty()) {
+            List<String> editFiles,
+            @P("Set to true when the task is not expected to leave the project buildable/lint-able.") boolean deferBuild,
+            @P("List of filenames containing tests to run. Ignored when deferBuild=True.") List<String> testFiles) {
+        if (editFiles.isEmpty()) {
             return "Code agent called with no files to edit";
         }
         var wst = new WorkspaceTools(cm.liveContext());
-        wst.addFilesToWorkspace(files);
+        wst.addFilesToWorkspace(editFiles);
         cm.pushContext(ctx -> wst.getContext());
 
         var initialContext = cm.liveContext();
@@ -379,7 +386,12 @@ public class BrokkExternalMcpServer {
 
         EnumSet<CodeAgent.Option> options =
                 deferBuild ? EnumSet.of(CodeAgent.Option.DEFER_BUILD) : EnumSet.noneOf(CodeAgent.Option.class);
-        TaskResult result = ca.execute(instructions, options);
+
+        List<ProjectFile> testFilesOverride = (testFiles == null || testFiles.isEmpty() || deferBuild)
+                ? List.of()
+                : testFiles.stream().map(cm::toFile).toList();
+
+        TaskResult result = ca.execute(instructions, options, testFilesOverride);
 
         var finalContext = result.context();
         var stopDetails = result.stopDetails();

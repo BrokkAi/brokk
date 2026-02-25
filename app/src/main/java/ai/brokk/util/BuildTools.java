@@ -52,12 +52,24 @@ public class BuildTools {
     /** Determine the best verification command using the provided Context. */
     @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
-        return determineVerificationCommand(ctx, null);
+        return determineVerificationCommand(ctx, null, null);
     }
 
     /** Determine the best verification command using the provided Context and an optional override. */
     @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx, @Nullable BuildDetails override)
+            throws InterruptedException {
+        return determineVerificationCommand(ctx, override, null);
+    }
+
+    /**
+     * Determine the best verification command using the provided Context and an optional override.
+     *
+     * <p>If {@code testFilesOverride} is non-null and non-empty, it overrides workspace-derived test selection.
+     */
+    @Blocking
+    public static @Nullable String determineVerificationCommand(
+            Context ctx, @Nullable BuildDetails override, @Nullable Collection<ProjectFile> testFilesOverride)
             throws InterruptedException {
         var cm = ctx.getContextManager();
         BuildDetails details = override != null ? override : cm.getProject().awaitBuildDetails();
@@ -73,6 +85,10 @@ public class BuildTools {
                     ? System.getenv("BRK_TESTALL_CMD")
                     : details.testAllCommand();
             return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
+        }
+
+        if (testFilesOverride != null && !testFilesOverride.isEmpty()) {
+            return getBuildLintSomeCommand(cm, details, testFilesOverride);
         }
 
         var projectFilesFromEditableOrReadOnly = ctx.allFragments()
@@ -303,14 +319,21 @@ public class BuildTools {
 
     @Blocking
     public static Context runVerification(Context ctx) throws InterruptedException {
-        return runVerification(ctx, null);
+        return runVerification(ctx, null, null);
     }
 
     @Blocking
     public static Context runVerification(Context ctx, @Nullable BuildDetails override) throws InterruptedException {
+        return runVerification(ctx, override, null);
+    }
+
+    @Blocking
+    public static Context runVerification(
+            Context ctx, @Nullable BuildDetails override, @Nullable Collection<ProjectFile> testFilesOverride)
+            throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
-        var verificationCommand = determineVerificationCommand(ctx, override);
+        var verificationCommand = determineVerificationCommand(ctx, override, testFilesOverride);
         if (verificationCommand == null || verificationCommand.isBlank()) {
             io.llmOutput(
                     "\nNo verification command specified, skipping build/check.",

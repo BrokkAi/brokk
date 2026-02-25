@@ -285,7 +285,7 @@ public class CodeAgent {
         var ctx = new Context(contextManager)
                 .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
         // TODO runTaskInternal allows creating new files, should we prevent that?
-        return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
+        return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD), List.of());
     }
 
     /**
@@ -293,7 +293,11 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult execute(String userInput, Set<Option> options) {
-        return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
+        return execute(userInput, options, List.of());
+    }
+
+    public TaskResult execute(String userInput, Set<Option> options, List<ProjectFile> testFilesOverride) {
+        return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options, testFilesOverride);
     }
 
     /**
@@ -301,11 +305,17 @@ public class CodeAgent {
      */
     @Blocking
     TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
+        return executeWithoutHistory(context, userInput, options, List.of());
+    }
+
+    @Blocking
+    TaskResult executeWithoutHistory(
+            Context context, String userInput, Set<Option> options, List<ProjectFile> testFilesOverride) {
         if (context.getTaskHistory().isEmpty()) {
             // special case no-history to avoid changing Context identity unnecessarily
-            return runTaskInternal(context, List.of(), userInput, options);
+            return runTaskInternal(context, List.of(), userInput, options, testFilesOverride);
         } else {
-            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options);
+            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options, testFilesOverride);
         }
     }
 
@@ -315,7 +325,11 @@ public class CodeAgent {
      */
     @Blocking
     TaskResult runTaskInternal(
-            Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+            Context initialContext,
+            List<ChatMessage> prologue,
+            String userInput,
+            Set<Option> options,
+            List<ProjectFile> testFilesOverride) {
         if (userInput.isBlank()) {
             throw new IllegalStateException();
         }
@@ -364,7 +378,8 @@ public class CodeAgent {
                 originalFileContents,
                 Collections.emptyMap(),
                 !initialContext.getBuildError().isBlank(),
-                false);
+                false,
+                testFilesOverride);
 
         // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
         // to date before we paused it, but empirically that is not the case as of this writing.
@@ -890,7 +905,7 @@ public class CodeAgent {
 
         String buildError;
         try {
-            context = BuildTools.runVerification(context);
+            context = BuildTools.runVerification(context, null, es.testFilesOverride());
             buildError = context.getBuildError();
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
@@ -1661,7 +1676,8 @@ public class CodeAgent {
             Map<ProjectFile, String> originalFileContents,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
             boolean showBuildError,
-            boolean useArchitectModel) {
+            boolean useArchitectModel,
+            List<ProjectFile> testFilesOverride) {
 
         public EditState(
                 int consecutiveParseFailures,
@@ -1684,7 +1700,35 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     hasAttemptedBuild,
-                    false);
+                    false,
+                    List.of());
+        }
+
+        public EditState(
+                int consecutiveParseFailures,
+                int consecutiveApplyFailures,
+                int consecutiveBuildFailures,
+                int blocksAppliedWithoutBuild,
+                int totalBlocksParsed,
+                String lastBuildError,
+                Set<ProjectFile> changedFiles,
+                Map<ProjectFile, String> originalFileContents,
+                Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
+                boolean showBuildError,
+                boolean useArchitectModel) {
+            this(
+                    consecutiveParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    totalBlocksParsed,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    showBuildError,
+                    useArchitectModel,
+                    List.of());
         }
 
         EditState withConsecutiveParseFailures(int count) {
@@ -1699,7 +1743,8 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     showBuildError,
-                    false);
+                    false,
+                    testFilesOverride);
         }
 
         /** Returns a new WorkspaceState with updated parse failures and total parsed count. */
@@ -1715,7 +1760,8 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     showBuildError,
-                    false);
+                    false,
+                    testFilesOverride);
         }
 
         /**
@@ -1735,7 +1781,8 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     false,
-                    newBuildFailures >= 3);
+                    newBuildFailures >= 3,
+                    testFilesOverride);
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -1762,7 +1809,8 @@ public class CodeAgent {
                     Collections.unmodifiableMap(mergedOriginals),
                     javaLintDiagnostics,
                     showBuildError,
-                    shouldUseArchitect);
+                    shouldUseArchitect,
+                    testFilesOverride);
         }
 
         EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
@@ -1777,7 +1825,8 @@ public class CodeAgent {
                     originalFileContents,
                     diags,
                     showBuildError,
-                    false);
+                    false,
+                    testFilesOverride);
         }
 
         /**
