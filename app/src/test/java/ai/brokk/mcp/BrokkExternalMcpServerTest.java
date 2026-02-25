@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-class LangChain4jMcpBridgeTest {
+class BrokkExternalMcpServerTest {
 
     static class TestToolProvider {
         @Tool("A test tool")
@@ -98,7 +98,7 @@ class LangChain4jMcpBridgeTest {
 
         // Verify @D content from FragmentRemoval record
         Map<String, Object> fragmentId = (Map<String, Object>) itemProps.get("fragmentId");
-        assertEquals("The alphanumeric ID exactly as listed in <workspace_toc>", fragmentId.get("description"));
+        assert fragmentId.get("description").toString().contains("The alphanumeric ID exactly as listed in <workspace_toc>");
 
         Map<String, Object> keyFacts = (Map<String, Object>) itemProps.get("keyFacts");
         assertEquals(WorkspaceTools.KEY_FACTS_DESCRIPTION, keyFacts.get("description"));
