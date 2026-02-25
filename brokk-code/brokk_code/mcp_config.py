@@ -92,8 +92,16 @@ def _atomic_write_toml(path: Path, text: str) -> None:
 
 def _brokk_mcp_config() -> dict[str, Any]:
     return {
-        "command": "brokk",
-        "args": ["mcp"],
+        "command": "jbang",
+        "args": [
+            "--java",
+            "21",
+            "-R",
+            "-Djava.awt.headless=true -Dapple.awt.UIElement=true --enable-native-access=ALL-UNNAMED",
+            "--main",
+            "ai.brokk.mcpserver.BrokkExternalMcpServer",
+            "brokk-headless@brokkai/brokk-releases",
+        ],
         "type": "stdio",
     }
 
