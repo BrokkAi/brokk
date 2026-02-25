@@ -1,5 +1,7 @@
 package ai.brokk.mcpserver;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
@@ -23,12 +25,17 @@ import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
+import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
+import java.io.FilterInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,10 +67,38 @@ public class BrokkExternalMcpServer {
         this.cm = cm;
     }
 
+    private static class StdinCloseSignalInputStream extends FilterInputStream {
+        private final Runnable onEof;
+
+        protected StdinCloseSignalInputStream(InputStream in, Runnable onEof) {
+            super(in);
+            this.onEof = onEof;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int value = super.read();
+            if (value == -1) {
+                onEof.run();
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            int value = super.read(b, off, len);
+            if (value == -1) {
+                onEof.run();
+            }
+            return value;
+        }
+    }
+
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
         Path projectPath = Path.of(".").toAbsolutePath().normalize();
+
         try (var project = new MainProject(projectPath);
                 var cm = new ContextManager(project)) {
 
@@ -71,13 +106,38 @@ public class BrokkExternalMcpServer {
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
+            AtomicBoolean eofHandled = new AtomicBoolean();
+            AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
+            InputStream transportInput = new StdinCloseSignalInputStream(System.in, () -> {
+                if (!eofHandled.compareAndSet(false, true)) {
+                    return;
+                }
+                logger.info("System.in closed (EOF detected). Initiating MCP server shutdown.");
+                var server = requireNonNull(serverRef.get());
+                try {
+                    server.closeGracefully();
+                } catch (RuntimeException e) {
+                    logger.warn("Error while closing MCP server after stdin EOF", e);
+                }
+                System.exit(0);
+            });
 
-            McpServer.sync(new StdioServerTransportProvider(mapper))
+            McpSyncServer mcpServer = McpServer.sync(
+                            new StdioServerTransportProvider(mapper, transportInput, System.out))
                     .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
                     .jsonMapper(mapper)
                     .requestTimeout(Duration.ofHours(10))
                     .tools(instance.toolSpecifications())
                     .build();
+            serverRef.set(mcpServer);
+            logger.info("Brokk MCP Server started");
+            Runtime.getRuntime()
+                    .addShutdownHook(new Thread(
+                            () -> {
+                                var server = requireNonNull(serverRef.get());
+                                server.closeGracefully();
+                            },
+                            "BrokkMCP-Server-ShutdownHook"));
 
             Thread.currentThread().join();
         } catch (InterruptedException e) {
@@ -169,17 +229,17 @@ public class BrokkExternalMcpServer {
         TaskResult result;
         try (var scope = cm.beginTaskUngrouped(goal)) {
             if (cm.liveContext().getEditableFragments().findAny().isPresent()) {
-                StreamingChatModel planModel = Objects.requireNonNull(cm.getService()
+                StreamingChatModel planModel = requireNonNull(cm.getService()
                         .getModel(
                                 cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
-                StreamingChatModel codeModel = Objects.requireNonNull(cm.getService()
+                StreamingChatModel codeModel = requireNonNull(cm.getService()
                         .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
                 var agent = new ArchitectAgent(
                         cm, planModel, codeModel, goal, scope, cm.liveContext(), new MutedConsoleIO(cm.getIo()));
                 agent.setDeferBuildForInitialCodeAgentCall(deferBuild);
                 result = agent.executeWithScan(false);
             } else {
-                StreamingChatModel planModel = Objects.requireNonNull(cm.getService()
+                StreamingChatModel planModel = requireNonNull(cm.getService()
                         .getModel(
                                 cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
                 var agent = new ai.brokk.agents.SearchAgent(
@@ -326,9 +386,9 @@ public class BrokkExternalMcpServer {
             return "Error: Repository is not in a merge conflict state.";
         }
 
-        StreamingChatModel planModel = java.util.Objects.requireNonNull(cm.getService()
+        StreamingChatModel planModel = requireNonNull(cm.getService()
                 .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
-        StreamingChatModel codeModel = java.util.Objects.requireNonNull(cm.getService()
+        StreamingChatModel codeModel = requireNonNull(cm.getService()
                 .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
 
         TaskResult result;

@@ -3,11 +3,11 @@ import asyncio
 import sys
 from pathlib import Path
 
+from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
 )
-from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 

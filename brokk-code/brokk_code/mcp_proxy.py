@@ -17,7 +17,7 @@ class _BemsStdioExecutorManager(ExecutorManager):
         return _BEMS_MAIN_CLASS
 
     def _get_executor_args(self, exec_id: str) -> list[str]:
-        return []
+        return ["--exit-on-stdin-eof"] if self.exit_on_stdin_eof else []
 
     async def start_stdio(self) -> asyncio.subprocess.Process:
         exec_id = "mcp-stdio"
@@ -58,7 +58,7 @@ async def run_mcp_proxy(
         jar_path=jar_path,
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
-        exit_on_stdin_eof=False,
+        exit_on_stdin_eof=True,
     )
 
     proc = await bems.start_stdio()
