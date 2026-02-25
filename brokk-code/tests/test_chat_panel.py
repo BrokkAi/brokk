@@ -759,6 +759,10 @@ async def test_tool_call_visibility_toggle_integration():
         chat.add_markdown(tool_markdown)
         await pilot.pause()
 
+        rendered_off = "".join(str(line) for line in chat.query_one("#chat-log", RichLog).lines)
+        assert "Tool Call: list_files [+] (ctrl+o to expand)" in rendered_off
+        assert "directory: src" not in rendered_off
+
         # Verify the raw content is in history
         assert any(m["content"] == tool_markdown for m in chat._message_history)
 

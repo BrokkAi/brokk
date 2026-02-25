@@ -1001,7 +1001,10 @@ class ChatPanel(Vertical):
 
     def _render_tool_call_panel(self, name: str, yaml_body: str) -> Panel:
         """Renders a tool call block using the same collapsible panel style as reasoning."""
-        body = Markdown(f"```yaml\n{yaml_body}\n```")
+        if self.show_verbose:
+            body = Markdown(f"```yaml\n{yaml_body}\n```")
+        else:
+            body = Text("...", style="grey50")
 
         return Panel(
             body,
