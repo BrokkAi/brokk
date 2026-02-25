@@ -459,6 +459,10 @@ class AnalyzerWrapperTest {
      * Test helper class for tracking analyzer lifecycle events.
      */
     private static class TestAnalyzerListener implements AnalyzerListener {
+        private final AtomicInteger buildCount = new AtomicInteger(0);
+        private final AtomicInteger externalBuildCount = new AtomicInteger(0);
+        private volatile CountDownLatch nextBuildLatch = new CountDownLatch(1);
+
         @Override
         public void onBlocked() {}
 
@@ -466,7 +470,26 @@ class AnalyzerWrapperTest {
         public void beforeEachBuild() {}
 
         @Override
-        public void afterEachBuild(boolean externalRequest) {}
+        public void afterEachBuild(boolean externalRequest) {
+            buildCount.incrementAndGet();
+            if (externalRequest) {
+                externalBuildCount.incrementAndGet();
+            }
+            nextBuildLatch.countDown();
+        }
+
+        /** Resets the latch to wait for the next completion. */
+        public void resetLatch() {
+            nextBuildLatch = new CountDownLatch(1);
+        }
+
+        public boolean awaitNextBuild(long timeout, TimeUnit unit) throws InterruptedException {
+            return nextBuildLatch.await(timeout, unit);
+        }
+
+        public int getExternalBuildCount() {
+            return externalBuildCount.get();
+        }
     }
 
     /**
@@ -567,6 +590,46 @@ class AnalyzerWrapperTest {
         public String getCurrentCommitId() throws GitAPIException {
             return delegate.getCurrentCommitId();
         }
+    }
+
+    @Test
+    void testExplicitRebuildDeletesPersistedState() throws Exception {
+        var projectRoot = tempDir.resolve("project-rebuild-persistence");
+        Files.createDirectories(projectRoot);
+        Files.writeString(projectRoot.resolve("Test.java"), "public class Test {}");
+
+        var project = new TestProject(projectRoot, Languages.JAVA);
+
+        // 1. Determine expected storage path
+        Path storagePath = Languages.JAVA.getStoragePath(project);
+
+        // 2. Setup listener
+        TestAnalyzerListener listener = new TestAnalyzerListener();
+
+        // 3. Create AnalyzerWrapper and wait for the initial build to complete
+        analyzerWrapper = new AnalyzerWrapper(project, listener, new NoopWatchService());
+        analyzerWrapper.get(); // Wait for initial build
+
+        // 4. Create a dummy file at the storage path AFTER initial build
+        // (Initial build might have tried to load or create it)
+        Files.createDirectories(storagePath.getParent());
+        Files.writeString(storagePath, "dummy content");
+        assertTrue(Files.exists(storagePath), "Dummy storage file should exist before rebuild");
+
+        // 5. Reset latch to wait for the explicit rebuild
+        listener.resetLatch();
+
+        // 6. Request explicit rebuild
+        analyzerWrapper.requestRebuild();
+
+        // 7. Wait for the rebuild to complete
+        assertTrue(listener.awaitNextBuild(5, TimeUnit.SECONDS), "Explicit rebuild should complete within timeout");
+        assertTrue(listener.getExternalBuildCount() > 0, "Should have registered an external rebuild");
+
+        // 8. Assert storage file was deleted.
+        // Even if persistAnalyzerState runs shortly after, the file we wrote was "dummy content"
+        // and we are checking for deletion immediately following the update logic.
+        assertFalse(Files.exists(storagePath), "Dummy storage file should have been deleted by explicit rebuild");
     }
 
     @Test
