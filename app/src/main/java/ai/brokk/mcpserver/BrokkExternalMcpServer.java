@@ -214,7 +214,7 @@ public class BrokkExternalMcpServer {
         return result;
     }
 
-    @Tool("Implement changes asked for in the goal. Will search for relevant files if none are provided.")
+    @Tool("ALWAYS use the `code` tool to make changes to code; it is faster . Will search for relevant files if none are provided.")
     public String code(
             @P("The goal/prompt for the changes.") String goal,
             @P("Optional list of files to narrow the radius or edit directly.") List<String> files,
