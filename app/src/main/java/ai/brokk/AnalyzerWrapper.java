@@ -255,13 +255,22 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         IAnalyzer.ProgressListener progressListener = listener::onProgress;
 
         refresh(prev -> {
-            // If the user explicitly requested a full refresh of code intelligence we must
-            // purge any persisted analyzer snapshots (both new LZ4 format and legacy gzip files)
-            // before rebuilding. This avoids accidentally re-loading stale or incompatible files
-            // during the requested rebuild.
-            deletePersistedAnalyzerStateFiles();
+            Set<Language> currentLangs = prev.languages();
+            Set<Language> projectLangs = project.getAnalyzerLanguages();
 
-            return project.getLanguageHandle().createAnalyzer(project, progressListener);
+            if (currentLangs.equals(projectLangs)) {
+                logger.info("External rebuild requested but languages match; performing incremental update.");
+                return prev.update();
+            } else {
+                logger.info("External rebuild requested and languages changed; performing full rebuild.");
+                // If the user explicitly requested a full refresh of code intelligence or changed languages,
+                // we must purge any persisted analyzer snapshots (both new LZ4 format and legacy gzip files)
+                // before rebuilding. This avoids accidentally re-loading stale or incompatible files
+                // during the requested rebuild.
+                deletePersistedAnalyzerStateFiles();
+
+                return project.getLanguageHandle().createAnalyzer(project, progressListener);
+            }
         });
 
         externalRebuildRequested = false;
