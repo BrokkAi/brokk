@@ -33,10 +33,6 @@ public final class ModelProperties {
     private static final String GPT_5_2 = "gpt-5.2";
 
     public static final String GPT_5_1_CODEX_MINI_OAUTH = "gpt-5.1-codex-mini-oauth";
-    public static final String GPT_5_1_CODEX_OAUTH = "gpt-5.1-codex-oauth";
-    public static final String GPT_5_1_CODEX_MAX_OAUTH = "gpt-5.1-codex-max-oauth";
-    public static final String GPT_5_2_OAUTH = "gpt-5.2-oauth";
-    public static final String GPT_5_2_CODEX_OAUTH = "gpt-5.2-codex-oauth";
     public static final String GPT_5_3_CODEX_OAUTH = "gpt-5.3-codex-oauth";
 
     // Common configurations. Note that we override thinking levels in some cases for speed.

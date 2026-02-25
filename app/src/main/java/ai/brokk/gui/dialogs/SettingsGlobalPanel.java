@@ -2352,37 +2352,25 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 }
             }
 
-            var codeModelConfig =
-                    new Service.ModelConfig(ModelProperties.GPT_5_2_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW);
+            var codeModelConfig = new Service.ModelConfig(
+                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.DISABLE);
             var architectModelConfig =
-                    new Service.ModelConfig(ModelProperties.GPT_5_2_OAUTH, AbstractService.ReasoningLevel.DISABLE);
+                    new Service.ModelConfig(ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW);
 
-            // Replace favorites list with all Codex OAuth models
+            // Replace favorites list with only Codex OAuth models
             var codexFavorites = List.of(
                     new Service.FavoriteModel(
-                            "5.1 Codex Mini",
+                            "5.3 Codex instant",
                             new Service.ModelConfig(
-                                    ModelProperties.GPT_5_1_CODEX_MINI_OAUTH, AbstractService.ReasoningLevel.LOW)),
+                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.DISABLE)),
                     new Service.FavoriteModel(
-                            "5.1 Codex",
+                            "5.3 Codex low",
                             new Service.ModelConfig(
-                                    ModelProperties.GPT_5_1_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW)),
+                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW)),
                     new Service.FavoriteModel(
-                            "5.1 Codex Max",
+                            "5.3 Codex high",
                             new Service.ModelConfig(
-                                    ModelProperties.GPT_5_1_CODEX_MAX_OAUTH, AbstractService.ReasoningLevel.LOW)),
-                    new Service.FavoriteModel(
-                            "5.2",
-                            new Service.ModelConfig(
-                                    ModelProperties.GPT_5_2_OAUTH, AbstractService.ReasoningLevel.DISABLE)),
-                    new Service.FavoriteModel(
-                            "5.2 Codex",
-                            new Service.ModelConfig(
-                                    ModelProperties.GPT_5_2_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW)),
-                    new Service.FavoriteModel(
-                            "5.3 Codex",
-                            new Service.ModelConfig(
-                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW)));
+                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.HIGH)));
             MainProject.saveFavoriteModels(codexFavorites);
             logger.info("Replaced favorites list with Codex OAuth models");
 
