@@ -50,7 +50,33 @@ public final class HeadlessExecutorMain {
             "proxy-setting",
             "vendor",
             "exit-on-stdin-eof",
+            "tls-enabled",
+            "tls-keystore-path",
+            "tls-keystore-password",
+            "tls-client-ca-path",
+            "mtls-required",
             "help");
+
+    static final class TlsConfig {
+        final boolean enabled;
+        final @Nullable String keystorePath;
+        final @Nullable String keystorePassword;
+        final @Nullable String clientCaPath;
+        final boolean mtlsRequired;
+
+        TlsConfig(
+                boolean enabled,
+                @Nullable String keystorePath,
+                @Nullable String keystorePassword,
+                @Nullable String clientCaPath,
+                boolean mtlsRequired) {
+            this.enabled = enabled;
+            this.keystorePath = keystorePath;
+            this.keystorePassword = keystorePassword;
+            this.clientCaPath = clientCaPath;
+            this.mtlsRequired = mtlsRequired;
+        }
+    }
 
     private final UUID execId;
     private final SimpleHttpServer server;
@@ -124,7 +150,7 @@ public final class HeadlessExecutorMain {
         return System.getenv(envVarName);
     }
 
-    private static boolean parseBooleanValue(String rawValue, String sourceName) {
+    static boolean parseBooleanValue(String rawValue, String sourceName) {
         var normalized = rawValue.trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
             case "", "1", "true", "yes", "on" -> true;
@@ -133,6 +159,56 @@ public final class HeadlessExecutorMain {
                 throw new IllegalArgumentException("Invalid boolean value for " + sourceName + ": '" + rawValue
                         + "'. Expected one of true/false, 1/0, yes/no, on/off.");
         };
+    }
+
+    static TlsConfig parseTlsConfig(Map<String, String> parsedArgs, Map<String, String> env) {
+        String tlsEnabledRaw = parsedArgs.get("tls-enabled");
+        if (tlsEnabledRaw == null || tlsEnabledRaw.isBlank()) {
+            tlsEnabledRaw = env.get("TLS_ENABLED");
+        }
+        boolean tlsEnabled = (tlsEnabledRaw != null && !tlsEnabledRaw.isBlank())
+                ? parseBooleanValue(tlsEnabledRaw, "tls-enabled")
+                : false;
+
+        String mtlsRequiredRaw = parsedArgs.get("mtls-required");
+        if (mtlsRequiredRaw == null || mtlsRequiredRaw.isBlank()) {
+            mtlsRequiredRaw = env.get("MTLS_REQUIRED");
+        }
+        boolean mtlsRequired = (mtlsRequiredRaw != null && !mtlsRequiredRaw.isBlank())
+                ? parseBooleanValue(mtlsRequiredRaw, "mtls-required")
+                : false;
+
+        String keystorePath = parsedArgs.get("tls-keystore-path");
+        if (keystorePath == null || keystorePath.isBlank()) {
+            keystorePath = env.get("TLS_KEYSTORE_PATH");
+        }
+
+        String keystorePassword = parsedArgs.get("tls-keystore-password");
+        if (keystorePassword == null || keystorePassword.isBlank()) {
+            keystorePassword = env.get("TLS_KEYSTORE_PASSWORD");
+        }
+
+        String clientCaPath = parsedArgs.get("tls-client-ca-path");
+        if (clientCaPath == null || clientCaPath.isBlank()) {
+            clientCaPath = env.get("TLS_CLIENT_CA_PATH");
+        }
+
+        if (tlsEnabled) {
+            if (keystorePath == null || keystorePath.isBlank()) {
+                throw new IllegalArgumentException(
+                        "TLS is enabled but TLS_KEYSTORE_PATH / --tls-keystore-path is not set");
+            }
+            if (keystorePassword == null || keystorePassword.isBlank()) {
+                throw new IllegalArgumentException(
+                        "TLS is enabled but TLS_KEYSTORE_PASSWORD / --tls-keystore-password is not set");
+            }
+            if (mtlsRequired && (clientCaPath == null || clientCaPath.isBlank())) {
+                throw new IllegalArgumentException(
+                        "mTLS is required but TLS_CLIENT_CA_PATH / --tls-client-ca-path is not set");
+            }
+        }
+
+        return new TlsConfig(tlsEnabled, keystorePath, keystorePassword, clientCaPath, mtlsRequired);
     }
 
     private static boolean getBooleanConfigValue(
@@ -477,6 +553,14 @@ public final class HeadlessExecutorMain {
 
             var exitOnStdinEof = getBooleanConfigValue(parsedArgs, "exit-on-stdin-eof", "EXIT_ON_STDIN_EOF", false);
 
+            var tlsConfig = parseTlsConfig(parsedArgs, System.getenv());
+            logger.info(
+                    "TLS configuration: enabled={}, mtlsRequired={}, keystorePath={}, clientCaPath={}",
+                    tlsConfig.enabled,
+                    tlsConfig.mtlsRequired,
+                    tlsConfig.keystorePath,
+                    tlsConfig.clientCaPath);
+
             // Build ContextManager from workspace
             var project = new MainProject(workspaceDir);
 
@@ -557,6 +641,10 @@ public final class HeadlessExecutorMain {
             }
             System.out.println();
             System.out.println("  exitOnStdinEof: " + exitOnStdinEof);
+            System.out.println("  tlsEnabled:   " + tlsConfig.enabled);
+            if (tlsConfig.enabled) {
+                System.out.println("  mtlsRequired: " + tlsConfig.mtlsRequired);
+            }
             System.out.println();
             System.out.println("Available HTTP Endpoints:");
             System.out.println();
