@@ -1,14 +1,16 @@
-import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from brokk_code.executor import ExecutorManager
+
 
 @pytest.mark.asyncio
 async def test_submit_job_payload_construction():
     """Verify that submit_job builds the correct JSON payload for various options."""
     manager = ExecutorManager()
     manager._http_client = AsyncMock()
-    
+
     # Mock response
     mock_response = MagicMock()
     mock_response.json.return_value = {"jobId": "test-job-123"}
@@ -16,12 +18,8 @@ async def test_submit_job_payload_construction():
     manager._http_client.post.return_value = mock_response
 
     # Test case 1: Basic submission
-    await manager.submit_job(
-        task_input="fix bug",
-        planner_model="gpt-4o",
-        mode="ARCHITECT"
-    )
-    
+    await manager.submit_job(task_input="fix bug", planner_model="gpt-4o", mode="ARCHITECT")
+
     _, kwargs = manager._http_client.post.call_args
     payload = kwargs["json"]
     assert payload["taskInput"] == "fix bug"
@@ -38,9 +36,9 @@ async def test_submit_job_payload_construction():
         mode="ISSUE",
         skip_verification=True,
         max_issue_fix_attempts=5,
-        tags={"custom": "tag"}
+        tags={"custom": "tag"},
     )
-    
+
     _, kwargs = manager._http_client.post.call_args
     payload = kwargs["json"]
     assert payload["taskInput"] == "solve issue"
@@ -50,12 +48,13 @@ async def test_submit_job_payload_construction():
     assert payload["skipVerification"] is True
     assert payload["maxIssueFixAttempts"] == 5
 
+
 @pytest.mark.asyncio
 async def test_submit_job_omits_none_fields():
     """Ensure optional fields are omitted from JSON when they are None."""
     manager = ExecutorManager()
     manager._http_client = AsyncMock()
-    
+
     mock_response = MagicMock()
     mock_response.json.return_value = {"jobId": "test-job-456"}
     manager._http_client.post.return_value = mock_response
@@ -64,9 +63,9 @@ async def test_submit_job_omits_none_fields():
         task_input="minimal",
         planner_model="model",
         skip_verification=None,
-        max_issue_fix_attempts=None
+        max_issue_fix_attempts=None,
     )
-    
+
     _, kwargs = manager._http_client.post.call_args
     payload = kwargs["json"]
     assert "skipVerification" not in payload
