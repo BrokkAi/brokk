@@ -5,14 +5,13 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ContextManager;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
-import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.project.MainProject;
-import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -33,10 +32,10 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -48,7 +47,7 @@ public class BrokkExternalMcpServer {
 
     private static final List<String> BASE_TOOL_NAMES = List.of(
             "scan",
-            "code",
+            "callCodeAgent",
             "runBuild",
             "configureBuild",
             "merge",
@@ -189,10 +188,11 @@ public class BrokkExternalMcpServer {
         }
     }
 
-    @Tool("Agentic scan for relevant files and classes. Returns a summary of recommended context.")
+    @Tool(
+            "Agentic scan for relevant files and classes. Returns a summary of recommended context. Use this to get an overview when beginning a new task.")
     public String scan(
-            @P("The goal or prompt to scan for.") String goal,
-            @P("Include test files in the results. Default: false.") boolean includeTests)
+            @P("The natural-language goal or prompt to scan for.") String goal,
+            @P("Include test files in the results.") boolean includeTests)
             throws InterruptedException {
         var scanModel = cm.getService().getScanModel();
         var agent = new ContextAgent(cm, scanModel, goal, new MutedConsoleIO(cm.getIo()));
@@ -214,46 +214,36 @@ public class BrokkExternalMcpServer {
         return result;
     }
 
-    @Tool("ALWAYS use the `code` tool to make changes to code; it is faster . Will search for relevant files if none are provided.")
-    public String code(
-            @P("The goal/prompt for the changes.") String goal,
-            @P("Optional list of files to narrow the radius or edit directly.") List<String> files,
-            @P("Defer build/verification. Set to true when your changes are an intermediate step.") boolean deferBuild)
-            throws InterruptedException {
-        if (!files.isEmpty()) {
-            new WorkspaceTools(cm.liveContext()).addFilesToWorkspace(files);
+    @Tool(
+            """
+            ALWAYS use the `code` tool to make changes to code; it is faster and more accurate than doing so by hand.
+            Code Agent will search for relevant files if none are provided. Code Agent is as smart as you are, so you only have to
+            describe what you want and it will perform the changes. However! Code Agent does not have access to your
+            conversation history or your thinking process, and it starts fresh with each command, so your requests must
+            be self-contained, complete, and unambiguous.""")
+    public String callCodeAgent(
+            @P(
+                            "Instructions for the changes. If there is context needed outside the files being edited, make sure to include it here.")
+                    String instructions,
+            @P("List of files to edit, including new files to create. Specify full project-relative paths.")
+                    List<String> files,
+            @P("Defer build and tests. Set to true when your changes are an intermediate step.") boolean deferBuild) {
+        if (files.isEmpty()) {
+            return "Code agent called with no files to edit";
         }
+        var wst = new WorkspaceTools(cm.liveContext());
+        wst.addFilesToWorkspace(files);
+        cm.pushContext(ctx -> wst.getContext());
 
         var initialContext = cm.liveContext();
 
-        TaskResult result;
-        try (var scope = cm.beginTaskUngrouped(goal)) {
-            if (cm.liveContext().getEditableFragments().findAny().isPresent()) {
-                StreamingChatModel planModel = requireNonNull(cm.getService()
-                        .getModel(
-                                cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
-                StreamingChatModel codeModel = requireNonNull(cm.getService()
-                        .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
-                var agent = new ArchitectAgent(
-                        cm, planModel, codeModel, goal, scope, cm.liveContext(), new MutedConsoleIO(cm.getIo()));
-                agent.setDeferBuildForInitialCodeAgentCall(deferBuild);
-                result = agent.executeWithScan(false);
-            } else {
-                StreamingChatModel planModel = requireNonNull(cm.getService()
-                        .getModel(
-                                cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
-                var agent = new ai.brokk.agents.SearchAgent(
-                        cm.liveContext(),
-                        goal,
-                        planModel,
-                        SearchPrompts.Objective.CODE_ONLY,
-                        scope,
-                        new MutedConsoleIO(cm.getIo()),
-                        ai.brokk.agents.SearchAgent.ScanConfig.defaults());
-                result = agent.execute();
-            }
-            scope.append(result);
-        }
+        var model = requireNonNull(
+                cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
+        var ca = new CodeAgent(cm, model);
+
+        EnumSet<CodeAgent.Option> options =
+                deferBuild ? EnumSet.of(CodeAgent.Option.DEFER_BUILD) : EnumSet.noneOf(CodeAgent.Option.class);
+        TaskResult result = ca.execute(instructions, options);
 
         var finalContext = result.context();
         var stopDetails = result.stopDetails();
@@ -261,10 +251,6 @@ public class BrokkExternalMcpServer {
 
         var delta = ContextDelta.between(initialContext, finalContext).join();
         var changedFragments = delta.getChangedFragments();
-        var changedFragmentList = changedFragments.stream()
-                .map(cf -> cf.shortDescription().join())
-                .sorted()
-                .collect(Collectors.joining(", "));
         var unifiedDiff = CodeAgent.cumulativeDiffForFragments(initialContext, finalContext, changedFragments);
 
         String explanation = stopDetails.explanation();
@@ -275,11 +261,10 @@ public class BrokkExternalMcpServer {
             }
         }
 
-        String changedFragmentsText = changedFragmentList.isBlank() ? "(None)" : changedFragmentList;
         String diffSection = unifiedDiff.isBlank()
-                ? "## Diff\n(No file changes)"
+                ? "# Diff\n(No file changes)"
                 : """
-                ## Diff
+                # Diff
                 ```diff
                 %s
                 ```
@@ -294,12 +279,9 @@ public class BrokkExternalMcpServer {
                     # Status
                     %s
 
-                    # Changed fragments
-                    %s
-
                     %s
                     """
-                    .formatted(statusLine, changedFragmentsText, diffSection)
+                    .formatted(statusLine, diffSection)
                     .stripIndent()
                     .stripTrailing();
         }
@@ -310,12 +292,9 @@ public class BrokkExternalMcpServer {
         return """
                 %s
 
-                # Changed fragments
-                %s
-
                 %s
                 """
-                .formatted(failureText, changedFragmentsText, diffSection)
+                .formatted(failureText, diffSection)
                 .stripIndent()
                 .stripTrailing();
     }
@@ -386,10 +365,10 @@ public class BrokkExternalMcpServer {
             return "Error: Repository is not in a merge conflict state.";
         }
 
-        StreamingChatModel planModel = requireNonNull(cm.getService()
-                .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.ARCHITECT)));
-        StreamingChatModel codeModel = requireNonNull(cm.getService()
-                .getModel(cm.getProject().getModelConfig(ai.brokk.project.ModelProperties.ModelType.CODE)));
+        StreamingChatModel planModel = requireNonNull(
+                cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.ARCHITECT)));
+        StreamingChatModel codeModel = requireNonNull(
+                cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
 
         TaskResult result;
         try (var scope = cm.beginTaskUngrouped("Merge")) {
