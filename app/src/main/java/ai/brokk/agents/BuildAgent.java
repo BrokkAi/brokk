@@ -1053,12 +1053,9 @@ public class BuildAgent {
     /**
      * Interpolates a Mustache template with the given list of items and optional Python version.
      * Supports {{files}}, {{classes}}, {{fqclasses}}, {{modules}}, and {{pyver}} variables.
-     *
-     * Note: mustache.java's DecoratedCollection does not support the -last feature like Handlebars does,
-     * so we post-process to clean up trailing separators that result from the final iteration.
      */
     public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
-        return interpolateMustacheTemplate(template, items, listKey, null);
+        return interpolateMustacheTemplate(template, Map.of(listKey, items), null);
     }
 
     /**
@@ -1067,22 +1064,27 @@ public class BuildAgent {
      */
     public static String interpolateMustacheTemplate(
             String template, List<String> items, String listKey, @Nullable String pythonVersion) {
+        return interpolateMustacheTemplate(template, Map.of(listKey, items), pythonVersion);
+    }
+
+    /**
+     * Interpolates a Mustache template with a map of list variables and optional Python version.
+     * Each list in the map is wrapped in a {@link DecoratedCollection} for Mustache sections.
+     */
+    public static String interpolateMustacheTemplate(
+            String template, Map<String, List<String>> listVariables, @Nullable String pythonVersion) {
         if (template.isEmpty()) {
             return "";
         }
 
         MustacheFactory mf = new DefaultMustacheFactory();
-        // The "templateName" argument to compile is for caching and error reporting, can be arbitrary.
         Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
 
         Map<String, Object> context = new HashMap<>();
-        // Mustache.java handles null or empty lists correctly for {{#section}} blocks.
-        context.put(listKey, new DecoratedCollection<>(items));
+        listVariables.forEach((key, list) -> context.put(key, new DecoratedCollection<>(list)));
         context.put("pyver", pythonVersion == null ? "" : pythonVersion);
 
         StringWriter writer = new StringWriter();
-        // This can throw MustacheException, which will propagate as a RuntimeException
-        // as per the project's "let it throw" style.
         mustache.execute(writer, context);
 
         return writer.toString();
