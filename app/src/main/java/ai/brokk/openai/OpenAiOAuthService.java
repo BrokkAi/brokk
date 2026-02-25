@@ -170,6 +170,18 @@ public class OpenAiOAuthService {
         Window ancestor =
                 (parent == null) ? null : (parent instanceof Window w) ? w : SwingUtilities.getWindowAncestor(parent);
 
+        if (MainProject.getBrokkKey().isBlank()) {
+            logger.warn("Cannot start OpenAI OAuth flow: Brokk API key is missing.");
+            SwingUtilities.invokeLater(() -> {
+                javax.swing.JOptionPane.showMessageDialog(
+                        ancestor,
+                        "A valid Brokk API key is required to connect OpenAI Codex.",
+                        "Authentication Error",
+                        javax.swing.JOptionPane.ERROR_MESSAGE);
+            });
+            return;
+        }
+
         synchronized (lock) {
             stopActiveServerInternal();
 

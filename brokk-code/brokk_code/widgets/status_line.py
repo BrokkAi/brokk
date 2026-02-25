@@ -114,7 +114,7 @@ class StatusLine(Horizontal):
         ]
 
         if is_openai_codex_connected():
-            parts.append("Codex: On")
+            parts.append("Codex: Connected")
 
         if self._turn_cost is not None and self._turn_cost > 0:
             parts.append(f"${self._turn_cost:.3f} turn")
