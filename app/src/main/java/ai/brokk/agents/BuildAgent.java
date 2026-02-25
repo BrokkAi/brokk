@@ -1087,7 +1087,7 @@ public class BuildAgent {
      * Supports {{files}}, {{classes}}, {{fqclasses}}, {{modules}}, and {{pyver}} variables.
      */
     public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
-        return interpolateMustacheTemplate(template, Map.of(listKey, items), null);
+        return interpolateMustacheTemplate(template, items, listKey, null);
     }
 
     /**
