@@ -87,6 +87,8 @@ public class BuildAgent {
     private static final int MAX_ITERATIONS = 10;
     private static final int MAX_REPEATED_TOOL_CALLS = 5;
 
+    private static final Set<Language> ANALYZER_MODULE_LANGUAGES = Set.of(Languages.GO, Languages.RUST);
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final Llm llm;
@@ -426,9 +428,9 @@ public class BuildAgent {
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
                 | **Maven**         | `mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                | **Go**            | `go test -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
+                | **Go**            | `go test {{#packages}}./{{value}} {{/packages}} -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
                 | **.NET CLI**      | `dotnet test --verbosity quiet --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}}|{{/last}}{{/classes}}"`
-                | **Cargo**         | `cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}`
+                | **Cargo**         | `cargo test -q {{#packages}}-p {{value}} {{/packages}}`
                 | **pytest**        | `uv sync && pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Poetry**        | `poetry install --no-interaction && poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Jest**          | `jest --silent {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
@@ -512,7 +514,7 @@ public class BuildAgent {
                             "Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String testAllCommand,
             @P(
-                            "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
+                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, {{modules}}, or {{packages}}. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
                             "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
@@ -885,7 +887,7 @@ public class BuildAgent {
                         targetItems.size(),
                         anchor == null ? "<inferred import roots>" : anchor);
                 return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
-            } else if (language == Languages.GO || language == Languages.RUST) {
+            } else if (ANALYZER_MODULE_LANGUAGES.contains(language)) {
                 IAnalyzer analyzer = cm.getAnalyzer();
                 targetItems = workspaceTestFiles.stream()
                         .flatMap(f -> {
