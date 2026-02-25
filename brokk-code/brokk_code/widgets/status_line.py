@@ -41,6 +41,7 @@ class StatusLine(Horizontal):
         self._branch = "unknown"
         self._turn_cost: Optional[float] = None
         self._session_cost: Optional[float] = None
+        self._build_status: Optional[str] = None
         self._fragment_description: Optional[str] = None
         self._fragment_size: Optional[int] = None
         self._metadata: Optional[Static] = None
@@ -116,6 +117,8 @@ class StatusLine(Horizontal):
             parts.append(f"${self._turn_cost:.3f} turn")
         if self._session_cost is not None and self._session_cost > 0:
             parts.append(f"${self._session_cost:.3f} session")
+        if self._build_status:
+            parts.append(self._build_status)
 
         text = self.SEPARATOR.join(parts)
 
@@ -144,6 +147,7 @@ class StatusLine(Horizontal):
         branch: Optional[str] = None,
         turn_cost: Optional[float] = None,
         session_cost: Optional[float] = None,
+        build_status: Optional[str] = None,
     ) -> None:
         """Update the metadata text segment. Only non-None values are updated."""
         if mode is not None:
@@ -160,6 +164,8 @@ class StatusLine(Horizontal):
             self._turn_cost = turn_cost
         if session_cost is not None:
             self._session_cost = session_cost
+        if build_status is not None:
+            self._build_status = str(build_status) if build_status else None
         self._render_status_text()
 
     def set_fragment_info(self, description: Optional[str], size: Optional[int]) -> None:

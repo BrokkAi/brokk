@@ -193,3 +193,41 @@ def test_status_line_cost_rendering():
     # Case 5: Clearing fragment restores cost display
     status.clear_fragment_info()
     mock_metadata.update.assert_called_with(expected_both)
+
+
+def test_status_line_build_status_rendering():
+    status = StatusLine()
+    mock_metadata = MagicMock()
+    status._metadata = mock_metadata
+
+    # Case 1: Build status only (appended as last segment)
+    status.update_status(
+        mode="LUTZ",
+        model="gpt-4",
+        reasoning="high",
+        workspace="/work",
+        branch="main",
+        build_status="Detecting project settings...",
+    )
+    expected_basic = "LUTZ • gpt-4 (high) • /work • main • Detecting project settings..."
+    mock_metadata.update.assert_called_with(expected_basic)
+
+    # Case 2: Coexistence with costs (costs come before build status)
+    status.update_status(turn_cost=0.01)
+    expected_with_cost = (
+        "LUTZ • gpt-4 (high) • /work • main • $0.010 turn • Detecting project settings..."
+    )
+    mock_metadata.update.assert_called_with(expected_with_cost)
+
+    # Case 3: Fragment hover precedence
+    status.set_fragment_info("hover.py", 10)
+    assert "hover.py" in mock_metadata.update.call_args[0][0]
+
+    # Case 4: Clearing fragment restores build status
+    status.clear_fragment_info()
+    mock_metadata.update.assert_called_with(expected_with_cost)
+
+    # Case 5: Clearing build status
+    status.update_status(build_status="")
+    expected_no_build = "LUTZ • gpt-4 (high) • /work • main • $0.010 turn"
+    mock_metadata.update.assert_called_with(expected_no_build)

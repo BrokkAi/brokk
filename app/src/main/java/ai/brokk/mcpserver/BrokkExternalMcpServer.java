@@ -365,11 +365,13 @@ public class BrokkExternalMcpServer {
             what problems it could not resolve.
             """)
     public String callCodeAgent(
-            @P("Instructions for the changes. If there is context needed outside the files being edited, make sure to include it here.")
-            String instructions,
+            @P(
+                            "Instructions for the changes. If there is context needed outside the files being edited, make sure to include it here.")
+                    String instructions,
             @P("List of files to edit, including new files to create. Specify full project-relative paths.")
-            List<String> editFiles,
-            @P("Set to true when the task is not expected to leave the project buildable/lint-able.") boolean deferBuild,
+                    List<String> editFiles,
+            @P("Set to true when the task is not expected to leave the project buildable/lint-able.")
+                    boolean deferBuild,
             @P("List of filenames containing tests to run. Ignored when deferBuild=True.") List<String> testFiles) {
         if (editFiles.isEmpty()) {
             return "Code agent called with no files to edit";
