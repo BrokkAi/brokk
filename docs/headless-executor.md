@@ -574,6 +574,95 @@ Headless JVM flags:
 - `-Djava.awt.headless=true` — Recommended and safe on all platforms; forces the JVM into headless mode so no AWT native UI is initialized.
 - `-Dapple.awt.UIElement=true` — Hides the Java process from the Dock and app switcher on macOS. This flag is effectively ignored on non-macOS platforms, so it is safe to include cross-platform.
 
+## TLS and Mutual TLS (mTLS)
+
+The Headless Executor supports secure communication via HTTPS and optional mutual TLS (mTLS). By default, the executor runs over plain HTTP and requires a Bearer token for authentication.
+
+### Security Model
+
+1.  **TLS (HTTPS)**: Encrypts the traffic between the client and the executor. Recommended for all non-localhost deployments.
+2.  **Mutual TLS (mTLS)**: Enforces that the client must present a valid certificate signed by a trusted CA. When mTLS is enabled, the **Bearer token is still required**; mTLS adds an additional layer of identity verification at the transport level.
+
+### Configuration Options
+
+| Configuration | Env Var | CLI Argument | Description |
+|---------------|---------|--------------|-------------|
+| Enabled | `TLS_ENABLED` | `--tls-enabled` | Set to `true` to enable HTTPS |
+| Keystore Path | `TLS_KEYSTORE_PATH` | `--tls-keystore-path` | Path to a Java KeyStore (`.jks`) containing the server certificate and private key |
+| Keystore Pass | `TLS_KEYSTORE_PASSWORD` | `--tls-keystore-password` | Password for the keystore |
+| Client CA Path | `TLS_CLIENT_CA_PATH` | `--tls-client-ca-path` | Path to a PEM-encoded CA certificate used to verify client certificates |
+| mTLS Required | `MTLS_REQUIRED` | `--mtls-required` | Set to `true` to require and verify client certificates |
+
+### Local Development with Self-Signed Certificates
+
+You can use `openssl` to create a local certificate authority and sign certificates for testing.
+
+#### 1. Create a local CA
+```bash
+openssl genrsa -out local-ca.key 2048
+openssl req -x509 -new -nodes -key local-ca.key -sha256 -days 365 -out local-ca.pem -subj "/CN=Local-CA"
+```
+
+#### 2. Create and sign the Server Certificate
+```bash
+# Generate server key and CSR
+openssl genrsa -out server.key 2048
+openssl req -new -key server.key -out server.csr -subj "/CN=localhost"
+
+# Sign with local CA
+openssl x509 -req -in server.csr -CA local-ca.pem -CAkey local-ca.key -CAcreateserial -out server.pem -days 365 -sha256
+
+# Package into JKS for Java (HeadlessExecutorMain)
+openssl pkcs12 -export -in server.pem -inkey server.key -out server.p12 -name "brokk-server" -passout pass:changeit
+keytool -importkeystore -destkeystore server.jks -srckeystore server.p12 -srcstoretype PKCS12 -alias "brokk-server" -deststorepass changeit -srcstorepass changeit
+```
+
+#### 3. Create and sign the Client Certificate (for mTLS)
+```bash
+openssl genrsa -out client.key 2048
+openssl req -new -key client.key -out client.csr -subj "/CN=brokk-client"
+openssl x509 -req -in client.csr -CA local-ca.pem -CAkey local-ca.key -CAcreateserial -out client.pem -days 365 -sha256
+```
+
+### Running the Executor with TLS
+
+```bash
+java -cp brokk.jar ai.brokk.executor.HeadlessExecutorMain \
+  --exec-id $(uuidgen) \
+  --listen-addr 0.0.0.0:8443 \
+  --auth-token my-secret-token \
+  --workspace-dir ./my-project \
+  --tls-enabled true \
+  --tls-keystore-path ./server.jks \
+  --tls-keystore-password changeit \
+  --tls-client-ca-path ./local-ca.pem \
+  --mtls-required true
+```
+
+The executor will now log:
+`Executor listening on https://0.0.0.0:8443`
+
+### Connecting with `brokk-code` (Python TUI / ACP)
+
+The Python client supports TLS via the `verify` (CA bundle) and `cert` (client certificate/key) options. When running in ACP mode:
+
+```bash
+# In your terminal or IDE run configuration
+export BROKK_TLS_VERIFY="./local-ca.pem"
+export BROKK_TLS_CERT="./client.pem"
+export BROKK_TLS_KEY="./client.key"
+
+# Launch ACP server (options are passed to ExecutorManager)
+brokk-code acp --verify $BROKK_TLS_VERIFY --cert $BROKK_TLS_CERT $BROKK_TLS_KEY
+```
+
+When using `curl` to test an mTLS-enabled executor:
+```bash
+curl -v --cacert local-ca.pem --cert client.pem --key client.key \
+     -H "Authorization: Bearer my-secret-token" \
+     https://localhost:8443/health/live
+```
+
 When launching via **jbang**, pass these flags before the script/alias:
 
 ```bash
