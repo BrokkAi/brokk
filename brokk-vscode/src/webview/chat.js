@@ -141,16 +141,24 @@ function getWorker() {
   }
 }
 
+/**
+ * Captured target element for the pending content render.
+ * Needed because currentContentEl/tailDiv may be nulled before the worker responds.
+ * @type {HTMLElement | null}
+ */
+let pendingContentTarget = null;
+
 /** @param {MessageEvent} e */
 function handleWorkerMessage(e) {
   const { id, html } = e.data;
-  // Content render response — target tailDiv when in incremental mode
+  // Content render response
   if (id === pendingContentRenderId) {
-    const target = tailDiv || currentContentEl;
+    const target = pendingContentTarget;
     if (target) {
       target.innerHTML = html;
       scrollToBottom();
     }
+    pendingContentTarget = null;
   }
   // Reasoning render response
   if (id === pendingReasoningRenderId && currentReasoningEl) {
@@ -166,14 +174,16 @@ function handleWorkerMessage(e) {
  * Request an async render from the worker. If the worker isn't available, returns false.
  * @param {string} text
  * @param {"content" | "reasoning"} target
+ * @param {HTMLElement} [explicitTarget] - Optional explicit target element (used for finalization when currentContentEl may be nulled)
  * @returns {boolean} true if worker handled it
  */
-function requestWorkerRender(text, target) {
+function requestWorkerRender(text, target, explicitTarget) {
   const worker = getWorker();
   if (!worker) return false;
   const id = ++renderRequestId;
   if (target === "content") {
     pendingContentRenderId = id;
+    pendingContentTarget = explicitTarget || tailDiv || currentContentEl;
   } else {
     pendingReasoningRenderId = id;
   }
@@ -271,7 +281,10 @@ function finalizeReasoning() {
 
   const contentArea = currentReasoningEl.querySelector(".reasoning-content");
   if (contentArea) {
-    contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+    // Reasoning is about to be collapsed anyway, so async render is fine
+    if (!requestWorkerRender(accumulatedReasoning, "reasoning")) {
+      contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+    }
     contentArea.classList.add("collapsed");
   }
 
@@ -385,7 +398,12 @@ export function finalizeAssistantMessage() {
   }
   if (currentContentEl && accumulatedContent) {
     resetIncrementalState();
-    currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
+    // Use worker for final render to avoid blocking the main thread.
+    // Capture the target element since currentContentEl will be nulled below.
+    const finalTarget = currentContentEl;
+    if (!requestWorkerRender(accumulatedContent, "content", finalTarget)) {
+      finalTarget.innerHTML = renderMarkdownFast(accumulatedContent);
+    }
   } else if (currentAssistantEl && !accumulatedContent && !accumulatedReasoning) {
     currentAssistantEl.remove();
   }
@@ -415,9 +433,11 @@ export function handleToken(msg) {
     if (msg.isTerminal) {
       flushReasoningRender();
       if (currentReasoningEl) {
-        const contentArea = currentReasoningEl.querySelector(".reasoning-content");
-        if (contentArea) {
-          contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+        if (!requestWorkerRender(accumulatedReasoning, "reasoning")) {
+          const contentArea = currentReasoningEl.querySelector(".reasoning-content");
+          if (contentArea) {
+            contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+          }
         }
       }
     } else {
@@ -432,7 +452,9 @@ export function handleToken(msg) {
       flushStreamRender();
       if (currentContentEl) {
         resetIncrementalState();
-        currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
+        if (!requestWorkerRender(accumulatedContent, "content")) {
+          currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
+        }
         scrollToBottom();
       }
     } else {

@@ -527,7 +527,13 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
           if (reasoningLevel) {
             opts.reasoningLevel = reasoningLevel;
           }
-          if (reasoningLevelCode) {
+          if (mode === "CODE") {
+            // In CODE mode the planner select IS the code model —
+            // propagate planner reasoning so the backend uses it
+            if (reasoningLevel) {
+              opts.reasoningLevelCode = reasoningLevel;
+            }
+          } else if (reasoningLevelCode) {
             opts.reasoningLevelCode = reasoningLevelCode;
           }
 
