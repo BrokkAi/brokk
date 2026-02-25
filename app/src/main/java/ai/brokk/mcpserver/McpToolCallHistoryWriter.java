@@ -52,7 +52,7 @@ public final class McpToolCallHistoryWriter {
         Path logFile = runDirectory.resolve(fileName);
 
         String timestamp = TIMESTAMP_FORMATTER.format(Instant.now());
-        String content = "# Request @%s\n\n%s\n\n".formatted(timestamp, prettyJson(rawRequestJson));
+        String content = "# Request @%s\n\n%s\n".formatted(timestamp, prettyJson(rawRequestJson));
 
         appendToFile(logFile, content, true);
         return logFile;
@@ -75,6 +75,7 @@ public final class McpToolCallHistoryWriter {
         String timestamp = TIMESTAMP_FORMATTER.format(Instant.now());
         String content =
                 """
+                
                 # Response @%s
 
                 ## Status: %s

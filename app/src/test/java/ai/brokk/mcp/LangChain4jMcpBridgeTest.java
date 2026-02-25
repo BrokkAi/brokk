@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.mcpserver.LangChain4jMcpBridge;
+import ai.brokk.mcpserver.BrokkExternalMcpServer;
 import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -37,7 +37,7 @@ class LangChain4jMcpBridgeTest {
         ToolSpecification spec = specs.get(0);
 
         assertNotNull(spec.parameters());
-        McpSchema.JsonSchema mcpSchema = LangChain4jMcpBridge.toMcpSchema(spec.parameters());
+        McpSchema.JsonSchema mcpSchema = BrokkExternalMcpServer.toMcpSchema(spec.parameters());
 
         assertEquals("object", mcpSchema.type());
         Map<String, Object> props = mcpSchema.properties();
@@ -85,7 +85,7 @@ class LangChain4jMcpBridgeTest {
                 .orElseThrow();
 
         assertNotNull(dropSpec.parameters());
-        McpSchema.JsonSchema mcpSchema = LangChain4jMcpBridge.toMcpSchema(dropSpec.parameters());
+        McpSchema.JsonSchema mcpSchema = BrokkExternalMcpServer.toMcpSchema(dropSpec.parameters());
 
         Map<String, Object> props = mcpSchema.properties();
         Map<String, Object> fragmentsParam = (Map<String, Object>) props.get("fragments");
