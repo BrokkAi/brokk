@@ -948,3 +948,230 @@ def test_main_issue_solve_missing_number_exits_nonzero(monkeypatch) -> None:
         main_module.main()
 
     assert exc.value.code != 0
+
+
+def test_main_issue_solve_missing_github_token_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_solve_missing_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_solve_missing_repo_name_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "acme",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_solve_invalid_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "invalid/owner",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_solve_invalid_repo_name_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "invalid/repo",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_missing_github_token_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_missing_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_missing_repo_name_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-owner",
+            "acme",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_invalid_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-owner",
+            "invalid/owner",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_invalid_repo_name_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "invalid/repo",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
