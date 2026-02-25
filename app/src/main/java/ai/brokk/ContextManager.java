@@ -2712,12 +2712,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
-    public void createHeadless(boolean createNewSession) {
-        createHeadless(createNewSession, new HeadlessConsole());
-    }
-
     public void createHeadless(boolean createNewSession, IConsoleIO io) {
-        createHeadless(createNewSession, io);
+        createHeadlessInternal(createNewSession, io);
         ensureBuildDetailsAsync();
     }
 

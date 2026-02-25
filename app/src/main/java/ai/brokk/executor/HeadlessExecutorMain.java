@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
+import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
@@ -243,7 +244,7 @@ public final class HeadlessExecutorMain {
         this.initThread = new Thread(
                 () -> {
                     try {
-                        this.contextManager.createHeadless(false);
+                        this.contextManager.createHeadless(false, new HeadlessConsole());
                         headlessInit.complete(null);
                         logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {

@@ -48,9 +48,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -78,11 +75,6 @@ public class BrokkExternalMcpServer {
             "getMethodSources",
             "getSymbolLocations");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final ScheduledExecutorService SCHEDULER = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread t = new Thread(r, "mcp-progress-scheduler");
-        t.setDaemon(true);
-        return t;
-    });
 
     private final ContextManager cm;
     private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
@@ -188,75 +180,72 @@ public class BrokkExternalMcpServer {
                                     exchange.progressNotification(new McpSchema.ProgressNotification(
                                             progressToken, 0.0, 1.0, "Starting " + spec.name()));
                                     if (historyWriter != null) {
-                                        historyWriter.appendProgress(logFile, 0.0, "Starting " + spec.name());
+                                        historyWriter.appendProgress(
+                                                requireNonNull(logFile), 0.0, "Starting " + spec.name());
                                     }
                                 }
 
-                                CompletableFuture<McpSchema.CallToolResult> future =
-                                        CompletableFuture.supplyAsync(() -> {
-                                            try {
-                                                ToolExecutionRequest lc4jRequest = ToolExecutionRequest.builder()
-                                                        .id("1")
-                                                        .name(spec.name())
-                                                        .arguments(jsonArgs)
-                                                        .build();
+                                ai.brokk.IConsoleIO originalIo = cm.getIo();
+                                ai.brokk.IConsoleIO progressIo = progressToken != null
+                                        ? new ProgressNotifyingIo(
+                                                new ai.brokk.MutedConsoleIO(originalIo),
+                                                exchange,
+                                                progressToken,
+                                                historyWriter,
+                                                logFile)
+                                        : new ai.brokk.MutedConsoleIO(originalIo);
+                                cm.setIo(progressIo);
 
-                                                var result = registry.executeTool(lc4jRequest);
-                                                return McpSchema.CallToolResult.builder()
-                                                        .addTextContent(result.resultText())
-                                                        .isError(result.status() != ToolExecutionResult.Status.SUCCESS)
-                                                        .build();
-                                            } catch (InterruptedException e) {
-                                                Thread.currentThread().interrupt();
-                                                throw new RuntimeException(e);
-                                            }
-                                        });
-
-                                if (progressToken != null) {
-                                    AtomicReference<Double> currentProgress = new AtomicReference<>(0.0);
-                                    var progressTask = SCHEDULER.scheduleAtFixedRate(
-                                            () -> {
-                                                if (future.isDone()) return;
-                                                double next =
-                                                        currentProgress.get() + (1.0 - currentProgress.get()) * 0.5;
-                                                currentProgress.set(next);
-                                                String progressMsg = "Executing " + spec.name() + "...";
-                                                exchange.progressNotification(new McpSchema.ProgressNotification(
-                                                        progressToken, next, 1.0, progressMsg));
-                                                if (historyWriter != null) {
-                                                    historyWriter.appendProgress(logFile, next, progressMsg);
-                                                }
-                                            },
-                                            1,
-                                            1,
-                                            TimeUnit.SECONDS);
-                                    future.whenComplete((r, t) -> progressTask.cancel(false));
-                                }
-
-                                McpSchema.CallToolResult callResult;
                                 try {
-                                    callResult = future.get();
-                                } catch (java.util.concurrent.ExecutionException e) {
-                                    Throwable cause = e.getCause();
-                                    if (cause instanceof RuntimeException re) throw re;
-                                    throw new RuntimeException(cause);
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                    throw new RuntimeException(e);
-                                }
+                                    CompletableFuture<McpSchema.CallToolResult> future =
+                                            CompletableFuture.supplyAsync(() -> {
+                                                try {
+                                                    ToolExecutionRequest lc4jRequest = ToolExecutionRequest.builder()
+                                                            .id("1")
+                                                            .name(spec.name())
+                                                            .arguments(jsonArgs)
+                                                            .build();
 
-                                // Append result to the log
-                                if (historyWriter != null) {
-                                    String statusStr =
-                                            callResult.isError() != null && callResult.isError() ? "ERROR" : "SUCCESS";
-                                    String body = callResult.content().stream()
-                                            .filter(c -> c instanceof McpSchema.TextContent)
-                                            .map(c -> ((McpSchema.TextContent) c).text())
-                                            .collect(Collectors.joining("\n"));
-                                    historyWriter.appendResult(logFile, statusStr, body);
-                                }
+                                                    var result = registry.executeTool(lc4jRequest);
+                                                    return McpSchema.CallToolResult.builder()
+                                                            .addTextContent(result.resultText())
+                                                            .isError(result.status()
+                                                                    != ToolExecutionResult.Status.SUCCESS)
+                                                            .build();
+                                                } catch (InterruptedException e) {
+                                                    Thread.currentThread().interrupt();
+                                                    throw new RuntimeException(e);
+                                                }
+                                            });
 
-                                return callResult;
+                                    McpSchema.CallToolResult callResult;
+                                    try {
+                                        callResult = future.get();
+                                    } catch (java.util.concurrent.ExecutionException e) {
+                                        Throwable cause = e.getCause();
+                                        if (cause instanceof RuntimeException re) throw re;
+                                        throw new RuntimeException(cause);
+                                    } catch (InterruptedException e) {
+                                        Thread.currentThread().interrupt();
+                                        throw new RuntimeException(e);
+                                    }
+
+                                    // Append result to the log
+                                    if (historyWriter != null) {
+                                        String statusStr = callResult.isError() != null && callResult.isError()
+                                                ? "ERROR"
+                                                : "SUCCESS";
+                                        String body = callResult.content().stream()
+                                                .filter(c -> c instanceof McpSchema.TextContent)
+                                                .map(c -> ((McpSchema.TextContent) c).text())
+                                                .collect(Collectors.joining("\n"));
+                                        historyWriter.appendResult(requireNonNull(logFile), statusStr, body);
+                                    }
+
+                                    return callResult;
+                                } finally {
+                                    cm.setIo(originalIo);
+                                }
                             })
                             .build();
                 })
@@ -552,5 +541,204 @@ public class BrokkExternalMcpServer {
             }
         }
         return results;
+    }
+
+    private static final class ProgressNotifyingIo implements ai.brokk.IConsoleIO {
+        private final ai.brokk.IConsoleIO delegate;
+        private final io.modelcontextprotocol.server.McpSyncServerExchange exchange;
+        private final Object progressToken;
+        private final @Nullable McpToolCallHistoryWriter historyWriter;
+        private final @Nullable Path logFile;
+        private final AtomicReference<Double> currentProgress = new AtomicReference<>(0.0);
+
+        ProgressNotifyingIo(
+                ai.brokk.IConsoleIO delegate,
+                io.modelcontextprotocol.server.McpSyncServerExchange exchange,
+                Object progressToken,
+                @Nullable McpToolCallHistoryWriter historyWriter,
+                @Nullable Path logFile) {
+            this.delegate = delegate;
+            this.exchange = exchange;
+            this.progressToken = progressToken;
+            this.historyWriter = historyWriter;
+            this.logFile = logFile;
+        }
+
+        @Override
+        public void actionComplete() {
+            delegate.actionComplete();
+        }
+
+        @Override
+        public void toolError(String msg, String title) {
+            delegate.toolError(msg, title);
+        }
+
+        @Override
+        public void toolError(String msg) {
+            delegate.toolError(msg);
+        }
+
+        @Override
+        public int showConfirmDialog(String message, String title, int optionType, int messageType) {
+            return delegate.showConfirmDialog(message, title, optionType, messageType);
+        }
+
+        @Override
+        public int showConfirmDialog(
+                @Nullable java.awt.Component parent, String message, String title, int optionType, int messageType) {
+            return delegate.showConfirmDialog(parent, message, title, optionType, messageType);
+        }
+
+        @Override
+        public void backgroundOutput(String taskDescription) {
+            delegate.backgroundOutput(taskDescription);
+        }
+
+        @Override
+        public void backgroundOutput(String summary, String details) {
+            delegate.backgroundOutput(summary, details);
+        }
+
+        @Override
+        public void setLlmAndHistoryOutput(List<ai.brokk.TaskEntry> history, ai.brokk.TaskEntry taskEntry) {
+            delegate.setLlmAndHistoryOutput(history, taskEntry);
+        }
+
+        @Override
+        public void prepareOutputForNextStream(List<ai.brokk.TaskEntry> history) {
+            delegate.prepareOutputForNextStream(history);
+        }
+
+        @Override
+        public void llmOutput(
+                String token, dev.langchain4j.data.message.ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+            delegate.llmOutput(token, type, meta);
+        }
+
+        @Override
+        public void systemNotify(String message, String title, int messageType) {
+            delegate.systemNotify(message, title, messageType);
+        }
+
+        @Override
+        public void showNotification(NotificationRole role, String message) {
+            double next = currentProgress.updateAndGet(p -> p + (1.0 - p) * 0.5);
+            exchange.progressNotification(new McpSchema.ProgressNotification(progressToken, next, 1.0, message));
+            if (historyWriter != null && logFile != null) {
+                historyWriter.appendProgress(logFile, next, message);
+            }
+            delegate.showNotification(role, message);
+        }
+
+        @Override
+        public void showNotification(NotificationRole role, String message, @Nullable Double cost) {
+            showNotification(role, message);
+        }
+
+        @Override
+        public void showOutputSpinner(String message) {
+            delegate.showOutputSpinner(message);
+        }
+
+        @Override
+        public void hideOutputSpinner() {
+            delegate.hideOutputSpinner();
+        }
+
+        @Override
+        public void showSessionSwitchSpinner() {
+            delegate.showSessionSwitchSpinner();
+        }
+
+        @Override
+        public void hideSessionSwitchSpinner() {
+            delegate.hideSessionSwitchSpinner();
+        }
+
+        @Override
+        public void showTransientMessage(String message) {
+            delegate.showTransientMessage(message);
+        }
+
+        @Override
+        public void hideTransientMessage() {
+            delegate.hideTransientMessage();
+        }
+
+        @Override
+        public List<dev.langchain4j.data.message.ChatMessage> getLlmRawMessages() {
+            return delegate.getLlmRawMessages();
+        }
+
+        @Override
+        public void setTaskInProgress(boolean progress) {
+            delegate.setTaskInProgress(progress);
+        }
+
+        @Override
+        public void postSummarize() {
+            delegate.postSummarize();
+        }
+
+        @Override
+        public void disableHistoryPanel() {
+            delegate.disableHistoryPanel();
+        }
+
+        @Override
+        public void enableHistoryPanel() {
+            delegate.enableHistoryPanel();
+        }
+
+        @Override
+        public void updateGitRepo() {
+            delegate.updateGitRepo();
+        }
+
+        @Override
+        public void updateContextHistoryTable(ai.brokk.context.Context context) {
+            delegate.updateContextHistoryTable(context);
+        }
+
+        @Override
+        public void beforeToolCall(dev.langchain4j.agent.tool.ToolExecutionRequest request) {
+            delegate.beforeToolCall(request);
+        }
+
+        @Override
+        public void afterToolOutput(ai.brokk.tools.ToolExecutionResult result) {
+            delegate.afterToolOutput(result);
+        }
+
+        @Override
+        public ai.brokk.gui.InstructionsPanel getInstructionsPanel() {
+            return delegate.getInstructionsPanel();
+        }
+
+        @Override
+        public void updateContextHistoryTable() {
+            delegate.updateContextHistoryTable();
+        }
+
+        @Override
+        public void updateWorkspace() {
+            delegate.updateWorkspace();
+        }
+
+        @Override
+        public void disableActionButtons() {
+            delegate.disableActionButtons();
+        }
+
+        @Override
+        public void enableActionButtons() {
+            delegate.enableActionButtons();
+        }
+
+        @Override
+        public ai.brokk.agents.BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
+            return delegate.getBlitzForgeListener(cancelCallback);
+        }
     }
 }
