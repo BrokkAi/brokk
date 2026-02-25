@@ -554,6 +554,21 @@ public interface IAnalyzer {
     }
 
     /**
+     * Helper to convert a path to a Unix-style relative path string, suitable for build tool arguments.
+     * Normalizes separators to '/' and ensures a "./" prefix for non-root paths (or "." for root).
+     *
+     * @param path the path to normalize
+     * @return a Unix-style relative path string
+     */
+    static String toUnixRelativePath(java.nio.file.Path path) {
+        if (path == null || path.toString().isEmpty()) {
+            return ".";
+        }
+        String unixPath = ai.brokk.project.FileFilteringService.toUnixPath(path);
+        return unixPath.startsWith("./") ? unixPath : "./" + unixPath;
+    }
+
+    /**
      * Returns a distinct, sorted list of module or package identifiers corresponding to the given files.
      * Used for build/test command interpolation (e.g., {{#modules}} or {{#packages}}).
      *
