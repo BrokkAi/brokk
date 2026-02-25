@@ -227,7 +227,7 @@ tasks.register<Exec>("pytest") {
     workingDir = file("brokk-code")
 
     executable = uvExecutable
-    args("run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "--no-header")
+    args("run", "--group", "dev", "python", "-m", "pytest", "-q", "-q", "-n", "auto", "--no-header")
 
     inputs.dir("brokk-code/brokk_code")
     inputs.dir("brokk-code/tests")
