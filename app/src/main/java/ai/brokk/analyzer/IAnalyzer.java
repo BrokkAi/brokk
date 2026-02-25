@@ -1,7 +1,18 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.project.IProject;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.SequencedSet;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
@@ -540,6 +551,23 @@ public interface IAnalyzer {
             sb.append(this.summarizeSymbols(children, types, indent + 1));
         }
         sb.append("\n");
+    }
+
+    /**
+     * Returns a distinct, sorted list of module or package identifiers corresponding to the given files.
+     * Used for build/test command interpolation (e.g., {{#modules}} or {{#packages}}).
+     *
+     * @param files the files to extract modules from
+     * @return list of module strings
+     */
+    default List<String> getTestModules(Collection<ProjectFile> files) {
+        return files.stream()
+                .flatMap(file -> getTopLevelDeclarations(file).stream())
+                .map(CodeUnit::packageName)
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     /**

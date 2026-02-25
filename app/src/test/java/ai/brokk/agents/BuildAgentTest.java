@@ -816,30 +816,25 @@ class BuildAgentTest {
     void testGetBuildLintSomeCommandGoModules(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.GO);
         TestAnalyzer analyzer = new TestAnalyzer() {
-            private final Map<ProjectFile, List<CodeUnit>> fileToDecls = new java.util.HashMap<>();
-
             @Override
-            public void addDeclaration(CodeUnit cu) {
-                super.addDeclaration(cu);
-                fileToDecls.computeIfAbsent(cu.source(), k -> new ArrayList<>()).add(cu);
-            }
-
-            @Override
-            public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-                return fileToDecls.getOrDefault(file, List.of());
+            public List<String> getTestModules(java.util.Collection<ProjectFile> files) {
+                return files.stream()
+                        .map(f -> {
+                            Path parent = f.getRelPath().getParent();
+                            if (parent == null || parent.toString().isEmpty()) return ".";
+                            return "./" + parent.toString().replace('\\', '/');
+                        })
+                        .distinct()
+                        .sorted()
+                        .toList();
             }
         };
         TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
         ProjectFile file1 = new ProjectFile(tempDir, "main_test.go");
-        // Place auth_test.go in a subdirectory 'auth'
         Path authDir = tempDir.resolve("auth");
         Files.createDirectories(authDir);
         ProjectFile file2 = new ProjectFile(tempDir, "auth/auth_test.go");
-
-        // Mock declarations so analyzer knows the package names
-        analyzer.addDeclaration(new CodeUnit(file1, CodeUnitType.FUNCTION, "main", "TestMain"));
-        analyzer.addDeclaration(new CodeUnit(file2, CodeUnitType.FUNCTION, "auth", "TestAuth"));
 
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
                 "go build", "go test ./...", "go test {{#packages}}{{value}} {{/packages}}", Set.of());
@@ -853,10 +848,22 @@ class BuildAgentTest {
     @Test
     void testGetBuildLintSomeCommandPythonPackages(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.PYTHON);
-        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), new TestAnalyzer());
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public List<String> getTestModules(java.util.Collection<ProjectFile> files) {
+                return files.stream()
+                        .map(f -> f.getRelPath()
+                                .toString()
+                                .replace(".py", "")
+                                .replace('\\', '.')
+                                .replace('/', '.'))
+                        .distinct()
+                        .sorted()
+                        .toList();
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
-        Path testsDir = tempDir.resolve("tests");
-        Files.createDirectories(testsDir);
         ProjectFile file1 = new ProjectFile(tempDir, "tests/test_foo.py");
         ProjectFile file2 = new ProjectFile(tempDir, "tests/test_bar.py");
 
@@ -868,7 +875,7 @@ class BuildAgentTest {
 
         String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
-        assertEquals("python -m pytest test_bar test_foo ", result);
+        assertEquals("python -m pytest tests.test_bar tests.test_foo ", result);
     }
 
     @Test

@@ -7,6 +7,7 @@ import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -37,6 +38,21 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPython(reference);
+    }
+
+    @Override
+    public List<String> getTestModules(Collection<ProjectFile> files) {
+        return files.stream()
+                .map(file -> {
+                    var decls = getTopLevelDeclarations(file);
+                    if (!decls.isEmpty()) {
+                        return decls.getFirst().packageName();
+                    }
+                    return resolveModuleInfo(file).moduleQualifiedPackage();
+                })
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.

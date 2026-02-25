@@ -11,7 +11,6 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -41,7 +40,6 @@ import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
 import com.github.mustachejava.util.DecoratedCollection;
-import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -64,7 +62,6 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
@@ -86,19 +83,6 @@ public class BuildAgent {
     // Safety limits to prevent infinite loops
     private static final int MAX_ITERATIONS = 10;
     private static final int MAX_REPEATED_TOOL_CALLS = 5;
-
-    /**
-     * Languages where the analyzer can extract a package or module name from source files.
-     * These names are used to populate {{#modules}} and {{#packages}} variables in build/test templates.
-     */
-    private static final Set<Language> ANALYZER_MODULE_LANGUAGES = Set.of(
-            Languages.GO,
-            Languages.RUST,
-            Languages.JAVA,
-            Languages.SCALA,
-            Languages.C_SHARP,
-            Languages.PHP,
-            Languages.C_CPP);
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -459,7 +443,7 @@ public class BuildAgent {
                 - Only suggest patterns for files that ACTUALLY EXIST in this project
                 - For file extensions, use simple `*.ext` format (e.g., `*.svg`, `*.png`) - do NOT use `**/*.ext`
                 - For specific filenames, use the literal name (e.g., `package-lock.json`) - do NOT use `**/filename`
-                - Do NOT duplicate directories here - if a directory is in `excludedDirectories`, don't add it as a pattern
+                - Do NOT duplicate directories here - if a directory in `excludedDirectories`, don't add it as a pattern
 
                 Common file pattern exclusions (only include if files with these extensions exist in this project):
                 - Lock files: package-lock.json, yarn.lock, pnpm-lock.yaml
@@ -830,11 +814,6 @@ public class BuildAgent {
     /**
      * Determine and interpolate the "run some tests" command for the current workspace.
      * Supports files-based, classes-based, fqclasses-based, and modules-based templates.
-     * If the template contains {{#modules}}, this will convert selected test files into
-     * dotted module labels relative to a detected module anchor:
-     *  1) Parent of any hardcoded *.py runner mentioned in the configured commands,
-     *  2) A top-level "tests/" directory if present,
-     *  3) The import root of each file established by walking up until no __init__.py.
      */
     public static String getBuildLintSomeCommand(
             IContextManager cm,
@@ -868,78 +847,24 @@ public class BuildAgent {
         final Path projectRoot = cm.getProject().getRoot();
         String pythonVersion =
                 pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
-        Language language = cm.getProject().getBuildLanguage();
-
-        List<String> targetItems;
 
         if (isModulesBased) {
-            if (language == Languages.PYTHON) {
-                Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
-                targetItems = workspaceTestFiles.stream()
-                        .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
-                        .filter(s -> !s.isBlank())
-                        .distinct()
-                        .sorted()
-                        .toList();
+            IAnalyzer analyzer = cm.getAnalyzer();
+            List<String> modules = analyzer.getTestModules(workspaceTestFiles);
 
-                if (targetItems.isEmpty()) {
-                    logger.debug("No modules derived; falling back to build/lint: {}", details.buildLintCommand());
-                    return details.buildLintCommand();
-                }
-
-                logger.debug(
-                        "Using modules-based template with {} modules (anchor={})",
-                        targetItems.size(),
-                        anchor == null ? "<inferred import roots>" : anchor);
-                return interpolateMustacheTemplate(
-                        testSomeTemplate, Map.of("modules", targetItems, "packages", targetItems), pythonVersion);
-            } else if (ANALYZER_MODULE_LANGUAGES.contains(language)) {
-                if (language == Languages.GO) {
-                    targetItems = workspaceTestFiles.stream()
-                            .map(f -> {
-                                Path parent = f.getRelPath().getParent();
-                                if (parent == null) return ".";
-                                String unixPath = toUnixPath(parent);
-                                return unixPath.isEmpty() || unixPath.equals(".") ? "." : "./" + unixPath;
-                            })
-                            .distinct()
-                            .sorted()
-                            .toList();
-                } else {
-                    // RUST
-                    IAnalyzer analyzer = cm.getAnalyzer();
-                    targetItems = workspaceTestFiles.stream()
-                            .flatMap(f -> {
-                                var decls = analyzer.getTopLevelDeclarations(f);
-                                if (decls.isEmpty()) {
-                                    logger.warn("No declarations found for test file: {}", f);
-                                }
-                                return decls.stream().map(CodeUnit::packageName);
-                            })
-                            .filter(s -> !s.isBlank())
-                            .distinct()
-                            .sorted()
-                            .toList();
-                }
-
-                if (targetItems.isEmpty()) {
-                    logger.debug(
-                            "No modules/packages derived; falling back to build/lint: {}", details.buildLintCommand());
-                    return details.buildLintCommand();
-                }
-
-                logger.debug("Using modules/packages template with {} entries for {}", targetItems.size(), language);
-                Map<String, List<String>> vars = new HashMap<>();
-                vars.put("modules", targetItems);
-                vars.put("packages", targetItems);
-                return interpolateMustacheTemplate(testSomeTemplate, vars, pythonVersion);
-            } else {
-                logger.warn(
-                        "Modules/packages requested in template but language {} does not support module extraction. Falling back to build/lint.",
-                        language);
+            if (modules.isEmpty()) {
+                logger.debug("No modules/packages derived; falling back to build/lint: {}", details.buildLintCommand());
                 return details.buildLintCommand();
             }
+
+            logger.debug("Using modules/packages template with {} entries", modules.size());
+            Map<String, List<String>> vars = new HashMap<>();
+            vars.put("modules", modules);
+            vars.put("packages", modules);
+            return interpolateMustacheTemplate(testSomeTemplate, vars, pythonVersion);
         }
+
+        List<String> targetItems;
 
         if (isFilesBased) {
             targetItems = workspaceTestFiles.stream().map(ProjectFile::toString).toList();
@@ -974,62 +899,6 @@ public class BuildAgent {
         }
     }
 
-    /**
-     * Try to detect a module anchor directory for dotted Python labels.
-     * Priority:
-     *  (1) If either configured command contains a path to a *.py runner that exists
-     *      under the project root, return its parent directory.
-     *  (2) If a top-level "tests" directory exists, return that.
-     *  (3) Otherwise, empty (callers will fall back to per-file import roots).
-     */
-    private static Optional<Path> detectModuleAnchor(Path projectRoot, BuildDetails details) {
-        String testAll = details.testAllCommand();
-        String testSome = details.testSomeCommand();
-
-        Optional<Path> fromRunner = extractRunnerAnchorFromCommands(projectRoot, List.of(testAll, testSome));
-        if (fromRunner.isPresent()) return fromRunner;
-
-        Path tests = projectRoot.resolve("tests");
-        if (Files.isDirectory(tests)) return Optional.of(tests);
-
-        return Optional.empty();
-    }
-
-    /**
-     * Parse the given commands for tokens that look like "something.py".
-     * If that file exists within the project, return its parent as the module anchor.
-     * This supports commands like:
-     *   "uv run tests/runtests.py {{#modules}}...{{/modules}}"
-     *   "python foo/bar/run_tests.py"
-     */
-    private static Optional<Path> extractRunnerAnchorFromCommands(Path projectRoot, List<String> commands) {
-        for (String cmd : commands) {
-            if (cmd.isBlank()) continue;
-
-            Iterable<String> tokens = Splitter.on(Pattern.compile("\\s+")).split(cmd);
-            for (String t : tokens) {
-                if (!t.endsWith(".py")) continue;
-
-                String cleaned = t.replaceAll("^[\"']|[\"']$", "");
-                Path candidate = projectRoot.resolve(cleaned).normalize();
-
-                if (!Files.exists(candidate)) {
-                    // Try without projectRoot if the token is absolute
-                    Path p = Path.of(cleaned);
-                    if (Files.exists(p)) candidate = p.normalize();
-                }
-
-                if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
-                    Path parent = candidate.getParent();
-                    if (parent != null && Files.isDirectory(parent)) {
-                        return Optional.of(parent);
-                    }
-                }
-            }
-        }
-        return Optional.empty();
-    }
-
     /** Get the Python version for the project, or null if unable to determine. */
     private static @Nullable String getPythonVersionForProject(Path projectRoot) {
         try {
@@ -1038,57 +907,6 @@ public class BuildAgent {
             logger.debug("Unable to determine Python version for project", e);
             return null;
         }
-    }
-
-    /**
-     * Convert a Python source path to a dotted module label.
-     * If anchor is non-null and the file lives under it, label is relative to anchor.
-     * Otherwise, derive a per-file import root by walking up while __init__.py exists.
-     * Handles:
-     *  - stripping ".py"
-     *  - mapping "__init__.py" to the package path
-     *  - normalizing separators and leading dots
-     */
-    private static String toPythonModuleLabel(Path projectRoot, @Nullable Path anchor, Path filePath) {
-        Path abs = projectRoot.resolve(filePath).normalize();
-
-        Path base = anchor;
-        if (base == null || !abs.startsWith(base)) {
-            base = inferImportRoot(abs).orElse(null);
-        }
-        if (base == null) return "";
-
-        Path rel;
-        try {
-            rel = base.relativize(abs);
-        } catch (IllegalArgumentException e) {
-            return "";
-        }
-
-        String s = toUnixPath(rel);
-        if (s.endsWith(".py")) s = s.substring(0, s.length() - 3);
-        if (s.endsWith("/__init__")) s = s.substring(0, s.length() - "/__init__".length());
-        while (s.startsWith("/")) s = s.substring(1);
-        String dotted = s.replace('/', '.');
-        while (dotted.startsWith(".")) dotted = dotted.substring(1);
-        return dotted;
-    }
-
-    /**
-     * Infer the import root for a given Python file by walking up directories
-     * as long as they contain "__init__.py". Returns the first directory above
-     * the package chain (i.e., the path whose child is the top-level package).
-     */
-    private static Optional<Path> inferImportRoot(Path absFile) {
-        if (!Files.isRegularFile(absFile)) return Optional.empty();
-        Path p = absFile.getParent();
-        Path lastWithInit = null;
-        while (p != null && Files.isRegularFile(p.resolve("__init__.py"))) {
-            lastWithInit = p;
-            p = p.getParent();
-        }
-        return Optional.ofNullable(
-                Objects.requireNonNullElse(lastWithInit, absFile).getParent());
     }
 
     /**
