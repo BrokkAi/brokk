@@ -793,8 +793,5 @@ async def test_tool_call_visibility_toggle_integration():
         # Verify filtering works again when off
         chat.show_verbose = False
         filtered_off_again = chat._filter_tool_call_blocks(tool_markdown)
-        assert (
-            "Tool Call: list_files [+] (ctrl+o to expand) - details hidden"
-            in filtered_off_again
-        )
+        assert "Tool Call: list_files [+] (ctrl+o to expand) - details hidden" in filtered_off_again
         assert "directory: src" not in filtered_off_again
