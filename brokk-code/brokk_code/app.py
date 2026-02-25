@@ -627,6 +627,22 @@ class BrokkApp(App):
         self.run_worker(self._poll_context())
         self._update_statusline()
 
+    async def _start_openai_login(self) -> None:
+        """Helper to initiate OpenAI OAuth flow via the executor."""
+        chat = self._maybe_chat()
+        try:
+            await self.executor.start_openai_oauth()
+            if chat:
+                chat.add_system_message(
+                    "OpenAI login flow initiated. Please complete it in your browser."
+                )
+        except ExecutorError as e:
+            if chat:
+                chat.add_system_message(f"OpenAI login failed: {e}", level="ERROR")
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"An unexpected error occurred: {e}", level="ERROR")
+
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
         if chat:
@@ -1507,6 +1523,7 @@ class BrokkApp(App):
     def get_slash_commands() -> List[Dict[str, str]]:
         """Returns the structured catalog of supported slash commands."""
         return [
+            {"command": "/login-openai", "description": "Connect your OpenAI/ChatGPT Pro account"},
             {"command": "/api-key", "description": "Update your Brokk API key"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
@@ -1659,6 +1676,14 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+        elif base == "/login-openai":
+            if not self._executor_ready:
+                chat.add_system_message(
+                    "Executor must be ready before connecting OpenAI.", level="ERROR"
+                )
+            else:
+                chat.add_system_message("Opening browser for OpenAI login...")
+                self.run_worker(self._start_openai_login())
         elif base == "/api-key":
 
             async def on_key_entered(key: str) -> bool:
