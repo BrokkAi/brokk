@@ -1,10 +1,15 @@
 import argparse
 import asyncio
+import base64
+import contextlib
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.workspace import resolve_workspace_dir
@@ -32,14 +37,14 @@ def _validate_github_params(
     if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_owner):
         print(
             f"Error: Invalid --repo-owner '{repo_owner}'. "
-            + "Repo owner must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            + f"Repo owner must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
             file=sys.stderr,
         )
         sys.exit(1)
     if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_name):
         print(
             f"Error: Invalid --repo-name '{repo_name}'. "
-            + "Repo name must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            + f"Repo name must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -87,6 +92,69 @@ def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
         dest="executor_snapshot",
         help="[Ignored] Use jbang to manage versions",
     )
+
+
+@contextlib.contextmanager
+def _temporary_issue_repo_checkout(
+    *,
+    repo_owner: str,
+    repo_name: str,
+    github_token: str,
+    action_label: str,
+) -> Iterator[Path]:
+    temp_parent = Path(tempfile.mkdtemp(prefix="brokk-issue-repo-"))
+    temp_workspace_dir = temp_parent / repo_name
+    clone_url = f"https://github.com/{repo_owner}/{repo_name}.git"
+    basic_auth = base64.b64encode(f"x-access-token:{github_token}".encode("utf-8")).decode("ascii")
+    try:
+        print(
+            f"{action_label}: shallow cloning {repo_owner}/{repo_name} into {temp_workspace_dir}",
+            flush=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "credential.helper=",
+                "-c",
+                "credential.interactive=never",
+                "-c",
+                "core.askPass=",
+                "-c",
+                f"http.extraHeader=Authorization: Basic {basic_auth}",
+                "clone",
+                "--depth",
+                "1",
+                "--single-branch",
+                clone_url,
+                str(temp_workspace_dir),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={
+                **os.environ,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_ASKPASS": "true",
+                "SSH_ASKPASS": "true",
+                "GCM_INTERACTIVE": "Never",
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            },
+        )
+        print(f"{action_label}: cloned repository at {temp_workspace_dir}", flush=True)
+        yield temp_workspace_dir
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or "").strip() or (exc.stdout or "").strip() or str(exc)
+        print(f"Error: {action_label.lower()} clone failed: {detail}", file=sys.stderr)
+        sys.exit(1)
+    except OSError as exc:
+        print(f"Error: {action_label.lower()} clone failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        print(f"{action_label}: removing temporary checkout at {temp_workspace_dir}", flush=True)
+        shutil.rmtree(temp_parent, ignore_errors=True)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -537,10 +605,6 @@ def main():
         return
 
     workspace_path = Path(args.workspace).resolve()
-    if not workspace_path.exists():
-        print(f"Error: Workspace path does not exist: {workspace_path}")
-        sys.exit(1)
-    workspace_path = resolve_workspace_dir(workspace_path)
     jar_path = Path(args.jar).resolve() if args.jar else None
 
     if args.command == "acp":
@@ -587,21 +651,27 @@ def main():
                 "repo_name": args.repo_name or "",
             }
 
-            asyncio.run(
-                run_headless_job(
-                    workspace_dir=workspace_path,
-                    task_input=args.prompt,
-                    planner_model=args.planner_model,
-                    planner_reasoning_level="disable",
-                    verbose=args.verbose,
-                    mode="ISSUE_WRITER",
-                    tags=tags,
-                    jar_path=jar_path,
-                    executor_version=args.executor_version,
-                    executor_snapshot=args.executor_snapshot,
-                    vendor=args.vendor,
+            with _temporary_issue_repo_checkout(
+                repo_owner=args.repo_owner or "",
+                repo_name=args.repo_name or "",
+                github_token=args.github_token or "",
+                action_label="Issue create",
+            ) as issue_workspace_path:
+                asyncio.run(
+                    run_headless_job(
+                        workspace_dir=issue_workspace_path,
+                        task_input=args.prompt,
+                        planner_model=args.planner_model,
+                        planner_reasoning_level="disable",
+                        verbose=args.verbose,
+                        mode="ISSUE_WRITER",
+                        tags=tags,
+                        jar_path=jar_path,
+                        executor_version=args.executor_version,
+                        executor_snapshot=args.executor_snapshot,
+                        vendor=args.vendor,
+                    )
                 )
-            )
             return
 
         if args.issue_command == "solve":
@@ -619,26 +689,37 @@ def main():
 
             task_input = f"Resolve GitHub Issue #{args.issue_number}"
 
-            asyncio.run(
-                run_headless_job(
-                    workspace_dir=workspace_path,
-                    task_input=task_input,
-                    planner_model=args.planner_model,
-                    planner_reasoning_level=args.planner_reasoning_level,
-                    code_model=args.code_model,
-                    code_reasoning_level=args.code_reasoning_level,
-                    skip_verification=args.skip_verification,
-                    max_issue_fix_attempts=args.max_issue_fix_attempts,
-                    verbose=args.verbose,
-                    mode="ISSUE",
-                    tags=tags,
-                    jar_path=jar_path,
-                    executor_version=args.executor_version,
-                    executor_snapshot=args.executor_snapshot,
-                    vendor=args.vendor,
+            with _temporary_issue_repo_checkout(
+                repo_owner=args.repo_owner or "",
+                repo_name=args.repo_name or "",
+                github_token=args.github_token or "",
+                action_label="Issue solve",
+            ) as issue_workspace_path:
+                asyncio.run(
+                    run_headless_job(
+                        workspace_dir=issue_workspace_path,
+                        task_input=task_input,
+                        planner_model=args.planner_model,
+                        planner_reasoning_level=args.planner_reasoning_level,
+                        code_model=args.code_model,
+                        code_reasoning_level=args.code_reasoning_level,
+                        skip_verification=args.skip_verification,
+                        max_issue_fix_attempts=args.max_issue_fix_attempts,
+                        verbose=args.verbose,
+                        mode="ISSUE",
+                        tags=tags,
+                        jar_path=jar_path,
+                        executor_version=args.executor_version,
+                        executor_snapshot=args.executor_snapshot,
+                        vendor=args.vendor,
+                    )
                 )
-            )
             return
+
+    if not workspace_path.exists():
+        print(f"Error: Workspace path does not exist: {workspace_path}")
+        sys.exit(1)
+    workspace_path = resolve_workspace_dir(workspace_path)
 
     app = BrokkApp(
         workspace_dir=workspace_path,
