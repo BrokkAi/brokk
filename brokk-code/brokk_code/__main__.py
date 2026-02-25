@@ -106,6 +106,8 @@ def _build_parser() -> argparse.ArgumentParser:
     issue_parser = subparsers.add_parser("issue", help="Manage GitHub issues")
     issue_subparsers = issue_parser.add_subparsers(dest="issue_command", required=True)
 
+    # Note: 'issue create' maps to ISSUE_WRITER mode in the Java HeadlessExecCli.
+    # It follows the same required parameters: repo owner/name, token, and prompt.
     issue_create_parser = issue_subparsers.add_parser("create", help="Create a new GitHub issue")
     _add_common_runtime_args(issue_create_parser)
     issue_create_parser.add_argument(
@@ -129,6 +131,8 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         help="GitHub repository name",
     )
+    # Mapping note: Java HeadlessExecCli defaults to 'claude-opus-4-5' (or latest stable).
+    # Python CLI uses 'claude-3-5-sonnet-latest' as a balanced default.
     issue_create_parser.add_argument(
         "--planner-model",
         type=str,
