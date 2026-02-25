@@ -205,7 +205,7 @@ public final class HeadlessExecutorMain {
             }
             if (mtlsRequired && (clientCaPath == null || clientCaPath.isBlank())) {
                 throw new IllegalArgumentException(
-                        "mTLS is required but TLS_CLIENT_CA_PATH / --tls-client-ca-path is not set");
+                        "mTLS is required but TLS_CLIENT_CA_PATH / --tls-client-ca-path is not set (needed to trust client certificates)");
             }
         }
 

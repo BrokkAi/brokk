@@ -301,6 +301,8 @@ class ExecutorManager:
             )
 
         self.base_url = f"{scheme}://127.0.0.1:{port}"
+        # httpx expects verify to be a bool, a path to a CA bundle, or an ssl.SSLContext.
+        # client_cert can be a (cert, key) tuple or a single file containing both.
         self._http_client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {self.auth_token}"},

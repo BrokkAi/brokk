@@ -20,8 +20,8 @@ The executor requires the following configuration, provided via **environment va
 | TLS Enabled | `TLS_ENABLED` | `--tls-enabled` | No | Enable HTTPS (default: false) |
 | TLS Keystore Path | `TLS_KEYSTORE_PATH` | `--tls-keystore-path` | No* | Path to JKS keystore (required if TLS enabled) |
 | TLS Keystore Pass | `TLS_KEYSTORE_PASSWORD`| `--tls-keystore-password`| No* | Password for the keystore (required if TLS enabled) |
-| TLS Client CA | `TLS_CLIENT_CA_PATH` | `--tls-client-ca-path` | No | Path to PEM-encoded CA for client cert validation |
-| mTLS Required | `MTLS_REQUIRED` | `--mtls-required` | No | Require client certificate (default: false; requires CA path) |
+| TLS Client CA | `TLS_CLIENT_CA_PATH` | `--tls-client-ca-path` | No | Path to PEM-encoded CA for client cert validation. This is the trust anchor for mTLS. |
+| mTLS Required | `MTLS_REQUIRED` | `--mtls-required` | No | If true, the server will request and verify a client certificate during the TLS handshake. |
 
 Notes:
 - Sessions are stored under `<workspace>/.brokk/sessions` and jobs under `<workspace>/.brokk/jobs`.
@@ -590,8 +590,8 @@ The Headless Executor supports secure communication via HTTPS and optional mutua
 | Enabled | `TLS_ENABLED` | `--tls-enabled` | Set to `true` to enable HTTPS |
 | Keystore Path | `TLS_KEYSTORE_PATH` | `--tls-keystore-path` | Path to a Java KeyStore (`.jks`) containing the server certificate and private key |
 | Keystore Pass | `TLS_KEYSTORE_PASSWORD` | `--tls-keystore-password` | Password for the keystore |
-| Client CA Path | `TLS_CLIENT_CA_PATH` | `--tls-client-ca-path` | Path to a PEM-encoded CA certificate used to verify client certificates |
-| mTLS Required | `MTLS_REQUIRED` | `--mtls-required` | Set to `true` to require and verify client certificates |
+| Client CA Path | `TLS_CLIENT_CA_PATH` | `--tls-client-ca-path` | Path to a PEM-encoded CA for client cert validation. This is the trust anchor for mTLS. |
+| mTLS Required | `MTLS_REQUIRED` | `--mtls-required` | If true, the server will request and verify a client certificate during the TLS handshake. |
 
 ### Local Development with Self-Signed Certificates
 
