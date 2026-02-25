@@ -843,3 +843,64 @@ async def test_run_headless_job_prints_issue_created_link_from_structured_issue_
 
     captured = capsys.readouterr()
     assert "Issue created: https://github.com/brokkai/brokk/issues/987" in captured.out
+
+
+def test_main_issue_solve_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_solve",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+            "--skip-verification",
+            "--max-issue-fix-attempts",
+            "7",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["mode"] == "ISSUE"
+    assert captured["kwargs"]["task_input"] == "Resolve GitHub Issue #123"
+    assert captured["kwargs"]["tags"]["issue_number"] == "123"
+    assert captured["kwargs"]["tags"]["github_token"] == "ghp_solve"
+    assert captured["kwargs"]["skip_verification"] is True
+    assert captured["kwargs"]["max_issue_fix_attempts"] == 7
+
+
+def test_main_issue_solve_missing_number_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--repo-owner",
+            "acme",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0

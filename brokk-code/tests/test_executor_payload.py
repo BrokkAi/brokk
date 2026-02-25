@@ -71,3 +71,33 @@ async def test_submit_job_omits_none_fields():
     payload = kwargs["json"]
     assert "skipVerification" not in payload
     assert "maxIssueFixAttempts" not in payload
+
+
+@pytest.mark.asyncio
+async def test_submit_job_issue_solve_payload():
+    """Verify payload for ISSUE solve mode specifically."""
+    manager = ExecutorManager()
+    manager._http_client = AsyncMock()
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"jobId": "issue-job-1"}
+    manager._http_client.post.return_value = mock_response
+
+    await manager.submit_job(
+        task_input="Resolve #123",
+        planner_model="claude-3-5",
+        mode="ISSUE",
+        tags={"issue_number": "123", "github_token": "secret"},
+        skip_verification=True,
+        max_issue_fix_attempts=10,
+    )
+
+    _, kwargs = manager._http_client.post.call_args
+    payload = kwargs["json"]
+
+    assert payload["taskInput"] == "Resolve #123"
+    assert payload["tags"]["mode"] == "ISSUE"
+    assert payload["tags"]["issue_number"] == "123"
+    assert payload["tags"]["github_token"] == "secret"
+    assert payload["skipVerification"] is True
+    assert payload["maxIssueFixAttempts"] == 10
