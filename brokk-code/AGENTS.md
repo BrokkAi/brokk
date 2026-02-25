@@ -36,20 +36,6 @@ ALWAYS RUN TESTS WHEN MAKING CHANGES!
 - **Location**: Place tests in the `tests/` directory.
 - **Smoke Tests**: Maintain `test_smoke.py` to ensure basic app and executor manager instantiation works without starting the subprocess.
 
-### Manual testing for `brokk mcp` (stdio proxy)
-
-- Run from `brokk-code` so the CLI can resolve workspace-relative resources:
-  - `echo '<jsonl-message>' | uv run brokk mcp --workspace /home/jonathan/Projects/brokk`
-- The MCP transport is newline-delimited JSON-RPC on stdio (no `Content-Length` framing).
-- Use `notifications/initialized` (not `initialized`) after `initialize`.
-- `initialize` and `tools/list` return quickly and reliably.
-- A valid `tools/call` example that succeeds:
-  - `searchSymbols` with `{"patterns":["BrokkExternalMcpServer"],"reasoning":"target class match","includeTests":false}` returned symbol output.
-- Invalid/missing args reproduces a handled failure:
-  - `tools/call` with `{"name":"searchSymbols"}` returns `isError=true` with message:
-    `Cannot invoke "java.util.Map.containsKey(Object)" because "argumentsMap" is null`.
-- In shell piped probes, if stdin closes immediately after sending JSON messages, the transport can close before long tool execution. Holding stdin open briefly after writing requests improves reliability for longer calls.
-
 ## Project Structure
 
 - `brokk_code/`: Main package directory. (See [brokk_code/AGENTS.md](brokk_code/AGENTS.md) for subtree rules).
