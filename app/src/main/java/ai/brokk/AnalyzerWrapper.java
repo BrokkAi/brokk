@@ -260,7 +260,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         IAnalyzer.ProgressListener progressListener = listener::onProgress;
 
         refresh(prev -> {
-            externalRebuildRequested = false;
             Set<Language> currentLangs = prev.languages();
             Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
                     .filter(l -> l != Languages.NONE)
@@ -477,13 +476,22 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             requireNonNull(currentAnalyzer);
             listener.beforeEachBuild();
 
+            // Capture the flag state before the function (which might reset it) executes
+            boolean isExternal = externalRebuildRequested;
+
             // The function is supplied the current analyzer.
             currentAnalyzer = fn.apply(currentAnalyzer);
-            // Persist analyzer snapshots by language (best-effort)
-            persistAnalyzerState(currentAnalyzer);
+            // Persist analyzer snapshots by language (best-effort), unless this was an external rebuild
+            // where the user specifically wanted to clear persisted state.
+            if (!isExternal) {
+                persistAnalyzerState(currentAnalyzer);
+            }
             logger.debug("Analyzer refresh completed.");
 
-            listener.afterEachBuild(externalRebuildRequested);
+            listener.afterEachBuild(isExternal);
+            if (isExternal) {
+                externalRebuildRequested = false;
+            }
 
             return currentAnalyzer;
         });
@@ -604,9 +612,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         }
         try {
             Path storage = lang.getStoragePath(project);
-            if (storage == null) {
-                return;
-            }
 
             // Primary (current) file: .bin.lz4
             try {
