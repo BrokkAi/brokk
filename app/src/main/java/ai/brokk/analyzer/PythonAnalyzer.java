@@ -42,17 +42,66 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     public List<String> getTestModules(Collection<ProjectFile> files) {
-        return files.stream()
-                .map(file -> {
-                    var decls = getTopLevelDeclarations(file);
-                    if (!decls.isEmpty()) {
-                        return decls.getFirst().packageName();
-                    }
-                    return resolveModuleInfo(file).moduleQualifiedPackage();
-                })
-                .distinct()
-                .sorted()
-                .toList();
+        return files.stream().map(this::toPythonModuleLabel).distinct().sorted().toList();
+    }
+
+    /**
+     * Converts a file to a dotted Python module label, using anchor detection
+     * to find the appropriate import root (e.g. tests.test_auth).
+     */
+    private String toPythonModuleLabel(ProjectFile file) {
+        Path anchor = detectModuleAnchor(file);
+        Path relToAnchor = anchor.relativize(file.absPath());
+
+        String pathStr = relToAnchor.toString();
+        if (pathStr.endsWith(".py")) {
+            pathStr = pathStr.substring(0, pathStr.length() - 3);
+        }
+
+        String label = pathStr.replace('/', '.').replace('\\', '.');
+        if (label.endsWith(".__init__")) {
+            label = label.substring(0, label.length() - 9);
+        }
+        return label;
+    }
+
+    /**
+     * Detects the directory that should act as the PYTHONPATH anchor for this file.
+     * Prefers directories containing __init__.py, or common anchors like 'tests',
+     * falling back to the project root.
+     */
+    private Path detectModuleAnchor(ProjectFile file) {
+        Path root = getProject().getRoot();
+        Path current = file.absPath().getParent();
+
+        // 1. Walk up to find the highest directory containing __init__.py
+        Path packageRoot = null;
+        while (current != null && current.startsWith(root)) {
+            if (Files.exists(current.resolve("__init__.py"))) {
+                packageRoot = current;
+            } else if (packageRoot != null) {
+                // We were in a package, but this level doesn't have __init__.py.
+                // The previous level was the package root.
+                return current;
+            }
+            current = current.getParent();
+        }
+
+        if (packageRoot != null) {
+            Path parent = packageRoot.getParent();
+            return parent != null ? parent : root;
+        }
+
+        // 2. Fallback: check for 'tests' or 'src' as anchors if no __init__.py found
+        Path fileParent = file.absPath().getParent();
+        if (fileParent != null) {
+            String name = fileParent.getFileName().toString();
+            if (name.equals("tests") || name.equals("src")) {
+                return fileParent.getParent() != null ? fileParent.getParent() : root;
+            }
+        }
+
+        return root;
     }
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
