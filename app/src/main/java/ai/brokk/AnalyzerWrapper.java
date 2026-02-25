@@ -241,20 +241,30 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
     @Override
     public void onNoFilesChangedDuringPollInterval() {
-        if (externalRebuildRequested) {
-            long count = idlePollTriggeredRebuilds.incrementAndGet();
-            logger.debug("Idle-poll triggered external rebuild #{}", count);
-            IAnalyzer.ProgressListener progressListener = listener::onProgress;
+        processExternalRebuildRequest();
+    }
 
+    private synchronized void processExternalRebuildRequest() {
+        if (!externalRebuildRequested) {
+            return;
+        }
+
+        long count = idlePollTriggeredRebuilds.incrementAndGet();
+        logger.debug("Triggering external rebuild #{}", count);
+
+        IAnalyzer.ProgressListener progressListener = listener::onProgress;
+
+        refresh(prev -> {
             // If the user explicitly requested a full refresh of code intelligence we must
             // purge any persisted analyzer snapshots (both new LZ4 format and legacy gzip files)
             // before rebuilding. This avoids accidentally re-loading stale or incompatible files
             // during the requested rebuild.
             deletePersistedAnalyzerStateFiles();
 
-            refresh(prev -> project.getLanguageHandle().createAnalyzer(project, progressListener));
-            externalRebuildRequested = false;
-        }
+            return project.getLanguageHandle().createAnalyzer(project, progressListener);
+        });
+
+        externalRebuildRequested = false;
     }
 
     /**
@@ -480,6 +490,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     @Override
     public void requestRebuild() {
         externalRebuildRequested = true;
+        processExternalRebuildRequest();
     }
 
     /** Pause the file watching service. */
