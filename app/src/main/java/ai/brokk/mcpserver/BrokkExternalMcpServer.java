@@ -26,15 +26,12 @@ import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
-import java.io.FilterInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -79,33 +76,6 @@ public class BrokkExternalMcpServer {
         }
     }
 
-    private static class StdinCloseSignalInputStream extends FilterInputStream {
-        private final Runnable onEof;
-
-        protected StdinCloseSignalInputStream(InputStream in, Runnable onEof) {
-            super(in);
-            this.onEof = onEof;
-        }
-
-        @Override
-        public int read() throws IOException {
-            int value = super.read();
-            if (value == -1) {
-                onEof.run();
-            }
-            return value;
-        }
-
-        @Override
-        public int read(byte[] b, int off, int len) throws IOException {
-            int value = super.read(b, off, len);
-            if (value == -1) {
-                onEof.run();
-            }
-            return value;
-        }
-    }
-
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
@@ -118,27 +88,12 @@ public class BrokkExternalMcpServer {
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
-            AtomicBoolean eofHandled = new AtomicBoolean();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
-            InputStream transportInput = new StdinCloseSignalInputStream(System.in, () -> {
-                if (!eofHandled.compareAndSet(false, true)) {
-                    return;
-                }
-                logger.info("System.in closed (EOF detected). Initiating MCP server shutdown.");
-                var server = requireNonNull(serverRef.get());
-                try {
-                    server.closeGracefully();
-                } catch (RuntimeException e) {
-                    logger.warn("Error while closing MCP server after stdin EOF", e);
-                }
-                System.exit(0);
-            });
 
-            McpSyncServer mcpServer = McpServer.sync(
-                            new StdioServerTransportProvider(mapper, transportInput, System.out))
+            McpSyncServer mcpServer = McpServer.sync(new StdioServerTransportProvider(mapper, System.in, System.out))
                     .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
                     .jsonMapper(mapper)
-                    .requestTimeout(Duration.ofHours(10))
+                    .requestTimeout(Duration.ofHours(1))
                     .tools(instance.toolSpecifications())
                     .build();
             serverRef.set(mcpServer);
@@ -211,7 +166,7 @@ public class BrokkExternalMcpServer {
             @P("Include test files in the results.") boolean includeTests)
             throws InterruptedException {
         var scanModel = cm.getService().getScanModel();
-        var agent = new ContextAgent(cm, scanModel, goal, new MutedConsoleIO(cm.getIo()));
+        var agent = new ContextAgent(cm, scanModel, goal, new MutedConsoleIO(cm.getIo()), includeTests);
         var recommendations = agent.getRecommendations(cm.liveContext());
 
         if (!recommendations.success()) {
@@ -219,9 +174,6 @@ public class BrokkExternalMcpServer {
         }
 
         String result = recommendations.fragments().stream()
-                .filter(f -> includeTests
-                        || f.sourceFiles().join().stream()
-                                .noneMatch(pf -> ContextManager.isTestFile(pf, cm.getAnalyzerUninterrupted())))
                 .flatMap(f -> toSummaryFragments(f).stream())
                 .map(f -> "## " + f.description().join() + ":\n" + f.text().join() + "\n\n")
                 .collect(java.util.stream.Collectors.joining());
