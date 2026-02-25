@@ -241,6 +241,7 @@ public final class HeadlessExecutorMain {
         // Initialize headless context asynchronously to avoid blocking constructor
         // Pass false to resume the last active session from workspace.properties
         // instead of always creating a new one (which would clobber the desktop app's session)
+        logger.info("Starting ContextManager headless initialization (will trigger build inference if missing)");
         this.initThread = new Thread(
                 () -> {
                     try {
@@ -334,11 +335,13 @@ public final class HeadlessExecutorMain {
         // ContextManager performs asynchronous work (quarantine, migration, etc.) that can change
         // the active session after those operations complete.
         var sessionId = contextManager.getCurrentSessionId();
+        var buildDetailsPresent = contextManager.getProject().hasBuildDetails();
 
         // Log readiness along with the concrete current session id to make it clear in the logs which session
         // satisfied the readiness check. Tests and callers should not rely on this id matching any
         // previously-created/imported id unless they explicitly verify it themselves.
-        logger.info("/health/ready served; current sessionId={}", sessionId);
+        logger.info(
+                "/health/ready served; current sessionId={}, buildDetailsPresent={}", sessionId, buildDetailsPresent);
 
         var response = Map.of("status", "ready", "sessionId", String.valueOf(sessionId));
         SimpleHttpServer.sendJsonResponse(exchange, response);

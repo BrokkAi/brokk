@@ -1841,12 +1841,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     private synchronized void ensureBuildDetailsAsync() {
         if (project.hasBuildDetails()) {
-            logger.debug("Using existing build details");
+            logger.info("Using existing build details for project root: {}", project.getRoot());
             return;
         }
 
         if (project.isEmptyProject()) {
-            logger.debug("Project has no analyzable source files, skipping build details inference");
+            logger.info(
+                    "Project at {} has no analyzable source files; skipping inference and saving EMPTY details",
+                    project.getRoot());
             if (!project.hasBuildDetails()) {
                 project.saveBuildDetails(BuildDetails.EMPTY);
             }
@@ -1855,17 +1857,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Check if a BuildAgent task is already in progress
         if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
-            logger.debug("BuildAgent task already in progress, skipping");
+            logger.debug("BuildAgent task already in progress for {}, skipping", project.getRoot());
             return;
         }
 
         // No details found, run the BuildAgent asynchronously
+        logger.info("Scheduling build details inference for project root: {}", project.getRoot());
         buildAgentFuture = submitBackgroundTask("Inferring build details", () -> {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Inferring project build details");
 
             // Check if task was cancelled before starting
             if (Thread.currentThread().isInterrupted()) {
-                logger.debug("BuildAgent task cancelled before execution");
+                logger.debug("BuildAgent task cancelled before execution for {}", project.getRoot());
                 return BuildDetails.EMPTY;
             }
 
@@ -1877,7 +1880,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 inferredDetails = agent.execute();
             } catch (InterruptedException e) {
-                logger.debug("BuildAgent execution interrupted");
+                logger.debug("BuildAgent execution interrupted for {}", project.getRoot());
                 Thread.currentThread().interrupt();
                 return BuildDetails.EMPTY;
             } catch (Exception e) {
@@ -1891,7 +1894,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // Check if task was cancelled after execution
             if (Thread.currentThread().isInterrupted()) {
-                logger.debug("BuildAgent task cancelled after execution, not saving results");
+                logger.debug("BuildAgent task cancelled after execution for {}, not saving results", project.getRoot());
                 return BuildDetails.EMPTY;
             }
 
@@ -1899,10 +1902,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // Show appropriate notification based on whether build details were found
             if (BuildDetails.EMPTY.equals(inferredDetails)) {
+                logger.info("BuildAgent completed; no build details could be determined for {}", project.getRoot());
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         "Could not determine build configuration - project structure may be unsupported or incomplete");
             } else {
+                logger.info("BuildAgent successfully inferred build details for {}", project.getRoot());
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
             }
 
