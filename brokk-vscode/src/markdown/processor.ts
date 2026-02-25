@@ -34,11 +34,13 @@ let bubbleCounter = 0;
 /**
  * Render markdown to HTML with syntax highlighting.
  * Used during streaming and finalization.
+ * @param text The markdown text to render.
+ * @param explicitBubbleId If provided, use this bubble ID instead of auto-incrementing.
  */
-export function renderMarkdownFast(text: string): string {
+export function renderMarkdownFast(text: string, explicitBubbleId?: number): string {
     if (!text) return '';
     try {
-        resetForBubble(bubbleCounter++);
+        resetForBubble(explicitBubbleId ?? bubbleCounter++);
         const result = processor.processSync(text);
         return String(result);
     } catch (err) {
