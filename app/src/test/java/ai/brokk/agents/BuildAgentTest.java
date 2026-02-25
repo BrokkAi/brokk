@@ -851,6 +851,27 @@ class BuildAgentTest {
     }
 
     @Test
+    void testGetBuildLintSomeCommandPythonPackages(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.PYTHON);
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), new TestAnalyzer());
+
+        Path testsDir = tempDir.resolve("tests");
+        Files.createDirectories(testsDir);
+        ProjectFile file1 = new ProjectFile(tempDir, "tests/test_foo.py");
+        ProjectFile file2 = new ProjectFile(tempDir, "tests/test_bar.py");
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "python -m compile",
+                "python -m pytest",
+                "python -m pytest {{#packages}}{{value}} {{/packages}}",
+                Set.of());
+
+        String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        assertEquals("python -m pytest test_bar test_foo ", result);
+    }
+
+    @Test
     void testGetBuildLintSomeCommandRustModules(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.RUST);
         TestAnalyzer analyzer = new TestAnalyzer() {

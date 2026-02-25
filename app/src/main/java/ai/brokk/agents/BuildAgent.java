@@ -886,10 +886,8 @@ public class BuildAgent {
                         "Using modules-based template with {} modules (anchor={})",
                         targetItems.size(),
                         anchor == null ? "<inferred import roots>" : anchor);
-                Map<String, List<String>> vars = new HashMap<>();
-                vars.put("modules", targetItems);
-                vars.put("packages", targetItems);
-                return interpolateMustacheTemplate(testSomeTemplate, vars, pythonVersion);
+                return interpolateMustacheTemplate(
+                        testSomeTemplate, Map.of("modules", targetItems, "packages", targetItems), pythonVersion);
             } else if (ANALYZER_MODULE_LANGUAGES.contains(language)) {
                 if (language == Languages.GO) {
                     targetItems = workspaceTestFiles.stream()
