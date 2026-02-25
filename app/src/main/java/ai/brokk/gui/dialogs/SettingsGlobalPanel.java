@@ -2282,7 +2282,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
      * Non-paid users see an upgrade link instead.
      */
     private void updateConnectionsUiForSubscriptionStatus(boolean isPaid) {
-        connectionsPaidPanel.setVisible(isPaid);
+        connectionsPaidPanel.setVisible(true);
+        providerKeysLabel.setVisible(isPaid);
         upgradeLabel.setVisible(!isPaid);
         revalidate();
         repaint();
