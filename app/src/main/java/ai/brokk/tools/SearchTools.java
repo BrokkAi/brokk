@@ -728,19 +728,20 @@ public class SearchTools {
 
         int effectiveLimit = max(1, min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT));
 
-        List<CommitInfo> matchingCommits;
+        GitRepo.SearchCommitsResult searchResult;
         try {
-            matchingCommits = gitRepo.searchCommits(pattern, effectiveLimit);
+            searchResult = gitRepo.searchCommits(pattern, effectiveLimit);
         } catch (GitAPIException e) {
             logger.error("Error searching commit messages", e);
             return "Error searching commit messages: " + e.getMessage();
         }
 
+        List<CommitInfo> matchingCommits = searchResult.commits();
         if (matchingCommits.isEmpty()) {
             return "No commit messages found matching pattern: " + pattern;
         }
 
-        boolean truncated = matchingCommits.size() >= effectiveLimit;
+        boolean truncated = searchResult.truncated();
 
         StringBuilder resultBuilder = new StringBuilder();
         if (truncated) {
@@ -994,6 +995,9 @@ public class SearchTools {
             List<String> results = new ArrayList<>();
             boolean hasOverflow = false;
 
+            // Collect up to effectiveLimit + 1 so we can distinguish "exactly limit" from "more than limit"
+            int collectLimit = effectiveLimit + 1;
+
             for (int start = 0; start < files.size(); start += batchSize) {
                 if (Thread.interrupted()) {
                     throw new InterruptedException("Interrupted between file content search batches");
@@ -1049,7 +1053,7 @@ public class SearchTools {
                     if (res == null) continue;
 
                     results.add(res);
-                    if (results.size() >= effectiveLimit) {
+                    if (results.size() >= collectLimit) {
                         hasOverflow = true;
                         break;
                     }
@@ -1060,7 +1064,11 @@ public class SearchTools {
                 }
             }
 
-            truncated = hasOverflow;
+            truncated = results.size() > effectiveLimit;
+            // Drop the sentinel extra result if present
+            if (truncated) {
+                results.remove(results.size() - 1);
+            }
             fileResults = results;
         } catch (RuntimeException e) {
             logger.error("Error searching file contents for '{}' in '{}'", pattern, filepath, e);
