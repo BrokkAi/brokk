@@ -2716,11 +2716,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         cleanupOldHistoryAsync();
-        // we deliberately don't infer style guide or build details here -- if they already exist, great;
-        // otherwise we leave them empty
+
         var mp = project.getMainProject();
-        if (mp.loadBuildDetails().isEmpty()) {
+        var existingDetails = mp.loadBuildDetails();
+
+        if (existingDetails.isPresent()) {
+            logger.info("Headless init: Using existing build details from project properties");
+            mp.setBuildDetails(existingDetails.get());
+        } else if (!BuildDetails.EMPTY.equals(buildDetails)) {
+            logger.info("Headless init: Using explicit build details override");
             mp.setBuildDetails(buildDetails);
+        } else {
+            logger.info("Headless init: No existing build details or override; inference will run if needed");
         }
 
         // no AnalyzerListener, instead we will block for it to be ready
@@ -2734,6 +2741,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // potentially requires analyzer to load existing session
         initializeCurrentSessionAndHistory(createNewSession);
+
+        // Ensure build details are loaded/generated asynchronously if not already set
+        ensureBuildDetailsAsync();
 
         checkBalanceAndNotify();
     }
