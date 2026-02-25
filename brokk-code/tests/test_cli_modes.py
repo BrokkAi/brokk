@@ -359,6 +359,50 @@ def test_main_issue_create_missing_prompt_exits_nonzero(monkeypatch, tmp_path) -
     assert exc.value.code != 0
 
 
+def test_main_issue_create_validation_missing_token(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "issue", "create", "test", "--repo-owner", "o", "--repo-name", "r"],
+    )
+    # Ensure no env var leaks in
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    assert "Error: --github-token is required for issue create" in capsys.readouterr().err
+
+
+def test_main_issue_solve_validation_invalid_owner(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "1",
+            "--github-token",
+            "t",
+            "--repo-owner",
+            "invalid/owner",
+            "--repo-name",
+            "r",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "Error: Invalid --repo-owner 'invalid/owner'" in err
+    assert "^[A-Za-z0-9_.-]+$" in err
+
+
 def test_main_issue_create_respects_env_github_token(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
 

@@ -6,6 +6,39 @@ import sys
 from pathlib import Path
 from typing import Any
 
+REPO_COMPONENT_ALLOWLIST_REGEX = r"^[A-Za-z0-9_.-]+$"
+
+
+def _validate_github_params(
+    github_token: str | None,
+    repo_owner: str | None,
+    repo_name: str | None,
+    command_name: str,
+) -> None:
+    if not github_token:
+        print(f"Error: --github-token is required for {command_name}", file=sys.stderr)
+        sys.exit(1)
+    if not repo_owner:
+        print(f"Error: --repo-owner is required for {command_name}", file=sys.stderr)
+        sys.exit(1)
+    if not repo_name:
+        print(f"Error: --repo-name is required for {command_name}", file=sys.stderr)
+        sys.exit(1)
+
+    if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_owner):
+        print(
+            f"Error: Invalid --repo-owner '{repo_owner}'. Repo owner must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_name):
+        print(
+            f"Error: Invalid --repo-name '{repo_name}'. Repo name must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
@@ -529,6 +562,9 @@ def main():
 
     if args.command == "issue":
         if args.issue_command == "create":
+            _validate_github_params(
+                args.github_token, args.repo_owner, args.repo_name, "issue create"
+            )
             # Handle issue create mode by launching a non-interactive job
             tags = {
                 "github_token": args.github_token or "",
@@ -554,6 +590,9 @@ def main():
             return
 
         if args.issue_command == "solve":
+            _validate_github_params(
+                args.github_token, args.repo_owner, args.repo_name, "issue solve"
+            )
             tags = {
                 "github_token": args.github_token or "",
                 "repo_owner": args.repo_owner or "",
