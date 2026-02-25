@@ -872,6 +872,42 @@ class BuildAgentTest {
     }
 
     @Test
+    void testGetBuildLintSomeCommandJavaPackages(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.JAVA);
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            private final Map<ProjectFile, List<CodeUnit>> fileToDecls = new java.util.HashMap<>();
+
+            @Override
+            public void addDeclaration(CodeUnit cu) {
+                super.addDeclaration(cu);
+                fileToDecls.computeIfAbsent(cu.source(), k -> new ArrayList<>()).add(cu);
+            }
+
+            @Override
+            public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+                return fileToDecls.getOrDefault(file, List.of());
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "src/main/java/com/example/App.java");
+        ProjectFile file2 = new ProjectFile(tempDir, "src/main/java/com/example/util/Helper.java");
+
+        analyzer.addDeclaration(CodeUnit.cls(file1, "com.example", "App"));
+        analyzer.addDeclaration(CodeUnit.cls(file2, "com.example.util", "Helper"));
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "mvn compile",
+                "mvn test",
+                "mvn test -Dtest={{#packages}}{{value}}.*{{^last}} {{/last}}{{/packages}}",
+                Set.of());
+
+        String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        assertEquals("mvn test -Dtest=com.example.* com.example.util.*", result);
+    }
+
+    @Test
     void testGetBuildLintSomeCommandRustModules(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.RUST);
         TestAnalyzer analyzer = new TestAnalyzer() {
