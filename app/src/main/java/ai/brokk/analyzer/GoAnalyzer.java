@@ -1,12 +1,14 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
+import static ai.brokk.project.FileFilteringService.toUnixPath;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -413,7 +415,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     public List<String> getTestModules(Collection<ProjectFile> files) {
         return files.stream()
-                .map(file -> IAnalyzer.toUnixRelativePath(file.getRelPath().getParent()))
+                .map(file -> {
+                    Path parent = file.getRelPath().getParent();
+                    if (parent == null || parent.toString().isEmpty()) {
+                        return ".";
+                    }
+                    return "./" + toUnixPath(parent);
+                })
                 .distinct()
                 .sorted()
                 .toList();

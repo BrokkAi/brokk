@@ -561,7 +561,7 @@ public interface IAnalyzer {
      * @return a Unix-style relative path string
      */
     static String toUnixRelativePath(java.nio.file.Path path) {
-        if (path == null || path.toString().isEmpty()) {
+        if (path.toString().isEmpty()) {
             return ".";
         }
         String unixPath = ai.brokk.project.FileFilteringService.toUnixPath(path);

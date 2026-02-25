@@ -42,14 +42,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     public List<String> getTestModules(Collection<ProjectFile> files) {
-        return files.stream().map(this::toPythonModuleLabel).distinct().sorted().toList();
-    }
-
-    /**
-     * Converts a file to a dotted Python module label.
-     */
-    private String toPythonModuleLabel(ProjectFile file) {
-        return resolveModuleInfo(file).moduleQualifiedPackage();
+        return files.stream()
+                .map(file -> resolveModuleInfo(file).moduleQualifiedPackage())
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
