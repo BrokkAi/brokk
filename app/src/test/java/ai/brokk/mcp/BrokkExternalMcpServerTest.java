@@ -98,7 +98,10 @@ class BrokkExternalMcpServerTest {
 
         // Verify @D content from FragmentRemoval record
         Map<String, Object> fragmentId = (Map<String, Object>) itemProps.get("fragmentId");
-        assert fragmentId.get("description").toString().contains("The alphanumeric ID exactly as listed in <workspace_toc>");
+        assert fragmentId
+                .get("description")
+                .toString()
+                .contains("The alphanumeric ID exactly as listed in <workspace_toc>");
 
         Map<String, Object> keyFacts = (Map<String, Object>) itemProps.get("keyFacts");
         assertEquals(WorkspaceTools.KEY_FACTS_DESCRIPTION, keyFacts.get("description"));
