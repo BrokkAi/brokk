@@ -426,7 +426,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Ensure build details are loaded/generated asynchronously
         // (style guide is handled by ensureGuidesAsync() called earlier)
-        ensureBuildDetailsAsync();
+        ensureBuildDetailsAsync(null);
         cleanupOldHistoryAsync();
 
         checkBalanceAndNotify();
@@ -1837,10 +1837,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Ensures build details are loaded or inferred using BuildAgent if necessary. Runs asynchronously in the
      * background.
+     *
+     * @param overrideIfNone Optional build details to persist if none are currently present.
+     *                       If EMPTY or null, background inference is triggered.
      */
-    private synchronized void ensureBuildDetailsAsync() {
+    private synchronized void ensureBuildDetailsAsync(@Nullable BuildDetails overrideIfNone) {
         if (project.hasBuildDetails()) {
             logger.debug("Using existing build details");
+            return;
+        }
+
+        // If an explicit non-empty override was provided, persist it and skip inference.
+        if (overrideIfNone != null && !BuildDetails.EMPTY.equals(overrideIfNone)) {
+            logger.info("Persisting explicit build details override");
+            project.saveBuildDetails(overrideIfNone);
             return;
         }
 
@@ -2716,12 +2726,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         cleanupOldHistoryAsync();
-        // we deliberately don't infer style guide or build details here -- if they already exist, great;
-        // otherwise we leave them empty
-        var mp = project.getMainProject();
-        if (mp.loadBuildDetails().isEmpty()) {
-            mp.setBuildDetails(buildDetails);
-        }
+
+        // In headless mode, we infer build details if none exist and no explicit override was provided.
+        // If an explicit non-EMPTY override is provided, it is persisted immediately.
+        ensureBuildDetailsAsync(buildDetails);
 
         // no AnalyzerListener, instead we will block for it to be ready
         // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService

@@ -32,14 +32,14 @@ def _validate_github_params(
     if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_owner):
         print(
             f"Error: Invalid --repo-owner '{repo_owner}'. "
-            + "Repo owner must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            + f"Repo owner must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
             file=sys.stderr,
         )
         sys.exit(1)
     if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_name):
         print(
             f"Error: Invalid --repo-name '{repo_name}'. "
-            + "Repo name must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            + f"Repo name must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -300,6 +300,7 @@ async def run_headless_job(
     spinner_label = "Creating issue"
     spinner_frames = "|/-\\"
     spinner_enabled = sys.stdout.isatty() and not verbose
+    is_issue_mode = mode in {"ISSUE", "ISSUE_WRITER"}
 
     def _event_data(event: dict[str, Any]) -> dict[str, Any]:
         raw = event.get("data")
@@ -423,10 +424,12 @@ async def run_headless_job(
                 _record_issue_url_from_issue_writer_notification(message)
                 _record_issue_url(message)
                 level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
-                # Keep headless issue mode quiet by default: warnings/errors matter,
-                # routine INFO/COST/CONFIRM notifications do not.
-                if not verbose and level not in {"WARN", "WARNING", "ERROR"}:
-                    continue
+
+                if not verbose:
+                    if not is_issue_mode and level not in {"WARN", "WARNING", "ERROR"}:
+                        continue
+                # else verbose=True: show all levels
+
                 _clear_spinner()
                 print(f"[{level}] {message}")
             elif event_type == "STATE_CHANGE":

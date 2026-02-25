@@ -207,12 +207,14 @@ public final class IssueExecutor {
         String githubToken = Objects.requireNonNull(spec.getGithubToken());
 
         boolean hasPriorDiagnosis = issueHasDiagnosisMarker(prepared.details());
+        emitNotification("ISSUE: fetched GitHub issue metadata and attachments");
 
         emitNotification("ISSUE: analyzing issue #" + prepared.issueNumber());
 
         var context = cm.liveContext();
         var writerAgent = new IssueRewriterAgent(context, plannerModel, prepared.formattedPrompt());
         var analysisResult = writerAgent.execute();
+        emitNotification("ISSUE: LLM analysis complete; preparing diagnosis comment");
         context = cm.pushContext(ctx -> analysisResult.context());
 
         if (!hasPriorDiagnosis) {
@@ -293,6 +295,7 @@ public final class IssueExecutor {
                     context = cm.pushContext(ctx -> enriched.context());
 
                     logger.info("ISSUE job {}: prompt enrichment successful", jobId);
+                    emitNotification("ISSUE: prompt enrichment complete; proceeding with task planning");
                 } catch (Exception e) {
                     logger.warn("ISSUE job {}: prompt enrichment failed", jobId, e);
                 }
@@ -318,10 +321,28 @@ public final class IssueExecutor {
                 var incompleteTasks =
                         generatedTasks.stream().filter(t -> !t.done()).toList();
 
-                for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                if (incompleteTasks.isEmpty()) {
+                    emitNotification(
+                            "ISSUE: task planner returned no executable tasks; proceeding directly to review and verification");
+                } else {
+                    emitNotification("ISSUE: starting task execution for " + incompleteTasks.size() + " task(s)");
+                }
+
+                int taskCount = incompleteTasks.size();
+                for (int i = 0; i < taskCount; i++) {
                     if (isCancelled.getAsBoolean()) return;
 
+                    var generatedTask = incompleteTasks.get(i);
+                    int currentIdx = i + 1;
+                    String taskSummary = generatedTask.text() != null ? generatedTask.text() : "";
+                    if (taskSummary.length() > 80) {
+                        taskSummary = taskSummary.substring(0, 77) + "...";
+                    }
+                    emitNotification("ISSUE: executing task " + currentIdx + "/" + taskCount
+                            + (taskSummary.isEmpty() ? "" : ": " + taskSummary));
+
                     cm.executeTask(generatedTask, plannerModel, codeModel);
+                    emitNotification("ISSUE: completed task " + currentIdx + "/" + taskCount);
 
                     if (spec.skipVerification()) {
                         emitNotification("Per-task verification skipped due to skipVerification=true");
@@ -333,6 +354,7 @@ public final class IssueExecutor {
 
                 // Review-bot: compute diff vs default branch and generate inline comments
                 String targetBranch = prepared.auth().getDefaultBranch();
+                emitNotification("Review-bot: analyzing diff vs base branch '" + targetBranch + "'");
                 var inlineComments = JobRunner.issueModeComputeInlineComments(
                         jobId, store, gitRepo, context, plannerModel, githubToken, targetBranch, cm);
                 logger.info("ISSUE job {} review-bot produced {} inline comment(s)", jobId, inlineComments.size());
@@ -341,6 +363,8 @@ public final class IssueExecutor {
                 if (inlineComments.isEmpty()) {
                     emitNotification("Review-bot: no inline comments to fix; skipping review-fix stage.");
                 } else {
+                    emitNotification("Review-bot: " + inlineComments.size()
+                            + " inline comment(s) require fixes; starting review-fix tasks");
                     runReviewFixTasks(
                             spec,
                             buildDetailsOverride,
@@ -358,6 +382,7 @@ public final class IssueExecutor {
 
                 // Create Pull Request (conditional)
                 if (JobRunner.issueDeliveryEnabled(spec)) {
+                    emitNotification("ISSUE: creating pull request targeting '" + targetBranch + "'");
                     createPullRequest(prepared, issueBranchName, targetBranch, githubToken);
                 } else {
                     emitNotification("PR creation skipped due to issue_delivery policy");
@@ -368,6 +393,7 @@ public final class IssueExecutor {
         } finally {
             boolean forceDelete = "always".equalsIgnoreCase(spec.tags().getOrDefault("issue_branch_cleanup", ""));
             JobRunner.cleanupIssueBranch(jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
+            emitNotification("ISSUE: branch cleanup complete; restored original branch");
         }
     }
 
@@ -560,6 +586,7 @@ public final class IssueExecutor {
             if (console != null) {
                 console.showNotification(IConsoleIO.NotificationRole.INFO, "Created Pull Request: " + prUri);
             }
+            emitNotification("ISSUE: created pull request: " + prUri);
         } catch (Exception e) {
             logger.warn("ISSUE job {}: failed to create PR: {}", jobId, e.getMessage(), e);
             IConsoleIO io = console != null ? console : cm.getIo();

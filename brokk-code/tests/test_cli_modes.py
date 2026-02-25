@@ -443,6 +443,7 @@ def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> No
         captured["ran"] = True
 
     monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
     monkeypatch.setattr(
         sys,
         "argv",
