@@ -929,6 +929,11 @@ public class BuildAgent {
                 vars.put("modules", targetItems);
                 vars.put("packages", targetItems);
                 return interpolateMustacheTemplate(testSomeTemplate, vars, pythonVersion);
+            } else {
+                logger.warn(
+                        "Modules/packages requested in template but language {} does not support module extraction. Falling back to build/lint.",
+                        language);
+                return details.buildLintCommand();
             }
         }
 
