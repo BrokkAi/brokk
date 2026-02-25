@@ -39,8 +39,6 @@ import org.jspecify.annotations.NullMarked;
 public class BrokkExternalMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkExternalMcpServer.class);
 
-    private static final long WATCHDOG_INTERVAL_S = 30L;
-
     private static final List<String> BASE_TOOL_NAMES = List.of(
             "scan",
             "code",
