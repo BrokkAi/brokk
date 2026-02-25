@@ -2357,23 +2357,34 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             var architectModelConfig =
                     new Service.ModelConfig(ModelProperties.GPT_5_2_OAUTH, AbstractService.ReasoningLevel.DISABLE);
 
-            // Add favorites for both models if not already present
-            var favorites = new ArrayList<>(MainProject.loadFavoriteModels());
-            boolean hasCodexFavorite =
-                    favorites.stream().anyMatch(fm -> fm.config().name().equals(ModelProperties.GPT_5_2_CODEX_OAUTH));
-            boolean hasArchitectFavorite =
-                    favorites.stream().anyMatch(fm -> fm.config().name().equals(ModelProperties.GPT_5_2_OAUTH));
-
-            if (!hasCodexFavorite) {
-                favorites.add(new Service.FavoriteModel("Codex", codeModelConfig));
-            }
-            if (!hasArchitectFavorite) {
-                favorites.add(new Service.FavoriteModel("GPT-5.2", architectModelConfig));
-            }
-            if (!hasCodexFavorite || !hasArchitectFavorite) {
-                MainProject.saveFavoriteModels(favorites);
-                logger.info("Added Codex models to favorites list");
-            }
+            // Replace favorites list with all Codex OAuth models
+            var codexFavorites = List.of(
+                    new Service.FavoriteModel(
+                            "5.1 Codex Mini",
+                            new Service.ModelConfig(
+                                    ModelProperties.GPT_5_1_CODEX_MINI_OAUTH, AbstractService.ReasoningLevel.LOW)),
+                    new Service.FavoriteModel(
+                            "5.1 Codex",
+                            new Service.ModelConfig(
+                                    ModelProperties.GPT_5_1_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW)),
+                    new Service.FavoriteModel(
+                            "5.1 Codex Max",
+                            new Service.ModelConfig(
+                                    ModelProperties.GPT_5_1_CODEX_MAX_OAUTH, AbstractService.ReasoningLevel.LOW)),
+                    new Service.FavoriteModel(
+                            "5.2",
+                            new Service.ModelConfig(
+                                    ModelProperties.GPT_5_2_OAUTH, AbstractService.ReasoningLevel.DISABLE)),
+                    new Service.FavoriteModel(
+                            "5.2 Codex",
+                            new Service.ModelConfig(
+                                    ModelProperties.GPT_5_2_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW)),
+                    new Service.FavoriteModel(
+                            "5.3 Codex",
+                            new Service.ModelConfig(
+                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW)));
+            MainProject.saveFavoriteModels(codexFavorites);
+            logger.info("Replaced favorites list with Codex OAuth models");
 
             mainProject.setModelConfig(ModelProperties.ModelType.CODE, codeModelConfig);
             mainProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, architectModelConfig);
