@@ -2716,14 +2716,32 @@ public class ContextManager implements IContextManager, AutoCloseable {
         createHeadless(BuildDetails.EMPTY, true);
     }
 
+    /**
+     * Creates a headless ContextManager.
+     * <p>
+     * Semantics for {@code buildDetails}:
+     * <ul>
+     *     <li>If the project already has build details persisted, they are reused.</li>
+     *     <li>If {@code buildDetails} is non-EMPTY, it overrides existing configuration and is saved.</li>
+     *     <li>If no build details exist and {@code buildDetails} is EMPTY, background inference via {@link BuildAgent}
+     *     is triggered.</li>
+     * </ul>
+     */
     public void createHeadless(BuildAgent.BuildDetails buildDetails, boolean createNewSession) {
         createHeadlessInternal(buildDetails, createNewSession, new HeadlessConsole(), true);
     }
 
+    /**
+     * Creates a headless ContextManager with a custom I/O implementation.
+     * See {@link #createHeadless(BuildDetails, boolean)} for buildDetails semantics.
+     */
     public void createHeadless(BuildAgent.BuildDetails buildDetails, boolean createNewSession, IConsoleIO io) {
         createHeadlessInternal(buildDetails, createNewSession, io, true);
     }
 
+    /**
+     * Creates a headless ContextManager but suppresses immediate build detail inference.
+     */
     public void createHeadlessWithoutBuildInference(BuildAgent.BuildDetails buildDetails, boolean createNewSession) {
         createHeadlessInternal(buildDetails, createNewSession, new HeadlessConsole(), false);
     }
@@ -2740,8 +2758,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         cleanupOldHistoryAsync();
 
         if (inferBuildDetailsNow) {
-            // In headless mode, we infer build details if none exist and no explicit override was provided.
-            // If an explicit non-EMPTY override is provided, it is persisted immediately.
             ensureBuildDetailsAsync(buildDetails);
         }
 
@@ -2760,6 +2776,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         checkBalanceAndNotify();
     }
 
+    /**
+     * Ensures build details are available before a headless job starts.
+     * Triggers background inference if the project has no configuration.
+     * Thread-safe; no-op if inference is already in progress or configuration exists.
+     */
     public void ensureBuildDetailsForHeadlessJob() {
         ensureBuildDetailsAsync(null);
     }

@@ -53,6 +53,11 @@ with try/catch is unnecessary and futile; don't do that.
 
 1. **Use ProjectFile to represent files**. String and File and Path all have issues that ProjectFile resolves. If you're dealing with files but you don't have the ProjectFile API available, stop and ask the user to provide it. DO NOT write code that reads from a File or Path unless explicitly instructed to do so.
 
+### Project Build Settings
+1. Use IProject's `BuildAgent.BuildDetails awaitBuildDetails()` method for any blocking consumer that requires build configuration. The similarly named "load" method is for internal use only.
+1. Headless and TUI execution environments auto-infer build settings for non-empty projects if no configuration is found. This background inference mirrors the GUI behavior.
+1. Most test code should use TestProject. If you have a good reason to use MainProject instead, use the static MainProject.forTests to acquire an instance, which will set BuildDetails to EMPTY instead of leaving you with a future that will never complete.
+
 ## Concurrency
 
 1. Always use utility classes that log exceptions appropriately. If you create an ExecutorService, you

@@ -238,9 +238,12 @@ public final class HeadlessExecutorMain {
         this.jobStore = new JobStore(workspaceDir.resolve(".brokk"));
         this.sessionManager = new SessionManager(sessionsDir);
 
-        // Initialize headless context asynchronously to avoid blocking constructor
-        // Pass false to resume the last active session from workspace.properties
-        // instead of always creating a new one (which would clobber the desktop app's session)
+        // Initialize headless context asynchronously to avoid blocking constructor.
+        // We use createHeadlessWithoutBuildInference and pass false for session creation
+        // to resume the last active session from workspace.properties.
+        //
+        // Note: build details are auto-inferred on-demand when the first job is submitted
+        // via ContextManager.ensureBuildDetailsForHeadlessJob().
         this.initThread = new Thread(
                 () -> {
                     try {
