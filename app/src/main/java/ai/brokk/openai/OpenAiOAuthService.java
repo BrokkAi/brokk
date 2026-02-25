@@ -161,8 +161,14 @@ public class OpenAiOAuthService {
      *
      * @param parent The parent component for error dialogs
      */
-    public static void startAuthorization(Component parent) {
-        Window ancestor = (parent instanceof Window w) ? w : SwingUtilities.getWindowAncestor(parent);
+    public static void startAuthorization(@Nullable Component parent) {
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            logger.info("Headless environment detected; skipping browser authorization flow.");
+            return;
+        }
+
+        Window ancestor =
+                (parent == null) ? null : (parent instanceof Window w) ? w : SwingUtilities.getWindowAncestor(parent);
 
         synchronized (lock) {
             stopActiveServerInternal();

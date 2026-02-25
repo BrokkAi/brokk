@@ -16,6 +16,7 @@ import ai.brokk.executor.routers.ContextRouter;
 import ai.brokk.executor.routers.FavoritesRouter;
 import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelsRouter;
+import ai.brokk.executor.routers.OpenAiOAuthRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.project.MainProject;
@@ -288,6 +289,9 @@ public final class HeadlessExecutorMain {
 
         var favoritesRouter = new FavoritesRouter();
         this.server.registerAuthenticatedContext("/v1/favorites", favoritesRouter);
+
+        var openAiOAuthRouter = new OpenAiOAuthRouter();
+        this.server.registerAuthenticatedContext("/v1/openai/oauth/start", openAiOAuthRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -590,6 +594,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/tasklist                 - replace current task list content");
             System.out.println("    GET  /v1/completions              - file and symbol completions");
             System.out.println("    GET  /v1/favorites                - user's favorite model configs");
+            System.out.println("    POST /v1/openai/oauth/start        - start OpenAI OAuth browser flow");
             System.out.println();
 
             // Create and start executor
