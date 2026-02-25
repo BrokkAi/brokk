@@ -39,6 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -61,9 +62,21 @@ public class BrokkExternalMcpServer {
             "getSymbolLocations");
 
     private final ContextManager cm;
+    private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
 
     public BrokkExternalMcpServer(ContextManager cm) {
         this.cm = cm;
+        this.mcpToolCallHistoryWriter =
+                createMcpToolCallHistoryWriter(cm.getProject().getRoot());
+    }
+
+    private static @Nullable McpToolCallHistoryWriter createMcpToolCallHistoryWriter(Path projectRoot) {
+        try {
+            return new McpToolCallHistoryWriter(projectRoot.resolve(".brokk").resolve("mcp-history"));
+        } catch (IOException e) {
+            logger.warn("Failed to initialize MCP tool call history logging", e);
+            return null;
+        }
     }
 
     private static class StdinCloseSignalInputStream extends FilterInputStream {
@@ -154,6 +167,10 @@ public class BrokkExternalMcpServer {
                 .register(this)
                 .register(searchTools)
                 .build();
+
+        if (mcpToolCallHistoryWriter != null) {
+            registry.setToolCallRecorder(mcpToolCallHistoryWriter);
+        }
 
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
 
