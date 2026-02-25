@@ -792,6 +792,8 @@ async def run_acp_server(
     executor_snapshot: bool,
     ide: str = "intellij",
     vendor: Optional[str] = None,
+    verify: Optional[Any] = True,
+    client_cert: Optional[Any] = None,
 ) -> None:
     try:
         from acp import (
@@ -855,6 +857,8 @@ async def run_acp_server(
         vendor=vendor,
         exit_on_stdin_eof=ide_profile == "intellij",
         brokk_api_key=settings.get_brokk_api_key(),
+        verify=verify,
+        client_cert=client_cert,
     )
     bridge = BrokkAcpBridge(executor)
 

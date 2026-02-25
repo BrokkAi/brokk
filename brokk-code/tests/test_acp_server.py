@@ -747,3 +747,52 @@ async def test_prompt_emits_summary_as_list_item_with_text_and_tokens_for_brokk_
     assert updates[4][1]["text"] == "- "
     assert updates[5][1]["text"] == "Summary of worker.go"
     assert updates[6][1]["text"] == " | 12\n"
+
+
+async def test_run_acp_server_propagates_tls_settings(monkeypatch, tmp_path):
+    """Verifies that run_acp_server passes TLS/mTLS settings to ExecutorManager."""
+    from brokk_code import acp_server
+
+    captured_init_kwargs = {}
+
+    class MockExecutorManager:
+        def __init__(self, **kwargs):
+            nonlocal captured_init_kwargs
+            captured_init_kwargs = kwargs
+
+        async def stop(self):
+            pass
+
+    async def mock_run_agent(agent, use_unstable_protocol=False):
+        pass
+
+    monkeypatch.setattr(acp_server, "ExecutorManager", MockExecutorManager)
+    monkeypatch.setattr(acp_server, "run_agent", mock_run_agent)
+
+    # Mock settings to avoid file I/O
+    class MockSettings:
+        def get_brokk_api_key(self):
+            return "test-key"
+
+        @classmethod
+        def load(cls):
+            return cls()
+
+    monkeypatch.setattr(acp_server, "Settings", MockSettings)
+
+    verify_val = "/path/to/ca.pem"
+    cert_val = ("/path/to/cert.pem", "/path/to/key.pem")
+
+    await acp_server.run_acp_server(
+        workspace_dir=tmp_path,
+        jar_path=None,
+        executor_version="1.0.0",
+        executor_snapshot=False,
+        vendor="OpenAI",
+        verify=verify_val,
+        client_cert=cert_val,
+    )
+
+    assert captured_init_kwargs.get("verify") == verify_val
+    assert captured_init_kwargs.get("client_cert") == cert_val
+    assert captured_init_kwargs.get("vendor") == "OpenAI"
