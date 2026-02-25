@@ -7,6 +7,7 @@ import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
@@ -17,7 +18,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -256,20 +261,48 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
         refresh(prev -> {
             Set<Language> currentLangs = prev.languages();
-            Set<Language> projectLangs = project.getAnalyzerLanguages();
+            Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
+                    .filter(l -> l != Languages.NONE)
+                    .collect(Collectors.toSet());
 
             if (currentLangs.equals(projectLangs)) {
                 logger.info("External rebuild requested but languages match; performing incremental update.");
                 return prev.update();
-            } else {
-                logger.info("External rebuild requested and languages changed; performing full rebuild.");
-                // If the user explicitly requested a full refresh of code intelligence or changed languages,
-                // we must purge any persisted analyzer snapshots (both new LZ4 format and legacy gzip files)
-                // before rebuilding. This avoids accidentally re-loading stale or incompatible files
-                // during the requested rebuild.
-                deletePersistedAnalyzerStateFiles();
+            }
 
-                return project.getLanguageHandle().createAnalyzer(project, progressListener);
+            logger.info("External rebuild requested: language set changed from {} to {}.", currentLangs, projectLangs);
+
+            // 1. Identify and delete state for removed languages
+            Set<Language> removedLangs = new HashSet<>(currentLangs);
+            removedLangs.removeAll(projectLangs);
+            for (Language lang : removedLangs) {
+                deleteStateForLanguage(lang);
+            }
+
+            // 2. Compose the next analyzer
+            Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
+            for (Language lang : projectLangs) {
+                Optional<IAnalyzer> existingSub = prev.subAnalyzer(lang);
+                if (existingSub.isPresent()) {
+                    // Language was already present, perform incremental update
+                    nextDelegates.put(lang, existingSub.get().update());
+                } else {
+                    // New language added, try to load from disk or create fresh
+                    try {
+                        nextDelegates.put(lang, lang.loadAnalyzer(project, progressListener));
+                    } catch (Throwable t) {
+                        logger.debug("Failed to load cached analyzer for new language {}, creating fresh", lang, t);
+                        nextDelegates.put(lang, lang.createAnalyzer(project, progressListener));
+                    }
+                }
+            }
+
+            if (nextDelegates.isEmpty()) {
+                return new DisabledAnalyzer(project);
+            } else if (nextDelegates.size() == 1) {
+                return nextDelegates.values().iterator().next();
+            } else {
+                return new MultiAnalyzer(nextDelegates);
             }
         });
 
@@ -550,51 +583,58 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     public void deletePersistedAnalyzerStateFiles() {
         try {
             for (var lang : project.getAnalyzerLanguages()) {
-                try {
-                    Path storage = lang.getStoragePath(project);
-                    // Primary (current) file: .bin.lz4
-                    try {
-                        if (Files.deleteIfExists(storage)) {
-                            logger.info("Deleted persisted analyzer state: {}", storage);
-                        }
-                    } catch (IOException e) {
-                        logger.debug("Failed to delete analyzer state file {}: {}", storage, e.getMessage());
-                    }
-
-                    // Also remove legacy gzip-based filenames that may linger from older versions.
-                    // Derive a stable base name from the storage file name (strip .lz4 extension if present)
-                    // and look for .gz and .gzip siblings.
-                    String name = storage.getFileName().toString();
-                    String base = name.endsWith(".lz4") ? name.substring(0, name.length() - 4) : name;
-
-                    Path parent = storage.getParent() != null ? storage.getParent() : project.getRoot();
-
-                    Path legacyGz = parent.resolve(base + ".gz");
-                    try {
-                        if (Files.deleteIfExists(legacyGz)) {
-                            logger.info("Deleted legacy analyzer state file: {}", legacyGz);
-                        }
-                    } catch (IOException e) {
-                        logger.debug("Failed to delete legacy analyzer state file {}: {}", legacyGz, e.getMessage());
-                    }
-
-                    Path legacyGzip = parent.resolve(base + ".gzip");
-                    try {
-                        if (Files.deleteIfExists(legacyGzip)) {
-                            logger.info("Deleted legacy analyzer state file: {}", legacyGzip);
-                        }
-                    } catch (IOException e) {
-                        logger.debug("Failed to delete legacy analyzer state file {}: {}", legacyGzip, e.getMessage());
-                    }
-                } catch (Throwable t) {
-                    logger.debug(
-                            "Unexpected error while attempting to delete persisted state for language {}: {}",
-                            lang,
-                            t.toString());
-                }
+                deleteStateForLanguage(lang);
             }
         } catch (Throwable t) {
             logger.debug("Unexpected error in deletePersistedAnalyzerStateFiles(): {}", t.toString());
+        }
+    }
+
+    private void deleteStateForLanguage(Language lang) {
+        if (lang == Languages.NONE) {
+            return;
+        }
+        try {
+            Path storage = lang.getStoragePath(project);
+            // Primary (current) file: .bin.lz4
+            try {
+                if (Files.deleteIfExists(storage)) {
+                    logger.info("Deleted persisted analyzer state: {}", storage);
+                }
+            } catch (IOException e) {
+                logger.debug("Failed to delete analyzer state file {}: {}", storage, e.getMessage());
+            }
+
+            // Also remove legacy gzip-based filenames that may linger from older versions.
+            // Derive a stable base name from the storage file name (strip .lz4 extension if present)
+            // and look for .gz and .gzip siblings.
+            String name = storage.getFileName().toString();
+            String base = name.endsWith(".lz4") ? name.substring(0, name.length() - 4) : name;
+
+            Path parent = storage.getParent() != null ? storage.getParent() : project.getRoot();
+
+            Path legacyGz = parent.resolve(base + ".gz");
+            try {
+                if (Files.deleteIfExists(legacyGz)) {
+                    logger.info("Deleted legacy analyzer state file: {}", legacyGz);
+                }
+            } catch (IOException e) {
+                logger.debug("Failed to delete legacy analyzer state file {}: {}", legacyGz, e.getMessage());
+            }
+
+            Path legacyGzip = parent.resolve(base + ".gzip");
+            try {
+                if (Files.deleteIfExists(legacyGzip)) {
+                    logger.info("Deleted legacy analyzer state file: {}", legacyGzip);
+                }
+            } catch (IOException e) {
+                logger.debug("Failed to delete legacy analyzer state file {}: {}", legacyGzip, e.getMessage());
+            }
+        } catch (Throwable t) {
+            logger.debug(
+                    "Unexpected error while attempting to delete persisted state for language {}: {}",
+                    lang,
+                    t.toString());
         }
     }
 
