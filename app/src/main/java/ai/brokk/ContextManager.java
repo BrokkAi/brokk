@@ -2728,7 +2728,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * </ul>
      */
     public void createHeadless(BuildAgent.BuildDetails buildDetails, boolean createNewSession) {
-        createHeadlessInternal(buildDetails, createNewSession, new HeadlessConsole(), true);
+        createHeadlessInternal(buildDetails, createNewSession, new HeadlessConsole());
     }
 
     /**
@@ -2736,30 +2736,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * See {@link #createHeadless(BuildDetails, boolean)} for buildDetails semantics.
      */
     public void createHeadless(BuildAgent.BuildDetails buildDetails, boolean createNewSession, IConsoleIO io) {
-        createHeadlessInternal(buildDetails, createNewSession, io, true);
+        createHeadlessInternal(buildDetails, createNewSession, io);
     }
 
-    /**
-     * Creates a headless ContextManager but suppresses immediate build detail inference.
-     */
-    public void createHeadlessWithoutBuildInference(BuildAgent.BuildDetails buildDetails, boolean createNewSession) {
-        createHeadlessInternal(buildDetails, createNewSession, new HeadlessConsole(), false);
-    }
-
-    private void createHeadlessInternal(
-            BuildAgent.BuildDetails buildDetails,
-            boolean createNewSession,
-            IConsoleIO io,
-            boolean inferBuildDetailsNow) {
+    private void createHeadlessInternal(BuildAgent.BuildDetails buildDetails, boolean createNewSession, IConsoleIO io) {
         this.io = io;
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
 
         cleanupOldHistoryAsync();
 
-        if (inferBuildDetailsNow) {
-            ensureBuildDetailsAsync(buildDetails);
-        }
+        ensureBuildDetailsAsync(buildDetails);
 
         // no AnalyzerListener, instead we will block for it to be ready
         // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService

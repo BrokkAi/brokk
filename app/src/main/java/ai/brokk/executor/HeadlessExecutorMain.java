@@ -239,15 +239,15 @@ public final class HeadlessExecutorMain {
         this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor.
-        // We use createHeadlessWithoutBuildInference and pass false for session creation
-        // to resume the last active session from workspace.properties.
+        // We use createHeadless and pass false for session creation to resume the
+        // last active session from workspace.properties.
         //
-        // Note: build details are auto-inferred on-demand when the first job is submitted
-        // via ContextManager.ensureBuildDetailsForHeadlessJob().
+        // Proactive build-inference: for non-empty projects without existing build details,
+        // build inference is kicked off soon after startup in the background.
         this.initThread = new Thread(
                 () -> {
                     try {
-                        this.contextManager.createHeadlessWithoutBuildInference(BuildAgent.BuildDetails.EMPTY, false);
+                        this.contextManager.createHeadless(BuildAgent.BuildDetails.EMPTY, false);
                         headlessInit.complete(null);
                         logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {
