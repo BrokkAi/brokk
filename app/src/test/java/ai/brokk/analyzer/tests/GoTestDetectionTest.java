@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.GoAnalyzer;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -14,6 +15,11 @@ import org.junit.jupiter.api.Test;
 
 @NullMarked
 public class GoTestDetectionTest {
+
+    @Test
+    void testLanguageDetection() {
+        assertTrue(Languages.fromExtension("go") == Languages.GO);
+    }
 
     @Test
     void testContainsTestsDetection() throws IOException {

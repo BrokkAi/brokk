@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.project.IProject;
@@ -11,6 +12,11 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import org.junit.jupiter.api.Test;
 
 public class RustTestDetectionTest {
+
+    @Test
+    void testLanguageDetection() {
+        assertTrue(Languages.fromExtension("rs") == Languages.RUST);
+    }
 
     @Test
     void testContainsTestsDetection() throws Exception {
