@@ -20,12 +20,12 @@ let accumulatedContent = "";
 let accumulatedReasoning = "";
 let reasoningStartTime = 0;
 let streamRenderTimer = null;
-const STREAM_RENDER_INTERVAL_MS = 80;
+const STREAM_RENDER_INTERVAL_MS = 150;
 
 // ── Reasoning Render State ───────────────────────────
 
 let reasoningRenderTimer = null;
-const REASONING_RENDER_INTERVAL_MS = 120;
+const REASONING_RENDER_INTERVAL_MS = 200;
 
 // ── Elapsed Timer State ──────────────────────────────
 
@@ -34,10 +34,167 @@ let elapsedTimerId = null;
 let stateHintText = "";
 let stateHintClearTimer = null;
 
+// ── Markdown Worker ─────────────────────────────────
+
+/** @type {Worker | null} */
+let mdWorker = null;
+let renderRequestId = 0;
+let pendingContentRenderId = 0;
+let pendingReasoningRenderId = 0;
+let workerBubbleCounter = 0;
+
+// ── Incremental Rendering State ─────────────────────
+// Instead of re-rendering all accumulated markdown on every token,
+// we "freeze" completed blocks (paragraphs, code fences, etc.) and
+// only re-render the small active tail.
+const MIN_FREEZE_SIZE = 1500; // Don't bother splitting until this many chars
+let frozenHtml = "";
+let freezeCharIndex = 0;
+/** @type {HTMLDivElement | null} */
+let frozenDiv = null;
+/** @type {HTMLDivElement | null} */
+let tailDiv = null;
+
+/**
+ * Find the last safe split point in markdown text.
+ * A "safe" boundary is a blank line where all code fences are closed,
+ * meaning everything before it is a complete block that won't change.
+ * @param {string} text
+ * @returns {number} Character index; everything before it can be frozen.
+ */
+function findSafeSplitIndex(text) {
+  let fenceChar = "";
+  let fenceLen = 0;
+  let lastSafe = 0;
+  let lineStart = 0;
+
+  for (let i = 0; i <= text.length; i++) {
+    if (i === text.length || text[i] === "\n") {
+      const line = text.substring(lineStart, i);
+      const trimmed = line.trimStart();
+
+      if (fenceChar) {
+        // Inside a fenced block — look for the closing fence
+        const closeMatch = trimmed.match(/^(`{3,}|~{3,})\s*$/);
+        if (closeMatch && closeMatch[1][0] === fenceChar && closeMatch[1].length >= fenceLen) {
+          fenceChar = "";
+          fenceLen = 0;
+        }
+      } else {
+        // Outside a fence — check for an opening fence
+        const openMatch = trimmed.match(/^(`{3,}|~{3,})/);
+        if (openMatch) {
+          fenceChar = openMatch[1][0];
+          fenceLen = openMatch[1].length;
+        } else if (trimmed === "" && lineStart > 0) {
+          // Blank line outside any fence = safe block boundary
+          lastSafe = i + 1;
+        }
+      }
+
+      lineStart = i + 1;
+    }
+  }
+
+  return lastSafe;
+}
+
+/**
+ * Lazily create the frozen/tail split divs inside currentContentEl.
+ * Called the first time we freeze content during streaming.
+ */
+function ensureSplitDivs() {
+  if (frozenDiv && tailDiv) return;
+  if (!currentContentEl) return;
+
+  frozenDiv = document.createElement("div");
+  tailDiv = document.createElement("div");
+
+  currentContentEl.innerHTML = "";
+  currentContentEl.appendChild(frozenDiv);
+  currentContentEl.appendChild(tailDiv);
+}
+
+function resetIncrementalState() {
+  frozenHtml = "";
+  freezeCharIndex = 0;
+  frozenDiv = null;
+  tailDiv = null;
+}
+
+function getWorker() {
+  if (mdWorker) return mdWorker;
+  // @ts-ignore — injected by panelHtml.ts
+  const uri = window.__brokkWorkerUri;
+  if (!uri) return null;
+  try {
+    mdWorker = new Worker(uri);
+    mdWorker.onmessage = handleWorkerMessage;
+    mdWorker.onerror = (err) => {
+      console.error("[Brokk] Markdown worker error:", err);
+      mdWorker = null; // Fall back to sync
+    };
+    return mdWorker;
+  } catch (err) {
+    console.warn("[Brokk] Could not create markdown worker, using sync fallback:", err);
+    return null;
+  }
+}
+
+/**
+ * Captured target element for the pending content render.
+ * Needed because currentContentEl/tailDiv may be nulled before the worker responds.
+ * @type {HTMLElement | null}
+ */
+let pendingContentTarget = null;
+
+/** @param {MessageEvent} e */
+function handleWorkerMessage(e) {
+  const { id, html } = e.data;
+  // Content render response
+  if (id === pendingContentRenderId) {
+    const target = pendingContentTarget;
+    if (target) {
+      target.innerHTML = html;
+      scrollToBottom();
+    }
+    pendingContentTarget = null;
+  }
+  // Reasoning render response
+  if (id === pendingReasoningRenderId && currentReasoningEl) {
+    const contentArea = currentReasoningEl.querySelector(".reasoning-content");
+    if (contentArea) {
+      contentArea.innerHTML = html;
+    }
+    scrollToBottom();
+  }
+}
+
+/**
+ * Request an async render from the worker. If the worker isn't available, returns false.
+ * @param {string} text
+ * @param {"content" | "reasoning"} target
+ * @param {HTMLElement} [explicitTarget] - Optional explicit target element (used for finalization when currentContentEl may be nulled)
+ * @returns {boolean} true if worker handled it
+ */
+function requestWorkerRender(text, target, explicitTarget) {
+  const worker = getWorker();
+  if (!worker) return false;
+  const id = ++renderRequestId;
+  if (target === "content") {
+    pendingContentRenderId = id;
+    pendingContentTarget = explicitTarget || tailDiv || currentContentEl;
+  } else {
+    pendingReasoningRenderId = id;
+  }
+  worker.postMessage({ id, text, bubbleId: workerBubbleCounter++ });
+  return true;
+}
+
 // ── Init ─────────────────────────────────────────────
 
 export function initChat() {
-  // No worker initialization needed — highlight.js runs synchronously
+  getWorker(); // Eagerly init
 }
 
 // ── Streaming Renderer ───────────────────────────────
@@ -47,8 +204,37 @@ function scheduleStreamRender() {
   streamRenderTimer = setTimeout(() => {
     streamRenderTimer = null;
     if (!currentContentEl) return;
-    currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
-    scrollToBottom();
+
+    const text = accumulatedContent;
+    const safeIdx = findSafeSplitIndex(text);
+
+    // Advance the freeze boundary when enough stable content exists
+    if (safeIdx > freezeCharIndex && safeIdx >= MIN_FREEZE_SIZE) {
+      // Render only the newly-frozen delta (small: typically one block)
+      const deltaMd = text.substring(freezeCharIndex, safeIdx);
+      const deltaHtml = renderMarkdownFast(deltaMd);
+      frozenHtml += deltaHtml;
+      freezeCharIndex = safeIdx;
+      ensureSplitDivs();
+      frozenDiv.insertAdjacentHTML("beforeend", deltaHtml);
+    }
+
+    // Render only the active tail (the small bit still being streamed)
+    const tailMd = text.substring(freezeCharIndex);
+
+    if (tailDiv) {
+      // Incremental mode: worker renders just the tail
+      if (!requestWorkerRender(tailMd, "content")) {
+        tailDiv.innerHTML = renderMarkdownFast(tailMd);
+        scrollToBottom();
+      }
+    } else {
+      // Content still small — full render
+      if (!requestWorkerRender(text, "content")) {
+        currentContentEl.innerHTML = renderMarkdownFast(text);
+        scrollToBottom();
+      }
+    }
   }, STREAM_RENDER_INTERVAL_MS);
 }
 
@@ -66,11 +252,13 @@ function scheduleReasoningRender() {
   reasoningRenderTimer = setTimeout(() => {
     reasoningRenderTimer = null;
     if (!currentReasoningEl) return;
-    const contentArea = currentReasoningEl.querySelector(".reasoning-content");
-    if (contentArea) {
-      contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+    if (!requestWorkerRender(accumulatedReasoning, "reasoning")) {
+      const contentArea = currentReasoningEl.querySelector(".reasoning-content");
+      if (contentArea) {
+        contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+      }
+      scrollToBottom();
     }
-    scrollToBottom();
   }, REASONING_RENDER_INTERVAL_MS);
 }
 
@@ -93,7 +281,10 @@ function finalizeReasoning() {
 
   const contentArea = currentReasoningEl.querySelector(".reasoning-content");
   if (contentArea) {
-    contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+    // Reasoning is about to be collapsed anyway, so async render is fine
+    if (!requestWorkerRender(accumulatedReasoning, "reasoning")) {
+      contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+    }
     contentArea.classList.add("collapsed");
   }
 
@@ -196,6 +387,7 @@ export function startAssistantMessage() {
   accumulatedContent = "";
   accumulatedReasoning = "";
   reasoningStartTime = 0;
+  resetIncrementalState();
 }
 
 export function finalizeAssistantMessage() {
@@ -205,7 +397,13 @@ export function finalizeAssistantMessage() {
     finalizeReasoning();
   }
   if (currentContentEl && accumulatedContent) {
-    currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
+    resetIncrementalState();
+    // Use worker for final render to avoid blocking the main thread.
+    // Capture the target element since currentContentEl will be nulled below.
+    const finalTarget = currentContentEl;
+    if (!requestWorkerRender(accumulatedContent, "content", finalTarget)) {
+      finalTarget.innerHTML = renderMarkdownFast(accumulatedContent);
+    }
   } else if (currentAssistantEl && !accumulatedContent && !accumulatedReasoning) {
     currentAssistantEl.remove();
   }
@@ -235,9 +433,11 @@ export function handleToken(msg) {
     if (msg.isTerminal) {
       flushReasoningRender();
       if (currentReasoningEl) {
-        const contentArea = currentReasoningEl.querySelector(".reasoning-content");
-        if (contentArea) {
-          contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+        if (!requestWorkerRender(accumulatedReasoning, "reasoning")) {
+          const contentArea = currentReasoningEl.querySelector(".reasoning-content");
+          if (contentArea) {
+            contentArea.innerHTML = renderMarkdownFast(accumulatedReasoning);
+          }
         }
       }
     } else {
@@ -251,7 +451,10 @@ export function handleToken(msg) {
     if (msg.isTerminal) {
       flushStreamRender();
       if (currentContentEl) {
-        currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
+        resetIncrementalState();
+        if (!requestWorkerRender(accumulatedContent, "content")) {
+          currentContentEl.innerHTML = renderMarkdownFast(accumulatedContent);
+        }
         scrollToBottom();
       }
     } else {
@@ -276,6 +479,7 @@ export function resetChat(message) {
   accumulatedContent = "";
   accumulatedReasoning = "";
   reasoningStartTime = 0;
+  resetIncrementalState();
 
   isRunning = false;
   submitBtn.classList.remove("hidden");

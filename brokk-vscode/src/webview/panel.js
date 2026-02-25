@@ -262,5 +262,62 @@ window.addEventListener("message", (event) => {
     case "autocompleteResults":
       handleAutocompleteResults(msg);
       break;
+
+    // Connection status
+    case "connectionStatus":
+      handleConnectionStatus(msg.status, msg.detail);
+      break;
   }
 });
+
+// ── Connection Status Overlay ───────────────────────
+
+function handleConnectionStatus(status, detail) {
+  let overlay = document.getElementById("connection-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "connection-overlay";
+    document.body.prepend(overlay);
+  }
+
+  if (status === "connected") {
+    overlay.classList.add("hidden");
+    return;
+  }
+
+  overlay.classList.remove("hidden");
+
+  if (status === "noWorkspace") {
+    overlay.innerHTML = `
+      <div class="connection-status-content">
+        <svg class="connection-status-icon" width="36" height="36" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
+        <div class="connection-status-title">No workspace open</div>
+        <div class="connection-status-detail">Open a folder to begin using Brokk</div>
+      </div>`;
+  } else if (status === "starting") {
+    overlay.innerHTML = `
+      <div class="connection-status-content">
+        <div class="connection-status-icon spin">&#9881;</div>
+        <div class="connection-status-title">Starting Brokk...</div>
+        <div class="connection-status-detail">Launching executor, this may take a moment</div>
+      </div>`;
+  } else if (status === "failed") {
+    const safeDetail = (detail || "Unknown error").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    // Show first line as the summary, rest as expandable details
+    const lines = safeDetail.split("\n");
+    const summary = lines[0];
+    const extra = lines.slice(1).join("\n").trim();
+    overlay.innerHTML = `
+      <div class="connection-status-content">
+        <div class="connection-status-icon">&#9888;</div>
+        <div class="connection-status-title">Startup failed</div>
+        <div class="connection-status-detail">${summary}</div>
+        ${extra ? `<pre class="connection-status-stderr">${extra}</pre>` : ""}
+        <div class="connection-status-hint">Check the <strong>Brokk</strong> output channel for details, or click the status bar to retry.</div>
+      </div>`;
+  }
+}
+
+// ── Signal Ready ────────────────────────────────────
+
+vscode.postMessage({ type: "webviewReady" });
