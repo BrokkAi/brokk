@@ -3,6 +3,7 @@ import asyncio
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -299,6 +300,9 @@ async def run_headless_job(
     spinner_label = "Creating issue"
     spinner_frames = "|/-\\"
     spinner_enabled = sys.stdout.isatty() and not verbose
+    phase_start_time = time.time()
+    current_phase: str | None = None
+    job_start_time = time.time()
 
     def _event_data(event: dict[str, Any]) -> dict[str, Any]:
         raw = event.get("data")
@@ -343,13 +347,63 @@ async def run_headless_job(
         if isinstance(issue_url, str) and issue_url.strip():
             _record_issue_url(issue_url.strip())
 
+    def _detect_phase_from_notification(message: str) -> str | None:
+        """Extract phase name from notification message keywords."""
+        msg_lower = message.lower()
+        if "analyzing issue" in msg_lower:
+            return "Analyzing issue"
+        if "diagnosis posted" in msg_lower:
+            return "Diagnosis posted"
+        if "prompt enrichment" in msg_lower:
+            return "Enriching prompt"
+        if "contextual insights" in msg_lower:
+            return "Building context"
+        if "verification" in msg_lower:
+            if "pass" in msg_lower:
+                return "Verification passed"
+            if "fail" in msg_lower:
+                return "Verification failed"
+            return "Running verification"
+        if "review-fix" in msg_lower or "review fix" in msg_lower:
+            return "Applying review fixes"
+        if "pr creation" in msg_lower or "pull request" in msg_lower:
+            return "Creating pull request"
+        if "push succeeded" in msg_lower or "push failed" in msg_lower:
+            return "Pushing changes"
+        return None
+
+    def _detect_phase_from_stage(stage: str) -> str | None:
+        """Map COMMAND_RESULT stage to display phase."""
+        stage_map = {
+            "tests": "Running tests",
+            "lint": "Running linter",
+            "verification": "Running verification",
+            "review_fix": "Applying review fixes",
+            "fix_trigger": "Applying fixes",
+        }
+        return stage_map.get(stage)
+
+    def _print_phase_transition(new_phase: str) -> None:
+        nonlocal current_phase, phase_start_time
+        if new_phase == current_phase:
+            return
+        _clear_spinner()
+        elapsed = time.time() - job_start_time
+        elapsed_str = f"{int(elapsed // 60)}:{int(elapsed % 60):02d}"
+        print(f"[{elapsed_str}] {new_phase}")
+        current_phase = new_phase
+        phase_start_time = time.time()
+
     def _render_spinner() -> None:
         nonlocal spinner_index, spinner_active
         if mode not in {"ISSUE_WRITER", "ISSUE"} or not spinner_enabled:
             return
         frame = spinner_frames[spinner_index % len(spinner_frames)]
         spinner_index += 1
-        label = "Solving issue" if mode == "ISSUE" else spinner_label
+        if mode == "ISSUE":
+            label = current_phase if current_phase else "Solving issue"
+        else:
+            label = spinner_label
         sys.stdout.write(f"\r{label}... {frame}")
         sys.stdout.flush()
         spinner_active = True
@@ -421,6 +475,12 @@ async def run_headless_job(
                     continue
                 _record_issue_url_from_issue_writer_notification(message)
                 _record_issue_url(message)
+
+                if mode == "ISSUE" and not verbose:
+                    detected_phase = _detect_phase_from_notification(message)
+                    if detected_phase:
+                        _print_phase_transition(detected_phase)
+
                 level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
                 # Keep headless issue mode quiet by default: warnings/errors matter,
                 # routine INFO/COST/CONFIRM notifications do not.
@@ -454,6 +514,13 @@ async def run_headless_job(
                     _clear_spinner()
                     print(f"[ISSUE_CREATED] {data}")
             elif event_type == "COMMAND_RESULT":
+                if mode == "ISSUE" and not verbose:
+                    stage = str(data.get("stage", ""))
+                    if stage:
+                        detected_phase = _detect_phase_from_stage(stage)
+                        if detected_phase:
+                            _print_phase_transition(detected_phase)
+
                 if verbose:
                     _clear_spinner()
                     print(f"[COMMAND_RESULT] {data}")
