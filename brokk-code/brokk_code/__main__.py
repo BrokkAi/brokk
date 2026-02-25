@@ -7,6 +7,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from brokk_code.intellij_config import configure_intellij_acp_settings
+from brokk_code.workspace import resolve_workspace_dir
+from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
+
 REPO_COMPONENT_ALLOWLIST_REGEX = r"^[A-Za-z0-9_.-]+$"
 
 
@@ -28,21 +32,18 @@ def _validate_github_params(
 
     if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_owner):
         print(
-            f"Error: Invalid --repo-owner '{repo_owner}'. Repo owner must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            f"Error: Invalid --repo-owner '{repo_owner}'. "
+            + "Repo owner must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
             file=sys.stderr,
         )
         sys.exit(1)
     if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_name):
         print(
-            f"Error: Invalid --repo-name '{repo_name}'. Repo name must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            f"Error: Invalid --repo-name '{repo_name}'. "
+            + "Repo name must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
             file=sys.stderr,
         )
         sys.exit(1)
-
-
-from brokk_code.intellij_config import configure_intellij_acp_settings
-from brokk_code.workspace import resolve_workspace_dir
-from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
 
 def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
