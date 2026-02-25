@@ -1001,7 +1001,8 @@ class ChatPanel(Vertical):
             first_line = f"{first_line[:67].rstrip()}..."
 
         summary = Text()
-        summary.append(f"{label} [+] (ctrl+o to expand)")
+        summary.append(label, style="bold")
+        summary.append(" [+] (ctrl+o to expand)")
         if first_line:
             summary.append(f" - {first_line}")
         return summary

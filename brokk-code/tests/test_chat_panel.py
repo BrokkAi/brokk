@@ -524,7 +524,24 @@ async def test_chat_panel_history_and_filtering():
         chat.refresh_log(show_verbose=True)
         await pilot.pause()
 
-        content = "".join(str(line) for line in log.lines)
+        def get_plain_text(line):
+            if isinstance(line, Text):
+                return line.plain
+            if hasattr(line, "plain"):
+                return line.plain
+            # For Strip and other objects, try to extract plain text
+            text_str = str(line)
+            # If it looks like a repr of Strip/Segment, try to extract content
+            if "Segment(" in text_str:
+                import re
+
+                # Match Segment('content', ...) or Segment('content')
+                matches = re.findall(r"Segment\('([^'\\]*(?:\\.[^'\\]*)*)'", text_str)
+                if matches:
+                    return "".join(matches)
+            return text_str
+
+        content = "".join(get_plain_text(line) for line in log.lines)
         assert "Hello User" in content
         assert "Thinking [-] (ctrl+o to collapse)" in content  # Reasoning panel title
         assert "Thinking hard" in content
@@ -537,7 +554,7 @@ async def test_chat_panel_history_and_filtering():
         chat.refresh_log(show_verbose=False)
         await pilot.pause()
 
-        content_filtered = "".join(str(line) for line in log.lines)
+        content_filtered = "".join(get_plain_text(line) for line in log.lines)
         assert "Hello User" in content_filtered
         assert "Hello from AI" in content_filtered
         assert "System info" in content_filtered
@@ -751,7 +768,26 @@ async def test_tool_call_visibility_toggle_integration():
         chat.add_markdown(tool_markdown)
         await pilot.pause()
 
-        rendered_off = "".join(str(line) for line in chat.query_one("#chat-log", RichLog).lines)
+        def get_plain_text(line):
+            if isinstance(line, Text):
+                return line.plain
+            if hasattr(line, "plain"):
+                return line.plain
+            # For Strip and other objects, try to extract plain text
+            text_str = str(line)
+            # If it looks like a repr of Strip/Segment, try to extract content
+            if "Segment(" in text_str:
+                import re
+
+                # Match Segment('content', ...) or Segment('content')
+                matches = re.findall(r"Segment\('([^'\\]*(?:\\.[^'\\]*)*)'", text_str)
+                if matches:
+                    return "".join(matches)
+            return text_str
+
+        rendered_off = "".join(
+            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+        )
         # Collapsed tool call should show summary line with first YAML line as hint
         assert "list_files [+] (ctrl+o to expand) - directory: src" in rendered_off
 
@@ -767,7 +803,9 @@ async def test_tool_call_visibility_toggle_integration():
         app.action_toggle_output()
         await pilot.pause()
         assert app.show_verbose_output is True
-        rendered_on = "".join(str(line) for line in chat.query_one("#chat-log", RichLog).lines)
+        rendered_on = "".join(
+            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+        )
         assert "Tool Call: list_files [-] (ctrl+o to collapse)" in rendered_on
 
         # With verbose ON, filtering should be a no-op
@@ -781,7 +819,44 @@ async def test_tool_call_visibility_toggle_integration():
         await pilot.pause()
         assert app.show_verbose_output is False
 
+        rendered_off_again = "".join(
+            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+        )
+        assert "list_files [+] (ctrl+o to expand) - directory: src" in rendered_off_again
+
         # Verify filtering works again when off
         chat.show_verbose = False
         filtered_off_again = chat._filter_tool_call_blocks(tool_markdown)
         assert "list_files [+] (ctrl+o to expand) - directory: src" in filtered_off_again
+
+
+@pytest.mark.asyncio
+async def test_collapsed_summary_text_bold_label():
+    """Verify that _collapsed_summary_text renders the label portion in bold."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+
+        # Test with content
+        result = panel._collapsed_summary_text("Thinking", "Some content here")
+        assert result.plain == "Thinking [+] (ctrl+o to expand) - Some content here"
+
+        # Verify spans: first span should be bold covering the label
+        assert len(result.spans) >= 1
+        assert result.spans[0].start == 0
+        assert result.spans[0].end == len("Thinking")
+        assert "bold" in str(result.spans[0].style).lower()
+
+        # Test without content (empty string)
+        result2 = panel._collapsed_summary_text("Command Output", "")
+        assert result2.plain == "Command Output [+] (ctrl+o to expand)"
+        assert len(result2.spans) >= 1
+        assert result2.spans[0].start == 0
+        assert result2.spans[0].end == len("Command Output")
+        assert "bold" in str(result2.spans[0].style).lower()
