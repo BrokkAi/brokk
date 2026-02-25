@@ -288,6 +288,13 @@ public final class SimpleHttpServer {
     }
 
     /**
+     * Returns true if the server is running in HTTPS mode.
+     */
+    public boolean isHttps() {
+        return this.httpServer instanceof HttpsServer;
+    }
+
+    /**
      * Functional interface for HTTP handlers that may throw exceptions.
      */
     @FunctionalInterface

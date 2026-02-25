@@ -454,8 +454,11 @@ public final class HeadlessExecutorMain {
 
     public void start() {
         this.server.start();
+        String scheme = server.isHttps() ? "HTTPS" : "HTTP";
         logger.info(
-                "HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/sessions, /v1/jobs, etc.; cmSession={}",
+                "HeadlessExecutorMain {} server started on port {} (endpoints: /health/live, /v1/sessions, /v1/jobs, etc.); cmSession={}",
+                scheme,
+                server.getPort(),
                 contextManager.getCurrentSessionId());
     }
 
