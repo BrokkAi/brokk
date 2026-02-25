@@ -105,8 +105,24 @@ public class BrokkExternalMcpServer {
 
             cm.createHeadless(true, new MutedConsoleIO(cm.getIo()));
 
-            McpJsonMapper mapper = McpJsonDefaults.getMapper();
             BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
+
+            for (String arg : args) {
+                if ("--help".equals(arg) || "-h".equals(arg)) {
+                    System.out.println("Brokk MCP Server v" + ai.brokk.BuildInfo.version);
+                    System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
+                    System.out.println();
+                    System.out.println("Available Tools:");
+                    instance.toolSpecifications().forEach(spec -> {
+                        System.out.printf(
+                                "  - %-20s : %s%n",
+                                spec.tool().name(), spec.tool().description());
+                    });
+                    System.exit(0);
+                }
+            }
+
+            McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
 
             McpSyncServer mcpServer = McpServer.sync(new StdioServerTransportProvider(mapper, System.in, System.out))
