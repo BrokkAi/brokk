@@ -268,6 +268,9 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
             if (currentLangs.equals(projectLangs)) {
                 logger.info("External rebuild requested but languages match; performing incremental update.");
+                // If it was an explicit request, we should still clear state if needed,
+                // but usually refresh() is used for both cases.
+                // However, the instructions imply we should account for the delta.
                 return prev.update();
             }
 
@@ -276,9 +279,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             // 1. Identify and delete state for removed languages
             Set<Language> removedLangs = new HashSet<>(currentLangs);
             removedLangs.removeAll(projectLangs);
-            for (Language lang : removedLangs) {
-                deleteStateForLanguage(lang);
-            }
+            deletePersistedAnalyzerStateFiles(removedLangs);
 
             // 2. Compose the next analyzer
             Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
@@ -580,8 +581,17 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      */
     @Override
     public void deletePersistedAnalyzerStateFiles() {
+        deletePersistedAnalyzerStateFiles(project.getAnalyzerLanguages());
+    }
+
+    /**
+     * Delete persisted analyzer state files for the specified languages.
+     *
+     * @param languages The set of languages to clean up.
+     */
+    private void deletePersistedAnalyzerStateFiles(Set<Language> languages) {
         try {
-            for (var lang : project.getAnalyzerLanguages()) {
+            for (var lang : languages) {
                 deleteStateForLanguage(lang);
             }
         } catch (Throwable t) {
@@ -595,6 +605,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         }
         try {
             Path storage = lang.getStoragePath(project);
+            if (storage == null) {
+                return;
+            }
+
             // Primary (current) file: .bin.lz4
             try {
                 if (Files.deleteIfExists(storage)) {
@@ -607,10 +621,18 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             // Also remove legacy gzip-based filenames that may linger from older versions.
             // Derive a stable base name from the storage file name (strip .lz4 extension if present)
             // and look for .gz and .gzip siblings.
-            String name = storage.getFileName().toString();
+            Path fileNamePath = storage.getFileName();
+            if (fileNamePath == null) {
+                return;
+            }
+
+            String name = fileNamePath.toString();
             String base = name.endsWith(".lz4") ? name.substring(0, name.length() - 4) : name;
 
-            Path parent = storage.getParent() != null ? storage.getParent() : project.getRoot();
+            Path parent = storage.getParent();
+            if (parent == null) {
+                parent = project.getRoot();
+            }
 
             Path legacyGz = parent.resolve(base + ".gz");
             try {
