@@ -379,6 +379,9 @@ public class BrokkExternalMcpServer {
             bounded by your ability to accurately describe the changes you need at the current stage. If you give
             Code Agent a task that is too difficult, it will tell you what it changed and (if it can run build/tests)
             what problems it could not resolve.
+            
+            Code Agent can ONLY write (and test) code changes (and configuration/fixture files). It cannot call
+            other tools or execute cli tasks.
             """)
     public String callCodeAgent(
             @P(
