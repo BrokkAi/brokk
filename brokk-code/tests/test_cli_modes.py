@@ -297,3 +297,40 @@ def test_main_resume_routes_correctly(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["resume_session"] is False
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["vendor"] == "Anthropic"
+
+
+def test_main_issue_create_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "Broken build",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_123",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["task_input"] == "Broken build"
+    assert captured["kwargs"]["mode"] == "ISSUE_WRITER"
+    assert captured["kwargs"]["tags"]["github_token"] == "ghp_123"
+    assert captured["kwargs"]["tags"]["repo_owner"] == "acme"
+    assert captured["kwargs"]["tags"]["repo_name"] == "tools"

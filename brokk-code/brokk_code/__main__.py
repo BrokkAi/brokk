@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -102,6 +103,39 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Overwrite existing install configuration when supported",
     )
 
+    issue_parser = subparsers.add_parser("issue", help="Manage GitHub issues")
+    issue_subparsers = issue_parser.add_subparsers(dest="issue_command", required=True)
+
+    issue_create_parser = issue_subparsers.add_parser("create", help="Create a new GitHub issue")
+    _add_common_runtime_args(issue_create_parser)
+    issue_create_parser.add_argument(
+        "prompt",
+        type=str,
+        help="Description of the issue to create",
+    )
+    issue_create_parser.add_argument(
+        "--github-token",
+        type=str,
+        default=os.environ.get("GITHUB_TOKEN"),
+        help="GitHub API token (defaults to GITHUB_TOKEN env var)",
+    )
+    issue_create_parser.add_argument(
+        "--repo-owner",
+        type=str,
+        help="GitHub repository owner",
+    )
+    issue_create_parser.add_argument(
+        "--repo-name",
+        type=str,
+        help="GitHub repository name",
+    )
+    issue_create_parser.add_argument(
+        "--planner-model",
+        type=str,
+        default="claude-3-5-sonnet-latest",
+        help="LLM model for planning (default: claude-3-5-sonnet-latest)",
+    )
+
     return parser
 
 
@@ -165,6 +199,31 @@ def main():
     if args.command == "resume":
         session_id = args.session_id
         resume_session = False  # Explicitly using the provided ID, not "last session" logic
+
+    if args.command == "issue" and args.issue_command == "create":
+        # Handle issue create mode by launching a non-interactive job
+        from brokk_code.app import run_headless_job
+
+        tags = {
+            "github_token": args.github_token or "",
+            "repo_owner": args.repo_owner or "",
+            "repo_name": args.repo_name or "",
+        }
+
+        asyncio.run(
+            run_headless_job(
+                workspace_dir=workspace_path,
+                task_input=args.prompt,
+                planner_model=args.planner_model,
+                mode="ISSUE_WRITER",
+                tags=tags,
+                jar_path=jar_path,
+                executor_version=args.executor_version,
+                executor_snapshot=args.executor_snapshot,
+                vendor=args.vendor,
+            )
+        )
+        return
 
     app = BrokkApp(
         workspace_dir=workspace_path,
