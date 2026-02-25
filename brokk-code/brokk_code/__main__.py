@@ -149,6 +149,68 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Show full headless executor output (events/tokens) for debugging",
     )
 
+    issue_solve_parser = issue_subparsers.add_parser("solve", help="Fix an existing GitHub issue")
+    _add_common_runtime_args(issue_solve_parser)
+    issue_solve_parser.add_argument(
+        "--issue-number",
+        type=int,
+        required=True,
+        help="The GitHub issue number to solve",
+    )
+    issue_solve_parser.add_argument(
+        "--github-token",
+        type=str,
+        default=os.environ.get("GITHUB_TOKEN"),
+        help="GitHub API token (defaults to GITHUB_TOKEN env var)",
+    )
+    issue_solve_parser.add_argument(
+        "--repo-owner",
+        type=str,
+        help="GitHub repository owner",
+    )
+    issue_solve_parser.add_argument(
+        "--repo-name",
+        type=str,
+        help="GitHub repository name",
+    )
+    issue_solve_parser.add_argument(
+        "--planner-model",
+        type=str,
+        default="claude-3-5-sonnet",
+        help="LLM model for planning (default: claude-3-5-sonnet)",
+    )
+    issue_solve_parser.add_argument(
+        "--code-model",
+        type=str,
+        default=None,
+        help="LLM model for code generation (optional)",
+    )
+    issue_solve_parser.add_argument(
+        "--skip-verification",
+        action="store_true",
+        default=False,
+        help="Skip per-task and final verification steps",
+    )
+    issue_solve_parser.add_argument(
+        "--max-issue-fix-attempts",
+        type=int,
+        default=None,
+        help="Maximum iterations for final verification fix loop",
+    )
+    issue_solve_parser.add_argument(
+        "--build-settings",
+        type=str,
+        default=None,
+        help="JSON string of build settings overrides (matching executor expectations)",
+    )
+    issue_solve_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full headless executor output (events/tokens) for debugging",
+    )
+
     return parser
 
 
@@ -159,6 +221,9 @@ async def run_headless_job(
     mode: str,
     tags: dict[str, str],
     planner_reasoning_level: str | None = None,
+    code_model: str | None = None,
+    skip_verification: bool | None = None,
+    max_issue_fix_attempts: int | None = None,
     verbose: bool = False,
     jar_path: Path | None = None,
     executor_version: str | None = None,
@@ -234,11 +299,12 @@ async def run_headless_job(
 
     def _render_spinner() -> None:
         nonlocal spinner_index, spinner_active
-        if mode != "ISSUE_WRITER" or not spinner_enabled:
+        if mode not in {"ISSUE_WRITER", "ISSUE"} or not spinner_enabled:
             return
         frame = spinner_frames[spinner_index % len(spinner_frames)]
         spinner_index += 1
-        sys.stdout.write(f"\r{spinner_label}... {frame}")
+        label = "Solving issue" if mode == "ISSUE" else spinner_label
+        sys.stdout.write(f"\r{label}... {frame}")
         sys.stdout.flush()
         spinner_active = True
 
@@ -246,7 +312,9 @@ async def run_headless_job(
         nonlocal spinner_active
         if not spinner_enabled or not spinner_active:
             return
-        sys.stdout.write("\r" + (" " * (len(spinner_label) + 8)) + "\r")
+        # Calculate max possible width to clear (Issue # + long labels)
+        width = len(spinner_label) + 20
+        sys.stdout.write("\r" + (" " * width) + "\r")
         sys.stdout.flush()
         spinner_active = False
 
@@ -285,9 +353,12 @@ async def run_headless_job(
         job_id = await manager.submit_job(
             task_input=task_input,
             planner_model=planner_model,
+            code_model=code_model,
             reasoning_level=planner_reasoning_level,
             mode=mode,
             tags=tags,
+            skip_verification=skip_verification,
+            max_issue_fix_attempts=max_issue_fix_attempts,
         )
         _update_shutdown_context()
 
@@ -456,30 +527,62 @@ def main():
         session_id = args.session_id
         resume_session = False  # Explicitly using the provided ID, not "last session" logic
 
-    if args.command == "issue" and args.issue_command == "create":
-        # Handle issue create mode by launching a non-interactive job
-        tags = {
-            "github_token": args.github_token or "",
-            "repo_owner": args.repo_owner or "",
-            "repo_name": args.repo_name or "",
-        }
+    if args.command == "issue":
+        if args.issue_command == "create":
+            # Handle issue create mode by launching a non-interactive job
+            tags = {
+                "github_token": args.github_token or "",
+                "repo_owner": args.repo_owner or "",
+                "repo_name": args.repo_name or "",
+            }
 
-        asyncio.run(
-            run_headless_job(
-                workspace_dir=workspace_path,
-                task_input=args.prompt,
-                planner_model=args.planner_model,
-                planner_reasoning_level="disable",
-                verbose=args.verbose,
-                mode="ISSUE_WRITER",
-                tags=tags,
-                jar_path=jar_path,
-                executor_version=args.executor_version,
-                executor_snapshot=args.executor_snapshot,
-                vendor=args.vendor,
+            asyncio.run(
+                run_headless_job(
+                    workspace_dir=workspace_path,
+                    task_input=args.prompt,
+                    planner_model=args.planner_model,
+                    planner_reasoning_level="disable",
+                    verbose=args.verbose,
+                    mode="ISSUE_WRITER",
+                    tags=tags,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                    vendor=args.vendor,
+                )
             )
-        )
-        return
+            return
+
+        if args.issue_command == "solve":
+            tags = {
+                "github_token": args.github_token or "",
+                "repo_owner": args.repo_owner or "",
+                "repo_name": args.repo_name or "",
+                "issue_number": str(args.issue_number),
+            }
+            if args.build_settings:
+                tags["build_settings"] = args.build_settings
+
+            task_input = f"Resolve GitHub Issue #{args.issue_number}"
+
+            asyncio.run(
+                run_headless_job(
+                    workspace_dir=workspace_path,
+                    task_input=task_input,
+                    planner_model=args.planner_model,
+                    code_model=args.code_model,
+                    skip_verification=args.skip_verification,
+                    max_issue_fix_attempts=args.max_issue_fix_attempts,
+                    verbose=args.verbose,
+                    mode="ISSUE",
+                    tags=tags,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                    vendor=args.vendor,
+                )
+            )
+            return
 
     app = BrokkApp(
         workspace_dir=workspace_path,
