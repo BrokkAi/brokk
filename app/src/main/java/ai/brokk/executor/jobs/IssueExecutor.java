@@ -334,7 +334,7 @@ public final class IssueExecutor {
 
                     var generatedTask = incompleteTasks.get(i);
                     int currentIdx = i + 1;
-                    String taskSummary = generatedTask.text() != null ? generatedTask.text() : "";
+                    String taskSummary = generatedTask.text();
                     if (taskSummary.length() > 80) {
                         taskSummary = taskSummary.substring(0, 77) + "...";
                     }
