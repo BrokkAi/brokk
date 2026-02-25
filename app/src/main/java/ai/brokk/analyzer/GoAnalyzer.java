@@ -415,8 +415,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     public List<String> getTestModules(Collection<ProjectFile> files) {
         return files.stream()
-                .map(f -> {
-                    Path parent = f.getRelPath().getParent();
+                .map(file -> {
+                    Path parent = file.getRelPath().getParent();
                     if (parent == null || parent.toString().isEmpty()) {
                         return ".";
                     }
