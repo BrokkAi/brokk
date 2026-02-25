@@ -139,6 +139,70 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+async def run_headless_job(
+    workspace_dir: Path,
+    task_input: str,
+    planner_model: str,
+    mode: str,
+    tags: dict[str, str],
+    jar_path: Path | None = None,
+    executor_version: str | None = None,
+    executor_snapshot: bool = True,
+    vendor: str | None = None,
+) -> None:
+    """Runs a non-interactive job via ExecutorManager and streams events to stdout."""
+    from brokk_code.executor import ExecutorError, ExecutorManager
+
+    manager = ExecutorManager(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+        vendor=vendor,
+    )
+
+    try:
+        await manager.start()
+        if not await manager.wait_ready():
+            print("Error: Executor failed to become ready.", file=sys.stderr)
+            sys.exit(1)
+
+        await manager.create_session(name=f"Headless {mode}")
+
+        print(f"Submitting {mode} job...")
+        job_id = await manager.submit_job(
+            task_input=task_input,
+            planner_model=planner_model,
+            mode=mode,
+            tags=tags,
+        )
+        print(f"Job submitted: {job_id}")
+
+        async for event in manager.stream_events(job_id):
+            event_type = event.get("type")
+            if event_type == "NOTIFICATION":
+                print(f"[{event.get('level', 'INFO')}] {event.get('message')}")
+            elif event_type == "STATE_CHANGE":
+                print(f"Job state: {event.get('state')}")
+            elif event_type == "TOKEN":
+                # Print tokens without newlines to stream text
+                sys.stdout.write(event.get("text", ""))
+                sys.stdout.flush()
+            elif event_type == "ERROR":
+                print(f"\nError event: {event.get('message')}", file=sys.stderr)
+
+        print("\nJob finished.")
+
+    except ExecutorError as e:
+        print(f"Executor error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        await manager.stop()
+
+
 def main():
     parser = _build_parser()
     args = parser.parse_args()
@@ -202,8 +266,6 @@ def main():
 
     if args.command == "issue" and args.issue_command == "create":
         # Handle issue create mode by launching a non-interactive job
-        from brokk_code.app import run_headless_job
-
         tags = {
             "github_token": args.github_token or "",
             "repo_owner": args.repo_owner or "",
