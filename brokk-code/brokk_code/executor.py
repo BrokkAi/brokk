@@ -120,6 +120,8 @@ class ExecutorManager:
         vendor: Optional[str] = None,
         exit_on_stdin_eof: bool = False,
         brokk_api_key: Optional[str] = None,
+        verify: Optional[Any] = True,
+        client_cert: Optional[Any] = None,
     ):
         self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
         self.jar_override = jar_path
@@ -128,6 +130,8 @@ class ExecutorManager:
         self.vendor = vendor
         self.exit_on_stdin_eof = exit_on_stdin_eof
         self.brokk_api_key = brokk_api_key
+        self.verify = verify
+        self.client_cert = client_cert
         self.auth_token = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
@@ -300,6 +304,8 @@ class ExecutorManager:
         self._http_client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {self.auth_token}"},
+            verify=self.verify,
+            cert=self.client_cert,
             timeout=30.0,
         )
         logger.info(f"Executor started at {self.base_url}")
@@ -309,7 +315,12 @@ class ExecutorManager:
         if not self._http_client:
             raise ExecutorError("Executor not started")
         # Use a fresh client without Auth header for unauthenticated endpoint check
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0) as client:
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            verify=self.verify,
+            cert=self.client_cert,
+            timeout=5.0,
+        ) as client:
             resp = await client.get("/health/live")
             resp.raise_for_status()
             return resp.json()
