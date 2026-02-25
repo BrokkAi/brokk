@@ -37,6 +37,7 @@ import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
+import io.modelcontextprotocol.spec.McpSchema;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -52,8 +53,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-
-import io.modelcontextprotocol.spec.McpSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -144,11 +143,12 @@ public class BrokkExternalMcpServer {
     }
 
     public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(
-            ToolRegistry registry, Collection<String> toolNames) {
-        return toolSpecificationsFrom(registry, toolNames, null);
+            ContextManager cm, ToolRegistry registry, Collection<String> toolNames) {
+        return toolSpecificationsFrom(cm, registry, toolNames, null);
     }
 
     public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(
+            ContextManager cm,
             ToolRegistry registry,
             Collection<String> toolNames,
             @Nullable McpToolCallHistoryWriter historyWriter) {
@@ -179,6 +179,9 @@ public class BrokkExternalMcpServer {
                                 var logFile = historyWriter != null
                                         ? historyWriter.writeRequest(spec.name(), serializeRequest(request))
                                         : null;
+
+                                logger.debug("Clearing Brokk session before tool execution");
+                                cm.dropWithHistorySemantics(List.of());
 
                                 Object progressToken = request.progressToken();
                                 if (progressToken != null) {
@@ -327,12 +330,7 @@ public class BrokkExternalMcpServer {
             toolNames.add("jq");
         }
 
-        registry.setPreExecutionHook(() -> {
-            logger.debug("Clearing Brokk session before tool execution");
-            cm.dropWithHistorySemantics(List.of());
-        });
-
-        return toolSpecificationsFrom(registry, toolNames, mcpToolCallHistoryWriter);
+        return toolSpecificationsFrom(cm, registry, toolNames, mcpToolCallHistoryWriter);
     }
 
     private boolean isJqOnPath() {

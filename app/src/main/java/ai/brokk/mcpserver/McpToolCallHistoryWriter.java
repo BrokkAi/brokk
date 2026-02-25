@@ -75,7 +75,7 @@ public final class McpToolCallHistoryWriter {
         String timestamp = TIMESTAMP_FORMATTER.format(Instant.now());
         String content =
                 """
-                
+
                 # Response @%s
 
                 ## Status: %s
