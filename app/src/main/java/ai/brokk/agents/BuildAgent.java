@@ -282,9 +282,7 @@ public class BuildAgent {
 
             // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
-                project.getConsoleIO().beforeToolCall(reportRequest);
                 var terminalResult = tr.executeTool(reportRequest);
-                project.getConsoleIO().afterToolOutput(terminalResult);
 
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     // The assertion was here, but requireNonNull is more explicit for NullAway
@@ -298,9 +296,7 @@ public class BuildAgent {
                     continue;
                 }
             } else if (abortRequest != null) {
-                project.getConsoleIO().beforeToolCall(abortRequest);
                 var terminalResult = tr.executeTool(abortRequest);
-                project.getConsoleIO().afterToolOutput(terminalResult);
 
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     assert abortReason != null;
@@ -319,9 +315,7 @@ public class BuildAgent {
                 String toolName = request.name();
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
 
-                project.getConsoleIO().beforeToolCall(request);
                 ToolExecutionResult execResult = tr.executeTool(request);
-                project.getConsoleIO().afterToolOutput(execResult);
 
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
