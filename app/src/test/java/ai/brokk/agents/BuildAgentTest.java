@@ -815,20 +815,8 @@ class BuildAgentTest {
     @Test
     void testGetBuildLintSomeCommandGoModules(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.GO);
-        TestAnalyzer analyzer = new TestAnalyzer() {
-            @Override
-            public List<String> getTestModules(java.util.Collection<ProjectFile> files) {
-                return files.stream()
-                        .map(f -> {
-                            Path parent = f.getRelPath().getParent();
-                            if (parent == null || parent.toString().isEmpty()) return ".";
-                            return "./" + parent.toString().replace('\\', '/');
-                        })
-                        .distinct()
-                        .sorted()
-                        .toList();
-            }
-        };
+        // Use real GoAnalyzer to test directory-based module logic
+        ai.brokk.analyzer.GoAnalyzer analyzer = new ai.brokk.analyzer.GoAnalyzer(project);
         TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
         ProjectFile file1 = new ProjectFile(tempDir, "main_test.go");
@@ -841,31 +829,19 @@ class BuildAgentTest {
 
         String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
-        // Result should be sorted: . then ./auth
+        // GoAnalyzer.getTestModules returns ./path and .
         assertEquals("go test . ./auth ", result);
     }
 
     @Test
     void testGetBuildLintSomeCommandPythonPackages(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.PYTHON);
-        TestAnalyzer analyzer = new TestAnalyzer() {
-            @Override
-            public List<String> getTestModules(java.util.Collection<ProjectFile> files) {
-                return files.stream()
-                        .map(f -> f.getRelPath()
-                                .toString()
-                                .replace(".py", "")
-                                .replace('\\', '.')
-                                .replace('/', '.'))
-                        .distinct()
-                        .sorted()
-                        .toList();
-            }
-        };
+        // Use real PythonAnalyzer to test dotted module label logic
+        ai.brokk.analyzer.PythonAnalyzer analyzer = new ai.brokk.analyzer.PythonAnalyzer(project);
         TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
         ProjectFile file1 = new ProjectFile(tempDir, "tests/test_foo.py");
-        ProjectFile file2 = new ProjectFile(tempDir, "tests/test_bar.py");
+        ProjectFile file2 = new ProjectFile(tempDir, "auth/test_login.py");
 
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
                 "python -m compile",
@@ -875,26 +851,15 @@ class BuildAgentTest {
 
         String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
-        assertEquals("python -m pytest tests.test_bar tests.test_foo ", result);
+        // Result should be sorted dotted labels: auth.test_login tests.test_foo
+        assertEquals("python -m pytest auth.test_login tests.test_foo ", result);
     }
 
     @Test
     void testGetBuildLintSomeCommandJavaPackages(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.JAVA);
-        TestAnalyzer analyzer = new TestAnalyzer() {
-            private final Map<ProjectFile, List<CodeUnit>> fileToDecls = new java.util.HashMap<>();
-
-            @Override
-            public void addDeclaration(CodeUnit cu) {
-                super.addDeclaration(cu);
-                fileToDecls.computeIfAbsent(cu.source(), k -> new ArrayList<>()).add(cu);
-            }
-
-            @Override
-            public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-                return fileToDecls.getOrDefault(file, List.of());
-            }
-        };
+        // Java uses default IAnalyzer.getTestModules which extracts packageName from CodeUnits
+        TestAnalyzer analyzer = new TestAnalyzer();
         TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
         ProjectFile file1 = new ProjectFile(tempDir, "src/main/java/com/example/App.java");
