@@ -1,4 +1,4 @@
-package ai.brokk.mcp;
+package ai.brokk.mcpclient;
 
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import java.util.List;

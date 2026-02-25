@@ -1,7 +1,7 @@
 package ai.brokk.prompts;
 
-import ai.brokk.mcp.McpServer;
-import ai.brokk.mcp.McpUtils;
+import ai.brokk.mcpclient.McpServer;
+import ai.brokk.mcpclient.McpUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.spec.McpSchema;

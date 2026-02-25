@@ -49,6 +49,19 @@ public class ExceptionReporter {
         this(() -> service);
     }
 
+    public static String getRootCauseMessage(Throwable t) {
+        Throwable r1 = t;
+        while (r1.getCause() != null && r1.getCause() != r1) {
+            r1 = r1.getCause();
+        }
+        Throwable r = r1;
+        String msg = r.getMessage();
+        if (msg == null || msg.isBlank()) {
+            return r.getClass().getSimpleName();
+        }
+        return msg;
+    }
+
     /**
      * Reports an exception to the Brokk server asynchronously. This method never throws exceptions - failures are
      * logged but do not propagate.

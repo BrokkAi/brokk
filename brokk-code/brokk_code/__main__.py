@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from brokk_code.intellij_config import configure_intellij_acp_settings
+from brokk_code.mcp_config import (
+    configure_claude_code_mcp_settings,
+    configure_codex_mcp_settings,
+)
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
@@ -95,7 +99,7 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed", "intellij"],
+        choices=["zed", "intellij", "mcp"],
         help="Install target for integration settings",
     )
     install_parser.add_argument(
@@ -407,6 +411,12 @@ def main():
             elif args.target == "intellij":
                 settings_path = configure_intellij_acp_settings(force=args.force)
                 target_name = "IntelliJ"
+            elif args.target == "mcp":
+                claude_settings_path = configure_claude_code_mcp_settings(force=args.force)
+                print(f"Configured Claude Code MCP integration in {claude_settings_path}")
+                codex_settings_path = configure_codex_mcp_settings(force=args.force)
+                print(f"Configured Codex MCP integration in {codex_settings_path}")
+                return
             else:
                 # Should not happen due to argparse choices
                 raise ValueError(f"Unknown target: {args.target}")

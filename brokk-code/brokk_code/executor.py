@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 BUNDLED_EXECUTOR_VERSION = "0.23.0.beta4"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
+_READY_SENTINEL = "Executor listening on http://"
+_STARTUP_LINE_TIMEOUT = 120.0
 
 
 class ExecutorError(Exception):
@@ -140,6 +142,47 @@ class ExecutorManager:
         self._stdin: Optional[asyncio.StreamWriter] = None
         self._http_client: Optional[httpx.AsyncClient] = None
 
+    @property
+    def _main_class(self) -> str:
+        return _EXECUTOR_MAIN_CLASS
+
+    def _parse_port_from_line(self, line: str) -> Optional[int]:
+        """Extract the port number from a startup log line, or return None."""
+        if _READY_SENTINEL in line:
+            try:
+                return int(line.split(":")[-1])
+            except (ValueError, IndexError):
+                return None
+        return None
+
+    async def _await_ready(self, exec_id: str) -> int:
+        """
+        Read subprocess stdout until a port is found via _parse_port_from_line.
+        Returns the port number. Raises ExecutorError if none is found.
+        Subclasses may override to use a different readiness strategy.
+        """
+        output_lines: List[str] = []
+        while True:
+            try:
+                line_bytes = await asyncio.wait_for(
+                    self._process.stdout.readline(), timeout=_STARTUP_LINE_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                break
+            if not line_bytes:
+                break
+            line = line_bytes.decode().strip()
+            logger.debug("Executor: %s", line)
+            output_lines.append(line)
+            parsed = self._parse_port_from_line(line)
+            if parsed is not None:
+                return parsed
+
+        output_summary = "\n".join(output_lines[-30:]) if output_lines else "(no output)"
+        raise ExecutorError(
+            f"Failed to extract port from executor output.\nLast output:\n{output_summary}"
+        )
+
     def _get_executor_args(self, exec_id: str) -> List[str]:
         """Returns the common command-line arguments for the HeadlessExecutorMain."""
         args = [
@@ -168,7 +211,7 @@ class ExecutorManager:
             "-Dapple.awt.UIElement=true",
             "-cp",
             str(jar_path),
-            "ai.brokk.executor.HeadlessExecutorMain",
+            self._main_class,
         ]
         cmd.extend(self._get_executor_args(exec_id))
         return cmd
@@ -190,7 +233,7 @@ class ExecutorManager:
             + "-Dapple.awt.UIElement=true "
             + "--enable-native-access=ALL-UNNAMED",
             "--main",
-            _EXECUTOR_MAIN_CLASS,
+            self._main_class,
             jar_url,
         ]
         cmd.extend(self._get_executor_args(exec_id))
@@ -198,15 +241,24 @@ class ExecutorManager:
 
     def _find_dev_jar(self) -> Optional[Path]:
         """Searches for a local development JAR in the project structure."""
-        shadow_jar = self.workspace_dir / "app" / "build" / "libs" / "brokk.jar"
-        if shadow_jar.exists():
-            return shadow_jar
+
+        def _find_in_workspace(base: Path) -> Optional[Path]:
+            libs_dir = base / "app" / "build" / "libs"
+            if not libs_dir.exists():
+                return None
+
+            named_jar = list(libs_dir.glob("brokk-*.jar"))
+            if not named_jar:
+                return None
+
+            # Prefer the newest built jar when multiple versions are present.
+            return max(named_jar, key=lambda jar: jar.stat().st_mtime)
 
         curr = self.workspace_dir
         while curr != curr.parent:
             if (curr / "gradlew").exists():
-                potential_jar = curr / "app" / "build" / "libs" / "brokk.jar"
-                if potential_jar.exists():
+                potential_jar = _find_in_workspace(curr)
+                if potential_jar:
                     return potential_jar
             curr = curr.parent
         return None
@@ -217,11 +269,13 @@ class ExecutorManager:
 
         if self.jar_override:
             self.resolved_jar_path = self.jar_override
+            print(f"Running in dev mode with JAR: {self.jar_override}")
             cmd = self._get_direct_java_command(self.jar_override, exec_id)
         else:
             dev_jar = self._find_dev_jar()
             if dev_jar:
                 self.resolved_jar_path = dev_jar
+                print(f"Running in dev mode with local JAR: {dev_jar}")
                 cmd = self._get_direct_java_command(dev_jar, exec_id)
             else:
                 cmd = await self._get_jbang_command(exec_id)
@@ -248,6 +302,7 @@ class ExecutorManager:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                cwd=str(self.workspace_dir),
             )
             # Store the stdin stream for later closure in stop()
             # Note: Process.stdin is a StreamWriter-like object when stdin=PIPE.
@@ -265,44 +320,23 @@ class ExecutorManager:
                     "Please ensure JDK 21+ is installed and 'java' is in your PATH."
                 )
 
-        # Parse stdout for the listening URL
-        port = None
-        output_lines: List[str] = []
-        # Use a generous timeout per-line to accommodate first-time JAR downloads
-        # (JBang may be silent for 60+ seconds while fetching a large remote JAR).
-        while True:
-            try:
-                line_bytes = await asyncio.wait_for(self._process.stdout.readline(), timeout=120.0)
-            except asyncio.TimeoutError:
-                break
-            if not line_bytes:
-                break
-            line = line_bytes.decode().strip()
-            logger.debug(f"Executor: {line}")
-            output_lines.append(line)
-
-            if "Executor listening on http://" in line:
-                # Line format: "Executor listening on http://127.0.0.1:PORT"
-                try:
-                    port = int(line.split(":")[-1])
-                    break
-                except (ValueError, IndexError):
-                    continue
-
-        if port is None:
+        try:
+            port = await self._await_ready(exec_id)
+        except ExecutorError:
             await self.stop()
-            output_summary = "\n".join(output_lines[-30:]) if output_lines else "(no output)"
-            raise ExecutorError(
-                f"Failed to extract port from executor output.\nLast output:\n{output_summary}"
-            )
+            raise
 
         self.base_url = f"http://127.0.0.1:{port}"
-        self._http_client = httpx.AsyncClient(
-            base_url=self.base_url,
+        self._http_client = self._make_http_client(self.base_url)
+        logger.info("Executor started at %s", self.base_url)
+
+    def _make_http_client(self, base_url: str) -> httpx.AsyncClient:
+        """Creates the HTTP client used to talk to the subprocess."""
+        return httpx.AsyncClient(
+            base_url=base_url,
             headers={"Authorization": f"Bearer {self.auth_token}"},
             timeout=30.0,
         )
-        logger.info(f"Executor started at {self.base_url}")
 
     async def get_health_live(self) -> Dict[str, Any]:
         """Fetches unauthenticated liveness info (version, protocol, execId)."""

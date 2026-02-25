@@ -1,8 +1,13 @@
-package ai.brokk.mcp;
+package ai.brokk.mcpclient;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.util.Json;
+import io.modelcontextprotocol.json.McpJsonDefaults;
+import io.modelcontextprotocol.spec.McpSchema;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
@@ -52,5 +57,31 @@ public class McpUtilsAsyncTest {
                 assertThrows(IOException.class, () -> McpUtils.callToolAsync(unsupported, "any-tool", Map.of(), null));
 
         assertTrue(ex.getMessage().startsWith("Unsupported MCP server type: "));
+    }
+
+    @Test
+    void stdio_json_newline_escaping_regression() throws Exception {
+        McpSchema.JSONRPCRequest message =
+                new McpSchema.JSONRPCRequest("2.0", "initialize", "id-1", Map.of("protocolVersion", "2024-11-05"));
+
+        // 1. Demonstrate that ai.brokk.util.Json.getMapper() serializes with actual \n due to INDENT_OUTPUT
+        String brokkJson = Json.getMapper().writeValueAsString(message);
+        assertTrue(brokkJson.contains("\n"), "Brokk JSON should be pretty-printed with newlines");
+
+        // 2. Demonstrate that applying the escaping used in StdioClientTransport to indented JSON yields invalid JSON
+        String escapedBrokkJson =
+                brokkJson.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n");
+
+        assertThrows(
+                Exception.class,
+                () -> McpSchema.deserializeJsonRpcMessage(McpJsonDefaults.getMapper(), escapedBrokkJson),
+                "Mangled JSON (escaped structural newlines) should fail to deserialize");
+
+        // 3. Demonstrate that McpJsonDefaults.getMapper() produces JSON without newlines and parses successfully
+        String sdkJson = McpJsonDefaults.getMapper().writeValueAsString(message);
+        assertFalse(sdkJson.contains("\n"), "SDK default JSON should not contain newlines");
+
+        McpSchema.JSONRPCMessage parsed = McpSchema.deserializeJsonRpcMessage(McpJsonDefaults.getMapper(), sdkJson);
+        assertNotNull(parsed);
     }
 }
