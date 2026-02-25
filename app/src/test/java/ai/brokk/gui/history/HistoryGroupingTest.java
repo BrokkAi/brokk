@@ -6,6 +6,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.gui.history.HistoryGrouping.GroupDescriptor;
 import ai.brokk.gui.history.HistoryGrouping.GroupType;
 import ai.brokk.gui.history.HistoryGrouping.GroupingBuilder;
@@ -16,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
+import javax.swing.JTable;
+import javax.swing.table.DefaultTableModel;
 import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -340,5 +343,30 @@ public class HistoryGroupingTest {
         assertEquals(1, g2.children().size());
         assertEquals(standalone.id(), g2.children().getFirst().id());
         assertFalse(g2.shouldShowHeader());
+    }
+
+    @Test
+    public void buildContextToRowMap_handlesContextUiModel() {
+        var c1 = ctx("C1");
+        var c2 = ctx("C2");
+        var c3 = ctx("C3");
+
+        // Column 0: Index, Column 1: Triangle/Icon, Column 2: ContextUiModel
+        var tableModel = new DefaultTableModel(0, 3);
+        // Row 0: ContextUiModel
+        tableModel.addRow(new Object[] {0, null, new ActivityTableRenderers.ContextUiModel(c1, false)});
+        // Row 1: ContextUiModel
+        tableModel.addRow(new Object[] {1, null, new ActivityTableRenderers.ContextUiModel(c2, false)});
+        // Row 2: Something else
+        tableModel.addRow(new Object[] {2, null, "not a context"});
+
+        JTable table = new JTable(tableModel);
+
+        var rowMap = HistoryGrouping.buildContextToRowMap(List.of(), table);
+
+        assertEquals(0, rowMap.get(c1.id()));
+        assertEquals(1, rowMap.get(c2.id()));
+        assertNull(rowMap.get(c3.id()));
+        assertEquals(2, rowMap.size());
     }
 }
