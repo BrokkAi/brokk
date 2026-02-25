@@ -267,10 +267,9 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     .collect(Collectors.toSet());
 
             if (currentLangs.equals(projectLangs)) {
-                logger.info("External rebuild requested but languages match; performing incremental update.");
-                // If it was an explicit request, we should still clear state if needed,
-                // but usually refresh() is used for both cases.
-                // However, the instructions imply we should account for the delta.
+                logger.info(
+                        "External rebuild requested but languages match; clearing persisted state and performing update.");
+                deletePersistedAnalyzerStateFiles(projectLangs);
                 return prev.update();
             }
 
