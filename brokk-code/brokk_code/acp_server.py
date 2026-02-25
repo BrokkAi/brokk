@@ -411,6 +411,15 @@ def map_executor_event_to_session_update(
         # persistent chat output.
         return None
 
+    if event_type == "TOOL_CALL":
+        name = data.get("name", "tool")
+        args = data.get("arguments", "")
+        return update_agent_message_text(f"\n[CALLING TOOL] {name}({args})\n")
+
+    if event_type == "TOOL_OUTPUT":
+        status = data.get("status", "SUCCESS")
+        return update_agent_message_text(f"[TOOL {status}]\n")
+
     return None
 
 
