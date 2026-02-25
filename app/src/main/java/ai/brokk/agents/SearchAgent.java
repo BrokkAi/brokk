@@ -871,20 +871,21 @@ public class SearchAgent {
         private TurnPrompt preparePrompt() throws InterruptedException {
             wst.setContext(context);
 
-            var related = context.buildRelatedSymbols(10, 20, agent.currentState.presentedRelatedFiles());
-            if (!related.isEmpty()) {
-                Set<ProjectFile> updatedRelated = new HashSet<>(agent.currentState.presentedRelatedFiles());
-                updatedRelated.addAll(related.keySet());
-                agent.currentState = agent.currentState.withPresentedRelatedFiles(updatedRelated);
-            }
-
             DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
 
             // update pins before generating prompt
+            Map<ProjectFile, String> related;
             if (effectiveDropMode == DropMode.DROP_ONLY) {
                 context = agent.resetPinsToOriginal(context);
+                related = Map.of();
                 assert agent.hasDroppableFragments(context);
             } else {
+                related = context.buildRelatedSymbols(10, 20, agent.currentState.presentedRelatedFiles());
+                if (!related.isEmpty()) {
+                    Set<ProjectFile> updatedRelated = new HashSet<>(agent.currentState.presentedRelatedFiles());
+                    updatedRelated.addAll(related.keySet());
+                    agent.currentState = agent.currentState.withPresentedRelatedFiles(updatedRelated);
+                }
                 context = agent.applyPinning(context, lastTurnContext);
             }
 
