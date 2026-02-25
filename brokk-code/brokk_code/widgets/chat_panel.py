@@ -984,7 +984,7 @@ class ChatPanel(Vertical):
             first_line = next((line.strip() for line in yaml_body.splitlines() if line.strip()), "")
             if len(first_line) > 70:
                 first_line = f"{first_line[:67].rstrip()}..."
-            return f"*Tool Call: {name} [+] (ctrl+o to expand) - {first_line}*"
+            return f"*{name} [+] (ctrl+o to expand) - {first_line}*"
 
         return re.sub(pattern, replacement, content, flags=re.DOTALL)
 
@@ -1017,7 +1017,7 @@ class ChatPanel(Vertical):
                 border_style="grey37",
             )
         else:
-            return self._collapsed_summary_text(f"Tool Call: {name}", yaml_body)
+            return self._collapsed_summary_text(name, yaml_body)
 
     def _render_ai_content(self, log: RichLog, content: str) -> None:
         """Renders AI markdown and tool-call YAML blocks with consistent formatting."""
