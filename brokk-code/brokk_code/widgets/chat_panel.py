@@ -976,8 +976,15 @@ class ChatPanel(Vertical):
 
         # Pattern: `headline` followed by yaml block (3+ backticks).
         # Backreference \2 ensures the closing fence matches the opening.
-        pattern = r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n.*?\n\2"
-        replacement = r"*Tool Call: \1 [+] (ctrl+o to expand) - details hidden*"
+        pattern = r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n(.*?)\n\2"
+
+        def replacement(match: re.Match[str]) -> str:
+            name = match.group(1)
+            yaml_body = match.group(3)
+            first_line = next((line.strip() for line in yaml_body.splitlines() if line.strip()), "")
+            if len(first_line) > 70:
+                first_line = f"{first_line[:67].rstrip()}..."
+            return f"*Tool Call: {name} [+] (ctrl+o to expand) - {first_line}*"
 
         return re.sub(pattern, replacement, content, flags=re.DOTALL)
 
@@ -999,19 +1006,18 @@ class ChatPanel(Vertical):
             summary.append(f" - {first_line}")
         return summary
 
-    def _render_tool_call_panel(self, name: str, yaml_body: str) -> Panel:
+    def _render_tool_call_panel(self, name: str, yaml_body: str) -> Panel | Text:
         """Renders a tool call block using the same collapsible panel style as reasoning."""
         if self.show_verbose:
             body = Markdown(f"```yaml\n{yaml_body}\n```")
+            return Panel(
+                body,
+                title=self._collapsible_title(f"Tool Call: {name}", self.show_verbose),
+                title_align="center",
+                border_style="grey37",
+            )
         else:
-            body = Text("...", style="grey50")
-
-        return Panel(
-            body,
-            title=self._collapsible_title(f"Tool Call: {name}", self.show_verbose),
-            title_align="center",
-            border_style="grey37",
-        )
+            return self._collapsed_summary_text(f"Tool Call: {name}", yaml_body)
 
     def _render_ai_content(self, log: RichLog, content: str) -> None:
         """Renders AI markdown and tool-call YAML blocks with consistent formatting."""

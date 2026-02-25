@@ -640,8 +640,7 @@ async def test_ai_tool_call_filtering():
 
         # But _filter_tool_call_blocks should collapse it
         filtered = chat._filter_tool_call_blocks(tool_markdown)
-        assert "path: foo.py" not in filtered
-        assert "Tool Call: read_file [+] (ctrl+o to expand) - details hidden" in filtered
+        assert "Tool Call: read_file [+] (ctrl+o to expand) - path: foo.py" in filtered
         assert "I will check the file." in filtered
         assert "Done." in filtered
 
@@ -686,13 +685,8 @@ async def test_filter_tool_call_blocks_collapses_four_backtick_yaml():
 
         filtered = panel._filter_tool_call_blocks(content)
 
-        # YAML content should be hidden
-        assert "foo: bar" not in filtered
-        # Summary marker should be present
-        assert (
-            "Tool Call: Adding files to workspace [+] (ctrl+o to expand) - details hidden"
-            in filtered
-        )
+        # Summary marker should be present with first line of YAML as hint
+        assert "Tool Call: Adding files to workspace [+] (ctrl+o to expand) - foo: bar" in filtered
         # Surrounding content preserved
         assert "After." in filtered
 
@@ -716,10 +710,8 @@ async def test_filter_tool_call_blocks_triple_backtick_compatibility():
 
         filtered = panel._filter_tool_call_blocks(content)
 
-        # YAML content should be hidden
-        assert "path: foo.py" not in filtered
-        # Summary marker should be present
-        assert "Tool Call: read_file [+] (ctrl+o to expand) - details hidden" in filtered
+        # Summary marker should be present with first line of YAML as hint
+        assert "Tool Call: read_file [+] (ctrl+o to expand) - path: foo.py" in filtered
         # Surrounding content preserved
         assert "Done." in filtered
 
@@ -760,8 +752,8 @@ async def test_tool_call_visibility_toggle_integration():
         await pilot.pause()
 
         rendered_off = "".join(str(line) for line in chat.query_one("#chat-log", RichLog).lines)
-        assert "Tool Call: list_files [+] (ctrl+o to expand)" in rendered_off
-        assert "directory: src" not in rendered_off
+        # Collapsed tool call should show summary line with first YAML line as hint
+        assert "Tool Call: list_files [+] (ctrl+o to expand) - directory: src" in rendered_off
 
         # Verify the raw content is in history
         assert any(m["content"] == tool_markdown for m in chat._message_history)
@@ -769,8 +761,7 @@ async def test_tool_call_visibility_toggle_integration():
         # Verify filtering works correctly based on show_verbose state
         chat.show_verbose = False
         filtered_off = chat._filter_tool_call_blocks(tool_markdown)
-        assert "directory: src" not in filtered_off
-        assert "Tool Call: list_files [+] (ctrl+o to expand) - details hidden" in filtered_off
+        assert "Tool Call: list_files [+] (ctrl+o to expand) - directory: src" in filtered_off
 
         # Toggle output ON
         app.action_toggle_output()
@@ -793,8 +784,4 @@ async def test_tool_call_visibility_toggle_integration():
         # Verify filtering works again when off
         chat.show_verbose = False
         filtered_off_again = chat._filter_tool_call_blocks(tool_markdown)
-        assert (
-            "Tool Call: list_files [+] (ctrl+o to expand) - details hidden"
-            in filtered_off_again
-        )
-        assert "directory: src" not in filtered_off_again
+        assert "Tool Call: list_files [+] (ctrl+o to expand) - directory: src" in filtered_off_again
