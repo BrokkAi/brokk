@@ -11,6 +11,7 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -847,40 +848,69 @@ public class BuildAgent {
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
-        boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
+        boolean isModulesBased =
+                testSomeTemplate.contains("{{#modules}}") || testSomeTemplate.contains("{{#packages}}");
 
         if (!isFilesBased && !isClassesBased && !isModulesBased) {
             // Template is defined but may be misconfigured
             logger.debug(
-                    "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, or {{#modules}})");
+                    "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, {{#modules}}, or {{#packages}})");
             return testSomeTemplate;
         }
 
         final Path projectRoot = cm.getProject().getRoot();
         String pythonVersion =
                 pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
+        Language language = cm.getProject().getBuildLanguage();
 
         List<String> targetItems;
 
         if (isModulesBased) {
-            Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
-            targetItems = workspaceTestFiles.stream()
-                    .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
-                    .filter(s -> !s.isBlank())
-                    .distinct()
-                    .sorted()
-                    .toList();
+            if (language == Languages.PYTHON) {
+                Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
+                targetItems = workspaceTestFiles.stream()
+                        .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
+                        .filter(s -> !s.isBlank())
+                        .distinct()
+                        .sorted()
+                        .toList();
 
-            if (targetItems.isEmpty()) {
-                logger.debug("No modules derived; falling back to build/lint: {}", details.buildLintCommand());
-                return details.buildLintCommand();
+                if (targetItems.isEmpty()) {
+                    logger.debug("No modules derived; falling back to build/lint: {}", details.buildLintCommand());
+                    return details.buildLintCommand();
+                }
+
+                logger.debug(
+                        "Using modules-based template with {} modules (anchor={})",
+                        targetItems.size(),
+                        anchor == null ? "<inferred import roots>" : anchor);
+                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
+            } else if (language == Languages.GO || language == Languages.RUST) {
+                IAnalyzer analyzer = cm.getAnalyzer();
+                targetItems = workspaceTestFiles.stream()
+                        .flatMap(f -> {
+                            var decls = analyzer.getTopLevelDeclarations(f);
+                            if (decls.isEmpty()) {
+                                logger.warn("No declarations found for test file: {}", f);
+                                return Stream.empty();
+                            }
+                            return Stream.of(decls.getFirst().packageName());
+                        })
+                        .filter(s -> !s.isBlank())
+                        .distinct()
+                        .sorted()
+                        .toList();
+
+                if (targetItems.isEmpty()) {
+                    logger.debug(
+                            "No modules/packages derived; falling back to build/lint: {}", details.buildLintCommand());
+                    return details.buildLintCommand();
+                }
+
+                logger.debug("Using modules/packages template with {} entries for {}", targetItems.size(), language);
+                return interpolateMustacheTemplate(
+                        testSomeTemplate, Map.of("modules", targetItems, "packages", targetItems), pythonVersion);
             }
-
-            logger.debug(
-                    "Using modules-based template with {} modules (anchor={})",
-                    targetItems.size(),
-                    anchor == null ? "<inferred import roots>" : anchor);
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
         }
 
         if (isFilesBased) {
