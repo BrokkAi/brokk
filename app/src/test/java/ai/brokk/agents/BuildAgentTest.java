@@ -832,19 +832,22 @@ class BuildAgentTest {
         TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
         ProjectFile file1 = new ProjectFile(tempDir, "main_test.go");
-        ProjectFile file2 = new ProjectFile(tempDir, "auth_test.go");
+        // Place auth_test.go in a subdirectory 'auth'
+        Path authDir = tempDir.resolve("auth");
+        Files.createDirectories(authDir);
+        ProjectFile file2 = new ProjectFile(tempDir, "auth/auth_test.go");
 
         // Mock declarations so analyzer knows the package names
         analyzer.addDeclaration(new CodeUnit(file1, CodeUnitType.FUNCTION, "main", "TestMain"));
         analyzer.addDeclaration(new CodeUnit(file2, CodeUnitType.FUNCTION, "auth", "TestAuth"));
 
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
-                "go build", "go test ./...", "go test -p {{#modules}}{{value}} {{/modules}}", Set.of());
+                "go build", "go test ./...", "go test {{#packages}}{{value}} {{/packages}}", Set.of());
 
         String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
-        // Result should be sorted: auth then main
-        assertEquals("go test -p auth main ", result);
+        // Result should be sorted: . then ./auth
+        assertEquals("go test . ./auth ", result);
     }
 
     @Test
@@ -875,12 +878,12 @@ class BuildAgentTest {
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
                 "cargo check",
                 "cargo test",
-                "cargo test --package {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}",
+                "cargo test {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}",
                 Set.of());
 
         String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
-        assertEquals("cargo test --package crate crate::foo", result);
+        assertEquals("cargo test crate crate::foo", result);
     }
 
     @Test

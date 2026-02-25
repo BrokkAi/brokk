@@ -428,9 +428,9 @@ public class BuildAgent {
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
                 | **Maven**         | `mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                | **Go**            | `go test {{#packages}}./{{value}} {{/packages}} -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
+                | **Go**            | `go test {{#packages}}{{value}} {{/packages}} -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
                 | **.NET CLI**      | `dotnet test --verbosity quiet --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}}|{{/last}}{{/classes}}"`
-                | **Cargo**         | `cargo test -q {{#packages}}-p {{value}} {{/packages}}`
+                | **Cargo**         | `cargo test -q {{#packages}}{{value}} {{/packages}}`
                 | **pytest**        | `uv sync && pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Poetry**        | `poetry install --no-interaction && poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Jest**          | `jest --silent {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
@@ -514,7 +514,7 @@ public class BuildAgent {
                             "Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String testAllCommand,
             @P(
-                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, {{modules}}, or {{packages}}. Again, if no class- or file- based framework is in use, leave it blank.")
+                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, {{modules}}, or {{packages}}. {{modules}} and {{packages}} provide dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
                             "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
@@ -886,22 +886,39 @@ public class BuildAgent {
                         "Using modules-based template with {} modules (anchor={})",
                         targetItems.size(),
                         anchor == null ? "<inferred import roots>" : anchor);
-                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
+                Map<String, List<String>> vars = new HashMap<>();
+                vars.put("modules", targetItems);
+                vars.put("packages", targetItems);
+                return interpolateMustacheTemplate(testSomeTemplate, vars, pythonVersion);
             } else if (ANALYZER_MODULE_LANGUAGES.contains(language)) {
-                IAnalyzer analyzer = cm.getAnalyzer();
-                targetItems = workspaceTestFiles.stream()
-                        .flatMap(f -> {
-                            var decls = analyzer.getTopLevelDeclarations(f);
-                            if (decls.isEmpty()) {
-                                logger.warn("No declarations found for test file: {}", f);
-                                return Stream.empty();
-                            }
-                            return Stream.of(decls.getFirst().packageName());
-                        })
-                        .filter(s -> !s.isBlank())
-                        .distinct()
-                        .sorted()
-                        .toList();
+                if (language == Languages.GO) {
+                    targetItems = workspaceTestFiles.stream()
+                            .map(f -> {
+                                Path parent = f.getRelPath().getParent();
+                                if (parent == null) return ".";
+                                String unixPath = toUnixPath(parent);
+                                return unixPath.isEmpty() || unixPath.equals(".") ? "." : "./" + unixPath;
+                            })
+                            .distinct()
+                            .sorted()
+                            .toList();
+                } else {
+                    // RUST
+                    IAnalyzer analyzer = cm.getAnalyzer();
+                    targetItems = workspaceTestFiles.stream()
+                            .flatMap(f -> {
+                                var decls = analyzer.getTopLevelDeclarations(f);
+                                if (decls.isEmpty()) {
+                                    logger.warn("No declarations found for test file: {}", f);
+                                    return Stream.empty();
+                                }
+                                return Stream.of(decls.getFirst().packageName());
+                            })
+                            .filter(s -> !s.isBlank())
+                            .distinct()
+                            .sorted()
+                            .toList();
+                }
 
                 if (targetItems.isEmpty()) {
                     logger.debug(
