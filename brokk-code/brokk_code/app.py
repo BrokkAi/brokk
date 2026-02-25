@@ -1418,7 +1418,10 @@ class BrokkApp(App):
             msg = data.get("message", "")
             cost = data.get("cost")
 
-            is_cost = level.upper() == "COST"
+            level_upper = level.upper()
+            is_cost = level_upper == "COST"
+            is_confirm = level_upper == "CONFIRM"
+
             if is_cost and isinstance(cost, (int, float)):
                 increment = float(cost)
                 # Use rounding to avoid floating point precision artifacts
@@ -1428,7 +1431,7 @@ class BrokkApp(App):
                 self.session_total_cost = round(self.session_total_cost + increment, 6)
                 self._update_statusline()
 
-            if chat and not is_cost:
+            if chat and not is_cost and not is_confirm:
                 chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
             msg = data.get("message", "Unknown error")
