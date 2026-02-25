@@ -1,5 +1,5 @@
 import type { BrokkClient } from "./client";
-import type { JobEvent, JobState } from "../types";
+import type { JobEvent, JobState, LlmTokenData } from "../types";
 
 type LogFn = (msg: string) => void;
 
@@ -111,7 +111,9 @@ export class EventStreamManager {
         this.sleepMs = MIN_SLEEP_MS;
         const types = response.events.map(e => e.type);
         this.log(`[EventStream] ${response.events.length} events: ${types.join(", ")}`);
-        for (const event of response.events) {
+        // Coalesce adjacent LLM_TOKEN events to reduce postMessage overhead
+        const coalesced = this.coalesceTokenEvents(response.events);
+        for (const event of coalesced) {
           for (const cb of this.eventCallbacks) {
             try {
               cb(event);
@@ -135,6 +137,73 @@ export class EventStreamManager {
     }
 
     this.schedulePoll();
+  }
+
+  /**
+   * Merge consecutive LLM_TOKEN events into single events to reduce
+   * the number of postMessage round-trips to the webview.
+   * Flushes the buffer on non-token events, reasoning/mode boundaries,
+   * and isNewMessage flags.
+   */
+  private coalesceTokenEvents(events: JobEvent[]): JobEvent[] {
+    if (events.length <= 1) return events;
+
+    const result: JobEvent[] = [];
+    let buf = "";
+    let bufReasoning = false;
+    let bufTerminal = false;
+    let bufNewMessage = false;
+    let bufSeq = 0;
+    let bufTimestamp = 0;
+    let bufMessageType = "";
+
+    const flush = () => {
+      if (!buf) return;
+      result.push({
+        seq: bufSeq,
+        timestamp: bufTimestamp,
+        type: "LLM_TOKEN",
+        data: {
+          token: buf,
+          isReasoning: bufReasoning,
+          isNewMessage: bufNewMessage,
+          isTerminal: bufTerminal,
+          messageType: bufMessageType,
+        } satisfies LlmTokenData,
+      });
+      buf = "";
+      bufNewMessage = false;
+      bufTerminal = false;
+    };
+
+    for (const event of events) {
+      if (event.type !== "LLM_TOKEN") {
+        flush();
+        result.push(event);
+        continue;
+      }
+      const data = event.data as LlmTokenData;
+      if (!data || typeof data.token !== "string") {
+        flush();
+        result.push(event);
+        continue;
+      }
+      // Flush on reasoning boundary or new-message boundary
+      if (buf && (data.isReasoning !== bufReasoning || data.isNewMessage)) {
+        flush();
+      }
+      if (!buf) {
+        bufSeq = event.seq;
+        bufTimestamp = event.timestamp;
+        bufReasoning = data.isReasoning;
+        bufMessageType = data.messageType;
+      }
+      buf += data.token;
+      bufNewMessage = bufNewMessage || data.isNewMessage;
+      bufTerminal = data.isTerminal;
+    }
+    flush();
+    return result;
   }
 
   private async checkJobStatus(): Promise<void> {

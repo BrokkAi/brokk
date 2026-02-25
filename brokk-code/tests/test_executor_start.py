@@ -364,6 +364,8 @@ async def test_executor_start_uses_jbang_when_no_jar(monkeypatch, tmp_path):
 
     assert "--java" in captured_cmd
     assert "21" in captured_cmd
+    # Verify the native access flag is present in the jbang command
+    assert any("--enable-native-access=ALL-UNNAMED" in arg for arg in captured_cmd)
     assert "--main" in captured_cmd
     assert "ai.brokk.executor.HeadlessExecutorMain" in captured_cmd
     assert any(

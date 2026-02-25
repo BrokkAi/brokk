@@ -1580,6 +1580,82 @@ a.file-link:hover {
   display: none;
 }
 
+/* ── Connection Status Overlay ────────────────────── */
+
+#connection-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--vscode-sideBar-background);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#connection-overlay.hidden {
+  display: none;
+}
+
+.connection-status-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 16px;
+  max-width: 340px;
+}
+
+.connection-status-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+  color: var(--vscode-foreground);
+  opacity: 0.8;
+}
+
+.connection-status-icon.spin {
+  animation: conn-spin 2s linear infinite;
+}
+
+@keyframes conn-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.connection-status-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  margin-bottom: 6px;
+}
+
+.connection-status-detail {
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground, #888);
+  margin-bottom: 8px;
+}
+
+.connection-status-stderr {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2));
+  color: var(--vscode-errorForeground, #f48771);
+  padding: 8px;
+  border-radius: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  width: 100%;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.connection-status-hint {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, #888);
+  margin-top: 4px;
+}
+
 /* ── Welcome Screen ──────────────────────────────── */
 
 #welcome {

@@ -976,8 +976,15 @@ class ChatPanel(Vertical):
 
         # Pattern: `headline` followed by yaml block (3+ backticks).
         # Backreference \2 ensures the closing fence matches the opening.
-        pattern = r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n.*?\n\2"
-        replacement = r"*Tool Call: \1 [+] (ctrl+o to expand)*"
+        pattern = r"`([^`\n]+)`\s*\n\s*(`{3,})yaml\n(.*?)\n\2"
+
+        def replacement(match: re.Match[str]) -> str:
+            name = match.group(1)
+            yaml_body = match.group(3)
+            first_line = next((line.strip() for line in yaml_body.splitlines() if line.strip()), "")
+            if len(first_line) > 70:
+                first_line = f"{first_line[:67].rstrip()}..."
+            return f"{name} [+] (ctrl+o to expand) - {first_line}"
 
         return re.sub(pattern, replacement, content, flags=re.DOTALL)
 
@@ -987,19 +994,31 @@ class ChatPanel(Vertical):
         action = "collapse" if expanded else "expand"
         return f"{label} {state} (ctrl+o to {action})"
 
-    def _render_tool_call_panel(self, name: str, yaml_body: str) -> Panel:
+    def _collapsed_summary_text(self, label: str, content: str) -> Text:
+        """Returns compact text for collapsed sections to avoid heavy panel borders."""
+        first_line = next((line.strip() for line in content.splitlines() if line.strip()), "")
+        if len(first_line) > 70:
+            first_line = f"{first_line[:67].rstrip()}..."
+
+        summary = Text()
+        summary.append(label, style="bold")
+        summary.append(" [+] (ctrl+o to expand)")
+        if first_line:
+            summary.append(f" - {first_line}")
+        return summary
+
+    def _render_tool_call_panel(self, name: str, yaml_body: str) -> Panel | Text:
         """Renders a tool call block using the same collapsible panel style as reasoning."""
         if self.show_verbose:
             body = Markdown(f"```yaml\n{yaml_body}\n```")
+            return Panel(
+                body,
+                title=self._collapsible_title(f"Tool Call: {name}", self.show_verbose),
+                title_align="center",
+                border_style="grey37",
+            )
         else:
-            body = Text("...", style="grey50")
-
-        return Panel(
-            body,
-            title=self._collapsible_title(f"Tool Call: {name}", self.show_verbose),
-            title_align="center",
-            border_style="grey37",
-        )
+            return self._collapsed_summary_text(name, yaml_body)
 
     def _render_ai_content(self, log: RichLog, content: str) -> None:
         """Renders AI markdown and tool-call YAML blocks with consistent formatting."""
@@ -1045,16 +1064,15 @@ class ChatPanel(Vertical):
         elif kind == "REASONING":
             if self.show_verbose:
                 panel_content = Markdown(content, style="grey50")
+                panel = Panel(
+                    panel_content,
+                    title=self._collapsible_title("Thinking", self.show_verbose),
+                    title_align="center",
+                    border_style="grey37",
+                )
+                log.write(panel)
             else:
-                panel_content = Text("...", style="grey50")
-
-            panel = Panel(
-                panel_content,
-                title=self._collapsible_title("Thinking", self.show_verbose),
-                title_align="center",
-                border_style="grey37",
-            )
-            log.write(panel)
+                log.write(self._collapsed_summary_text("Thinking", content))
             log.write("")
         elif kind == "USER":
             log.write(
@@ -1085,15 +1103,15 @@ class ChatPanel(Vertical):
         elif kind == "TOOL_RESULT":
             if self.show_verbose:
                 panel_content = Markdown(content)
+                panel = Panel(
+                    panel_content,
+                    title=self._collapsible_title("Command Output", self.show_verbose),
+                    title_align="center",
+                    border_style="grey37",
+                )
+                log.write(panel)
             else:
-                panel_content = Text("...", style="grey50")
-            panel = Panel(
-                panel_content,
-                title=self._collapsible_title("Command Output", self.show_verbose),
-                title_align="center",
-                border_style="grey37",
-            )
-            log.write(panel)
+                log.write(self._collapsed_summary_text("Command Output", content))
             log.write("")
         elif kind == "WELCOME":
             icon = kwargs.get("icon", "")

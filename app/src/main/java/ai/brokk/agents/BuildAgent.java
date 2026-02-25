@@ -266,9 +266,7 @@ public class BuildAgent {
 
             // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
-                project.getConsoleIO().beforeToolCall(reportRequest);
                 var terminalResult = tr.executeTool(reportRequest);
-                project.getConsoleIO().afterToolOutput(terminalResult);
 
                 var details = requireNonNull(
                         reportedDetails,
@@ -299,9 +297,7 @@ public class BuildAgent {
                 }
                 return details;
             } else if (abortRequest != null) {
-                project.getConsoleIO().beforeToolCall(abortRequest);
                 var terminalResult = tr.executeTool(abortRequest);
-                project.getConsoleIO().afterToolOutput(terminalResult);
 
                 assert abortReason != null;
                 return BuildDetails.EMPTY;
@@ -312,9 +308,8 @@ public class BuildAgent {
             for (var request : otherRequests) {
                 String toolName = request.name();
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
-                project.getConsoleIO().beforeToolCall(request);
+
                 ToolExecutionResult execResult = tr.executeTool(request);
-                project.getConsoleIO().afterToolOutput(execResult);
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
                 // Log tool result for debugging

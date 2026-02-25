@@ -2,7 +2,6 @@ package ai.brokk.project;
 
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.IAnalyzerWrapper;
-import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
 import ai.brokk.SessionRegistry;
@@ -530,10 +529,6 @@ public interface IProject extends AutoCloseable {
      */
     default boolean isPathExcluded(String relativePath, boolean isDirectory) {
         return false;
-    }
-
-    default IConsoleIO getConsoleIO() {
-        throw new UnsupportedOperationException();
     }
 
     default void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
