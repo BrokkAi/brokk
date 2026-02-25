@@ -84,7 +84,7 @@ public final class McpToolCallHistoryWriter implements ToolRegistry.ToolCallReco
     }
 
     private String prettyArguments(String args) {
-        if (args == null || args.isBlank()) {
+        if (args.isBlank()) {
             return "{}";
         }
         try {
