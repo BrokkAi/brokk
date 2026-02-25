@@ -849,8 +849,7 @@ public class BuildAgent {
                 pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
 
         if (isModulesBased) {
-            IAnalyzer analyzer = cm.getAnalyzer();
-            List<String> modules = analyzer.getTestModules(workspaceTestFiles);
+            List<String> modules = cm.getAnalyzer().getTestModules(workspaceTestFiles);
 
             if (modules.isEmpty()) {
                 logger.debug("No modules/packages derived; falling back to build/lint: {}", details.buildLintCommand());
