@@ -1,4 +1,5 @@
 import sys
+from contextlib import contextmanager
 from types import ModuleType
 from typing import Any
 from unittest.mock import patch
@@ -302,12 +303,20 @@ def test_main_resume_routes_correctly(monkeypatch, tmp_path) -> None:
 
 def test_main_issue_create_routes_correctly(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
+    temp_workspace = tmp_path / "temp-create"
+    temp_workspace.mkdir()
 
     async def fake_run_headless_job(**kwargs: Any) -> None:
         captured["kwargs"] = kwargs
         captured["ran"] = True
 
+    @contextmanager
+    def fake_temp_checkout(**kwargs: Any):
+        captured["checkout_kwargs"] = kwargs
+        yield temp_workspace
+
     monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(main_module, "_temporary_issue_repo_checkout", fake_temp_checkout)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -332,6 +341,11 @@ def test_main_issue_create_routes_correctly(monkeypatch, tmp_path) -> None:
     main_module.main()
 
     assert captured["ran"] is True
+    assert captured["checkout_kwargs"]["repo_owner"] == "acme"
+    assert captured["checkout_kwargs"]["repo_name"] == "tools"
+    assert captured["checkout_kwargs"]["github_token"] == "ghp_123"
+    assert captured["checkout_kwargs"]["action_label"] == "Issue create"
+    assert captured["kwargs"]["workspace_dir"] == temp_workspace
     assert captured["kwargs"]["task_input"] == "Broken build"
     assert captured["kwargs"]["mode"] == "ISSUE_WRITER"
     assert captured["kwargs"]["planner_model"] == "custom-model"
@@ -359,14 +373,66 @@ def test_main_issue_create_missing_prompt_exits_nonzero(monkeypatch, tmp_path) -
     assert exc.value.code != 0
 
 
+def test_main_issue_create_validation_missing_token(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "issue", "create", "test", "--repo-owner", "o", "--repo-name", "r"],
+    )
+    # Ensure no env var leaks in
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    assert "Error: --github-token is required for issue create" in capsys.readouterr().err
+
+
+def test_main_issue_solve_validation_invalid_owner(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "1",
+            "--github-token",
+            "t",
+            "--repo-owner",
+            "invalid/owner",
+            "--repo-name",
+            "r",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "Error: Invalid --repo-owner 'invalid/owner'" in err
+    assert "^[A-Za-z0-9_.-]+$" in err
+
+
 def test_main_issue_create_respects_env_github_token(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
+    temp_workspace = tmp_path / "temp-create-env"
+    temp_workspace.mkdir()
 
     async def fake_run_headless_job(**kwargs: Any) -> None:
         captured["kwargs"] = kwargs
         captured["ran"] = True
 
+    @contextmanager
+    def fake_temp_checkout(**kwargs: Any):
+        captured["checkout_kwargs"] = kwargs
+        yield temp_workspace
+
     monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(main_module, "_temporary_issue_repo_checkout", fake_temp_checkout)
     monkeypatch.setenv("GITHUB_TOKEN", "env-token")
     monkeypatch.setattr(
         sys,
@@ -386,6 +452,8 @@ def test_main_issue_create_respects_env_github_token(monkeypatch, tmp_path) -> N
     main_module.main()
 
     assert captured["kwargs"]["tags"]["github_token"] == "env-token"
+    assert captured["checkout_kwargs"]["github_token"] == "env-token"
+    assert captured["kwargs"]["workspace_dir"] == temp_workspace
     assert captured["kwargs"]["planner_model"] == "gemini-3-flash-preview"
     assert captured["kwargs"]["planner_reasoning_level"] == "disable"
     assert captured["kwargs"]["verbose"] is False
@@ -393,12 +461,20 @@ def test_main_issue_create_respects_env_github_token(monkeypatch, tmp_path) -> N
 
 def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
+    temp_workspace = tmp_path / "temp-create-verbose"
+    temp_workspace.mkdir()
 
     async def fake_run_headless_job(**kwargs: Any) -> None:
         captured["kwargs"] = kwargs
         captured["ran"] = True
 
+    @contextmanager
+    def fake_temp_checkout(**kwargs: Any):
+        captured["checkout_kwargs"] = kwargs
+        yield temp_workspace
+
     monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(main_module, "_temporary_issue_repo_checkout", fake_temp_checkout)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -408,6 +484,8 @@ def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> No
             "create",
             "Broken build",
             "-v",
+            "--github-token",
+            "ghp_verbose",
             "--repo-owner",
             "acme",
             "--repo-name",
@@ -418,6 +496,8 @@ def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> No
     main_module.main()
 
     assert captured["ran"] is True
+    assert captured["checkout_kwargs"]["action_label"] == "Issue create"
+    assert captured["kwargs"]["workspace_dir"] == temp_workspace
     assert captured["kwargs"]["verbose"] is True
 
 
@@ -843,3 +923,351 @@ async def test_run_headless_job_prints_issue_created_link_from_structured_issue_
 
     captured = capsys.readouterr()
     assert "Issue created: https://github.com/brokkai/brokk/issues/987" in captured.out
+
+
+def test_main_issue_solve_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    temp_workspace = tmp_path / "temp-copy"
+    temp_workspace.mkdir()
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    @contextmanager
+    def fake_temp_workspace(**kwargs: Any):
+        captured["temp_workspace_input"] = kwargs
+        yield temp_workspace
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(main_module, "_temporary_issue_repo_checkout", fake_temp_workspace)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_solve",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+            "--skip-verification",
+            "--max-issue-fix-attempts",
+            "7",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["temp_workspace_input"]["repo_owner"] == "acme"
+    assert captured["temp_workspace_input"]["repo_name"] == "tools"
+    assert captured["temp_workspace_input"]["github_token"] == "ghp_solve"
+    assert captured["temp_workspace_input"]["action_label"] == "Issue solve"
+    assert captured["kwargs"]["mode"] == "ISSUE"
+    assert captured["kwargs"]["workspace_dir"] == temp_workspace
+    assert captured["kwargs"]["task_input"] == "Resolve GitHub Issue #123"
+    assert captured["kwargs"]["tags"]["issue_number"] == "123"
+    assert captured["kwargs"]["tags"]["github_token"] == "ghp_solve"
+    assert captured["kwargs"]["skip_verification"] is True
+    assert captured["kwargs"]["max_issue_fix_attempts"] == 7
+
+
+def test_main_issue_solve_temp_workspace_cleanup_on_keyboard_interrupt(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict[str, Any] = {"cleaned": False}
+    temp_workspace = tmp_path / "temp-copy"
+    temp_workspace.mkdir()
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        raise KeyboardInterrupt
+
+    @contextmanager
+    def fake_temp_workspace(**kwargs: Any):
+        captured["temp_workspace_input"] = kwargs
+        try:
+            yield temp_workspace
+        finally:
+            captured["cleaned"] = True
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(main_module, "_temporary_issue_repo_checkout", fake_temp_workspace)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_solve",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        main_module.main()
+
+    assert captured["temp_workspace_input"]["repo_owner"] == "acme"
+    assert captured["cleaned"] is True
+
+
+def test_main_issue_solve_missing_number_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--repo-owner",
+            "acme",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_solve_missing_github_token_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_solve_missing_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_solve_missing_repo_name_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "acme",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_solve_invalid_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "invalid/owner",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_solve_invalid_repo_name_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "solve",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "invalid/repo",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_missing_github_token_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_missing_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_missing_repo_name_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-owner",
+            "acme",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_invalid_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-owner",
+            "invalid/owner",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_invalid_repo_name_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "new issue",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "invalid/repo",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
