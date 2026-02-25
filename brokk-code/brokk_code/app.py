@@ -501,6 +501,7 @@ class BrokkApp(App):
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
         self._reasoning_target: str = "planner"
+        self.build_detection_status: Optional[str] = None
 
         # Accumulators for LLM usage costs (USD).
         # current_job_cost resets at the start of each new job submission.
@@ -552,13 +553,18 @@ class BrokkApp(App):
 
     def _update_statusline(self) -> None:
         """Collect current state and update the mounted StatusLine (best-effort)."""
+        # Try to find it in the chat panel first, then fall back to generic lookup
+        status = None
         chat = self._maybe_chat()
-        if not chat:
-            return
-        try:
-            status = chat.query_one("#status-line", StatusLine)
-        except Exception:
-            return
+        if chat:
+            try:
+                status = chat.query_one("#status-line", StatusLine)
+            except Exception:
+                pass
+
+        if not status:
+            status = self._maybe_statusline()
+
         if not status:
             return
         try:
@@ -579,6 +585,7 @@ class BrokkApp(App):
                 branch=getattr(self, "current_branch", "unknown"),
                 turn_cost=getattr(self, "current_job_cost", None),
                 session_cost=getattr(self, "session_total_cost", None),
+                build_status=getattr(self, "build_detection_status", None),
             )
         except Exception:
             # Swallow all errors when updating UI that's possibly not mounted in tests.
@@ -1429,6 +1436,20 @@ class BrokkApp(App):
                 # LLM costs often go to 4+ decimal places.
                 self.current_job_cost = round(self.current_job_cost + increment, 6)
                 self.session_total_cost = round(self.session_total_cost + increment, 6)
+                self._update_statusline()
+
+            # Detect build-detection messages
+            if msg == "Inferring project build details":
+                self.build_detection_status = "Detecting project settings…"
+                self._update_statusline()
+            elif msg == "Build details inferred and saved":
+                self.build_detection_status = "Build settings ready"
+                self._update_statusline()
+            elif (
+                msg
+                == "Could not determine build configuration - project structure may be unsupported or incomplete"
+            ):
+                self.build_detection_status = "Build settings not detected"
                 self._update_statusline()
 
             if chat and not is_cost and not is_confirm:
