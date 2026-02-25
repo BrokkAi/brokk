@@ -87,7 +87,18 @@ public class BuildAgent {
     private static final int MAX_ITERATIONS = 10;
     private static final int MAX_REPEATED_TOOL_CALLS = 5;
 
-    private static final Set<Language> ANALYZER_MODULE_LANGUAGES = Set.of(Languages.GO, Languages.RUST);
+    /**
+     * Languages where the analyzer can extract a package or module name from source files.
+     * These names are used to populate {{#modules}} and {{#packages}} variables in build/test templates.
+     */
+    private static final Set<Language> ANALYZER_MODULE_LANGUAGES = Set.of(
+            Languages.GO,
+            Languages.RUST,
+            Languages.JAVA,
+            Languages.SCALA,
+            Languages.C_SHARP,
+            Languages.PHP,
+            Languages.C_CPP);
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
