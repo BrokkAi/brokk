@@ -4,7 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -805,6 +810,77 @@ class BuildAgentTest {
         } finally {
             Environment.shellCommandRunnerFactory = originalFactory;
         }
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandGoModules(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.GO);
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            private final Map<ProjectFile, List<CodeUnit>> fileToDecls = new java.util.HashMap<>();
+
+            @Override
+            public void addDeclaration(CodeUnit cu) {
+                super.addDeclaration(cu);
+                fileToDecls.computeIfAbsent(cu.source(), k -> new ArrayList<>()).add(cu);
+            }
+
+            @Override
+            public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+                return fileToDecls.getOrDefault(file, List.of());
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "main_test.go");
+        ProjectFile file2 = new ProjectFile(tempDir, "auth_test.go");
+
+        // Mock declarations so analyzer knows the package names
+        analyzer.addDeclaration(new CodeUnit(file1, CodeUnitType.FUNCTION, "main", "TestMain"));
+        analyzer.addDeclaration(new CodeUnit(file2, CodeUnitType.FUNCTION, "auth", "TestAuth"));
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "go build", "go test ./...", "go test -p {{#modules}}{{value}} {{/modules}}", Set.of());
+
+        String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        // Result should be sorted: auth then main
+        assertEquals("go test -p auth main ", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandRustModules(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.RUST);
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            private final Map<ProjectFile, List<CodeUnit>> fileToDecls = new java.util.HashMap<>();
+
+            @Override
+            public void addDeclaration(CodeUnit cu) {
+                super.addDeclaration(cu);
+                fileToDecls.computeIfAbsent(cu.source(), k -> new ArrayList<>()).add(cu);
+            }
+
+            @Override
+            public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+                return fileToDecls.getOrDefault(file, List.of());
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "src/lib.rs");
+        ProjectFile file2 = new ProjectFile(tempDir, "src/foo.rs");
+
+        analyzer.addDeclaration(new CodeUnit(file1, CodeUnitType.FUNCTION, "crate", "test_lib"));
+        analyzer.addDeclaration(new CodeUnit(file2, CodeUnitType.FUNCTION, "crate::foo", "test_foo"));
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "cargo check",
+                "cargo test",
+                "cargo test --package {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}",
+                Set.of());
+
+        String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        assertEquals("cargo test --package crate crate::foo", result);
     }
 
     @Test
