@@ -899,9 +899,22 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             return;
         }
 
+        // Filter out .brokk internal directory events early
+        var nonBrokkFiles = batch.getFiles().stream()
+                .filter(f -> {
+                    String first = f.getRelPath().getName(0).toString();
+                    return !".brokk".equals(first);
+                })
+                .toList();
+
+        if (!batch.isOverflowed() && !batch.isUntrackedGitignoreChanged() && nonBrokkFiles.isEmpty()) {
+            logger.debug("Skipping tree refresh - all files are in .brokk directory");
+            return;
+        }
+
         // Filter out gitignored/excluded files that wouldn't be visible in tree anyway
         if (!batch.isOverflowed() && !batch.isUntrackedGitignoreChanged()) {
-            var visibleFiles = batch.getFiles().stream()
+            var visibleFiles = nonBrokkFiles.stream()
                     .filter(f -> {
                         Path relPath = f.getRelPath();
                         boolean gitignored = project.isGitignored(relPath);
@@ -913,13 +926,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             if (visibleFiles.isEmpty()) {
                 logger.trace(
                         "Skipping tree refresh - all {} files gitignored/excluded",
-                        batch.getFiles().size());
+                        nonBrokkFiles.size());
                 return;
             }
             logger.trace(
                     "{} of {} files visible, refreshing tree",
                     visibleFiles.size(),
-                    batch.getFiles().size());
+                    nonBrokkFiles.size());
         }
 
         scheduleRefresh();
@@ -938,12 +951,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
         logger.info("ProjectTree.scheduleRefresh: scheduled");
 
-        // Debounce rapid calls - only refresh after 100ms of no new calls
+        // Debounce rapid calls - only refresh after 300ms of no new calls
         SwingUtilities.invokeLater(() -> {
             if (refreshDebounceTimer != null) {
                 refreshDebounceTimer.stop();
             }
-            refreshDebounceTimer = new Timer(100, evt -> performRefresh());
+            logger.debug("Scheduling tree refresh (300ms debounce)");
+            refreshDebounceTimer = new Timer(300, evt -> performRefresh());
             refreshDebounceTimer.setRepeats(false);
             refreshDebounceTimer.start();
         });
