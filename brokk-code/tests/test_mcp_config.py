@@ -1,7 +1,11 @@
 import json
+from pathlib import Path
 
 import pytest
-from brokk_code.mcp_config import configure_claude_code_mcp_settings
+from brokk_code.mcp_config import (
+    configure_claude_code_mcp_settings,
+    configure_codex_mcp_settings,
+)
 from brokk_code.zed_config import ExistingBrokkCodeEntryError
 
 
@@ -58,3 +62,55 @@ def test_configure_claude_code_mcp_settings_conflict(tmp_path):
     # Verify it wasn't overwritten
     data = json.loads(config_path.read_text(encoding="utf-8"))
     assert data["mcpServers"]["brokk"]["command"] == "old-command"
+
+
+def test_configure_claude_code_mcp_settings_appends_to_claude_md(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    configure_claude_code_mcp_settings(force=True)
+
+    claude_json = tmp_path / ".claude.json"
+    instructions = tmp_path / ".claude" / "CLAUDE.md"
+
+    assert claude_json.exists()
+    assert instructions.exists()
+    assert "# Brokk" in instructions.read_text()
+
+
+def test_configure_claude_code_mcp_settings_skips_duplicate_brokk_mark(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    instructions_path = tmp_path / ".claude" / "CLAUDE.md"
+    instructions_path.parent.mkdir(parents=True)
+
+    instructions_path.write_text("# Existing content\n\n# Brokk\nCustom instructions")
+
+    configure_claude_code_mcp_settings(force=True)
+
+    content = instructions_path.read_text()
+    assert content.count("# Brokk") == 1
+    assert "Custom instructions" in content
+
+
+def test_configure_codex_mcp_settings_appends_to_codex_agents(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    configure_codex_mcp_settings(force=True)
+
+    config_path = tmp_path / ".codex" / "config.toml"
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+
+    assert config_path.exists()
+    assert agents_md.exists()
+    assert "# Brokk" in agents_md.read_text()
+
+
+def test_configure_codex_mcp_settings_skips_duplicate_brokk_mark(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+
+    agents_md.parent.mkdir(parents=True)
+    agents_md.write_text("# Existing\n\n# Brokk\nAlready here")
+
+    configure_codex_mcp_settings(force=True)
+
+    content = agents_md.read_text()
+    assert content.count("# Brokk") == 1
+    assert "Already here" in content

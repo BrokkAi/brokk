@@ -9,6 +9,35 @@ from brokk_code.zed_config import ExistingBrokkCodeEntryError, atomic_write_sett
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SERVER_NAME = "brokk"
+_BROKK_MARKER = "# Brokk"
+_BROKK_MARKER_RE = re.compile(f"^{_BROKK_MARKER}$", re.MULTILINE)
+_BROKK_INSTRUCTIONS = f"""{_BROKK_MARKER}
+Always use the Brokk MCP server when you need to perform complex code analysis, 
+run tests, or manage project tasks. Use the `brokk` server tools to ensure 
+consistency with the project's standards.
+"""
+
+
+def _ensure_brokk_instructions(path: Path) -> None:
+    """Appends Brokk instructions to a markdown file if not already present."""
+    if path.exists():
+        content = path.read_text(encoding="utf-8")
+        if _BROKK_MARKER_RE.search(content):
+            return
+
+        # Ensure we have proper separation from existing content
+        if not content.strip():
+            new_content = _BROKK_INSTRUCTIONS
+        else:
+            separator = "\n\n" if not content.endswith("\n\n") else ""
+            if content.endswith("\n") and not content.endswith("\n\n"):
+                separator = "\n"
+            new_content = content + separator + _BROKK_INSTRUCTIONS
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        new_content = _BROKK_INSTRUCTIONS
+
+    path.write_text(new_content, encoding="utf-8")
 
 
 def _toml_key(key: str) -> str:
@@ -144,6 +173,15 @@ def configure_claude_code_mcp_settings(
     mcp_servers[_SERVER_NAME] = server_config
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_settings(path, settings)
+
+    # Append to CLAUDE.md
+    if settings_path is None:
+        claude_md_path = Path.home() / ".claude" / "CLAUDE.md"
+    else:
+        claude_md_path = path.parent / "CLAUDE.md"
+
+    _ensure_brokk_instructions(claude_md_path)
+
     return path
 
 
@@ -184,4 +222,13 @@ def configure_codex_mcp_settings(*, force: bool = False, settings_path: Path | N
     path.parent.mkdir(parents=True, exist_ok=True)
     toml_text = _serialize_toml(settings)
     _atomic_write_toml(path, toml_text)
+
+    # Append to AGENTS.md
+    if settings_path is None:
+        agents_md_path = Path.home() / ".codex" / "AGENTS.md"
+    else:
+        agents_md_path = path.parent / "AGENTS.md"
+
+    _ensure_brokk_instructions(agents_md_path)
+
     return path
