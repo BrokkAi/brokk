@@ -14,7 +14,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.0.beta2"
+BUNDLED_EXECUTOR_VERSION = "0.23.0.beta4"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 
@@ -132,6 +132,7 @@ class ExecutorManager:
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
         self.resolved_jar_path: Optional[Path] = None
+        self.shutdown_context: Optional[str] = None
 
         self._process: Optional[asyncio.subprocess.Process] = None
         # The stdin stream for the subprocess (when created with PIPE).
@@ -448,12 +449,14 @@ class ExecutorManager:
         last_status_check = -float("inf")
         status_interval = 2.0  # Seconds between status checks when events are flowing
         state = "QUEUED"
+        terminal_empty_polls = 0
+        max_terminal_empty_polls = 3
 
         while True:
             now = asyncio.get_event_loop().time()
 
             # 1. Check job status if enough time has passed
-            if now - last_status_check > status_interval:
+            if terminal_empty_polls == 0 and now - last_status_check > status_interval:
                 status_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
                 status_resp.raise_for_status()
                 status_data = status_resp.json()
@@ -474,12 +477,17 @@ class ExecutorManager:
 
             # 3. Check for termination
             if state in terminal_states:
-                # If we just hit a terminal state, check one last time for any
-                # race-condition events.
-                if not events:
-                    break
-                # If we did get events, we continue one more loop without sleeping
-                # to clear the buffer.
+                if events:
+                    terminal_empty_polls = 0
+                else:
+                    # The status endpoint can report terminal state slightly before
+                    # the final events are visible. Drain a few extra empty event polls
+                    # before exiting so callers do not miss terminal notifications.
+                    terminal_empty_polls += 1
+                    if terminal_empty_polls >= max_terminal_empty_polls:
+                        break
+                    await asyncio.sleep(min_sleep)
+                    continue
 
             # 4. Adaptive sleep
             if events:
@@ -809,9 +817,15 @@ class ExecutorManager:
             try:
                 self._process.terminate()
                 try:
-                    await asyncio.wait_for(self._process.wait(), timeout=3.0)
+                    await asyncio.wait_for(self._process.wait(), timeout=30.0)
                 except asyncio.TimeoutError:
-                    logger.warning("Executor didn't terminate in time, killing...")
+                    if self.shutdown_context:
+                        logger.warning(
+                            "Executor didn't terminate in time, killing... (%s)",
+                            self.shutdown_context,
+                        )
+                    else:
+                        logger.warning("Executor didn't terminate in time, killing...")
                     self._process.kill()
                     await self._process.wait()
             except ProcessLookupError:

@@ -35,6 +35,14 @@ def test_brokk_app_cost_tracking_basic(mock_executor):
     # Verify chat was NOT notified
     mock_chat.add_system_message.assert_not_called()
 
+    # Simulate a CONFIRM event (should also be suppressed)
+    confirm_event = {
+        "type": "NOTIFICATION",
+        "data": {"level": "CONFIRM", "message": "Confirm something..."},
+    }
+    app._handle_event(confirm_event)
+    mock_chat.add_system_message.assert_not_called()
+
     # Simulate an INFO event
     info_event = {
         "type": "NOTIFICATION",

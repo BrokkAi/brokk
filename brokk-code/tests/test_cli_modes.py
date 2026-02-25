@@ -1,6 +1,7 @@
 import sys
 from types import ModuleType
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -297,3 +298,548 @@ def test_main_resume_routes_correctly(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["resume_session"] is False
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["vendor"] == "Anthropic"
+
+
+def test_main_issue_create_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "Broken build",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_123",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+            "--planner-model",
+            "custom-model",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["task_input"] == "Broken build"
+    assert captured["kwargs"]["mode"] == "ISSUE_WRITER"
+    assert captured["kwargs"]["planner_model"] == "custom-model"
+    assert captured["kwargs"]["tags"]["github_token"] == "ghp_123"
+    assert captured["kwargs"]["tags"]["repo_owner"] == "acme"
+    assert captured["kwargs"]["tags"]["repo_name"] == "tools"
+
+
+def test_main_issue_create_missing_prompt_exits_nonzero(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "--github-token",
+            "ghp_123",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_create_respects_env_github_token(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setenv("GITHUB_TOKEN", "env-token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "Broken build",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["tags"]["github_token"] == "env-token"
+    assert captured["kwargs"]["planner_model"] == "gemini-3-flash-preview"
+    assert captured["kwargs"]["planner_reasoning_level"] == "disable"
+    assert captured["kwargs"]["verbose"] is False
+
+
+def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "create",
+            "Broken build",
+            "-v",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["verbose"] is True
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_creates_session_before_wait_ready(
+    mock_executor_class, tmp_path
+) -> None:
+    """Verifies that run_headless_job creates a session before polling for readiness.
+
+    This ordering is required because the Java executor's /health/ready endpoint
+    only returns 200 OK after a session has been created.
+    """
+    from unittest.mock import AsyncMock
+
+    call_order: list[str] = []
+    mock_manager = mock_executor_class.return_value
+
+    async def mock_start():
+        call_order.append("start")
+
+    async def mock_create_session(name: str = ""):
+        call_order.append("create_session")
+        return "session-123"
+
+    async def mock_wait_ready(timeout: float = 30.0):
+        call_order.append("wait_ready")
+        return True
+
+    async def mock_submit_job(**kwargs):
+        call_order.append("submit_job")
+        return "job-456"
+
+    async def mock_stream_events(job_id: str):
+        # Yield a terminal state event to end the job
+        yield {"type": "STATE_CHANGE", "state": "COMPLETED"}
+
+    async def mock_stop():
+        call_order.append("stop")
+
+    mock_manager.start = AsyncMock(side_effect=mock_start)
+    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
+    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.submit_job = AsyncMock(side_effect=mock_submit_job)
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock(side_effect=mock_stop)
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Test task",
+        planner_model="test-model",
+        mode="LUTZ",
+        tags={},
+    )
+
+    # Verify the critical ordering: create_session MUST come before wait_ready
+    assert "start" in call_order
+    assert "create_session" in call_order
+    assert "wait_ready" in call_order
+    assert "submit_job" in call_order
+
+    start_idx = call_order.index("start")
+    create_session_idx = call_order.index("create_session")
+    wait_ready_idx = call_order.index("wait_ready")
+    submit_job_idx = call_order.index("submit_job")
+
+    # The critical assertion: session must be created before waiting for readiness
+    assert start_idx < create_session_idx, "start() must be called before create_session()"
+    assert create_session_idx < wait_ready_idx, (
+        "create_session() must be called before wait_ready()"
+    )
+    assert wait_ready_idx < submit_job_idx, "wait_ready() must be called before submit_job()"
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_reports_failed_terminal_state(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {"type": "STATE_CHANGE", "state": "RUNNING"}
+        yield {"type": "ERROR", "message": "GitHub API returned 403"}
+        yield {"type": "STATE_CHANGE", "state": "FAILED"}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_headless_job(
+            workspace_dir=tmp_path,
+            task_input="Create issue",
+            planner_model="test-model",
+            mode="ISSUE_WRITER",
+            tags={},
+        )
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 1
+    assert "Error event: GitHub API returned 403" in captured.err
+    assert "ISSUE_WRITER job ended with state FAILED." in captured.err
+    assert "Last error: GitHub API returned 403" in captured.err
+    mock_manager.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_reports_stage_on_submit_failure(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from brokk_code.executor import ExecutorError
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(side_effect=ExecutorError("401 Unauthorized"))
+    mock_manager.stop = AsyncMock()
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_headless_job(
+            workspace_dir=tmp_path,
+            task_input="Create issue",
+            planner_model="test-model",
+            mode="ISSUE_WRITER",
+            tags={},
+        )
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 1
+    assert (
+        "Executor error during ISSUE_WRITER job (submitting job): 401 Unauthorized" in captured.err
+    )
+    mock_manager.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_uses_nested_event_data_for_errors_and_quiet_notifications(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {"type": "NOTIFICATION", "data": {"level": "INFO", "message": ""}}
+        yield {"type": "NOTIFICATION", "data": {"level": "WARN", "message": "rate limit near"}}
+        yield {"type": "LLM_TOKEN", "data": {"token": "hello"}}
+        yield {"type": "ERROR", "data": {"message": "executor boom"}}
+        yield {"type": "STATE_CHANGE", "data": {"state": "FAILED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_headless_job(
+            workspace_dir=tmp_path,
+            task_input="Create issue",
+            planner_model="test-model",
+            mode="ISSUE_WRITER",
+            tags={},
+        )
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 1
+    assert "[INFO] None" not in captured.out
+    assert "[WARN] rate limit near" in captured.out
+    assert "hello" not in captured.out
+    assert "Error event: executor boom" in captured.err
+    assert "Unknown error event" not in captured.err
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_verbose_shows_full_event_output(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
+        yield {"type": "STATE_CHANGE", "data": {"state": "RUNNING"}}
+        yield {"type": "LLM_TOKEN", "data": {"token": "hello"}}
+        yield {"type": "COMMAND_RESULT", "data": {"command": "gh issue create", "output": "ok"}}
+        yield {"type": "TOOL_OUTPUT", "data": {"text": "tool text"}}
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Create issue",
+        planner_model="test-model",
+        mode="ISSUE_WRITER",
+        tags={},
+        verbose=True,
+    )
+
+    captured = capsys.readouterr()
+    assert "[INFO] planning" in captured.out
+    assert "Job state: RUNNING" in captured.out
+    assert "hello" in captured.out
+    assert "[COMMAND_RESULT]" in captured.out
+    assert "[TOOL_OUTPUT]" in captured.out
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_exits_nonzero_on_error_event_without_failed_state(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "Job started"}}
+        yield {"type": "ERROR", "data": {"message": "parseIssueResponse: invalid JSON"}}
+        # Stream ends without a terminal FAILED/CANCELLED state event.
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_headless_job(
+            workspace_dir=tmp_path,
+            task_input="Create issue",
+            planner_model="test-model",
+            mode="ISSUE_WRITER",
+            tags={},
+        )
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 1
+    assert "Job finished." not in captured.out
+    assert "ISSUE_WRITER job ended with errors (last observed state: UNKNOWN)." in captured.err
+    assert "Last error: parseIssueResponse: invalid JSON" in captured.err
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_prints_issue_created_link_from_suppressed_tokens(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {"type": "LLM_TOKEN", "data": {"token": "Created issue: "}}
+        yield {
+            "type": "LLM_TOKEN",
+            "data": {"token": "https://github.com/brokkai/brokk/issues/123"},
+        }
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Create issue",
+        planner_model="test-model",
+        mode="ISSUE_WRITER",
+        tags={},
+    )
+
+    captured = capsys.readouterr()
+    assert "Issue created: https://github.com/brokkai/brokk/issues/123" in captured.out
+    assert "Job submitted:" not in captured.out
+    assert "Job finished." not in captured.out
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_prints_issue_created_link_from_issue_writer_notification(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {
+            "type": "NOTIFICATION",
+            "data": {
+                "level": "INFO",
+                "message": "ISSUE_WRITER: issue created I_kwDOXYZ https://github.com/brokkai/brokk/issues/456",
+            },
+        }
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Create issue",
+        planner_model="test-model",
+        mode="ISSUE_WRITER",
+        tags={},
+    )
+
+    captured = capsys.readouterr()
+    assert "Issue created: https://github.com/brokkai/brokk/issues/456" in captured.out
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_prints_issue_created_link_from_tool_output_result_text(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {
+            "type": "TOOL_OUTPUT",
+            "data": {
+                "resultText": "Created: https://github.com/brokkai/brokk/issues/789",
+                "name": "createGitHubIssue",
+                "status": "SUCCESS",
+            },
+        }
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Create issue",
+        planner_model="test-model",
+        mode="ISSUE_WRITER",
+        tags={},
+    )
+
+    captured = capsys.readouterr()
+    assert "Issue created: https://github.com/brokkai/brokk/issues/789" in captured.out
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_prints_issue_created_link_from_structured_issue_created_event(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {
+            "type": "ISSUE_CREATED",
+            "data": {
+                "issueId": "#987",
+                "issueUrl": "https://github.com/brokkai/brokk/issues/987",
+                "repoOwner": "brokkai",
+                "repoName": "brokk",
+            },
+        }
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Create issue",
+        planner_model="test-model",
+        mode="ISSUE_WRITER",
+        tags={},
+    )
+
+    captured = capsys.readouterr()
+    assert "Issue created: https://github.com/brokkai/brokk/issues/987" in captured.out
