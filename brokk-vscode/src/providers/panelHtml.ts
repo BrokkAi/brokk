@@ -17,6 +17,9 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
   const jsUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "media", "panel.js")
   );
+  const workerUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, "media", "markdown-worker.js")
+  );
   const nonce = getNonce();
 
   return `<!DOCTYPE html>
@@ -24,7 +27,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src ${webview.cspSource};">
+    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${webview.cspSource}; connect-src ${webview.cspSource};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${cssUri}" rel="stylesheet">
   <title>Brokk</title>
@@ -167,6 +170,7 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
       </div>
     </div>
   </div>
+  <script nonce="${nonce}">window.__brokkWorkerUri = "${workerUri}";</script>
   <script nonce="${nonce}" src="${jsUri}"></script>
 </body>
 </html>`;
