@@ -2,7 +2,6 @@ package ai.brokk.mcpserver;
 
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import java.io.IOException;
@@ -45,20 +44,25 @@ public final class McpToolCallHistoryWriter implements ToolRegistry.ToolCallReco
         String fileName = "%03d-%s.log".formatted(idx, sanitizeFilenameComponent(request.name()));
         Path logFile = runDirectory.resolve(fileName);
 
-        String requestJson = prettyJson(buildRequestNode(request));
-        String responseJson = prettyJson(buildResponseNode(status, responseBody));
-
         String content =
                 """
                 # Request
+
+                ## Tool: %s
+
+                ## Arguments
 
                 %s
 
                 # Response
 
+                ## Status: %s
+
+                ## Body
+
                 %s
                 """
-                        .formatted(requestJson, responseJson)
+                        .formatted(request.name(), prettyArguments(request.arguments()), status.name(), responseBody)
                         .stripIndent();
 
         try {
@@ -79,36 +83,14 @@ public final class McpToolCallHistoryWriter implements ToolRegistry.ToolCallReco
         }
     }
 
-    private JsonNode buildRequestNode(ToolExecutionRequest request) {
-        var root = mapper.createObjectNode();
-        root.put("name", request.name());
-
-        String args = request.arguments();
+    private String prettyArguments(String args) {
         if (args == null || args.isBlank()) {
-            root.set("arguments", mapper.createObjectNode());
-        } else {
-            try {
-                root.set("arguments", mapper.readTree(args));
-            } catch (IOException e) {
-                root.put("arguments", args);
-            }
+            return "{}";
         }
-
-        return root;
-    }
-
-    private JsonNode buildResponseNode(ToolExecutionResult.Status status, String responseBody) {
-        var root = mapper.createObjectNode();
-        root.put("status", status.name());
-        root.put("response", responseBody);
-        return root;
-    }
-
-    private String prettyJson(JsonNode node) {
         try {
-            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(node);
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mapper.readTree(args));
         } catch (IOException e) {
-            return node.toString();
+            return args;
         }
     }
 
