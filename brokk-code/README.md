@@ -134,6 +134,23 @@ Versioned JARs are cached at `~/.brokk/brokk-<tag>.jar`.
 - **Settings Picker**: Use `Ctrl+P` then select `Change theme` to open settings (including theme options like solarized).
 - **Command**: You can use `/settings` to open the same picker.
 
+### Issue Management (GitHub)
+
+The Python CLI supports creating GitHub issues based on repository evidence via the `issue create` command. This is a read-only operation for the local repository; it uses the GitHub API to post a new issue.
+
+```bash
+# Example: Create an issue for a discovered bug
+brokk issue create "Describe the NPE in AuthService" \
+  --repo-owner acme-corp \
+  --repo-name service-api \
+  --github-token ghp_yourToken
+```
+
+**Required Arguments:**
+- `prompt`: A description of the problem or evidence to report.
+- `--repo-owner` / `--repo-name`: Target GitHub repository.
+- `--github-token`: GitHub PAT (can also be set via `GITHUB_TOKEN` environment variable).
+
 ### Commands
 
 | Command | Description |
