@@ -3,6 +3,7 @@ import asyncio
 import os
 import re
 import sys
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -294,6 +295,7 @@ async def run_headless_job(
     last_state: str | None = None
     error_messages: list[str] = []
     created_issue_url: str | None = None
+    total_cost: Decimal | None = None
     token_url_scan_buffer = ""
     spinner_index = 0
     spinner_active = False
@@ -425,6 +427,19 @@ async def run_headless_job(
                 _record_issue_url(message)
                 level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
 
+                if level == "COST":
+                    cost_val = data.get("cost", event.get("cost"))
+                    if cost_val is not None:
+                        try:
+                            amount = Decimal(str(cost_val))
+                            if total_cost is None:
+                                total_cost = Decimal("0.00")
+                            total_cost += amount
+                        except (InvalidOperation, ValueError):
+                            pass
+                    if is_issue_mode and not verbose:
+                        continue
+
                 if not verbose:
                     if not is_issue_mode and level not in {"WARN", "WARNING", "ERROR"}:
                         continue
@@ -500,6 +515,9 @@ async def run_headless_job(
                 print("Issue created.")
         else:
             print("Job finished.")
+
+        if is_issue_mode and total_cost is not None:
+            print(f"Total cost: ${total_cost.quantize(Decimal('0.01'))}")
 
     except ExecutorError as e:
         _clear_spinner()

@@ -890,6 +890,132 @@ async def test_run_headless_job_prints_issue_created_link_from_structured_issue_
     assert "Issue created: https://github.com/brokkai/brokk/issues/987" in captured.out
 
 
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_aggregates_cost_and_suppresses_cost_notifications(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        # Two COST events followed by completion
+        yield {
+            "type": "NOTIFICATION",
+            "data": {"level": "COST", "message": "Cost: $0.10", "cost": 0.10},
+        }
+        yield {
+            "type": "NOTIFICATION",
+            "data": {"level": "COST", "message": "Cost: $0.05", "cost": 0.05},
+        }
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Resolve issue",
+        planner_model="test-model",
+        mode="ISSUE",
+        tags={},
+    )
+
+    captured = capsys.readouterr()
+    # Individual COST messages should not be printed in non-verbose issue mode
+    assert "Cost: $0.10" not in captured.out
+    assert "Cost: $0.05" not in captured.out
+    # But a single total line should be present
+    assert "Total cost: $0.15" in captured.out
+    # Manager should always be stopped
+    mock_manager.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_verbose_shows_cost_notifications_and_total(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {
+            "type": "NOTIFICATION",
+            "data": {"level": "COST", "message": "Cost: $0.10", "cost": 0.10},
+        }
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Resolve issue",
+        planner_model="test-model",
+        mode="ISSUE",
+        tags={},
+        verbose=True,
+    )
+
+    captured = capsys.readouterr()
+    # In verbose mode we still show the per-notification COST line
+    assert "[COST] Cost: $0.10" in captured.out
+    # And we also show a total
+    assert "Total cost: $0.10" in captured.out
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_handles_malformed_cost(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        yield {
+            "type": "NOTIFICATION",
+            "data": {"level": "COST", "message": "Good", "cost": 0.10},
+        }
+        yield {
+            "type": "NOTIFICATION",
+            "data": {"level": "COST", "message": "Bad", "cost": "free"},
+        }
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Resolve issue",
+        planner_model="test-model",
+        mode="ISSUE",
+        tags={},
+    )
+
+    captured = capsys.readouterr()
+    assert "Total cost: $0.10" in captured.out
+
+
 def test_main_issue_solve_routes_correctly(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
 
