@@ -260,6 +260,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         IAnalyzer.ProgressListener progressListener = listener::onProgress;
 
         refresh(prev -> {
+            externalRebuildRequested = false;
             Set<Language> currentLangs = prev.languages();
             Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
                     .filter(l -> l != Languages.NONE)
@@ -305,8 +306,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 return new MultiAnalyzer(nextDelegates);
             }
         });
-
-        externalRebuildRequested = false;
     }
 
     /**
