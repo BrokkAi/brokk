@@ -908,8 +908,10 @@ public class BuildAgent {
                 }
 
                 logger.debug("Using modules/packages template with {} entries for {}", targetItems.size(), language);
-                return interpolateMustacheTemplate(
-                        testSomeTemplate, Map.of("modules", targetItems, "packages", targetItems), pythonVersion);
+                Map<String, List<String>> vars = new HashMap<>();
+                vars.put("modules", targetItems);
+                vars.put("packages", targetItems);
+                return interpolateMustacheTemplate(testSomeTemplate, vars, pythonVersion);
             }
         }
 
