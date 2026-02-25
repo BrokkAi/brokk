@@ -167,11 +167,13 @@ async def run_headless_job(
 
     try:
         await manager.start()
+
+        # Create session before wait_ready to satisfy Java-side readiness requirements
+        await manager.create_session(name=f"Headless {mode}")
+
         if not await manager.wait_ready():
             print("Error: Executor failed to become ready.", file=sys.stderr)
             sys.exit(1)
-
-        await manager.create_session(name=f"Headless {mode}")
 
         print(f"Submitting {mode} job...")
         job_id = await manager.submit_job(

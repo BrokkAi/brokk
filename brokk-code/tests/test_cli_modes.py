@@ -1,6 +1,7 @@
 import sys
 from types import ModuleType
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -385,3 +386,74 @@ def test_main_issue_create_respects_env_github_token(monkeypatch, tmp_path) -> N
     main_module.main()
 
     assert captured["kwargs"]["tags"]["github_token"] == "env-token"
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_creates_session_before_wait_ready(
+    mock_executor_class, tmp_path
+) -> None:
+    """Verifies that run_headless_job creates a session before polling for readiness.
+
+    This ordering is required because the Java executor's /health/ready endpoint
+    only returns 200 OK after a session has been created.
+    """
+    from unittest.mock import AsyncMock
+
+    call_order: list[str] = []
+    mock_manager = mock_executor_class.return_value
+
+    async def mock_start():
+        call_order.append("start")
+
+    async def mock_create_session(name: str = ""):
+        call_order.append("create_session")
+        return "session-123"
+
+    async def mock_wait_ready(timeout: float = 30.0):
+        call_order.append("wait_ready")
+        return True
+
+    async def mock_submit_job(**kwargs):
+        call_order.append("submit_job")
+        return "job-456"
+
+    async def mock_stream_events(job_id: str):
+        # Yield a terminal state event to end the job
+        yield {"type": "STATE_CHANGE", "state": "COMPLETED"}
+
+    async def mock_stop():
+        call_order.append("stop")
+
+    mock_manager.start = AsyncMock(side_effect=mock_start)
+    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
+    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.submit_job = AsyncMock(side_effect=mock_submit_job)
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock(side_effect=mock_stop)
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Test task",
+        planner_model="test-model",
+        mode="LUTZ",
+        tags={},
+    )
+
+    # Verify the critical ordering: create_session MUST come before wait_ready
+    assert "start" in call_order
+    assert "create_session" in call_order
+    assert "wait_ready" in call_order
+    assert "submit_job" in call_order
+
+    start_idx = call_order.index("start")
+    create_session_idx = call_order.index("create_session")
+    wait_ready_idx = call_order.index("wait_ready")
+    submit_job_idx = call_order.index("submit_job")
+
+    # The critical assertion: session must be created before waiting for readiness
+    assert start_idx < create_session_idx, "start() must be called before create_session()"
+    assert create_session_idx < wait_ready_idx, (
+        "create_session() must be called before wait_ready()"
+    )
+    assert wait_ready_idx < submit_job_idx, "wait_ready() must be called before submit_job()"
