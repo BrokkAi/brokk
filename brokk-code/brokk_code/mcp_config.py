@@ -98,6 +98,7 @@ def _brokk_mcp_config() -> dict[str, Any]:
             "21",
             "-R",
             "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
+            "-R",
             "--enable-native-access=ALL-UNNAMED",
             "--main",
             "ai.brokk.mcpserver.BrokkExternalMcpServer",
@@ -110,7 +111,7 @@ def _brokk_mcp_config() -> dict[str, Any]:
 def configure_claude_code_mcp_settings(
     *, force: bool = False, settings_path: Path | None = None
 ) -> Path:
-    path = settings_path or Path.home() / ".claude" / "settings.json"
+    path = settings_path or Path.home() / ".claude.json"
     if path.exists():
         raw_text = path.read_text(encoding="utf-8")
         try:

@@ -9,6 +9,11 @@ import pytest
 import brokk_code.__main__ as main_module
 
 
+def _stub_install_warmup(monkeypatch) -> None:
+    monkeypatch.setattr(main_module, "_resolve_jbang_for_install", lambda: "/usr/local/bin/jbang")
+    monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+
+
 def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
     fake_app_module = ModuleType("brokk_code.app")
@@ -117,6 +122,7 @@ def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         return tmp_path / ".config" / "zed" / "settings.json"
 
     monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
+    _stub_install_warmup(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed", "--force"])
 
     main_module.main()
@@ -130,6 +136,7 @@ def test_main_install_zed_conflict_exits_nonzero(monkeypatch) -> None:
     def fake_configure_zed_acp_settings(*, force: bool = False, settings_path=None):
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
+    _stub_install_warmup(monkeypatch)
     monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
 
@@ -143,6 +150,7 @@ def test_main_install_zed_invalid_json_exits_nonzero(monkeypatch) -> None:
     def fake_configure_zed_acp_settings(*, force: bool = False, settings_path=None):
         raise ValueError("Could not parse as JSON/JSONC")
 
+    _stub_install_warmup(monkeypatch)
     monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
 
@@ -159,6 +167,7 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
         captured["force"] = force
         return tmp_path / "intellij-config"
 
+    _stub_install_warmup(monkeypatch)
     monkeypatch.setattr(
         main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
     )
@@ -171,10 +180,35 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
     assert "Configured IntelliJ ACP integration" in output
 
 
+def test_main_install_verbose_prints_prefetch_command(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(main_module, "resolve_jbang_binary", lambda: None)
+    prefetch_invoked: dict[str, bool] = {"called": False}
+
+    def fake_run_install_prefetch(_commands: list[tuple[str, list[str]]]) -> None:
+        prefetch_invoked["called"] = True
+
+    monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
+
+    def fake_configure_zed_acp_settings(*, force: bool = False, settings_path=None):
+        return tmp_path / ".config" / "zed" / "settings.json"
+
+    monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed", "-v"])
+
+    main_module.main()
+
+    output = capsys.readouterr().out.strip().splitlines()
+    assert any("Configured Zed ACP integration" in line for line in output)
+    assert any("jbang" in line for line in output)
+    assert any("--main" in line for line in output)
+    assert prefetch_invoked["called"] is False
+
+
 def test_main_install_intellij_conflict_exits_nonzero(monkeypatch) -> None:
     def fake_configure_intellij_acp_settings(*, force: bool = False, settings_path=None):
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
+    _stub_install_warmup(monkeypatch)
     monkeypatch.setattr(
         main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
     )
@@ -190,6 +224,7 @@ def test_main_install_intellij_invalid_json_exits_nonzero(monkeypatch) -> None:
     def fake_configure_intellij_acp_settings(*, force: bool = False, settings_path=None):
         raise ValueError("Could not parse as JSON")
 
+    _stub_install_warmup(monkeypatch)
     monkeypatch.setattr(
         main_module, "configure_intellij_acp_settings", fake_configure_intellij_acp_settings
     )
@@ -199,6 +234,49 @@ def test_main_install_intellij_invalid_json_exits_nonzero(monkeypatch) -> None:
         main_module.main()
 
     assert exc.value.code == 1
+
+
+def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, Any] = {}
+    prefetched: dict[str, Any] = {}
+
+    def fake_configure_claude_code_mcp_settings(*, force: bool = False, settings_path=None):
+        captured["claude_force"] = force
+        return tmp_path / "claude.json"
+
+    def fake_configure_codex_mcp_settings(*, force: bool = False, settings_path=None):
+        captured["codex_force"] = force
+        return tmp_path / "codex.toml"
+
+    def fake_run_install_prefetch(commands):
+        prefetched["commands"] = commands
+
+    monkeypatch.setattr(
+        main_module,
+        "configure_claude_code_mcp_settings",
+        fake_configure_claude_code_mcp_settings,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "configure_codex_mcp_settings",
+        fake_configure_codex_mcp_settings,
+    )
+    monkeypatch.setattr(main_module, "_resolve_jbang_for_install", lambda: "/usr/local/bin/jbang")
+    monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "install", "mcp", "--force"],
+    )
+
+    main_module.main()
+
+    output = capsys.readouterr().out
+    assert captured["claude_force"] is True
+    assert captured["codex_force"] is True
+    assert "Configured Claude Code MCP integration" in output
+    assert "Configured Codex MCP integration" in output
+    assert "MCP runtime" in str(prefetched["commands"][0][0])
 
 
 def test_main_uses_git_repo_root_for_nested_workspace(monkeypatch, tmp_path) -> None:

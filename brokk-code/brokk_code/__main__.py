@@ -4,12 +4,20 @@ import base64
 import contextlib
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Iterator
+
+from brokk_code.executor import (
+    BUNDLED_EXECUTOR_VERSION,
+    ExecutorError,
+    install_jbang,
+    resolve_jbang_binary,
+)
 
 from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.mcp_config import (
@@ -20,6 +28,11 @@ from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
 REPO_COMPONENT_ALLOWLIST_REGEX = r"^[A-Za-z0-9_.-]+$"
+_EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
+_HEADLESS_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
+_MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
+_MCP_JBANG_PACKAGE = "brokk-headless@brokkai/brokk-releases"
+_JBANG_PREFETCH_TIMEOUT_SECONDS = 120.0
 
 
 def _validate_github_params(
@@ -52,6 +65,124 @@ def _validate_github_params(
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def _resolve_jbang_for_install() -> str:
+    """Ensure JBang is installed for install-time prefetching."""
+    jbang_path = resolve_jbang_binary()
+    if jbang_path:
+        return jbang_path
+    return install_jbang()
+
+
+def _build_executor_prefetch_command(
+    *, jbang_binary: str, executor_version: str | None
+) -> list[str]:
+    version = executor_version or BUNDLED_EXECUTOR_VERSION
+    jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
+    return [
+        jbang_binary,
+        "--java",
+        "21",
+        "-R",
+        "-Djava.awt.headless=true "
+        + "-Dapple.awt.UIElement=true "
+        + "--enable-native-access=ALL-UNNAMED",
+        "--main",
+        _HEADLESS_EXECUTOR_MAIN_CLASS,
+        jar_url,
+        "--help",
+    ]
+
+
+def _build_mcp_prefetch_command(*, jbang_binary: str) -> list[str]:
+    return [
+        jbang_binary,
+        "--java",
+        "21",
+        "-R",
+        "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
+        "-R",
+        "--enable-native-access=ALL-UNNAMED",
+        "--main",
+        _MCP_SERVER_MAIN_CLASS,
+        _MCP_JBANG_PACKAGE,
+        "--help",
+    ]
+
+
+def _build_install_prefetch_commands(
+    *, target: str, jbang_binary: str, executor_version: str | None
+) -> list[tuple[str, list[str]]]:
+    if target == "mcp":
+        return [("MCP runtime", _build_mcp_prefetch_command(jbang_binary=jbang_binary))]
+    return [
+        (
+            "Executor runtime",
+            _build_executor_prefetch_command(
+                jbang_binary=jbang_binary, executor_version=executor_version
+            ),
+        )
+    ]
+
+
+def _run_jbang_prefetch_command(label: str, command: list[str]) -> None:
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=_JBANG_PREFETCH_TIMEOUT_SECONDS,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        if detail:
+            detail = f": {detail}"
+        raise ExecutorError(f"{label} prefetch failed with code {proc.returncode}{detail}")
+
+
+async def _spin_for_prefetch(commands: list[asyncio.Task[None]], *, label: str) -> None:
+    if not commands or not sys.stdout.isatty():
+        return
+
+    spinner_frames = "|/-\\"
+    frame_index = 0
+    total = len(commands)
+    while True:
+        done = sum(1 for command in commands if command.done())
+        if done >= total:
+            break
+        frame = spinner_frames[frame_index % len(spinner_frames)]
+        frame_index += 1
+        sys.stdout.write(f"\r{frame} {label} ({done}/{total})")
+        sys.stdout.flush()
+        await asyncio.sleep(0.12)
+
+    clear_len = len(f"{label} ({total}/{total})") + 10
+    sys.stdout.write(f"\r{' ' * clear_len}\r")
+    print(f"{label} ({total}/{total})")
+
+
+async def _run_install_prefetch_async(commands: list[tuple[str, list[str]]]) -> None:
+    tasks: list[asyncio.Task[None]] = [
+        asyncio.create_task(asyncio.to_thread(_run_jbang_prefetch_command, label, cmd))
+        for label, cmd in commands
+    ]
+    spinner = asyncio.create_task(_spin_for_prefetch(tasks, label="Prefetching Brokk dependencies"))
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        await spinner
+
+
+def _run_install_prefetch(commands: list[tuple[str, list[str]]]) -> None:
+    if not commands:
+        return
+    asyncio.run(_run_install_prefetch_async(commands))
+
+
+def _print_install_prefetch_commands(commands: list[tuple[str, list[str]]]) -> None:
+    for _, command in commands:
+        print(shlex.join(command))
 
 
 def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
@@ -209,6 +340,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Overwrite existing install configuration when supported",
+    )
+    install_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print the JBang prefetch command(s) instead of executing them",
     )
 
     issue_parser = subparsers.add_parser("issue", help="Manage GitHub issues")
@@ -591,27 +729,58 @@ def main():
     args = parser.parse_args()
 
     if args.command == "install":
+        messages: list[str] = []
+        prefetch_commands: list[tuple[str, list[str]]] = []
         try:
+            jbang_binary = resolve_jbang_binary() if args.verbose else _resolve_jbang_for_install()
+            if args.verbose and not jbang_binary:
+                jbang_binary = "jbang"
             if args.target == "zed":
                 settings_path = configure_zed_acp_settings(force=args.force)
-                target_name = "Zed"
+                prefetch_commands = _build_install_prefetch_commands(
+                    target=args.target,
+                    jbang_binary=jbang_binary,
+                    executor_version=args.executor_version,
+                )
+                messages = [f"Configured Zed ACP integration in {settings_path}"]
             elif args.target == "intellij":
                 settings_path = configure_intellij_acp_settings(force=args.force)
-                target_name = "IntelliJ"
+                prefetch_commands = _build_install_prefetch_commands(
+                    target=args.target,
+                    jbang_binary=jbang_binary,
+                    executor_version=args.executor_version,
+                )
+                messages = [f"Configured IntelliJ ACP integration in {settings_path}"]
             elif args.target == "mcp":
                 claude_settings_path = configure_claude_code_mcp_settings(force=args.force)
-                print(f"Configured Claude Code MCP integration in {claude_settings_path}")
                 codex_settings_path = configure_codex_mcp_settings(force=args.force)
-                print(f"Configured Codex MCP integration in {codex_settings_path}")
-                return
+                prefetch_commands = _build_install_prefetch_commands(
+                    target=args.target,
+                    jbang_binary=jbang_binary,
+                    executor_version=args.executor_version,
+                )
+                messages = [
+                    f"Configured Claude Code MCP integration in {claude_settings_path}",
+                    f"Configured Codex MCP integration in {codex_settings_path}",
+                ]
             else:
                 # Should not happen due to argparse choices
                 raise ValueError(f"Unknown target: {args.target}")
+            for message in messages:
+                print(message)
+
+            if args.verbose:
+                _print_install_prefetch_commands(prefetch_commands)
+                return
+
+            _run_install_prefetch(prefetch_commands)
         except (ExistingBrokkCodeEntryError, ValueError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
+        except ExecutorError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
 
-        print(f"Configured {target_name} ACP integration in {settings_path}")
         return
 
     workspace_path = Path(args.workspace).resolve()
