@@ -12,9 +12,7 @@ _SERVER_NAME = "brokk"
 _BROKK_MARKER = "# Brokk"
 _BROKK_MARKER_RE = re.compile(f"^{_BROKK_MARKER}$", re.MULTILINE)
 _BROKK_INSTRUCTIONS = f"""{_BROKK_MARKER}
-Always use the Brokk MCP server when you need to perform complex code analysis, 
-run tests, or manage project tasks. Use the `brokk` server tools to ensure 
-consistency with the project's standards.
+Always use the Brokk MCP server tools for syntax-aware code search and callCodeAgent.
 """
 
 

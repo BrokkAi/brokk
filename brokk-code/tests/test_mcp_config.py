@@ -1,7 +1,7 @@
 import json
-from pathlib import Path
 
 import pytest
+
 from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,

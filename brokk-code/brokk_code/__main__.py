@@ -18,7 +18,6 @@ from brokk_code.executor import (
     install_jbang,
     resolve_jbang_binary,
 )
-
 from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
