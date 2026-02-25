@@ -1082,7 +1082,9 @@ public final class JobRunner {
                                             var issueCreatedData = new LinkedHashMap<String, Object>();
                                             issueCreatedData.put("issueId", created.id());
                                             if (created.htmlUrl() != null) {
-                                                issueCreatedData.put("issueUrl", created.htmlUrl().toString());
+                                                issueCreatedData.put(
+                                                        "issueUrl",
+                                                        created.htmlUrl().toString());
                                             }
                                             issueCreatedData.put("repoOwner", repoOwner);
                                             issueCreatedData.put("repoName", repoName);

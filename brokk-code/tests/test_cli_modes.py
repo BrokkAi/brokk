@@ -558,7 +558,9 @@ async def test_run_headless_job_reports_stage_on_submit_failure(
 
     captured = capsys.readouterr()
     assert exc.value.code == 1
-    assert "Executor error during ISSUE_WRITER job (submitting job): 401 Unauthorized" in captured.err
+    assert (
+        "Executor error during ISSUE_WRITER job (submitting job): 401 Unauthorized" in captured.err
+    )
     mock_manager.stop.assert_awaited_once()
 
 
@@ -742,7 +744,7 @@ async def test_run_headless_job_prints_issue_created_link_from_issue_writer_noti
             "type": "NOTIFICATION",
             "data": {
                 "level": "INFO",
-                "message": "ISSUE_WRITER: issue created I_kwDOXYZ https://github.com/brokkai/brokk/issues/456"
+                "message": "ISSUE_WRITER: issue created I_kwDOXYZ https://github.com/brokkai/brokk/issues/456",
             },
         }
         yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
