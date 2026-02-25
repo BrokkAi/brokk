@@ -6,6 +6,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Static
 
+from brokk_code.settings import is_openai_codex_connected
 from brokk_code.token_format import format_token_count
 
 
@@ -111,6 +112,9 @@ class StatusLine(Horizontal):
             workspace_display,
             self._branch,
         ]
+
+        if is_openai_codex_connected():
+            parts.append("Codex: On")
 
         if self._turn_cost is not None and self._turn_cost > 0:
             parts.append(f"${self._turn_cost:.3f} turn")

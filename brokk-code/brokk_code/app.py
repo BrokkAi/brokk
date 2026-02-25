@@ -17,6 +17,7 @@ from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
     Settings,
+    is_openai_codex_connected,
     normalize_theme_name,
     write_brokk_api_key,
 )
@@ -636,6 +637,13 @@ class BrokkApp(App):
                 chat.add_system_message(
                     "OpenAI login flow initiated. Please complete it in your browser."
                 )
+
+            # Wait a moment for Java to complete the flow and update properties, then re-check
+            await asyncio.sleep(2.0)
+            if is_openai_codex_connected():
+                if chat:
+                    chat.add_system_message("OpenAI Codex: [bold green]Connected[/]")
+                self._update_statusline()
         except ExecutorError as e:
             if chat:
                 chat.add_system_message(f"OpenAI login failed: {e}", level="ERROR")
@@ -1507,6 +1515,7 @@ class BrokkApp(App):
             f"Code Model: [bold]{self.code_model}[/] "
             f"(reasoning: [bold]{self.reasoning_level_code}[/])"
         )
+        codex_status = "Connected" if is_openai_codex_connected() else "Not connected"
         info_markup = (
             f"Status: {status}\n"
             f"Workspace: [bold]{self.executor.workspace_dir}[/]\n"
@@ -1514,6 +1523,7 @@ class BrokkApp(App):
             f"Executor JAR: [bold]{jar_path}[/]\n"
             f"Mode: [bold]{self.agent_mode}[/]\n"
             f"Auto-commit: [bold]{'ON' if self.auto_commit else 'OFF'}[/]\n"
+            f"OpenAI Codex: [bold]{codex_status}[/]\n"
             f"{planner_info}\n"
             f"{code_info}"
         )

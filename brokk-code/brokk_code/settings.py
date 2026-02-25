@@ -74,6 +74,12 @@ def read_brokk_properties() -> dict[str, str]:
     return props
 
 
+def is_openai_codex_connected() -> bool:
+    """Checks if OpenAI Codex OAuth is connected via brokk.properties."""
+    props = read_brokk_properties()
+    return props.get("openAiCodexOauthConnected", "false").lower() == "true"
+
+
 def write_brokk_api_key(key: str) -> None:
     """Persists the Brokk API key to the global brokk.properties file."""
     write_brokk_properties({"brokkApiKey": key})
