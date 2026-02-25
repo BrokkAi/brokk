@@ -166,7 +166,7 @@ public class BrokkExternalMcpServer {
             @P("Include test files in the results.") boolean includeTests)
             throws InterruptedException {
         var scanModel = cm.getService().getScanModel();
-        var agent = new ContextAgent(cm, scanModel, goal, new MutedConsoleIO(cm.getIo()), includeTests);
+        var agent = new ContextAgent(cm, scanModel, goal, new MutedConsoleIO(cm.getIo()));
         var recommendations = agent.getRecommendations(cm.liveContext());
 
         if (!recommendations.success()) {
