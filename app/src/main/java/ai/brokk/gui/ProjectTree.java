@@ -885,6 +885,12 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
     @Override
     public void onFilesChanged(AbstractWatchService.EventBatch batch) {
+        logger.info(
+                "ProjectTree.onFilesChanged: {} files, overflowed={}, gitignoreChanged={}",
+                batch.getFiles().size(),
+                batch.isOverflowed(),
+                batch.isUntrackedGitignoreChanged());
+
         // Skip refresh if no meaningful changes occurred
         if (!batch.isOverflowed()
                 && !batch.isUntrackedGitignoreChanged()
@@ -925,9 +931,12 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
      */
     public void scheduleRefresh() {
         if (isRestoringExpansion) {
+            logger.info("ProjectTree.scheduleRefresh: skipped (restoring expansion)");
             pendingRefreshDuringRestore = true;
             return;
         }
+
+        logger.info("ProjectTree.scheduleRefresh: scheduled");
 
         // Debounce rapid calls - only refresh after 100ms of no new calls
         SwingUtilities.invokeLater(() -> {
@@ -950,6 +959,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private void performRefreshInternal() {
+        final long startNanos = System.nanoTime();
+
         pendingRefreshWhenShown = false; // Clear flag when actually refreshing
 
         var root = (DefaultMutableTreeNode) getModel().getRoot();
@@ -1034,6 +1045,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                     scrollPathToVisible(pathsToSelect.getFirst());
                                 }
                             }
+                            logger.info(
+                                    "ProjectTree full refresh completed in {}ms",
+                                    (System.nanoTime() - startNanos) / 1_000_000);
                             logger.trace("ProjectTree refresh complete.");
                         });
                     });
