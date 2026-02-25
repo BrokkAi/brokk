@@ -77,6 +77,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     @Nullable
     private Timer expansionSaveTimer;
 
+    private final Object refreshLock = new Object();
+
+    @Nullable
+    private volatile Set<Path> pendingAffectedDirs;
+
+    private volatile boolean pendingFullRefresh = false;
+
     /** Flag to prevent refresh during expansion state restoration */
     private volatile boolean isRestoringExpansion = true; // true until first restoration completes
 
@@ -101,7 +108,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 if (isShowing() && pendingRefreshWhenShown) {
                     logger.trace("Component now visible, executing deferred refresh");
                     pendingRefreshWhenShown = false;
-                    performRefreshInternal();
+                    performRefresh();
                 }
             }
         });
@@ -878,7 +885,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             if (pendingRefreshDuringRestore) {
                 logger.trace("Expansion restoration complete, processing pending refresh");
                 pendingRefreshDuringRestore = false;
-                scheduleRefresh();
+                scheduleRefreshDebouncedOnly();
             }
         });
     }
@@ -912,8 +919,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             return;
         }
 
-        // Filter out gitignored/excluded files that wouldn't be visible in tree anyway
         if (!batch.isOverflowed() && !batch.isUntrackedGitignoreChanged()) {
+            // Filter out gitignored/excluded files that wouldn't be visible in tree anyway
             var visibleFiles = nonBrokkFiles.stream()
                     .filter(f -> {
                         Path relPath = f.getRelPath();
@@ -924,18 +931,21 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     .toList();
 
             if (visibleFiles.isEmpty()) {
-                logger.trace(
-                        "Skipping tree refresh - all {} files gitignored/excluded",
-                        nonBrokkFiles.size());
+                logger.trace("Skipping tree refresh - all {} files gitignored/excluded", nonBrokkFiles.size());
                 return;
             }
-            logger.trace(
-                    "{} of {} files visible, refreshing tree",
-                    visibleFiles.size(),
-                    nonBrokkFiles.size());
+            logger.trace("{} of {} files visible, refreshing tree", visibleFiles.size(), nonBrokkFiles.size());
+
+            var affectedDirs = visibleFiles.stream()
+                    .map(f -> f.getRelPath().getParent())
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            scheduleRefresh(affectedDirs.isEmpty() ? null : affectedDirs);
+            return;
         }
 
-        scheduleRefresh();
+        scheduleRefresh(null);
     }
 
     /**
@@ -943,6 +953,23 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
      * Can be called directly when a refresh is needed outside of file watch events.
      */
     public void scheduleRefresh() {
+        scheduleRefresh(null);
+    }
+
+    private void scheduleRefresh(@Nullable Set<Path> affectedDirs) {
+        synchronized (refreshLock) {
+            if (affectedDirs == null) {
+                pendingFullRefresh = true;
+                pendingAffectedDirs = null;
+            } else if (!pendingFullRefresh) {
+                if (pendingAffectedDirs == null) {
+                    pendingAffectedDirs = new HashSet<>(affectedDirs);
+                } else {
+                    pendingAffectedDirs.addAll(affectedDirs);
+                }
+            }
+        }
+
         if (isRestoringExpansion) {
             logger.info("ProjectTree.scheduleRefresh: skipped (restoring expansion)");
             pendingRefreshDuringRestore = true;
@@ -950,7 +977,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         }
 
         logger.info("ProjectTree.scheduleRefresh: scheduled");
+        scheduleRefreshDebouncedOnly();
+    }
 
+    private void scheduleRefreshDebouncedOnly() {
         // Debounce rapid calls - only refresh after 300ms of no new calls
         SwingUtilities.invokeLater(() -> {
             if (refreshDebounceTimer != null) {
@@ -969,7 +999,27 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             pendingRefreshWhenShown = true;
             return;
         }
-        performRefreshInternal();
+
+        @Nullable Set<Path> affectedDirs;
+        boolean fullRefresh;
+        synchronized (refreshLock) {
+            fullRefresh = pendingFullRefresh;
+            affectedDirs = pendingAffectedDirs;
+            pendingFullRefresh = false;
+            pendingAffectedDirs = null;
+        }
+
+        if (fullRefresh || affectedDirs == null || affectedDirs.isEmpty()) {
+            performRefreshInternal();
+            return;
+        }
+
+        try {
+            performIncrementalRefresh(Set.copyOf(affectedDirs));
+        } catch (Exception ex) {
+            logger.error("ProjectTree incremental refresh failed, falling back to full refresh", ex);
+            performRefreshInternal();
+        }
     }
 
     private void performRefreshInternal() {
@@ -1066,6 +1116,51 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                         });
                     });
                 });
+    }
+
+    private void performIncrementalRefresh(Set<Path> affectedDirectories) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        long startNanos = System.nanoTime();
+        logger.info("ProjectTree incremental refresh: {} directories affected", affectedDirectories.size());
+
+        var root = (DefaultMutableTreeNode) getModel().getRoot();
+        if (root == null) {
+            return;
+        }
+
+        try {
+            var reloadFutures = affectedDirectories.stream()
+                    .map(dir -> {
+                        var node = findNodeWithoutExpanding(root, dir);
+                        if (node == null) {
+                            return CompletableFuture.<Void>completedFuture(null);
+                        }
+
+                        if (!(node.getUserObject() instanceof ProjectTreeNode ptn)
+                                || !ptn.isDirectory()
+                                || !ptn.isChildrenLoaded()) {
+                            return CompletableFuture.<Void>completedFuture(null);
+                        }
+
+                        ptn.resetLoadState();
+                        return loadChildrenForNodeAsync(node);
+                    })
+                    .toArray(CompletableFuture[]::new);
+
+            CompletableFuture.allOf(reloadFutures)
+                    .thenRun(() -> logger.info(
+                            "ProjectTree incremental refresh completed in {}ms",
+                            (System.nanoTime() - startNanos) / 1_000_000))
+                    .exceptionally(ex -> {
+                        logger.error("ProjectTree incremental refresh failed, falling back to full refresh", ex);
+                        SwingUtilities.invokeLater(this::performRefreshInternal);
+                        return null;
+                    });
+        } catch (Exception ex) {
+            logger.error("ProjectTree incremental refresh failed, falling back to full refresh", ex);
+            performRefreshInternal();
+        }
     }
 
     /**
@@ -1182,6 +1277,43 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     setSelectionPath(treePath);
                     scrollPathToVisible(treePath);
                 }));
+    }
+
+    private @Nullable DefaultMutableTreeNode findNodeWithoutExpanding(DefaultMutableTreeNode root, Path relativeDirPath) {
+        if (relativeDirPath.getNameCount() == 0) {
+            return root;
+        }
+
+        DefaultMutableTreeNode currentNode = root;
+        for (int depth = 0; depth < relativeDirPath.getNameCount(); depth++) {
+            if (!(currentNode.getUserObject() instanceof ProjectTreeNode currentPtn) || !currentPtn.isDirectory()) {
+                return null;
+            }
+
+            if (!currentPtn.isChildrenLoaded()) {
+                return null;
+            }
+
+            String targetComponentName = relativeDirPath.getName(depth).toString();
+            DefaultMutableTreeNode nextNode = null;
+
+            Enumeration<?> children = currentNode.children();
+            while (children.hasMoreElements()) {
+                var childNode = (DefaultMutableTreeNode) children.nextElement();
+                if (childNode.getUserObject() instanceof ProjectTreeNode childPtn
+                        && childPtn.getFile().getName().equals(targetComponentName)) {
+                    nextNode = childNode;
+                    break;
+                }
+            }
+
+            if (nextNode == null) {
+                return null;
+            }
+            currentNode = nextNode;
+        }
+
+        return currentNode;
     }
 
     private @Nullable DefaultMutableTreeNode findAndExpandNode(
