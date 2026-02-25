@@ -17,6 +17,11 @@ The executor requires the following configuration, provided via **environment va
 | Brokk API Key | `BROKK_API_KEY` | `--brokk-api-key` | No | Per-executor Brokk API key; overrides global config. If not provided, falls back to the globally configured key |
 | LLM Proxy Setting | `PROXY_SETTING` | `--proxy-setting` | No | LLM proxy target: `BROKK` (https://proxy.brokk.ai), `LOCALHOST` (http://localhost:4000), or `STAGING` (https://staging.brokk.ai). If not provided, uses global config |
 | Other-models Vendor | (n/a) | `--vendor` | No | Sets the "Other Models" vendor preference used for internal roles (scan/summarize/commit, etc.). Use `Default` to clear overrides. Applies to non-code roles; does not change `CODE`/`ARCHITECT` role selection |
+| TLS Enabled | `TLS_ENABLED` | `--tls-enabled` | No | Enable HTTPS (default: false) |
+| TLS Keystore Path | `TLS_KEYSTORE_PATH` | `--tls-keystore-path` | No* | Path to JKS keystore (required if TLS enabled) |
+| TLS Keystore Pass | `TLS_KEYSTORE_PASSWORD`| `--tls-keystore-password`| No* | Password for the keystore (required if TLS enabled) |
+| TLS Client CA | `TLS_CLIENT_CA_PATH` | `--tls-client-ca-path` | No | Path to PEM-encoded CA for client cert validation |
+| mTLS Required | `MTLS_REQUIRED` | `--mtls-required` | No | Require client certificate (default: false; requires CA path) |
 
 Notes:
 - Sessions are stored under `<workspace>/.brokk/sessions` and jobs under `<workspace>/.brokk/jobs`.

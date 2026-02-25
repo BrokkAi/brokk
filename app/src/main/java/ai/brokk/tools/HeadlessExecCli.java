@@ -2,6 +2,7 @@ package ai.brokk.tools;
 
 import ai.brokk.ContextManager;
 import ai.brokk.executor.HeadlessExecutorMain;
+import ai.brokk.executor.HeadlessExecutorMain.TlsConfig;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.CloneOperationTracker;
@@ -216,7 +217,8 @@ public class HeadlessExecCli {
         var execId = UUID.randomUUID();
         var project = new MainProject(workspaceRoot);
         var contextManager = new ContextManager(project);
-        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
+        var tlsConfig = new TlsConfig(false, null, null, null, false);
+        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager, tlsConfig);
     }
 
     private HeadlessExecutorMain requireInitializedExecutor() {

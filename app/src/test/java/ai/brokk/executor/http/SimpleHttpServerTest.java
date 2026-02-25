@@ -11,7 +11,9 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.Map;
+import javax.net.ssl.SSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -164,6 +166,22 @@ class SimpleHttpServerTest {
 
         assertEquals(200, conn.getResponseCode());
         conn.disconnect();
+    }
+
+    @Test
+    void testHttpsMode_StartsWithSslContext() throws Exception {
+        // Create a minimal SSLContext with no explicit key/trust material.
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, null, new SecureRandom());
+
+        SimpleHttpServer httpsServer = new SimpleHttpServer("127.0.0.1", 0, authToken, 2, sslContext, false);
+        try {
+            httpsServer.start();
+            int httpsPort = httpsServer.getPort();
+            assertTrue(httpsPort > 0);
+        } finally {
+            httpsServer.stop(0);
+        }
     }
 
     @Test

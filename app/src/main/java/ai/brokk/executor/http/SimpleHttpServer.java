@@ -5,11 +5,22 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsServer;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.security.KeyStore;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.Map;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.TrustManagerFactory;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -26,7 +37,7 @@ public final class SimpleHttpServer {
     private final String authToken;
 
     /**
-     * Create a new SimpleHttpServer.
+     * Create a new SimpleHttpServer in HTTP mode.
      *
      * @param host          The hostname or IP address to bind to (e.g., "localhost", "127.0.0.1")
      * @param port          The port to bind to
@@ -35,13 +46,105 @@ public final class SimpleHttpServer {
      * @throws IOException  If the server cannot be created
      */
     public SimpleHttpServer(String host, int port, String authToken, int threadCount) throws IOException {
+        this(host, port, authToken, threadCount, null);
+    }
+
+    /**
+     * Create a new SimpleHttpServer in either HTTP or HTTPS mode.
+     *
+     * @param host          The hostname or IP address to bind to
+     * @param port          The port to bind to
+     * @param authToken     The Bearer token for authentication
+     * @param threadCount   Number of worker threads
+     * @param sslContext    The SSLContext to use for HTTPS; if null, the server runs in HTTP mode
+     * @throws IOException  If the server cannot be created
+     */
+    public SimpleHttpServer(String host, int port, String authToken, int threadCount, @Nullable SSLContext sslContext)
+            throws IOException {
+        this(host, port, authToken, threadCount, sslContext, false);
+    }
+
+    /**
+     * Create a new SimpleHttpServer in either HTTP or HTTPS mode with optional mTLS.
+     *
+     * @param host          The hostname or IP address to bind to
+     * @param port          The port to bind to
+     * @param authToken     The Bearer token for authentication
+     * @param threadCount   Number of worker threads
+     * @param sslContext    The SSLContext to use for HTTPS; if null, the server runs in HTTP mode
+     * @param mtlsRequired  If true and in HTTPS mode, client certificate authentication will be required
+     * @throws IOException  If the server cannot be created
+     */
+    public SimpleHttpServer(
+            String host,
+            int port,
+            String authToken,
+            int threadCount,
+            @Nullable SSLContext sslContext,
+            boolean mtlsRequired)
+            throws IOException {
         this.authToken = authToken;
-        this.httpServer = HttpServer.create(new InetSocketAddress(host, port), 0);
+        var addr = new InetSocketAddress(host, port);
+
+        if (sslContext != null) {
+            var httpsServer = HttpsServer.create(addr, 0);
+            httpsServer.setHttpsConfigurator(new HttpsConfigurator(sslContext) {
+                @Override
+                public void configure(HttpsParameters params) {
+                    SSLParameters sslparams = getSSLContext().getDefaultSSLParameters();
+                    if (mtlsRequired) {
+                        sslparams.setNeedClientAuth(true);
+                    }
+                    params.setSSLParameters(sslparams);
+                }
+            });
+            this.httpServer = httpsServer;
+            logger.info(
+                    "SimpleHttpServer created (HTTPS, mTLS={}): {}:{} with {} worker threads",
+                    mtlsRequired,
+                    host,
+                    port,
+                    threadCount);
+        } else {
+            this.httpServer = HttpServer.create(addr, 0);
+            logger.info("SimpleHttpServer created (HTTP): {}:{} with {} worker threads", host, port, threadCount);
+        }
 
         var executor = ExecutorsUtil.newFixedThreadExecutor("SimpleHttpServer-Worker-", threadCount);
         this.httpServer.setExecutor(executor);
+    }
 
-        logger.info("SimpleHttpServer created: {}:{} with {} worker threads", host, port, threadCount);
+    /**
+     * Create an SSLContext from the provided key and trust materials.
+     */
+    public static SSLContext createSslContext(
+            String keystorePath, String keystorePassword, @Nullable String clientCaPath) throws Exception {
+        char[] password = keystorePassword.toCharArray();
+        KeyStore ks = KeyStore.getInstance("JKS");
+        try (InputStream is = new FileInputStream(keystorePath)) {
+            ks.load(is, password);
+        }
+
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(ks, password);
+
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        if (clientCaPath != null) {
+            KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            trustStore.load(null, null);
+            try (InputStream is = new FileInputStream(clientCaPath)) {
+                CertificateFactory cf = CertificateFactory.getInstance("X.509");
+                X509Certificate cert = (X509Certificate) cf.generateCertificate(is);
+                trustStore.setCertificateEntry("client-ca", cert);
+            }
+            tmf.init(trustStore);
+        } else {
+            tmf.init((KeyStore) null);
+        }
+
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
+        return sslContext;
     }
 
     /**
@@ -162,7 +265,7 @@ public final class SimpleHttpServer {
      */
     public void start() {
         this.httpServer.start();
-        logger.info("SimpleHttpServer started");
+        logger.info("SimpleHttpServer started (listening on {})", getPort());
     }
 
     /**

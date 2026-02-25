@@ -280,10 +280,11 @@ class ExecutorManager:
             logger.debug(f"Executor: {line}")
             output_lines.append(line)
 
-            if "Executor listening on http://" in line:
-                # Line format: "Executor listening on http://127.0.0.1:PORT"
+            if "Executor listening on http://" in line or "Executor listening on https://" in line:
+                # Line format: "Executor listening on http(s)://127.0.0.1:PORT"
                 try:
                     port = int(line.split(":")[-1])
+                    scheme = "https" if "https://" in line else "http"
                     break
                 except (ValueError, IndexError):
                     continue
@@ -295,7 +296,7 @@ class ExecutorManager:
                 f"Failed to extract port from executor output.\nLast output:\n{output_summary}"
             )
 
-        self.base_url = f"http://127.0.0.1:{port}"
+        self.base_url = f"{scheme}://127.0.0.1:{port}"
         self._http_client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {self.auth_token}"},

@@ -33,6 +33,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -57,14 +58,14 @@ public final class HeadlessExecutorMain {
             "mtls-required",
             "help");
 
-    static final class TlsConfig {
-        final boolean enabled;
-        final @Nullable String keystorePath;
-        final @Nullable String keystorePassword;
-        final @Nullable String clientCaPath;
-        final boolean mtlsRequired;
+    public static final class TlsConfig {
+        public final boolean enabled;
+        public final @Nullable String keystorePath;
+        public final @Nullable String keystorePassword;
+        public final @Nullable String clientCaPath;
+        public final boolean mtlsRequired;
 
-        TlsConfig(
+        public TlsConfig(
                 boolean enabled,
                 @Nullable String keystorePath,
                 @Nullable String keystorePassword,
@@ -278,7 +279,17 @@ public final class HeadlessExecutorMain {
         System.exit(invalidArgs.isEmpty() ? 0 : 1);
     }
 
+    /**
+     * @deprecated Use the constructor that accepts {@link TlsConfig} instead.
+     */
+    @Deprecated
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, ContextManager contextManager)
+            throws IOException {
+        this(execId, listenAddr, authToken, contextManager, new TlsConfig(false, null, null, null, false));
+    }
+
+    public HeadlessExecutorMain(
+            UUID execId, String listenAddr, String authToken, ContextManager contextManager, TlsConfig tlsConfig)
             throws IOException {
         this.execId = execId;
         this.contextManager = contextManager;
@@ -332,8 +343,8 @@ public final class HeadlessExecutorMain {
         this.initThread.setDaemon(true);
         this.initThread.start();
 
-        // Create HTTP server with authentication
-        this.server = new SimpleHttpServer(host, port, authToken, 4);
+        // Create HTTP server with authentication and optional TLS
+        this.server = createServer(host, port, authToken, tlsConfig);
 
         // Register endpoints
         this.server.registerUnauthenticatedContext("/health/live", this::handleHealthLive);
@@ -418,6 +429,20 @@ public final class HeadlessExecutorMain {
 
         var response = Map.of("status", "ready", "sessionId", String.valueOf(sessionId));
         SimpleHttpServer.sendJsonResponse(exchange, response);
+    }
+
+    private SimpleHttpServer createServer(String host, int port, String authToken, TlsConfig tlsConfig)
+            throws IOException {
+        try {
+            SSLContext sslContext = null;
+            if (tlsConfig.enabled) {
+                sslContext = SimpleHttpServer.createSslContext(
+                        tlsConfig.keystorePath, tlsConfig.keystorePassword, tlsConfig.clientCaPath);
+            }
+            return new SimpleHttpServer(host, port, authToken, 4, sslContext, tlsConfig.mtlsRequired);
+        } catch (Exception e) {
+            throw new IOException("Failed to initialize SSL context for HTTPS", e);
+        }
     }
 
     private void handleExecutor(HttpExchange exchange) throws IOException {
@@ -681,15 +706,16 @@ public final class HeadlessExecutorMain {
             System.out.println();
 
             // Create and start executor
-            var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, contextManager);
+            var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, contextManager, tlsConfig);
             executor.start();
 
             // Print effective bind address and curl example after server starts
             var boundPort = executor.getPort();
             var listenParts = Splitter.on(':').splitToList(listenAddr);
             var boundHost = listenParts.get(0);
-            System.out.println("Executor listening on http://" + boundHost + ":" + boundPort);
-            System.out.println("Try: curl http://" + boundHost + ":" + boundPort + "/health/live");
+            String scheme = tlsConfig.enabled ? "https" : "http";
+            System.out.println("Executor listening on " + scheme + "://" + boundHost + ":" + boundPort);
+            System.out.println("Try: curl -k " + scheme + "://" + boundHost + ":" + boundPort + "/health/live");
             System.out.println();
 
             if (exitOnStdinEof) {
