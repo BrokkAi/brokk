@@ -850,7 +850,7 @@ public final class MainProject extends AbstractProject {
         if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Languages.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
-            String langsString = languages.stream().map(Language::name).collect(Collectors.joining(","));
+            String langsString = languages.stream().map(Language::name).sorted().collect(Collectors.joining(","));
             projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
         autoDetectedLanguagesCache = null;
