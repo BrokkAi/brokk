@@ -236,6 +236,18 @@ public final class WorkspacePrompts {
         return formatToc(ctx, Collections.emptySet());
     }
 
+    public static String formatTocForJanitor(Context ctx) {
+        return ContextFragment.sortByMtime(
+                        ctx.allFragments().filter(cf -> !ctx.isPinned(cf)).filter(cf -> {
+                            if (cf instanceof ContextFragments.StringFragment sf) {
+                                return sf.specialType().isEmpty();
+                            }
+                            return true;
+                        }))
+                .map(cf -> cf.formatToc(false))
+                .collect(Collectors.joining("\n"));
+    }
+
     /**
      * All fragments in the order they were added ({@code ctx.allFragments()}), wrapped in a single
      * {@code <workspace>} block, with the style guide from the context.

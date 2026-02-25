@@ -241,45 +241,6 @@ public class SearchPrompts {
         }
     }
 
-    private static final Template PRUNING_TEMPLATE;
-
-    /**
-     * Builds the pruning prompt for the Janitor (Workspace Reviewer) logic.
-     */
-    public List<ChatMessage> buildPruningPrompt(Context context, String goal) {
-        var messages = new ArrayList<ChatMessage>();
-
-        record PruningData(String dropExplanationGuidance, String goal) {}
-        var data = new PruningData(DROP_EXPLANATION_GUIDANCE.indent(4).stripTrailing(), goal);
-        String prompt;
-        try {
-            prompt = PRUNING_TEMPLATE.apply(data);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-
-        messages.add(new SystemMessage(prompt));
-
-        // Current Workspace contents (use default viewing policy)
-        var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
-        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(context, suppressed));
-
-        // Goal and project context
-        var userText =
-                """
-                <goal>
-                %s
-                </goal>
-
-                Review the Workspace above. Use the dropWorkspaceFragments tool to remove ALL fragments that are not directly useful for accomplishing the goal.
-                If the workspace is already well-curated, you're done!
-                """
-                        .formatted(goal);
-        messages.add(new UserMessage(userText));
-
-        return messages;
-    }
-
     private record DirectiveData(
             String goal,
             String objectiveTag,
@@ -304,39 +265,6 @@ public class SearchPrompts {
         Handlebars handlebars = new Handlebars().with(EscapingStrategy.NOOP);
         handlebars.registerHelpers(ConditionalHelpers.class);
         handlebars.registerHelpers(com.github.jknack.handlebars.helper.StringHelpers.class);
-
-        String pruningTemplateText =
-                """
-                <instructions>
-                You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
-
-                Scope:
-                - Workspace curation ONLY. No code, no answers, no plans.
-
-                Curation guidelines:
-                - KEEP any fragment that contains logic, UI components, or utility methods
-                  related to the search goal.
-                - DROP if the fragment is irrelevant OR if a concise summary provides
-                  100% of the value with 0% information loss.
-
-                Tools (call exactly one):
-                - performedInitialReview(): Signals that ALL unpinned fragments are relevant to the search goal.
-                - dropWorkspaceFragments(fragments: {fragmentId, keyFacts, dropReason}[]): batch ALL drops in a single call.
-                  Include ONLY the irrelevant fragments to drop in this call.
-
-                drop explanation format:
-                {{dropExplanationGuidance}}
-
-                Response rules:
-                - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
-                - Don't give up: if the number of irrelevant fragments is overwhelming, do your best. It's okay to not get everything, but it's not okay to call performedInitialReview without trying to clean up.
-                </instructions>
-                """;
-        try {
-            PRUNING_TEMPLATE = handlebars.compileInline(pruningTemplateText);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
 
         String searchSystemTemplateText =
                 """

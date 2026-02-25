@@ -548,36 +548,10 @@ public class SearchAgent {
             return context;
         }
 
-        var scanModel = getScanModel();
-        var wst = new WorkspaceTools(context);
-        var toolProvider = new SingleTurnAgent(this, currentState, DropMode.NORMAL, null, 0, MAX_TOTAL_TURNS);
-        var tr = createToolRegistry(wst, toolProvider);
+        var janitor = new JanitorAgent(cm, io, goal, context);
+        var result = janitor.execute();
 
-        var messages = SearchPrompts.instance.buildPruningPrompt(context, goal);
-        var toolNames = new ArrayList<String>();
-        toolNames.add("performedInitialReview");
-        if (hasDroppableFragments(context)) {
-            toolNames.add("dropWorkspaceFragments");
-        }
-        var toolSpecs = tr.getTools(toolNames);
-
-        io.llmOutput(
-                "\n**Brokk** performing initial workspace review…", ChatMessageType.AI, LlmOutputMeta.newMessage());
-        var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal, TaskResult.Type.SEARCH).withEcho();
-        var jLlm = cm.getLlm(janitorOpts);
-        jLlm.setOutput(this.io);
-
-        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
-        if (result.error() != null || result.isEmpty()) {
-            return currentState.context();
-        }
-
-        var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
-        for (var req : ai.toolExecutionRequests()) {
-            toolProvider.executeTool(req);
-        }
-
-        currentState = currentState.withContext(toolProvider.context);
+        currentState = currentState.withContext(result.context());
         contextPruned = true;
         return currentState.context();
     }
@@ -974,12 +948,6 @@ public class SearchAgent {
                 context = wst.getContext();
             }
             return result;
-        }
-
-        @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
-        @SuppressWarnings("UnusedMethod")
-        public String performedInitialReview() {
-            return "Initial review complete; workspace is well-curated.";
         }
 
         @Tool(
