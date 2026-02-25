@@ -2277,12 +2277,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     /**
-     * Updates the visibility of the connections section based on subscription status.
-     * Paid subscribers see the OpenAI connection controls and provider keys link.
+     * Updates the visibility of provider key controls based on subscription status.
+     * OpenAI connection controls are always visible. Paid subscribers also see provider keys.
      * Non-paid users see an upgrade link instead.
      */
     private void updateConnectionsUiForSubscriptionStatus(boolean isPaid) {
-        connectionsPaidPanel.setVisible(isPaid);
+        connectionsPaidPanel.setVisible(true);
+        providerKeysLabel.setVisible(isPaid);
         upgradeLabel.setVisible(!isPaid);
         revalidate();
         repaint();
