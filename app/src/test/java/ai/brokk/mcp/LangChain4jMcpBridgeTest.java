@@ -98,7 +98,9 @@ class LangChain4jMcpBridgeTest {
 
         // Verify @D content from FragmentRemoval record
         Map<String, Object> fragmentId = (Map<String, Object>) itemProps.get("fragmentId");
-        assertEquals("The alphanumeric ID exactly as listed in <workspace_toc>", fragmentId.get("description"));
+        assertEquals(
+                "The alphanumeric ID exactly as listed in <workspace_toc>. If you do not see a `fragmentid` attribute you cannot drop it. Filenames are not IDs, descriptions are not IDs.",
+                fragmentId.get("description"));
 
         Map<String, Object> keyFacts = (Map<String, Object>) itemProps.get("keyFacts");
         assertEquals(WorkspaceTools.KEY_FACTS_DESCRIPTION, keyFacts.get("description"));
