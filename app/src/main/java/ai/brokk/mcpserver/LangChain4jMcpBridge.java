@@ -38,11 +38,18 @@ public class LangChain4jMcpBridge {
 
     public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(
             ToolRegistry registry, Collection<String> toolNames) {
+        return toolSpecificationsFrom(registry, toolNames, null);
+    }
+
+    public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(
+            ToolRegistry registry,
+            Collection<String> toolNames,
+            @org.jetbrains.annotations.Nullable McpToolCallHistoryWriter historyWriter) {
         return registry.getTools(toolNames).stream()
                 .map(spec -> {
-                    McpSchema.JsonSchema inputSchema = spec.parameters() != null
-                            ? toMcpSchema(spec.parameters())
-                            : new McpSchema.JsonSchema("object", Map.of(), List.of(), false, null, null);
+                    McpSchema.JsonSchema inputSchema = spec.parameters() == null
+                            ? new McpSchema.JsonSchema("object", Map.of(), List.of(), false, null, null)
+                            : toMcpSchema(spec.parameters());
 
                     McpSchema.Tool mcpTool = McpSchema.Tool.builder()
                             .name(spec.name())
@@ -53,17 +60,31 @@ public class LangChain4jMcpBridge {
                     return McpServerFeatures.SyncToolSpecification.builder()
                             .tool(mcpTool)
                             .callHandler((exchange, request) -> {
+                                var args = request.arguments() != null ? request.arguments() : Map.of();
+                                String jsonArgs;
+                                try {
+                                    jsonArgs = OBJECT_MAPPER.writeValueAsString(args);
+                                } catch (JsonProcessingException e) {
+                                    throw new RuntimeException(e);
+                                }
+
+                                // Write full raw MCP request to the log
+                                var logFile = historyWriter != null
+                                        ? historyWriter.writeRequest(spec.name(), serializeRequest(request))
+                                        : null;
+
                                 Object progressToken = request.progressToken();
                                 if (progressToken != null) {
                                     exchange.progressNotification(new McpSchema.ProgressNotification(
                                             progressToken, 0.0, 1.0, "Starting " + spec.name()));
+                                    if (historyWriter != null && logFile != null) {
+                                        historyWriter.appendProgress(logFile, 0.0, "Starting " + spec.name());
+                                    }
                                 }
 
                                 CompletableFuture<McpSchema.CallToolResult> future =
                                         CompletableFuture.supplyAsync(() -> {
                                             try {
-                                                var args = request.arguments() != null ? request.arguments() : Map.of();
-                                                String jsonArgs = OBJECT_MAPPER.writeValueAsString(args);
                                                 ToolExecutionRequest lc4jRequest = ToolExecutionRequest.builder()
                                                         .id("1")
                                                         .name(spec.name())
@@ -75,8 +96,6 @@ public class LangChain4jMcpBridge {
                                                         .addTextContent(result.resultText())
                                                         .isError(result.status() != ToolExecutionResult.Status.SUCCESS)
                                                         .build();
-                                            } catch (JsonProcessingException e) {
-                                                throw new RuntimeException(e);
                                             } catch (InterruptedException e) {
                                                 Thread.currentThread().interrupt();
                                                 throw new RuntimeException(e);
@@ -91,8 +110,12 @@ public class LangChain4jMcpBridge {
                                                 double next =
                                                         currentProgress.get() + (1.0 - currentProgress.get()) * 0.5;
                                                 currentProgress.set(next);
+                                                String progressMsg = "Executing " + spec.name() + "...";
                                                 exchange.progressNotification(new McpSchema.ProgressNotification(
-                                                        progressToken, next, 1.0, "Executing " + spec.name() + "..."));
+                                                        progressToken, next, 1.0, progressMsg));
+                                                if (historyWriter != null && logFile != null) {
+                                                    historyWriter.appendProgress(logFile, next, progressMsg);
+                                                }
                                             },
                                             1,
                                             1,
@@ -100,8 +123,9 @@ public class LangChain4jMcpBridge {
                                     future.whenComplete((r, t) -> progressTask.cancel(false));
                                 }
 
+                                McpSchema.CallToolResult callResult;
                                 try {
-                                    return future.get();
+                                    callResult = future.get();
                                 } catch (java.util.concurrent.ExecutionException e) {
                                     Throwable cause = e.getCause();
                                     if (cause instanceof RuntimeException re) throw re;
@@ -110,10 +134,31 @@ public class LangChain4jMcpBridge {
                                     Thread.currentThread().interrupt();
                                     throw new RuntimeException(e);
                                 }
+
+                                // Append result to the log
+                                if (historyWriter != null && logFile != null) {
+                                    String statusStr =
+                                            callResult.isError() != null && callResult.isError() ? "ERROR" : "SUCCESS";
+                                    String body = callResult.content().stream()
+                                            .filter(c -> c instanceof McpSchema.TextContent)
+                                            .map(c -> ((McpSchema.TextContent) c).text())
+                                            .collect(Collectors.joining("\n"));
+                                    historyWriter.appendResult(logFile, statusStr, body);
+                                }
+
+                                return callResult;
                             })
                             .build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    private static String serializeRequest(McpSchema.CallToolRequest request) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(request);
+        } catch (JsonProcessingException e) {
+            return "{}";
+        }
     }
 
     public static McpSchema.JsonSchema toMcpSchema(JsonObjectSchema lc4j) {

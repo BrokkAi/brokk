@@ -57,13 +57,6 @@ public class ToolRegistry {
     /** Hook to run before every tool execution (e.g. to clear session state). */
     private @Nullable Runnable preExecutionHook;
 
-    public interface ToolCallRecorder {
-        void record(ToolExecutionRequest request, ToolExecutionResult.Status status, String responseBody);
-    }
-
-    /** Hook to run after every tool execution, for recording/logging. Must not throw. */
-    private @Nullable ToolCallRecorder toolCallRecorder;
-
     // Internal record to hold method and the instance it belongs to
     private record ToolInvocationTarget(Method method, Object instance) {}
 
@@ -138,23 +131,6 @@ public class ToolRegistry {
     /** Sets a hook to be run immediately before any tool in this registry is executed. */
     public void setPreExecutionHook(@Nullable Runnable hook) {
         this.preExecutionHook = hook;
-    }
-
-    /** Sets a hook to be run after any tool in this registry is executed. */
-    public void setToolCallRecorder(@Nullable ToolCallRecorder recorder) {
-        this.toolCallRecorder = recorder;
-    }
-
-    private void recordToolCall(ToolExecutionRequest request, ToolExecutionResult.Status status, String responseBody) {
-        var recorder = toolCallRecorder;
-        if (recorder == null) {
-            return;
-        }
-        try {
-            recorder.record(request, status, responseBody);
-        } catch (RuntimeException e) {
-            logger.warn("Tool call recorder failed; ignoring", e);
-        }
     }
 
     /** Returns an empty, sealed root registry (primarily for tests). */
@@ -259,7 +235,6 @@ public class ToolRegistry {
         } catch (Exception e) {
             GlobalExceptionHandler.handle(e);
             String msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
-            recordToolCall(request, ToolExecutionResult.Status.INTERNAL_ERROR, msg);
             return ToolExecutionResult.internalError(request, msg);
         }
     }
@@ -274,7 +249,6 @@ public class ToolRegistry {
             validated = validateTool(request);
         } catch (ToolValidationException e) {
             var msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
-            recordToolCall(request, ToolExecutionResult.Status.REQUEST_ERROR, msg);
             return ToolExecutionResult.requestError(request, msg);
         }
 
@@ -284,7 +258,6 @@ public class ToolRegistry {
                     .method()
                     .invoke(validated.instance(), validated.parameters().toArray());
             String resultString = resultObject != null ? resultObject.toString() : "";
-            recordToolCall(request, ToolExecutionResult.Status.SUCCESS, resultString);
             return ToolExecutionResult.success(request, resultString);
         } catch (InvocationTargetException e) {
             for (var e2 = (Throwable) e; e2 != null; e2 = e2.getCause()) {
@@ -293,7 +266,6 @@ public class ToolRegistry {
                 }
                 if (e2 instanceof ToolCallException tce) {
                     var msg = tce.getMessage() == null ? "[no message]" : tce.getMessage();
-                    recordToolCall(request, tce.status(), msg);
                     return switch (tce.status()) {
                         case REQUEST_ERROR -> ToolExecutionResult.requestError(request, msg);
                         case INTERNAL_ERROR -> ToolExecutionResult.internalError(request, msg);

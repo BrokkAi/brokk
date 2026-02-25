@@ -123,10 +123,6 @@ public class BrokkExternalMcpServer {
                 .register(searchTools)
                 .build();
 
-        if (mcpToolCallHistoryWriter != null) {
-            registry.setToolCallRecorder(mcpToolCallHistoryWriter);
-        }
-
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
 
         var allFiles = cm.getProject().getAllFiles();
@@ -146,7 +142,7 @@ public class BrokkExternalMcpServer {
             cm.dropWithHistorySemantics(List.of());
         });
 
-        return LangChain4jMcpBridge.toolSpecificationsFrom(registry, toolNames);
+        return LangChain4jMcpBridge.toolSpecificationsFrom(registry, toolNames, mcpToolCallHistoryWriter);
     }
 
     private boolean isJqOnPath() {
