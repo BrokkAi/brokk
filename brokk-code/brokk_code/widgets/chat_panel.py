@@ -984,7 +984,7 @@ class ChatPanel(Vertical):
             first_line = next((line.strip() for line in yaml_body.splitlines() if line.strip()), "")
             if len(first_line) > 70:
                 first_line = f"{first_line[:67].rstrip()}..."
-            return f"*{name} [+] (ctrl+o to expand) - {first_line}*"
+            return f"{name} [+] (ctrl+o to expand) - {first_line}"
 
         return re.sub(pattern, replacement, content, flags=re.DOTALL)
 
@@ -1000,7 +1000,7 @@ class ChatPanel(Vertical):
         if len(first_line) > 70:
             first_line = f"{first_line[:67].rstrip()}..."
 
-        summary = Text(style="italic grey50")
+        summary = Text()
         summary.append(f"{label} [+] (ctrl+o to expand)")
         if first_line:
             summary.append(f" - {first_line}")
