@@ -18,6 +18,11 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.NullMarked;
 
@@ -25,6 +30,11 @@ import org.jspecify.annotations.NullMarked;
 public class LangChain4jMcpBridge {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ScheduledExecutorService SCHEDULER = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "mcp-progress-scheduler");
+        t.setDaemon(true);
+        return t;
+    });
 
     public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(
             ToolRegistry registry, Collection<String> toolNames) {
@@ -43,22 +53,59 @@ public class LangChain4jMcpBridge {
                     return McpServerFeatures.SyncToolSpecification.builder()
                             .tool(mcpTool)
                             .callHandler((exchange, request) -> {
-                                try {
-                                    var args = request.arguments() != null ? request.arguments() : Map.of();
-                                    String jsonArgs = OBJECT_MAPPER.writeValueAsString(args);
-                                    ToolExecutionRequest lc4jRequest = ToolExecutionRequest.builder()
-                                            .id("1")
-                                            .name(spec.name())
-                                            .arguments(jsonArgs)
-                                            .build();
+                                Object progressToken = request.progressToken();
+                                if (progressToken != null) {
+                                    exchange.progressNotification(new McpSchema.ProgressNotification(
+                                            progressToken, 0.0, 1.0, "Starting " + spec.name()));
+                                }
 
-                                    var result = registry.executeTool(lc4jRequest);
-                                    return McpSchema.CallToolResult.builder()
-                                            .addTextContent(result.resultText())
-                                            .isError(result.status() != ToolExecutionResult.Status.SUCCESS)
-                                            .build();
-                                } catch (JsonProcessingException e) {
-                                    throw new RuntimeException(e);
+                                CompletableFuture<McpSchema.CallToolResult> future =
+                                        CompletableFuture.supplyAsync(() -> {
+                                            try {
+                                                var args = request.arguments() != null ? request.arguments() : Map.of();
+                                                String jsonArgs = OBJECT_MAPPER.writeValueAsString(args);
+                                                ToolExecutionRequest lc4jRequest = ToolExecutionRequest.builder()
+                                                        .id("1")
+                                                        .name(spec.name())
+                                                        .arguments(jsonArgs)
+                                                        .build();
+
+                                                var result = registry.executeTool(lc4jRequest);
+                                                return McpSchema.CallToolResult.builder()
+                                                        .addTextContent(result.resultText())
+                                                        .isError(result.status() != ToolExecutionResult.Status.SUCCESS)
+                                                        .build();
+                                            } catch (JsonProcessingException e) {
+                                                throw new RuntimeException(e);
+                                            } catch (InterruptedException e) {
+                                                Thread.currentThread().interrupt();
+                                                throw new RuntimeException(e);
+                                            }
+                                        });
+
+                                if (progressToken != null) {
+                                    AtomicReference<Double> currentProgress = new AtomicReference<>(0.0);
+                                    var progressTask = SCHEDULER.scheduleAtFixedRate(
+                                            () -> {
+                                                if (future.isDone()) return;
+                                                double next =
+                                                        currentProgress.get() + (1.0 - currentProgress.get()) * 0.5;
+                                                currentProgress.set(next);
+                                                exchange.progressNotification(new McpSchema.ProgressNotification(
+                                                        progressToken, next, 1.0, "Executing " + spec.name() + "..."));
+                                            },
+                                            1,
+                                            1,
+                                            TimeUnit.SECONDS);
+                                    future.whenComplete((r, t) -> progressTask.cancel(false));
+                                }
+
+                                try {
+                                    return future.get();
+                                } catch (java.util.concurrent.ExecutionException e) {
+                                    Throwable cause = e.getCause();
+                                    if (cause instanceof RuntimeException re) throw re;
+                                    throw new RuntimeException(cause);
                                 } catch (InterruptedException e) {
                                     Thread.currentThread().interrupt();
                                     throw new RuntimeException(e);
