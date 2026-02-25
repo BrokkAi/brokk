@@ -2716,20 +2716,34 @@ public class ContextManager implements IContextManager, AutoCloseable {
         createHeadless(BuildDetails.EMPTY, true);
     }
 
-    public void createHeadless(BuildDetails buildDetails, boolean createNewSession) {
-        createHeadless(buildDetails, createNewSession, new HeadlessConsole());
+    public void createHeadless(BuildAgent.BuildDetails buildDetails, boolean createNewSession) {
+        createHeadlessInternal(buildDetails, createNewSession, new HeadlessConsole(), true);
     }
 
-    public void createHeadless(BuildDetails buildDetails, boolean createNewSession, IConsoleIO io) {
+    public void createHeadless(BuildAgent.BuildDetails buildDetails, boolean createNewSession, IConsoleIO io) {
+        createHeadlessInternal(buildDetails, createNewSession, io, true);
+    }
+
+    public void createHeadlessWithoutBuildInference(BuildAgent.BuildDetails buildDetails, boolean createNewSession) {
+        createHeadlessInternal(buildDetails, createNewSession, new HeadlessConsole(), false);
+    }
+
+    private void createHeadlessInternal(
+            BuildAgent.BuildDetails buildDetails,
+            boolean createNewSession,
+            IConsoleIO io,
+            boolean inferBuildDetailsNow) {
         this.io = io;
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
 
         cleanupOldHistoryAsync();
 
-        // In headless mode, we infer build details if none exist and no explicit override was provided.
-        // If an explicit non-EMPTY override is provided, it is persisted immediately.
-        ensureBuildDetailsAsync(buildDetails);
+        if (inferBuildDetailsNow) {
+            // In headless mode, we infer build details if none exist and no explicit override was provided.
+            // If an explicit non-EMPTY override is provided, it is persisted immediately.
+            ensureBuildDetailsAsync(buildDetails);
+        }
 
         // no AnalyzerListener, instead we will block for it to be ready
         // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService
@@ -2744,6 +2758,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         initializeCurrentSessionAndHistory(createNewSession);
 
         checkBalanceAndNotify();
+    }
+
+    public void ensureBuildDetailsForHeadlessJob() {
+        ensureBuildDetailsAsync(null);
     }
 
     @Override

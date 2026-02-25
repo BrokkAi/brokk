@@ -244,7 +244,7 @@ public final class HeadlessExecutorMain {
         this.initThread = new Thread(
                 () -> {
                     try {
-                        this.contextManager.createHeadless(BuildAgent.BuildDetails.EMPTY, false);
+                        this.contextManager.createHeadlessWithoutBuildInference(BuildAgent.BuildDetails.EMPTY, false);
                         headlessInit.complete(null);
                         logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {

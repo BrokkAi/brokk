@@ -325,6 +325,13 @@ public final class JobRunner {
         cm.setIo(console);
         logger.info("Job {} attaching streaming console", jobId);
 
+        // Kick off build-details inference for headless jobs if needed.
+        try {
+            cm.ensureBuildDetailsForHeadlessJob();
+        } catch (Throwable t) {
+            logger.warn("Failed to schedule build-details inference for job {}: {}", jobId, t.toString(), t);
+        }
+
         // Transition status to RUNNING
         try {
             JobStatus status = store.loadStatus(jobId);
