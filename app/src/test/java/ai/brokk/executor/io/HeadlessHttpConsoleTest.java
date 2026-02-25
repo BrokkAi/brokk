@@ -837,6 +837,26 @@ class HeadlessHttpConsoleTest {
     }
 
     @Test
+    void testBuildInferenceNotification_MapsToNotificationEvent() throws Exception {
+        String msg = "Inferring project build details";
+        console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.getFirst();
+        assertEquals("NOTIFICATION", event.type());
+        assertEquals(1L, event.seq());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("INFO", data.get("level"));
+        assertEquals(msg, data.get("message"));
+
+        cleanup();
+    }
+
+    @Test
     void testGetBlitzForgeListener_ReturnsNoopAndUsesConsole() {
         var cancelRequested = new AtomicBoolean(false);
         Runnable cancelCallback = () -> cancelRequested.set(true);

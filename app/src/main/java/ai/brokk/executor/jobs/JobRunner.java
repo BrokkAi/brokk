@@ -322,6 +322,9 @@ public final class JobRunner {
         cancelled.set(false);
         console = new HeadlessHttpConsole(store, jobId);
         final var previousIo = cm.getIo();
+
+        // Ensure the HeadlessHttpConsole is active before triggering any background work
+        // like build-details inference so that notifications are captured in the job stream.
         cm.setIo(console);
         logger.info("Job {} attaching streaming console", jobId);
 
