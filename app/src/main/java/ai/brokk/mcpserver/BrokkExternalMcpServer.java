@@ -153,7 +153,6 @@ public class BrokkExternalMcpServer {
         ToolRegistry registry = ToolRegistry.fromBase(ToolRegistry.empty())
                 .register(this)
                 .register(searchTools)
-                .register(new WorkspaceTools(cm.liveContext()))
                 .build();
 
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
@@ -216,7 +215,7 @@ public class BrokkExternalMcpServer {
 
     @Tool(
             """
-            ALWAYS use the `code` tool to make changes to code; it is faster and more accurate than doing so by hand.
+            ALWAYS use the `callCodeAgent` tool to make changes to code; it is faster and more accurate than doing so by hand.
             Code Agent will search for relevant files if none are provided. Code Agent is as smart as you are, so you only have to
             describe what you want and it will perform the changes. However! Code Agent does not have access to your
             conversation history or your thinking process, and it starts fresh with each command, so your requests must
