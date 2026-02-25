@@ -209,14 +209,26 @@ def _build_parser() -> argparse.ArgumentParser:
     issue_solve_parser.add_argument(
         "--planner-model",
         type=str,
-        default="claude-3-5-sonnet",
-        help="LLM model for planning (default: claude-3-5-sonnet)",
+        default="gpt-5.1",
+        help="LLM model for planning (default: gpt-5.1)",
     )
     issue_solve_parser.add_argument(
         "--code-model",
         type=str,
-        default=None,
-        help="LLM model for code generation (optional)",
+        default="gemini-3-flash-preview",
+        help="LLM model for code generation (default: gemini-3-flash-preview)",
+    )
+    issue_solve_parser.add_argument(
+        "--planner-reasoning-level",
+        type=str,
+        default="medium",
+        help="Reasoning level for planner model (default: medium)",
+    )
+    issue_solve_parser.add_argument(
+        "--code-reasoning-level",
+        type=str,
+        default="disable",
+        help="Reasoning level for code model (default: disable)",
     )
     issue_solve_parser.add_argument(
         "--skip-verification",
@@ -254,6 +266,7 @@ async def run_headless_job(
     mode: str,
     tags: dict[str, str],
     planner_reasoning_level: str | None = None,
+    code_reasoning_level: str | None = None,
     code_model: str | None = None,
     skip_verification: bool | None = None,
     max_issue_fix_attempts: int | None = None,
@@ -388,6 +401,7 @@ async def run_headless_job(
             planner_model=planner_model,
             code_model=code_model,
             reasoning_level=planner_reasoning_level,
+            reasoning_level_code=code_reasoning_level,
             mode=mode,
             tags=tags,
             skip_verification=skip_verification,
@@ -609,7 +623,9 @@ def main():
                     workspace_dir=workspace_path,
                     task_input=task_input,
                     planner_model=args.planner_model,
+                    planner_reasoning_level=args.planner_reasoning_level,
                     code_model=args.code_model,
+                    code_reasoning_level=args.code_reasoning_level,
                     skip_verification=args.skip_verification,
                     max_issue_fix_attempts=args.max_issue_fix_attempts,
                     verbose=args.verbose,
