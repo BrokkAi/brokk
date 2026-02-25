@@ -266,8 +266,7 @@ public class BuildAgent {
 
             // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
-                var terminalResult = tr.executeTool(reportRequest);
-
+                tr.executeTool(reportRequest);
                 var details = requireNonNull(
                         reportedDetails,
                         "reportedDetails should be non-null after successful reportBuildDetails tool execution");
@@ -297,8 +296,7 @@ public class BuildAgent {
                 }
                 return details;
             } else if (abortRequest != null) {
-                var terminalResult = tr.executeTool(abortRequest);
-
+                tr.executeTool(abortRequest);
                 assert abortReason != null;
                 return BuildDetails.EMPTY;
             }
