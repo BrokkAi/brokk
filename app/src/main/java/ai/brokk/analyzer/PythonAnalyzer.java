@@ -46,62 +46,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     /**
-     * Converts a file to a dotted Python module label, using anchor detection
-     * to find the appropriate import root (e.g. tests.test_auth).
+     * Converts a file to a dotted Python module label.
      */
     private String toPythonModuleLabel(ProjectFile file) {
-        Path anchor = detectModuleAnchor(file);
-        Path relToAnchor = anchor.relativize(file.absPath());
-
-        String pathStr = relToAnchor.toString();
-        if (pathStr.endsWith(".py")) {
-            pathStr = pathStr.substring(0, pathStr.length() - 3);
-        }
-
-        String label = pathStr.replace('/', '.').replace('\\', '.');
-        if (label.endsWith(".__init__")) {
-            label = label.substring(0, label.length() - 9);
-        }
-        return label;
-    }
-
-    /**
-     * Detects the directory that should act as the PYTHONPATH anchor for this file.
-     * Prefers directories containing __init__.py, or common anchors like 'tests',
-     * falling back to the project root.
-     */
-    private Path detectModuleAnchor(ProjectFile file) {
-        Path root = getProject().getRoot();
-        Path current = file.absPath().getParent();
-
-        // 1. Walk up to find the highest directory containing __init__.py
-        Path packageRoot = null;
-        while (current != null && current.startsWith(root)) {
-            if (Files.exists(current.resolve("__init__.py"))) {
-                packageRoot = current;
-            } else if (packageRoot != null) {
-                // We were in a package, but this level doesn't have __init__.py.
-                // The previous level was the package root.
-                return current;
-            }
-            current = current.getParent();
-        }
-
-        if (packageRoot != null) {
-            Path parent = packageRoot.getParent();
-            return parent != null ? parent : root;
-        }
-
-        // 2. Fallback: check for 'tests' or 'src' as anchors if no __init__.py found
-        Path fileParent = file.absPath().getParent();
-        if (fileParent != null) {
-            String name = fileParent.getFileName().toString();
-            if (name.equals("tests") || name.equals("src")) {
-                return fileParent.getParent() != null ? fileParent.getParent() : root;
-            }
-        }
-
-        return root;
+        return resolveModuleInfo(file).moduleQualifiedPackage();
     }
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
@@ -537,44 +485,38 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
      */
     private String getPackageNameForFile(ProjectFile file) {
         // Python's package naming is directory-based, relative to project root or __init__.py markers.
-        var absPath = file.absPath();
-        var projectRoot = getProject().getRoot();
-        var parentDir = absPath.getParent();
+        Path projectRoot = getProject().getRoot();
+        Path relPath = file.getRelPath();
+        Path parentRel = relPath.getParent();
 
         // If the file is directly in the project root, the package path is empty
-        if (parentDir == null || parentDir.equals(projectRoot)) {
+        if (parentRel == null || parentRel.toString().isEmpty()) {
             return "";
         }
 
         // Find the highest directory containing __init__.py between project root and the file's parent
-        var effectivePackageRoot = projectRoot;
-        var current = parentDir;
-        while (current != null && !current.equals(projectRoot)) {
-            if (Files.exists(current.resolve("__init__.py"))) {
-                effectivePackageRoot = current; // Found a potential root, keep checking higher
+        // Note: we must still check the filesystem for __init__.py existence.
+        Path effectivePackageRootRel = null;
+        Path currentRel = parentRel;
+        while (currentRel != null) {
+            if (Files.exists(projectRoot.resolve(currentRel).resolve("__init__.py"))) {
+                effectivePackageRootRel = currentRel;
             }
-            current = current.getParent();
+            currentRel = currentRel.getParent();
         }
 
-        // Calculate the relative path from the (parent of the effective package root OR project root)
-        // to the file's parent directory.
-        Path rootForRelativize =
-                effectivePackageRoot.equals(projectRoot) ? projectRoot : effectivePackageRoot.getParent();
-        if (rootForRelativize == null) { // Should not happen if projectRoot is valid
-            rootForRelativize = projectRoot;
+        // If no __init__.py found, it's a top-level module or in a non-package directory.
+        if (effectivePackageRootRel == null) {
+            return parentRel.toString().replace('/', '.').replace('\\', '.');
         }
 
-        // If parentDir is not under rootForRelativize (e.g. parentDir is projectRoot, effectivePackageRoot is deeper
-        // due to missing __init__.py)
-        // or if parentDir is the same as rootForRelativize, then there's no relative package path.
-        if (!parentDir.startsWith(rootForRelativize) || parentDir.equals(rootForRelativize)) {
-            return "";
+        // The import root is the parent of the top-most package directory.
+        Path importRootRel = effectivePackageRootRel.getParent();
+        if (importRootRel == null) {
+            return parentRel.toString().replace('/', '.').replace('\\', '.');
         }
 
-        var relPath = rootForRelativize.relativize(parentDir);
-
-        // Convert path separators to dots for package name
-        return relPath.toString().replace('/', '.').replace('\\', '.');
+        return importRootRel.relativize(parentRel).toString().replace('/', '.').replace('\\', '.');
     }
 
     @Override
