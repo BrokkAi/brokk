@@ -1250,6 +1250,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         Set<Language> currentLangs = project.getAnalyzerLanguages();
         if (!currentLangs.equals(currentAnalyzerLanguagesForDialog)) {
             project.setAnalyzerLanguages(currentAnalyzerLanguagesForDialog);
+            logger.info("Analyzer languages changed in settings; requesting rebuild.");
+            chrome.getContextManager().requestRebuild();
         }
     }
 
