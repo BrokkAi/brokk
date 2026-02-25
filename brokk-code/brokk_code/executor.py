@@ -390,6 +390,8 @@ class ExecutorManager:
         tags: Optional[Dict[str, str]] = None,
         session_id: Optional[str] = None,
         auto_commit: bool = True,
+        skip_verification: Optional[bool] = None,
+        max_issue_fix_attempts: Optional[int] = None,
     ) -> str:
         """Submits a new job to the executor.
 
@@ -419,6 +421,10 @@ class ExecutorManager:
             payload["reasoningLevel"] = reasoning_level
         if reasoning_level_code:
             payload["reasoningLevelCode"] = reasoning_level_code
+        if skip_verification is not None:
+            payload["skipVerification"] = skip_verification
+        if max_issue_fix_attempts is not None:
+            payload["maxIssueFixAttempts"] = max_issue_fix_attempts
 
         headers = {"Idempotency-Key": str(uuid.uuid4())}
         # Prefer explicit argument, fall back to manager-level session_id if present.
