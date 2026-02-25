@@ -908,9 +908,8 @@ public class BuildAgent {
                                 var decls = analyzer.getTopLevelDeclarations(f);
                                 if (decls.isEmpty()) {
                                     logger.warn("No declarations found for test file: {}", f);
-                                    return Stream.empty();
                                 }
-                                return Stream.of(decls.getFirst().packageName());
+                                return decls.stream().map(CodeUnit::packageName);
                             })
                             .filter(s -> !s.isBlank())
                             .distinct()
