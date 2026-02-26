@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,6 +61,9 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public class BrokkExternalMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkExternalMcpServer.class);
+
+    private static final String NO_PROJECT_ERROR =
+            "No project configured. Start server with --project-dir <path> or run from a valid project directory.";
 
     private static final List<String> BASE_TOOL_NAMES = List.of(
             "scan",
@@ -98,7 +102,14 @@ public class BrokkExternalMcpServer {
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
-        Path projectPath = Path.of(".").toAbsolutePath().normalize();
+        Path projectPath = parseProjectPath(args);
+        boolean discoveryMode = !isValidProjectDirectory(projectPath);
+
+        if (discoveryMode) {
+            logger.info("Starting in discovery mode - no valid project at {}", projectPath);
+            startDiscoveryMode(args);
+            return;
+        }
 
         try (var project = new MainProject(projectPath);
                 var cm = new ContextManager(project)) {
@@ -107,41 +118,11 @@ public class BrokkExternalMcpServer {
 
             BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
 
-            for (String arg : args) {
-                if ("--help".equals(arg) || "-h".equals(arg)) {
-                    System.out.println("Brokk MCP Server v" + ai.brokk.BuildInfo.version);
-                    System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
-                    System.out.println();
-                    System.out.println("Available Tools:");
-                    instance.toolSpecifications().forEach(spec -> {
-                        System.out.printf(
-                                "  - %-20s : %s%n",
-                                spec.tool().name(), spec.tool().description());
-                    });
-                    System.exit(0);
-                }
+            if (handleHelpArg(args, instance::toolSpecifications)) {
+                return;
             }
 
-            McpJsonMapper mapper = McpJsonDefaults.getMapper();
-            AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
-
-            McpSyncServer mcpServer = McpServer.sync(new StdioServerTransportProvider(mapper, System.in, System.out))
-                    .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
-                    .jsonMapper(mapper)
-                    .requestTimeout(Duration.ofHours(1))
-                    .tools(instance.toolSpecifications())
-                    .build();
-            serverRef.set(mcpServer);
-            logger.info("Brokk MCP Server started");
-            Runtime.getRuntime()
-                    .addShutdownHook(new Thread(
-                            () -> {
-                                var server = requireNonNull(serverRef.get());
-                                server.closeGracefully();
-                            },
-                            "BrokkMCP-Server-ShutdownHook"));
-
-            Thread.currentThread().join();
+            startServer(instance.toolSpecifications());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.exit(0);
@@ -149,6 +130,119 @@ public class BrokkExternalMcpServer {
             logger.error("Failed to start Brokk MCP Server", e);
             System.exit(1);
         }
+    }
+
+    private static Path parseProjectPath(String[] args) {
+        for (int i = 0; i < args.length; i++) {
+            if ("--project-dir".equals(args[i]) && i + 1 < args.length) {
+                return Path.of(args[i + 1]).toAbsolutePath().normalize();
+            }
+        }
+        return Path.of(".").toAbsolutePath().normalize();
+    }
+
+    private static boolean isValidProjectDirectory(Path path) {
+        Path normalized = path.toAbsolutePath().normalize();
+
+        // Check against home directory (cross-platform)
+        Path home = Path.of(System.getProperty("user.home")).toAbsolutePath().normalize();
+        if (normalized.equals(home)) {
+            return false;
+        }
+
+        // Check against temp directories
+        Path tempDir =
+                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+        if (normalized.startsWith(tempDir)) {
+            return false;
+        }
+
+        // Check for filesystem root (cross-platform)
+        if (normalized.equals(normalized.getRoot())) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static boolean handleHelpArg(
+            String[] args, Supplier<List<McpServerFeatures.SyncToolSpecification>> specsSupplier) {
+        for (String arg : args) {
+            if ("--help".equals(arg) || "-h".equals(arg)) {
+                System.out.println("Brokk MCP Server v" + ai.brokk.BuildInfo.version);
+                System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
+                System.out.println();
+                System.out.println("Usage: brokk-mcp [--project-dir <path>]");
+                System.out.println();
+                System.out.println("Available Tools:");
+                specsSupplier.get().forEach(spec -> {
+                    System.out.printf(
+                            "  - %-20s : %s%n", spec.tool().name(), spec.tool().description());
+                });
+                System.exit(0);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void startDiscoveryMode(String[] args) {
+        // Build discovery-mode tool specs that return the standard error
+        // Include all base tools plus jq and xpathQuery unconditionally
+        List<String> discoveryToolNames = new ArrayList<>(BASE_TOOL_NAMES);
+        discoveryToolNames.add("jq");
+        discoveryToolNames.add("xpathQuery");
+
+        List<McpServerFeatures.SyncToolSpecification> discoverySpecs = discoveryToolNames.stream()
+                .map(name -> McpServerFeatures.SyncToolSpecification.builder()
+                        .tool(McpSchema.Tool.builder()
+                                .name(name)
+                                .description("(Discovery mode) " + name)
+                                .inputSchema(new McpSchema.JsonSchema("object", Map.of(), List.of(), false, null, null))
+                                .build())
+                        .callHandler((exchange, request) -> McpSchema.CallToolResult.builder()
+                                .addTextContent(NO_PROJECT_ERROR)
+                                .isError(true)
+                                .build())
+                        .build())
+                .collect(Collectors.toList());
+
+        if (handleHelpArg(args, () -> discoverySpecs)) {
+            return;
+        }
+
+        try {
+            startServer(discoverySpecs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.exit(0);
+        } catch (Exception e) {
+            logger.error("Failed to start Brokk MCP Server", e);
+            System.exit(1);
+        }
+    }
+
+    private static void startServer(List<McpServerFeatures.SyncToolSpecification> specs) throws InterruptedException {
+        McpJsonMapper mapper = McpJsonDefaults.getMapper();
+        AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
+
+        McpSyncServer mcpServer = McpServer.sync(new StdioServerTransportProvider(mapper, System.in, System.out))
+                .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
+                .jsonMapper(mapper)
+                .requestTimeout(Duration.ofHours(1))
+                .tools(specs)
+                .build();
+        serverRef.set(mcpServer);
+        logger.info("Brokk MCP Server started");
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            var server = requireNonNull(serverRef.get());
+                            server.closeGracefully();
+                        },
+                        "BrokkMCP-Server-ShutdownHook"));
+
+        Thread.currentThread().join();
     }
 
     public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(
