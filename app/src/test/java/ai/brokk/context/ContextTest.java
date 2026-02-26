@@ -248,6 +248,8 @@ class ContextTest {
         ctx = ctx.setReadonly(ppf, true);
         assertTrue(ctx.isMarkedReadonly(ppf), "Precondition: fragment should be read-only");
 
+        ppf.text().join(); // Ensure original content is read before modification
+
         // Update and trigger refresh
         pf.write("class RefreshR0 { public static void main() {} }");
         var refreshed = ctx.copyAndRefresh(Set.of(pf));
