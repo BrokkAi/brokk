@@ -616,15 +616,28 @@ class AnalyzerWrapperTest {
         Files.writeString(storagePath, "dummy content");
         assertTrue(Files.exists(storagePath), "Dummy storage file should exist before rebuild");
 
-        // 5. Reset latch to wait for the explicit rebuild
-        listener.resetLatch();
-
-        // 6. Request explicit rebuild
+        // 5. Request explicit rebuild
+        int initialExternalCount = listener.getExternalBuildCount();
         analyzerWrapper.requestRebuild();
 
-        // 7. Wait for the rebuild to complete
-        assertTrue(listener.awaitNextBuild(5, TimeUnit.SECONDS), "Explicit rebuild should complete within timeout");
-        assertTrue(listener.getExternalBuildCount() > 0, "Should have registered an external rebuild");
+        // 6. Wait for the external rebuild to complete.
+        // We use a loop because implicit builds might be triggered and complete before our explicit one.
+        boolean sawExternal = false;
+        long deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(5);
+        while (System.currentTimeMillis() < deadline) {
+            if (listener.getExternalBuildCount() > initialExternalCount) {
+                sawExternal = true;
+                break;
+            }
+            // Wait for the next build to finish (implicit or explicit)
+            if (!listener.awaitNextBuild(1, TimeUnit.SECONDS)) {
+                continue;
+            }
+            listener.resetLatch();
+        }
+
+        // 7. Assertions
+        assertTrue(sawExternal, "Should have registered an external rebuild within timeout");
 
         // 8. Assert storage file was deleted.
         // Even if persistAnalyzerState runs shortly after, the file we wrote was "dummy content"
