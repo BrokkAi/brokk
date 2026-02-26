@@ -1889,15 +1889,15 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
-            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
             new ProcessBuilder("git", "config", "user.email", "test@example.com")
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
             new ProcessBuilder("git", "config", "user.name", "test")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
@@ -1970,15 +1970,15 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
-            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
             new ProcessBuilder("git", "config", "user.email", "test@example.com")
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
             new ProcessBuilder("git", "config", "user.name", "test")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();

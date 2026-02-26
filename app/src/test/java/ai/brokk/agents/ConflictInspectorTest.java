@@ -126,9 +126,9 @@ class ConflictInspectorTest {
 
     private static void initRepo(Path root) throws Exception {
         runGit(root, "init");
-        runGit(root, "config commit.gpgsign false");
         runGit(root, "config user.name TestUser");
         runGit(root, "config user.email test@example.com");
+        runGit(root, "config commit.gpgsign false");
     }
 
     private static void runGit(Path root, String args) throws Exception {
