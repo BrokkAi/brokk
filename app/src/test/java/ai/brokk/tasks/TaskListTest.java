@@ -126,4 +126,19 @@ public class TaskListTest {
         var description = result.getAction(context).join();
         assertFalse(description.isEmpty(), "Description should not be empty after adding task list");
     }
+
+    @Test
+    void formatChecklist_producesExpectedMarkdown() {
+        var data = new TaskList.TaskListData(List.of(
+                new TaskList.TaskItem("Task 1", "Text 1", true), new TaskList.TaskItem("Task 2", "Text 2", false)));
+
+        String expected = "1. [x] Task 1\n2. [ ] Task 2";
+        assertEquals(expected, TaskList.formatChecklist(data));
+    }
+
+    @Test
+    void formatChecklist_handlesEmptyList() {
+        var data = new TaskList.TaskListData(List.of());
+        assertEquals("(No tasks)", TaskList.formatChecklist(data));
+    }
 }

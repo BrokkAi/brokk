@@ -23,7 +23,6 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;
@@ -579,19 +578,23 @@ public class WorkspaceTools {
         // Delegate to ContextManager to ensure centralized refresh via setTaskList
         context = cm.createOrReplaceTaskList(context, explanation, taskItems);
 
-        var lines = IntStream.range(0, tasks.size())
-                .mapToObj(i -> (i + 1) + ". " + tasks.get(i).title())
-                .collect(Collectors.joining("\n"));
-        var formattedTaskList = "# Task List\n" + lines + "\n";
+        var taskListData = context.getTaskListDataOrEmpty();
+        String checklist = TaskList.formatChecklist(taskListData);
+        var formattedTaskList = "# Task List\n" + checklist + "\n";
 
         var io = cm.getIo();
         io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
-        int count = tasks.size();
+        int count = taskListData.tasks().size();
         String suffix = (count == 1) ? "" : "s";
         String message =
-                "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
-                        .formatted(count, suffix);
+                """
+                **Task list created** with %d item%s.
+
+                Here is your current task list:
+                %s
+                """
+                        .formatted(count, suffix, checklist);
         io.llmOutput(message, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         return formattedTaskList;

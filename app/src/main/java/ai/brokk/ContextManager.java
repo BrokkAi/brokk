@@ -1622,9 +1622,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var updated = new ArrayList<>(tasks);
         var original = tasks.get(idx);
         updated.set(idx, new TaskList.TaskItem(original.id(), original.title(), original.text(), true));
-        return deriveContextWithTaskList(
-                context,
-                new TaskList.TaskListData(context.getTaskListDataOrEmpty().bigPicture(), List.copyOf(updated)));
+
+        var existingData = context.getTaskListDataOrEmpty();
+        var newData = new TaskList.TaskListData(existingData.bigPicture(), List.copyOf(updated));
+
+        String checklist = TaskList.formatChecklist(newData);
+        io.llmOutput(
+                """
+                Updated task list:
+                %s
+                """.formatted(checklist),
+                ChatMessageType.AI,
+                LlmOutputMeta.newMessage());
+
+        return deriveContextWithTaskList(context, newData);
     }
 
     private void captureGitState(ContextHistory ch, Context ctx) {
