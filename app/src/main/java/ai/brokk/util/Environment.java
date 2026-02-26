@@ -193,6 +193,10 @@ public class Environment {
             activeConfig = ShellConfig.basic();
         }
 
+        if (isWindows()) {
+            command = normalizeCommandForWindowsShell(command, root);
+        }
+
         String[] shellCommand;
         if (sandbox) {
             if (isWindows()) {
@@ -508,6 +512,57 @@ public class Environment {
         return WINDOWS_CMD_DOT_SLASH_PATTERN
                 .matcher(commandLine)
                 .replaceAll(Matcher.quoteReplacement(".\\"));
+    }
+
+    private static final Pattern WINDOWS_GRADLEW_BAT_PREFIX_PATTERN =
+            Pattern.compile("^(\\s*)(?:\\./|\\.\\\\)?gradlew\\.bat(?=\\s|$)", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern WINDOWS_GRADLEW_PREFIX_PATTERN =
+            Pattern.compile("^(\\s*)(?:\\./|\\.\\\\)?gradlew(?=\\s|$)", Pattern.CASE_INSENSITIVE);
+
+    private static String normalizeCommandForWindowsShell(String command, Path root) {
+        // cmd.exe treats forward slashes as option prefixes, so "./gradlew" becomes "." with "/gradlew" as an arg.
+        // Normalize "./" to ".\\" early so it is correct regardless of how the shell is constructed.
+        String normalized = normalizeDotSlashForWindowsCmd(command);
+
+        Path wrapperDir = findNearestGradleWrapperDir(root);
+        if (wrapperDir == null) {
+            return normalized;
+        }
+
+        String wrapperBat = quoteIfNeeded(wrapperDir.resolve("gradlew.bat")
+                .toAbsolutePath()
+                .normalize()
+                .toString());
+
+        Matcher batMatcher = WINDOWS_GRADLEW_BAT_PREFIX_PATTERN.matcher(normalized);
+        if (batMatcher.find()) {
+            String leadingWhitespace = batMatcher.group(1);
+            return leadingWhitespace + wrapperBat + normalized.substring(batMatcher.end());
+        }
+
+        Matcher gradlewMatcher = WINDOWS_GRADLEW_PREFIX_PATTERN.matcher(normalized);
+        if (gradlewMatcher.find()) {
+            String leadingWhitespace = gradlewMatcher.group(1);
+            return leadingWhitespace + wrapperBat + normalized.substring(gradlewMatcher.end());
+        }
+
+        return normalized;
+    }
+
+    private static @Nullable Path findNearestGradleWrapperDir(Path startDir) {
+        Path dir = startDir.toAbsolutePath().normalize();
+        while (dir != null) {
+            if (Files.exists(dir.resolve("gradlew.bat"))) {
+                return dir;
+            }
+            dir = dir.getParent();
+        }
+        return null;
+    }
+
+    private static String quoteIfNeeded(String path) {
+        return path.contains(" ") ? "\"" + path + "\"" : path;
     }
 
     private static ProcessBuilder createProcessBuilder(Path root, String... command) {

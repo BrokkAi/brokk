@@ -44,6 +44,7 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -77,12 +78,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     @Nullable
     private Timer expansionSaveTimer;
 
-    private final Object refreshLock = new Object();
-
-    @Nullable
-    private volatile Set<Path> pendingAffectedDirs;
-
-    private volatile boolean pendingFullRefresh = false;
+    private final AtomicBoolean pendingFullRefresh = new AtomicBoolean(false);
+    private final AtomicReference<@Nullable Set<Path>> pendingAffectedDirs = new AtomicReference<>(null);
 
     /** Flag to prevent refresh during expansion state restoration */
     private volatile boolean isRestoringExpansion = true; // true until first restoration completes
@@ -946,17 +943,18 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private void scheduleRefresh(@Nullable Set<Path> affectedDirs) {
-        synchronized (refreshLock) {
-            if (affectedDirs == null) {
-                pendingFullRefresh = true;
-                pendingAffectedDirs = null;
-            } else if (!pendingFullRefresh) {
-                if (pendingAffectedDirs == null) {
-                    pendingAffectedDirs = new HashSet<>(affectedDirs);
-                } else {
-                    pendingAffectedDirs.addAll(affectedDirs);
+        if (affectedDirs == null) {
+            pendingFullRefresh.set(true);
+            pendingAffectedDirs.set(null);
+        } else if (!pendingFullRefresh.get()) {
+            pendingAffectedDirs.getAndUpdate(existing -> {
+                if (existing == null || existing.isEmpty()) {
+                    return new HashSet<>(affectedDirs);
                 }
-            }
+                var merged = new HashSet<Path>(existing);
+                merged.addAll(affectedDirs);
+                return merged;
+            });
         }
 
         if (isRestoringExpansion) {
@@ -989,14 +987,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             return;
         }
 
-        @Nullable Set<Path> affectedDirs;
-        boolean fullRefresh;
-        synchronized (refreshLock) {
-            fullRefresh = pendingFullRefresh;
-            affectedDirs = pendingAffectedDirs;
-            pendingFullRefresh = false;
-            pendingAffectedDirs = null;
-        }
+        boolean fullRefresh = pendingFullRefresh.getAndSet(false);
+        @Nullable Set<Path> affectedDirs = pendingAffectedDirs.getAndSet(null);
 
         if (fullRefresh || affectedDirs == null || affectedDirs.isEmpty()) {
             performRefreshInternal();
