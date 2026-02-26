@@ -1375,7 +1375,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private boolean anySummarizable(List<ProjectFile> files) {
-        var exts = project.getAnalyzerLanguages().stream()
+        var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+        if (analyzer == null) {
+            return false;
+        }
+        var exts = analyzer.languages().stream()
                 .flatMap(lang -> lang.getExtensions().stream())
                 .collect(Collectors.toSet());
         return files.stream().anyMatch(pf -> exts.contains(pf.extension()));
