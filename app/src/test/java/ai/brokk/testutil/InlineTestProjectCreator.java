@@ -26,33 +26,38 @@ public class InlineTestProjectCreator {
 
     private InlineTestProjectCreator() {}
 
-    public static TestProjectBuilder code(String contents, String filename) {
-        return new TestProjectBuilder().addFileContents(contents, filename);
+    private interface ProjectContentStrategy {
+        void populate(Path root) throws IOException;
+
+        Set<Language> detectLanguages();
+
+        List<String> getFilesForInitialCommit();
     }
 
-    public static class TestProjectBuilder {
+    private static class InlineContentStrategy implements ProjectContentStrategy {
+        private final List<FileContents> entries = new ArrayList<>();
 
-        protected final List<FileContents> entries = new ArrayList<>();
-
-        protected TestProjectBuilder() {}
-
-        public TestProjectBuilder addFileContents(String contents, String filename) {
+        public void addFileContents(String contents, String filename) {
             entries.add(new FileContents(filename, contents));
-            return this;
         }
 
-        public TestGitProjectBuilder withGit() {
-            return new TestGitProjectBuilder(this);
+        @Override
+        public void populate(Path root) throws IOException {
+            for (var entry : entries) {
+                var absPath = root.resolve(entry.relPath);
+                Files.createDirectories(absPath.getParent());
+                Files.writeString(absPath, entry.contents, StandardOpenOption.CREATE_NEW);
+            }
         }
 
-        public IProject build() throws IOException {
-            // Detect language(s) based on provided file extensions
+        @Override
+        public Set<Language> detectLanguages() {
             Set<Language> detected = new LinkedHashSet<>();
             for (var entry : entries) {
                 var filename = Path.of(entry.relPath).getFileName().toString();
                 int dot = filename.lastIndexOf('.');
                 if (dot <= 0 || dot == filename.length() - 1) {
-                    continue; // skip files without an extension or dotfiles without extension
+                    continue;
                 }
                 var ext = filename.substring(dot + 1);
                 for (var lang : Languages.ALL_LANGUAGES) {
@@ -61,14 +66,48 @@ public class InlineTestProjectCreator {
                     }
                 }
             }
+            return detected;
+        }
 
-            var newTemporaryDirectory = Files.createTempDirectory("brokk-analyzer-test-");
-            for (var entry : entries) {
-                var absPath = newTemporaryDirectory.resolve(entry.relPath);
-                Files.createDirectories(absPath.getParent());
-                Files.writeString(absPath, entry.contents, StandardOpenOption.CREATE_NEW);
+        @Override
+        public List<String> getFilesForInitialCommit() {
+            return entries.stream().map(FileContents::relPath).toList();
+        }
+
+        public boolean hasFile(String filename) {
+            return entries.stream().anyMatch(e -> e.relPath.equals(filename));
+        }
+    }
+
+    public static TestProjectBuilder code(String contents, String filename) {
+        return new TestProjectBuilder(new InlineContentStrategy()).addFileContents(contents, filename);
+    }
+
+    public static class TestProjectBuilder {
+        protected final ProjectContentStrategy strategy;
+
+        protected TestProjectBuilder(ProjectContentStrategy strategy) {
+            this.strategy = strategy;
+        }
+
+        public TestProjectBuilder addFileContents(String contents, String filename) {
+            if (strategy instanceof InlineContentStrategy inline) {
+                inline.addFileContents(contents, filename);
+            } else {
+                throw new UnsupportedOperationException("Adding file contents is only supported for inline content.");
             }
+            return this;
+        }
 
+        public TestGitProjectBuilder withGit() {
+            return new TestGitProjectBuilder(this);
+        }
+
+        public IProject build() throws IOException {
+            var newTemporaryDirectory = Files.createTempDirectory("brokk-analyzer-test-");
+            strategy.populate(newTemporaryDirectory);
+
+            Set<Language> detected = strategy.detectLanguages();
             Language selectedLang = null;
             if (detected.size() == 1) {
                 selectedLang = detected.iterator().next();
@@ -93,8 +132,8 @@ public class InlineTestProjectCreator {
                                         .call();
                             }
                         } else {
-                            for (var entry : entries) {
-                                git.add().addFilepattern(entry.relPath).call();
+                            for (var relPath : strategy.getFilesForInitialCommit()) {
+                                git.add().addFilepattern(relPath).call();
                             }
                             git.commit()
                                     .setAuthor("Brokk Test", "test@brokk.ai")
@@ -126,7 +165,7 @@ public class InlineTestProjectCreator {
         private final List<CommitOp> commits = new ArrayList<>();
 
         private TestGitProjectBuilder(TestProjectBuilder existing) {
-            this.entries.addAll(existing.entries);
+            super(existing.strategy);
         }
 
         @Override
@@ -148,7 +187,7 @@ public class InlineTestProjectCreator {
         }
 
         private void validateFileExists(String filename) {
-            if (entries.stream().noneMatch(e -> e.relPath.equals(filename))) {
+            if (strategy instanceof InlineContentStrategy inline && !inline.hasFile(filename)) {
                 throw new IllegalArgumentException("File not found in project entries: " + filename);
             }
         }
