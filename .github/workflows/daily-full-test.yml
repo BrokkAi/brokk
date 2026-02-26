@@ -35,18 +35,8 @@ jobs:
     - name: Check commit
       run: git rev-parse HEAD
 
-    - name: Run full test suite with static analysis (Windows)
-      if: matrix.os == 'windows-latest'
-      run: .\gradlew.bat check
-
-    - name: Run full test suite with static analysis (Unix)
-      if: matrix.os != 'windows-latest'
+    - name: Run full test suite with static analysis
       run: ./gradlew check
 
-    - name: Build assembly (Windows)
-      if: matrix.os == 'windows-latest'
-      run: .\gradlew.bat shadowJar
-
-    - name: Build assembly (Unix)
-      if: matrix.os != 'windows-latest'
+    - name: Build assembly
       run: ./gradlew shadowJar

@@ -501,7 +501,34 @@ public class Environment {
         return "stdout:\n" + stdout + "\n\nstderr:\n" + stderr;
     }
 
+    private static final Pattern WINDOWS_CMD_DOT_SLASH_PATTERN =
+            Pattern.compile("(?:(?<=^)|(?<=\\s)|(?<=&&)|(?<=\\|\\|)|(?<=\")|(?<='))\\./");
+
+    private static String normalizeDotSlashForWindowsCmd(String commandLine) {
+        return WINDOWS_CMD_DOT_SLASH_PATTERN
+                .matcher(commandLine)
+                .replaceAll(Matcher.quoteReplacement(".\\"));
+    }
+
     private static ProcessBuilder createProcessBuilder(Path root, String... command) {
+        if (isWindows() && command.length >= 3) {
+            String exe = command[0].toLowerCase(Locale.ROOT);
+            if (exe.endsWith("cmd.exe") || exe.equals("cmd")) {
+                int cIndex = -1;
+                for (int i = 1; i < command.length; i++) {
+                    if (command[i].equalsIgnoreCase("/c")) {
+                        cIndex = i;
+                        break;
+                    }
+                }
+                if (cIndex != -1) {
+                    for (int i = cIndex + 1; i < command.length; i++) {
+                        command[i] = normalizeDotSlashForWindowsCmd(command[i]);
+                    }
+                }
+            }
+        }
+
         var pb = new ProcessBuilder(command);
         pb.directory(root.toFile());
         // Redirect input from /dev/null (or NUL on Windows) so interactive prompts fail fast
