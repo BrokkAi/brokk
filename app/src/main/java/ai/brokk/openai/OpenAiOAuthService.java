@@ -7,6 +7,7 @@ import ai.brokk.util.Environment;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.awt.Component;
+import java.awt.GraphicsEnvironment;
 import java.awt.Window;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -45,6 +46,9 @@ public class OpenAiOAuthService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private static final Object lock = new Object();
+
+    @org.jetbrains.annotations.TestOnly
+    public static volatile @org.jetbrains.annotations.Nullable Runnable testAuthorizationHook = null;
 
     @Nullable
     private static SimpleHttpServer activeServer;
@@ -161,10 +165,16 @@ public class OpenAiOAuthService {
      *
      * @param parent The parent component for error dialogs
      */
-    public static void startAuthorization(Component parent) {
-        Window ancestor = (parent instanceof Window w) ? w : SwingUtilities.getWindowAncestor(parent);
+    public static void startAuthorization(@Nullable Component parent) {
+        Window ancestor =
+                (parent == null) ? null : (parent instanceof Window w) ? w : SwingUtilities.getWindowAncestor(parent);
 
         synchronized (lock) {
+            if (testAuthorizationHook != null) {
+                testAuthorizationHook.run();
+                return;
+            }
+
             stopActiveServerInternal();
 
             String verifier = generateVerifier();
@@ -182,14 +192,16 @@ public class OpenAiOAuthService {
                 logger.error("Failed to start OAuth callback server on port {}", OAUTH_PORT, e);
                 pendingState = null;
                 pendingVerifier = null;
-                SwingUtilities.invokeLater(() -> {
-                    javax.swing.JOptionPane.showMessageDialog(
-                            ancestor,
-                            "Failed to start OAuth callback server on port " + OAUTH_PORT + ".\n"
-                                    + "Please ensure no other application is using this port.",
-                            "OAuth Server Error",
-                            javax.swing.JOptionPane.ERROR_MESSAGE);
-                });
+                if (ancestor != null || !GraphicsEnvironment.isHeadless()) {
+                    SwingUtilities.invokeLater(() -> {
+                        javax.swing.JOptionPane.showMessageDialog(
+                                ancestor,
+                                "Failed to start OAuth callback server on port " + OAUTH_PORT + ".\n"
+                                        + "Please ensure no other application is using this port.",
+                                "OAuth Server Error",
+                                javax.swing.JOptionPane.ERROR_MESSAGE);
+                    });
+                }
                 return;
             }
 
