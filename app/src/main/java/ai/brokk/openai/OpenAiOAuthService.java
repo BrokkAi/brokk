@@ -59,6 +59,9 @@ public class OpenAiOAuthService {
     @Nullable
     private static String pendingVerifier;
 
+    @Nullable
+    private static String pendingAuthorizationUrl;
+
     private static final String HTML_SUCCESS =
             """
             <!doctype html>
@@ -192,6 +195,7 @@ public class OpenAiOAuthService {
                 logger.error("Failed to start OAuth callback server on port {}", OAUTH_PORT, e);
                 pendingState = null;
                 pendingVerifier = null;
+                pendingAuthorizationUrl = null;
                 if (ancestor != null || !GraphicsEnvironment.isHeadless()) {
                     SwingUtilities.invokeLater(() -> {
                         javax.swing.JOptionPane.showMessageDialog(
@@ -206,8 +210,15 @@ public class OpenAiOAuthService {
             }
 
             String url = buildAuthorizationUrl(challenge, state);
+            pendingAuthorizationUrl = url;
             logger.debug("Opening OpenAI authorization URL");
             Environment.openInBrowser(url, ancestor);
+        }
+    }
+
+    public static @Nullable String getPendingAuthorizationUrl() {
+        synchronized (lock) {
+            return pendingAuthorizationUrl;
         }
     }
 
@@ -303,6 +314,7 @@ public class OpenAiOAuthService {
         }
         pendingState = null;
         pendingVerifier = null;
+        pendingAuthorizationUrl = null;
     }
 
     private static String buildAuthorizationUrl(String challenge, String state) {

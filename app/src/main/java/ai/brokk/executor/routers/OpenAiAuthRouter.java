@@ -5,6 +5,7 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.openai.OpenAiOAuthService;
 import ai.brokk.project.MainProject;
 import com.sun.net.httpserver.HttpExchange;
+import java.util.HashMap;
 import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -28,7 +29,13 @@ public final class OpenAiAuthRouter implements SimpleHttpServer.CheckedHttpHandl
             }
             try {
                 OpenAiOAuthService.startAuthorization(null);
-                SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "started"));
+                var response = new HashMap<String, Object>();
+                response.put("status", "started");
+                var authUrl = OpenAiOAuthService.getPendingAuthorizationUrl();
+                if (authUrl != null) {
+                    response.put("url", authUrl);
+                }
+                SimpleHttpServer.sendJsonResponse(exchange, response);
             } catch (Exception e) {
                 logger.error("Error starting OpenAI OAuth flow", e);
                 SimpleHttpServer.sendJsonResponse(
