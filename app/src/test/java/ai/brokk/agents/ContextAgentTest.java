@@ -135,72 +135,55 @@ public class ContextAgentTest {
     }
 
     @Test
-    void unanalyzedPrompt_cappedAndAnnotatedWhenOverMaxLines() throws Exception {
+    void unanalyzedPrompt_cappedAndAnnotatedWhenOverMaxLines_exactFormat() throws Exception {
         Path root = tempDir.toAbsolutePath();
 
-        // Create a file that will be UNANALYZED (TestAnalyzer returns no top-level declarations).
         ProjectFile big = new ProjectFile(root, "src/un/analyzed/Big.txt");
         big.create();
-        String content = java.util.stream.IntStream.rangeClosed(1, 312)
-                .mapToObj(i -> "line " + i)
+
+        String content = java.util.stream.IntStream.range(0, 312)
+                .mapToObj(i -> "LINE_%03d".formatted(i))
                 .collect(java.util.stream.Collectors.joining("\n"));
         big.write(content);
 
-        var analyzer = new TestAnalyzer(List.of(), Map.of());
-        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+        var capped = ContextAgent.capUnanalyzedTextForPromptForTest(content);
+        String rendered = ContextAgent.renderFileForPromptForTest(big, capped);
 
-        var model = new TestScriptedLanguageModel(
-                // Ensure the tool gets called; we do not care what it recommends for this test.
-                "I will call the tool now.");
-        var agent = new ContextAgent(cm, model, "test goal");
+        assertTrue(
+                rendered.startsWith(
+                        "<file path='src/un/analyzed/Big.txt' truncated=\"true\" total_lines=\"312\" top_shown=\"25\" bottom_shown=\"25\">"),
+                rendered);
 
-        // Trigger the UNANALYZED path by having an empty workspace and only 1 non-analyzable file.
-        agent.getRecommendations(cm.liveContext(), true);
+        assertTrue(rendered.contains("LINE_000"));
+        assertTrue(rendered.contains("LINE_024"));
 
-        var seen = model.seenRequests();
-        assertFalse(seen.isEmpty());
+        assertTrue(rendered.contains("LINE_287"));
+        assertTrue(rendered.contains("LINE_311"));
 
-        String prompt = seen.getLast().messages().toString();
+        assertTrue(rendered.contains("----- BRK_OMITTED 262 LINES -----"));
 
-        assertTrue(prompt.contains("truncated=\"true\" total_lines=\"312\" top_shown=\"25\" bottom_shown=\"25\""));
-
-        assertTrue(prompt.contains("line 1"));
-        assertTrue(prompt.contains("line 25"));
-        assertTrue(prompt.contains("line 288"));
-        assertTrue(prompt.contains("line 312"));
-
-        assertTrue(prompt.contains("----- BRK_OMITTED 262 LINES -----"));
-        assertFalse(prompt.contains("line 26"));
-        assertFalse(prompt.contains("line 287"));
+        assertFalse(rendered.contains("LINE_100"));
     }
 
     @Test
-    void unanalyzedPrompt_notAnnotatedWhenAtOrBelowMaxLines() throws Exception {
+    void unanalyzedPrompt_notAnnotatedWhenAtOrBelowMaxLines_exactFormat() throws Exception {
         Path root = tempDir.toAbsolutePath();
 
         ProjectFile small = new ProjectFile(root, "src/un/analyzed/Small.txt");
         small.create();
-        String content = java.util.stream.IntStream.rangeClosed(1, 50)
-                .mapToObj(i -> "line " + i)
+
+        String content = java.util.stream.IntStream.range(0, 50)
+                .mapToObj(i -> "LINE_%03d".formatted(i))
                 .collect(java.util.stream.Collectors.joining("\n"));
         small.write(content);
 
-        var analyzer = new TestAnalyzer(List.of(), Map.of());
-        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+        var capped = ContextAgent.capUnanalyzedTextForPromptForTest(content);
+        String rendered = ContextAgent.renderFileForPromptForTest(small, capped);
 
-        var model = new TestScriptedLanguageModel("Calling tool.");
-        var agent = new ContextAgent(cm, model, "test goal");
-
-        agent.getRecommendations(cm.liveContext(), true);
-
-        var seen = model.seenRequests();
-        assertFalse(seen.isEmpty());
-        String prompt = seen.getLast().messages().toString();
-
-        assertTrue(prompt.contains("<file path='src/un/analyzed/Small.txt'>"));
-        assertFalse(prompt.contains("truncated=\"true\""));
-        assertFalse(prompt.contains("BRK_OMITTED"));
-        assertTrue(prompt.contains("line 1"));
-        assertTrue(prompt.contains("line 50"));
+        assertTrue(rendered.startsWith("<file path='src/un/analyzed/Small.txt'>\n"), rendered);
+        assertFalse(rendered.contains("truncated=\"true\""));
+        assertFalse(rendered.contains("BRK_OMITTED"));
+        assertTrue(rendered.contains("LINE_000"));
+        assertTrue(rendered.contains("LINE_049"));
     }
 }

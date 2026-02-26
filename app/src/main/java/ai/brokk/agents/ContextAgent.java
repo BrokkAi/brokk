@@ -1043,7 +1043,11 @@ public class ContextAgent {
     }
 
     private PromptFileContent capUnanalyzedTextForPrompt(String content) {
-        int totalLines = countLines(content);
+        return capUnanalyzedTextForPromptForTest(content);
+    }
+
+    static PromptFileContent capUnanalyzedTextForPromptForTest(String content) {
+        int totalLines = countLinesForTest(content);
         if (totalLines <= UNANALYZED_MAX_LINES) {
             return PromptFileContent.full(content, totalLines);
         }
@@ -1065,6 +1069,10 @@ public class ContextAgent {
     }
 
     private int countLines(String content) {
+        return countLinesForTest(content);
+    }
+
+    static int countLinesForTest(String content) {
         if (content.isEmpty()) {
             return 0;
         }
@@ -1073,6 +1081,10 @@ public class ContextAgent {
     }
 
     private String renderFileForPrompt(ProjectFile file, PromptFileContent content) {
+        return renderFileForPromptForTest(file, content);
+    }
+
+    static String renderFileForPromptForTest(ProjectFile file, PromptFileContent content) {
         if (!content.truncated()) {
             return "<file path='%s'>\n%s\n</file>".formatted(file.toString(), content.promptText());
         }
