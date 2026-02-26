@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 from urllib.parse import urlparse
 
+from brokk_code import __version__
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.settings import Settings
 from brokk_code.token_format import format_token_count
@@ -1146,7 +1147,7 @@ async def run_acp_server(
         ) -> InitializeResponse:
             return InitializeResponse(
                 protocol_version=protocol_version,
-                agent_info=Implementation(name="brokk", version="0.1.0"),
+                agent_info=Implementation(name="brokk", version=__version__),
                 agent_capabilities=AgentCapabilities(
                     load_session=True,
                     prompt_capabilities=PromptCapabilities(embedded_context=True),

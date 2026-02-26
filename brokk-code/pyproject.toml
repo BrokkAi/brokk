@@ -1,6 +1,6 @@
 [project]
 name = "brokk"
-version = "0.1.1"
+dynamic = ["version"]
 description = "AI-native code platform for million-line repos with fragment-level context management and code intelligence"
 license = { text = "Proprietary" }
 classifiers = [
@@ -30,6 +30,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["brokk_code"]
+
+[tool.hatch.version]
+path = "brokk_code/__init__.py"
 
 [tool.ruff]
 line-length = 100

@@ -35,6 +35,7 @@ async def test_welcome_message_shown_on_startup(tmp_path: Path):
 
 def test_build_welcome_message_content():
     """Verify the welcome message contains expected branded content and commands."""
+    from brokk_code import __version__
     from brokk_code.welcome import build_welcome_message
 
     mock_commands = [
@@ -46,6 +47,7 @@ def test_build_welcome_message_content():
     msg = build_welcome_message(mock_commands)
 
     assert "Welcome to Brokk" in msg
+    assert f"v{__version__}" in msg
     assert "context engineering" in msg.lower()
     assert "https://brokk.ai/" in msg
     assert "/context" in msg
