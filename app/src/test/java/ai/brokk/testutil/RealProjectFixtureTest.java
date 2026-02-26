@@ -62,10 +62,10 @@ class RealProjectFixtureTest {
             commitId = commit.name();
         }
 
-        // 2. Use fromGitUrl to "clone" from the local path
+        // 2. Use fromGitUrl to "clone" from the local path.
+        // Using "HEAD" ensures we get the default branch regardless of whether it is 'master' or 'main'.
         String url = sourceRepoPath.toUri().toString();
-        String branch = "master";
-        try (IProject project = InlineTestProjectCreator.fromGitUrl(url, branch).build()) {
+        try (IProject project = InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
             assertTrue(project.hasGit());
             assertNotNull(project.getRepo());
             assertEquals(commitId, project.getRepo().getCurrentCommitId());
@@ -73,8 +73,9 @@ class RealProjectFixtureTest {
             assertTrue(Files.exists(project.getRoot().resolve("Foo.java")));
 
             IAnalyzer analyzer = ((ITestProject) project).getAnalyzer();
-            assertFalse(analyzer.isEmpty());
-            assertFalse(analyzer.getDefinitions("Foo").isEmpty());
+            assertNotNull(analyzer, "Analyzer should not be null");
+            assertFalse(analyzer.isEmpty(), "Analyzer should not be empty");
+            assertFalse(analyzer.getDefinitions("Foo").isEmpty(), "Should find Foo class definition");
         }
     }
 
