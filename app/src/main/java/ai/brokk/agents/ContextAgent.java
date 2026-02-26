@@ -523,9 +523,7 @@ public class ContextAgent {
             Map<ProjectFile, PromptFileContent> fileText = type == GroupType.ANALYZED
                     ? getCachedIdentifiers(current).entrySet().stream()
                             .collect(Collectors.toMap(
-                                    Map.Entry::getKey,
-                                    e -> PromptFileContent.full(e.getValue(), countLines(e.getValue())),
-                                    (v1, v2) -> v1))
+                                    Map.Entry::getKey, e -> PromptFileContent.full(e.getValue(), 0), (v1, v2) -> v1))
                     : readFileContentsCappedForPrompt(current);
 
             try {
@@ -1042,12 +1040,8 @@ public class ContextAgent {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
-    private PromptFileContent capUnanalyzedTextForPrompt(String content) {
-        return capUnanalyzedTextForPromptForTest(content);
-    }
-
-    static PromptFileContent capUnanalyzedTextForPromptForTest(String content) {
-        int totalLines = countLinesForTest(content);
+    static PromptFileContent capUnanalyzedTextForPrompt(String content) {
+        int totalLines = countLines(content);
         if (totalLines <= UNANALYZED_MAX_LINES) {
             return PromptFileContent.full(content, totalLines);
         }
@@ -1068,11 +1062,7 @@ public class ContextAgent {
         return PromptFileContent.truncated(promptText, totalLines, UNANALYZED_TOP_SHOWN, UNANALYZED_BOTTOM_SHOWN);
     }
 
-    private int countLines(String content) {
-        return countLinesForTest(content);
-    }
-
-    static int countLinesForTest(String content) {
+    static int countLines(String content) {
         if (content.isEmpty()) {
             return 0;
         }
@@ -1080,11 +1070,7 @@ public class ContextAgent {
         return content.split("\\R", -1).length;
     }
 
-    private String renderFileForPrompt(ProjectFile file, PromptFileContent content) {
-        return renderFileForPromptForTest(file, content);
-    }
-
-    static String renderFileForPromptForTest(ProjectFile file, PromptFileContent content) {
+    static String renderFileForPrompt(ProjectFile file, PromptFileContent content) {
         if (!content.truncated()) {
             return "<file path='%s'>\n%s\n</file>".formatted(file.toString(), content.promptText());
         }

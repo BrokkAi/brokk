@@ -146,8 +146,8 @@ public class ContextAgentTest {
                 .collect(java.util.stream.Collectors.joining("\n"));
         big.write(content);
 
-        var capped = ContextAgent.capUnanalyzedTextForPromptForTest(content);
-        String rendered = ContextAgent.renderFileForPromptForTest(big, capped);
+        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        String rendered = ContextAgent.renderFileForPrompt(big, capped);
 
         assertTrue(
                 rendered.startsWith(
@@ -177,8 +177,8 @@ public class ContextAgentTest {
                 .collect(java.util.stream.Collectors.joining("\n"));
         small.write(content);
 
-        var capped = ContextAgent.capUnanalyzedTextForPromptForTest(content);
-        String rendered = ContextAgent.renderFileForPromptForTest(small, capped);
+        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        String rendered = ContextAgent.renderFileForPrompt(small, capped);
 
         assertTrue(rendered.startsWith("<file path='src/un/analyzed/Small.txt'>\n"), rendered);
         assertFalse(rendered.contains("truncated=\"true\""));
