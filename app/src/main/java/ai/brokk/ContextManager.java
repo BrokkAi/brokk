@@ -1880,7 +1880,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             BuildAgent agent = new BuildAgent(
                     project,
                     getLlm(serviceProvider.get().getScanModel(), "Infer build details", TaskResult.Type.NONE),
-                    toolRegistry,
+                    toolRegistry.builder().register(new SearchTools(this)).build(),
                     io);
             BuildDetails inferredDetails;
             try {
