@@ -791,17 +791,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         }
     }
 
-    private void invalidateAllChildrenRecursively(DefaultMutableTreeNode node) {
-        if (node.getUserObject() instanceof ProjectTreeNode ptn && ptn.isDirectory()) {
-            ptn.resetLoadState(); // Mark as not loaded
-        }
-        Enumeration<?> children = node.children();
-        while (children.hasMoreElements()) {
-            DefaultMutableTreeNode childNode = (DefaultMutableTreeNode) children.nextElement();
-            invalidateAllChildrenRecursively(childNode);
-        }
-    }
-
     private void collectExpandedDirectoryPathsRecursive(DefaultMutableTreeNode node, List<Path> expandedPaths) {
         if (!(node.getUserObject() instanceof ProjectTreeNode ptn)) {
             return;
@@ -1036,18 +1025,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             collectExpandedDirectoryPathsRecursive(root, previouslyExpandedDirPaths);
         }
 
-        // Invalidate all loaded children data
-        if (root != null && root.getUserObject() instanceof ProjectTreeNode ptn) {
-            ptn.resetLoadState();
-        }
         if (root == null) {
             return;
         }
 
-        invalidateAllChildrenRecursively(root);
-        root.removeAllChildren();
-        root.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
-        ((DefaultTreeModel) getModel()).nodeStructureChanged(root);
+        if (root.getUserObject() instanceof ProjectTreeNode ptn) {
+            ptn.resetLoadState();
+        }
 
         // Load root children async, then restore expansions and selections
         final var rootRef = root;
