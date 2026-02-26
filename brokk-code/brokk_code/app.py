@@ -3,6 +3,7 @@ import logging
 import random
 import re
 import time
+import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -10,7 +11,7 @@ from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Input, ListItem, ListView, Static
+from textual.widgets import Button, Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
@@ -164,7 +165,7 @@ class BrokkApiKeyModalScreen(ModalScreen[None]):
         if self._is_update:
             title.update("Saving key...")
         else:
-            title.update("Starting Brokk… (first run may take a moment)")
+            title.update("Starting Brokk... (first run may take a moment)")
 
         try:
             res = self._on_submit(value)
@@ -186,6 +187,65 @@ class BrokkApiKeyModalScreen(ModalScreen[None]):
             title.update(f"[bold red]{str(e)}[/]")
             event.input.disabled = False
             event.input.focus()
+
+
+class OpenAiAuthUrlModalScreen(ModalScreen[None]):
+    """Modal for copying/opening the OpenAI OAuth URL safely."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close", show=False),
+    ]
+
+    def __init__(self, auth_url: str) -> None:
+        super().__init__()
+        self._auth_url = auth_url
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="openai-auth-modal-container"):
+            yield Static("OpenAI Authorization", id="openai-auth-modal-title")
+            yield Static(
+                "Use Copy URL to avoid terminal wrapping/copy issues.",
+                id="openai-auth-modal-help",
+            )
+            yield Input(value=self._auth_url, id="openai-auth-url-input")
+            with Horizontal(id="openai-auth-modal-actions"):
+                yield Button("Copy URL", id="openai-auth-copy", variant="primary")
+                yield Button("Open Browser", id="openai-auth-open")
+                yield Button("Close", id="openai-auth-close")
+            yield Static("", id="openai-auth-modal-status")
+
+    def on_mount(self) -> None:
+        inp = self.query_one("#openai-auth-url-input", Input)
+        inp.focus()
+        inp.cursor_position = 0
+        try:
+            inp.select_all()
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        status = self.query_one("#openai-auth-modal-status", Static)
+        button_id = event.button.id or ""
+        if button_id == "openai-auth-copy":
+            try:
+                self.app.copy_to_clipboard(self._auth_url)
+                status.update("Copied URL to clipboard.")
+            except Exception as e:
+                logger.exception("Failed to copy OpenAI OAuth URL to clipboard")
+                status.update(f"Copy failed: {e}")
+            return
+        if button_id == "openai-auth-open":
+            try:
+                opened = bool(webbrowser.open(self._auth_url))
+                status.update(
+                    "Opened default browser." if opened else "Could not open browser automatically."
+                )
+            except Exception as e:
+                logger.exception("Failed to open OpenAI OAuth URL from modal")
+                status.update(f"Open failed: {e}")
+            return
+        if button_id == "openai-auth-close":
+            self.dismiss(None)
 
 
 class ModelSelectModal(ModalScreen[str]):
@@ -1334,6 +1394,50 @@ class BrokkApp(App):
 
         return list(dict.fromkeys(attached_fragment_ids))
 
+    async def _login_openai(self) -> None:
+        """Async helper to initiate OpenAI OAuth login flow."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        if not self._executor_ready:
+            chat.add_system_message(
+                "Brokk executor is not yet ready. Please wait a moment and try again.",
+                level="WARNING",
+            )
+            return
+
+        try:
+            resp = await self.executor.start_openai_oauth()
+            auth_url = resp.get("url") if isinstance(resp, dict) else None
+            if isinstance(auth_url, str) and auth_url:
+                opened = False
+                try:
+                    opened = bool(await asyncio.to_thread(webbrowser.open, auth_url))
+                except Exception:
+                    logger.exception("Failed to open OpenAI OAuth URL from TUI client")
+                chat.add_system_message(
+                    "Starting OpenAI authorization. "
+                    + ("Browser opened. " if opened else "")
+                    + "Use the OpenAI Authorization modal to copy the exact URL."
+                )
+                try:
+                    self.push_screen(OpenAiAuthUrlModalScreen(auth_url))
+                except Exception:
+                    logger.exception("Failed to open OpenAI OAuth URL modal")
+                    chat.add_system_message(
+                        "OpenAI auth URL (exact): " + auth_url,
+                        level="WARNING",
+                    )
+            else:
+                chat.add_system_message(
+                    "Opening browser for OpenAI authorization. After completing the login flow, "
+                    "Codex-gated models will become available."
+                )
+        except Exception as e:
+            logger.exception("OpenAI OAuth login failed")
+            chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
+
     async def _run_job(self, task_input: str) -> None:
         self.current_job_cost = 0.0
         self.job_in_progress = True
@@ -1589,6 +1693,7 @@ class BrokkApp(App):
         """Returns the structured catalog of supported slash commands."""
         return [
             {"command": "/api-key", "description": "Update your Brokk API key"},
+            {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
@@ -1740,6 +1845,14 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+        elif base == "/login-openai":
+            if len(parts) > 1:
+                chat.add_system_message(
+                    "Usage: /login-openai (opens browser for authorization)",
+                    level="WARNING",
+                )
+            else:
+                self.run_worker(self._login_openai())
         elif base == "/api-key":
 
             async def on_key_entered(key: str) -> bool:

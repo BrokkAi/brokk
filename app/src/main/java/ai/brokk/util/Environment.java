@@ -775,32 +775,123 @@ public class Environment {
      * @param ancestor The parent window for displaying error dialogs, can be null.
      */
     public static void openInBrowser(String url, @Nullable Window ancestor) {
+        boolean headless = GraphicsEnvironment.isHeadless();
         try {
-            if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                logger.warn("Desktop.Action.BROWSE not supported, cannot open URL: {}", url);
-                JOptionPane.showMessageDialog(
-                        ancestor,
-                        "Sorry, unable to open browser automatically. Desktop API not supported.\nPlease visit: " + url,
-                        "Browser Unsupported",
-                        JOptionPane.WARNING_MESSAGE);
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(url));
                 return;
             }
-            Desktop.getDesktop().browse(new URI(url));
+            logger.warn("Desktop.Action.BROWSE not supported, trying command-line fallback for URL: {}", url);
+            if (tryOpenInBrowserFallback(url)) {
+                return;
+            }
+            showBrowserOpenFailureDialog(
+                    ancestor,
+                    headless,
+                    url,
+                    "Sorry, unable to open browser automatically. Desktop API not supported.\nPlease visit: " + url,
+                    "Browser Unsupported",
+                    JOptionPane.WARNING_MESSAGE);
         } catch (UnsupportedOperationException ex) {
             logger.error("Browser not supported on this platform (e.g., WSL): {}", url, ex);
-            JOptionPane.showMessageDialog(
+            if (tryOpenInBrowserFallback(url)) {
+                return;
+            }
+            showBrowserOpenFailureDialog(
                     ancestor,
+                    headless,
+                    url,
                     "Sorry, unable to open browser automatically. This is a known problem on WSL.\nPlease visit: "
                             + url,
                     "Browser Unsupported",
                     JOptionPane.WARNING_MESSAGE);
         } catch (Exception ex) {
             logger.error("Failed to open URL: {}", url, ex);
-            JOptionPane.showMessageDialog(
+            if (tryOpenInBrowserFallback(url)) {
+                return;
+            }
+            showBrowserOpenFailureDialog(
                     ancestor,
+                    headless,
+                    url,
                     "Failed to open the browser. Please visit:\n" + url,
                     "Browser Error",
                     JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private static void showBrowserOpenFailureDialog(
+            @Nullable Window ancestor, boolean headless, String url, String message, String title, int messageType) {
+        if (headless) {
+            logger.warn("Headless environment; open this URL manually: {}", url);
+            return;
+        }
+        JOptionPane.showMessageDialog(ancestor, message, title, messageType);
+    }
+
+    private static boolean tryOpenInBrowserFallback(String url) {
+        try {
+            if (isLinux()) {
+                if (tryStartCommand("xdg-open", url)) {
+                    return true;
+                }
+                if (tryStartCommand("gio", "open", url)) {
+                    return true;
+                }
+                if (tryStartCommand("sensible-browser", url)) {
+                    return true;
+                }
+                if (tryStartCommand("x-www-browser", url)) {
+                    return true;
+                }
+                if (tryStartCommand("wslview", url)) {
+                    return true;
+                }
+                return false;
+            }
+            if (isMacOs()) {
+                return tryStartCommand("open", url);
+            }
+            if (isWindows()) {
+                return tryStartCommand("rundll32", "url.dll,FileProtocolHandler", url);
+            }
+            return false;
+        } catch (Exception ex) {
+            logger.warn("Browser fallback launcher failed for URL: {}", url, ex);
+            return false;
+        }
+    }
+
+    private static boolean tryStartCommand(String... command) {
+        if (command.length == 0) {
+            return false;
+        }
+        if (!existsOnPath(command[0])) {
+            return false;
+        }
+        try {
+            logger.debug("Trying browser fallback command: {}", Arrays.toString(command));
+            Process process = new ProcessBuilder(command)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            if (!process.waitFor(1, TimeUnit.SECONDS)) {
+                logger.info("Browser fallback command started successfully: {}", Arrays.toString(command));
+                return true;
+            }
+            int exit = process.exitValue();
+            if (exit == 0) {
+                logger.info("Browser fallback command succeeded: {}", Arrays.toString(command));
+                return true;
+            }
+            logger.debug("Browser fallback command exited {}: {}", exit, Arrays.toString(command));
+            return false;
+        } catch (IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            logger.debug("Browser fallback command failed: {}", Arrays.toString(command), ex);
+            return false;
         }
     }
 }
