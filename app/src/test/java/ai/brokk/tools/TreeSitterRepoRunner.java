@@ -1889,6 +1889,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
+            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
             new ProcessBuilder("git", "config", "user.email", "test@example.com")
                     .directory(remoteRoot.toFile())
                     .start()
@@ -1963,6 +1967,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         try {
             // 1. Create a temporary Git repository with mixed file types
             new ProcessBuilder("git", "init", "-b", "main")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
