@@ -85,8 +85,8 @@ public class ContextAgent {
 
     private record PromptFileContent(
             String promptText, boolean truncated, int totalLines, int topShown, int bottomShown) {
-        static PromptFileContent full(String promptText, int totalLines) {
-            return new PromptFileContent(promptText, false, totalLines, 0, 0);
+        static PromptFileContent full(String promptText) {
+            return new PromptFileContent(promptText, false, 0, 0, 0);
         }
 
         static PromptFileContent truncated(String promptText, int totalLines, int topShown, int bottomShown) {
@@ -523,7 +523,7 @@ public class ContextAgent {
             Map<ProjectFile, PromptFileContent> fileText = type == GroupType.ANALYZED
                     ? getCachedIdentifiers(current).entrySet().stream()
                             .collect(Collectors.toMap(
-                                    Map.Entry::getKey, e -> PromptFileContent.full(e.getValue(), 0), (v1, v2) -> v1))
+                                    Map.Entry::getKey, e -> PromptFileContent.full(e.getValue()), (v1, v2) -> v1))
                     : readFileContentsCappedForPrompt(current);
 
             try {
@@ -1043,7 +1043,7 @@ public class ContextAgent {
     static PromptFileContent capUnanalyzedTextForPrompt(String content) {
         int totalLines = countLines(content);
         if (totalLines <= UNANALYZED_MAX_LINES) {
-            return PromptFileContent.full(content, totalLines);
+            return PromptFileContent.full(content);
         }
 
         var lines = content.split("\\R", -1);
