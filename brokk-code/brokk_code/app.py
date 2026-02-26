@@ -448,6 +448,7 @@ class BrokkApp(App):
                 executor_version=executor_version,
                 executor_snapshot=executor_snapshot,
                 vendor=vendor,
+                exit_on_stdin_eof=True,
                 brokk_api_key=self.settings.get_brokk_api_key(),
             )
         self.requested_session_id = session_id
@@ -513,7 +514,6 @@ class BrokkApp(App):
         # Shutdown coordination flags and lock
         self._shutting_down: bool = False
         self._shutdown_completed: bool = False
-        self._session_exported: bool = False
         self._shutdown_lock = asyncio.Lock()
 
     @property
@@ -735,6 +735,9 @@ class BrokkApp(App):
                 continue
 
             if not self.executor.check_alive():
+                if self._shutting_down or self._shutdown_completed:
+                    logger.debug("Executor process exited during shutdown.")
+                    break
                 msg = "Executor process crashed unexpectedly."
                 chat = self._maybe_chat()
                 if chat:
@@ -2022,42 +2025,6 @@ class BrokkApp(App):
             self.query_one(ChatPanel).add_system_message("Press Ctrl+C again to quit.")
             self._last_ctrl_c_time = now
 
-    async def _export_session(self) -> None:
-        """Best-effort export of the current session zip to workspace cache.
-
-        This method is idempotent and will only attempt export once per app lifetime.
-        """
-        # Avoid re-exporting multiple times
-        if self._session_exported:
-            return
-
-        # Only require a session_id here; availability is checked by the caller.
-        if not self.executor.session_id:
-            return
-
-        from brokk_code.session_persistence import get_session_zip_path
-
-        try:
-            session_id = self.executor.session_id
-            assert session_id is not None
-            zip_bytes = await self.executor.download_session_zip(session_id)
-            zip_path = get_session_zip_path(self.executor.workspace_dir, session_id)
-            zip_path.write_bytes(zip_bytes)
-            logger.info("Session %s exported to %s", session_id, zip_path)
-            self._session_exported = True
-        except ExecutorError as ee:
-            # Treat intentional "Executor not started" after a controlled stop as benign.
-            msg = str(ee)
-            if "Executor not started" in msg:
-                logger.debug(
-                    "Session export skipped because executor is not started "
-                    "(expected during shutdown)."
-                )
-            else:
-                logger.warning("Failed to export session zip on shutdown: %s", ee)
-        except Exception as e:
-            logger.warning("Failed to export session zip on shutdown: %s", e)
-
     async def _shutdown_once(self, *, show_message: bool = True) -> None:
         """Perform shutdown actions once completed. Concurrency-safe with retry on stop failure."""
         # Fast path
@@ -2075,24 +2042,7 @@ class BrokkApp(App):
                 else:
                     logger.info(msg)
 
-            # Attempt to export the session before we stop the executor.
-            # Only attempt export if executor reports ready or alive.
-            try:
-                can_export = False
-                if self.executor.session_id:
-                    # Prefer _executor_ready, but if it is false we still attempt
-                    # export only if the process is alive.
-                    if self._executor_ready or self.executor.check_alive():
-                        can_export = True
-
-                if can_export:
-                    await self._export_session()
-                else:
-                    logger.debug("Skipping session export: no session or executor not available.")
-            except Exception:
-                logger.debug("Export step failed during shutdown", exc_info=True)
-
-            # Mark executor not ready immediately so any concurrent refresh/export short-circuits.
+            # Mark executor not ready immediately so any concurrent refresh short-circuits.
             self._executor_ready = False
 
             # Stop executor (best-effort). Multiple calls are safe because

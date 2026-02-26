@@ -15,7 +15,6 @@ class SessionStubExecutor(StubExecutor):
         self.workspace_dir = None
         self.import_calls = []
         self.create_calls = []
-        self.download_calls = []
 
     async def create_session(self, name: str = "TUI Session") -> str:
         self.create_calls.append(name)
@@ -26,10 +25,6 @@ class SessionStubExecutor(StubExecutor):
         self.import_calls.append((zip_bytes, session_id))
         self.session_id = session_id or "imported-session"
         return self.session_id
-
-    async def download_session_zip(self, session_id: str) -> bytes:
-        self.download_calls.append(session_id)
-        return b"fake-zip-data"
 
 
 @pytest.mark.asyncio
@@ -87,24 +82,6 @@ async def test_startup_prefers_cli_session(tmp_path):
     assert len(stub.import_calls) == 1
     assert stub.import_calls[0][1] == cli_id
     assert stub.import_calls[0][0] == b"cli-zip"
-
-
-@pytest.mark.asyncio
-async def test_shutdown_exports_session(tmp_path):
-    workspace = tmp_path
-    stub = SessionStubExecutor()
-    stub.session_id = "active-789"
-
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
-    app._executor_ready = True
-
-    with patch("brokk_code.app.ChatPanel"):
-        await asyncio.wait_for(app.action_quit(), timeout=3.0)
-
-    assert "active-789" in stub.download_calls
-    zip_path = get_session_zip_path(workspace, "active-789")
-    assert zip_path.exists()
-    assert zip_path.read_bytes() == b"fake-zip-data"
 
 
 @pytest.mark.asyncio
