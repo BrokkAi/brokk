@@ -2,7 +2,7 @@
 
 The Headless Executor runs Brokk sessions in a server mode, controllable via HTTP+JSON API. It's designed for remote execution, CI/CD pipelines, and programmatic task automation.
 
-The `brokk-code` client currently bundles or targets headless executor version **0.23.0.beta4** by default when launched via JBang.
+The `brokk-code` client currently bundles or targets headless executor version **0.23.0.beta9** by default when launched via JBang.
 
 For end-to-end request examples (sessions, jobs, events, and mode-specific payloads), see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
@@ -461,9 +461,9 @@ Once running, the executor exposes the following endpoints:
   - **ISSUE_WRITER mode**: Set `"tags": { "mode": "ISSUE_WRITER" }` to discover evidence in the repo and create a GitHub issue (requires github_token, repo_owner, repo_name in tags).
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 
-### Observability and Model Controls (0.23.0.beta4)
+### Observability and Model Controls (0.23.0.beta9)
 
-Version 0.23.0.beta4 introduces refined controls for LLM reasoning and structured cost reporting.
+Version 0.23.0.beta9 introduces refined controls for LLM reasoning and structured cost reporting.
 
 #### Cost Reporting
 The executor now emits structured `NOTIFICATION` events with a `level: "COST"` and a numeric `cost` field representing USD. Clients (like `brokk-code`) use these to track session and job totals.
@@ -567,7 +567,7 @@ Run the JAR:
 
 ```bash
 java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
-  -cp app/build/libs/brokk-0.23.0.beta4.jar \
+  -cp app/build/libs/brokk-0.23.0.beta9.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \
