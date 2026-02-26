@@ -497,6 +497,12 @@ public final class HistoryIo {
         var pastedImageFragments = new HashSet<ContextFragments.AnonymousImageFragment>();
 
         for (Context ctx : ch.getHistory()) {
+            try {
+                ctx.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while awaiting content computation", e);
+            }
             ctx.allFragments().filter(f -> f.getType().isPath()).forEach(fragment -> {
                 if (!collectedReferencedDtos.containsKey(fragment.id())) {
                     collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
