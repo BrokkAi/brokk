@@ -12,7 +12,7 @@ async def test_executor_start_includes_jvm_flags(monkeypatch, tmp_path):
     dummy_jar.write_text("dummy")
     captured_cmd = None
 
-    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
         nonlocal captured_cmd
 
         # Capture the command that was passed in
@@ -106,7 +106,7 @@ async def test_executor_start_includes_vendor_flag(monkeypatch, tmp_path):
     dummy_jar.write_text("dummy")
     captured_cmd = None
 
-    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
         nonlocal captured_cmd
         captured_cmd = list(cmd)
 
@@ -169,7 +169,7 @@ async def test_executor_start_includes_exit_on_stdin_eof_flag_when_enabled(monke
     dummy_jar.write_text("dummy")
     captured_cmd = None
 
-    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
         nonlocal captured_cmd
         captured_cmd = list(cmd)
 
@@ -236,7 +236,7 @@ async def test_executor_exits_when_stdin_closed(monkeypatch, tmp_path):
     dummy_jar = tmp_path / "brokk.jar"
     dummy_jar.write_text("dummy")
 
-    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
         class FakeStdout:
             def __init__(self):
                 self._lines = [
@@ -324,7 +324,7 @@ async def test_executor_start_uses_jbang_when_no_jar(monkeypatch, tmp_path):
 
     captured_cmd = None
 
-    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
         nonlocal captured_cmd
         captured_cmd = list(cmd)
 
@@ -364,6 +364,8 @@ async def test_executor_start_uses_jbang_when_no_jar(monkeypatch, tmp_path):
 
     assert "--java" in captured_cmd
     assert "21" in captured_cmd
+    # Verify the native access flag is present in the jbang command
+    assert any("--enable-native-access=ALL-UNNAMED" in arg for arg in captured_cmd)
     assert "--main" in captured_cmd
     assert "ai.brokk.executor.HeadlessExecutorMain" in captured_cmd
     assert any(
@@ -386,7 +388,7 @@ async def test_executor_start_installs_jbang_if_missing(monkeypatch, tmp_path):
         install_called = True
         return "/tmp/jbang"
 
-    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
         class FakeStdout:
             async def readline(self):
                 return b"Executor listening on http://127.0.0.1:12345\n"
@@ -442,7 +444,7 @@ async def test_executor_start_includes_brokk_api_key_flag(monkeypatch, tmp_path)
     dummy_jar.write_text("dummy")
     captured_cmd = None
 
-    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None):
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
         nonlocal captured_cmd
         captured_cmd = list(cmd)
 

@@ -85,6 +85,15 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  // Re-try connection when a workspace folder is opened
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      if (vscode.workspace.workspaceFolders) {
+        connectOrSpawn(context);
+      }
+    })
+  );
+
   // Auto-connect (non-blocking — don't fail activation)
   connectOrSpawn(context);
 }
@@ -145,6 +154,7 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
   if (!workspaceFolders) {
     statusBarItem.text = "$(warning) Brokk: No workspace";
     statusBarItem.tooltip = "Open a folder to use Brokk";
+    panelProvider.sendConnectionStatus("noWorkspace");
     return;
   }
 
@@ -155,6 +165,7 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
   log(`Extension dir: ${extensionDir}`);
 
   statusBarItem.text = "$(sync~spin) Brokk: Starting...";
+  panelProvider.sendConnectionStatus("starting");
 
   try {
     let handle;
@@ -229,6 +240,7 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
     log(`Startup failed: ${message}`);
     statusBarItem.text = "$(error) Brokk: Failed";
     statusBarItem.tooltip = `${message}\n\nClick to retry, or configure brokk.launchMode in settings.`;
+    panelProvider.sendConnectionStatus("failed", message);
     vscode.window.showErrorMessage(`Brokk: ${message}`);
   }
 }
@@ -268,6 +280,7 @@ function setConnected(client: BrokkClient, port: number, sessionOrLabel: string)
     panelProvider.refreshTaskList();
   });
 
+  panelProvider.sendConnectionStatus("connected");
   statusBarItem.text = "$(check) Brokk: Connected";
   statusBarItem.tooltip = `Executor on port ${port}, session: ${sessionOrLabel}`;
   log(`Connected to executor on port ${port}`);

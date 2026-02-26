@@ -213,6 +213,7 @@ class ContextTest {
         var sf = new ContextFragments.StringFragment(contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var ctx = new Context(contextManager).addFragments(List.of(ppf)).addFragments(sf);
+        assertEquals("class Refresh {}", ppf.text().join());
 
         pf.write("class RefreshR0 { public static void main() {} }");
         var refreshed = ctx.copyAndRefresh(Set.of(pf));

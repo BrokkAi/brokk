@@ -221,7 +221,7 @@ Quick/skip-verification example (faster, skips tests/lint and review-bot loops; 
 
 ### ISSUE_WRITER Mode: Create a GitHub Issue
 
-ISSUE_WRITER mode discovers evidence in the repository and creates a new GitHub issue with a high-quality title and body.
+ISSUE_WRITER mode discovers evidence in the repository and creates a new GitHub issue with a high-quality title and body. This mode is also available via the Python CLI using `brokk issue create`.
 
 Characteristics:
 - Read-only to the local repo (no edits/commits)

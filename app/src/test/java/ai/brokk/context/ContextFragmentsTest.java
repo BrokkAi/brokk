@@ -3,8 +3,13 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragment.SummaryType;
+import ai.brokk.context.ContextFragments.CodeFragment;
+import ai.brokk.context.ContextFragments.ProjectPathFragment;
+import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
@@ -184,5 +189,114 @@ class ContextFragmentsTest {
         var fragment = new ContextFragments.StringFragment(
                 mockContextManager, malformedDiff, "Malformed Diff", SyntaxConstants.SYNTAX_STYLE_NONE);
         assertTrue(fragment.referencedFiles().join().isEmpty(), "Files list should be empty when diff parsing fails");
+    }
+
+    // --- SummaryFragment.isSupersededBy Tests ---
+
+    @Test
+    void testFileSkeletonSupersededByMatchingProjectPathFragment() throws Exception {
+        var file = new ProjectFile(tempDir, "src/Target.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class Target {}");
+
+        var summary = new SummaryFragment(mockContextManager, file.toString(), SummaryType.FILE_SKELETONS);
+        var ppf = new ProjectPathFragment(file, mockContextManager);
+
+        assertTrue(summary.isSupersededBy(Collections.singletonList(ppf)), "Should be superseded by matching path");
+    }
+
+    @Test
+    void testFileSkeletonNotSupersededWhenNoPathMatches() throws Exception {
+        var file = new ProjectFile(tempDir, "src/Target.java");
+        var otherFile = new ProjectFile(tempDir, "src/Other.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class Target {}");
+        Files.writeString(otherFile.absPath(), "class Other {}");
+
+        var summary = new SummaryFragment(mockContextManager, file.toString(), SummaryType.FILE_SKELETONS);
+        var ppfOther = new ProjectPathFragment(otherFile, mockContextManager);
+
+        assertFalse(summary.isSupersededBy(Collections.emptyList()), "Empty candidates should not supersede");
+        assertFalse(summary.isSupersededBy(Collections.singletonList(ppfOther)), "Different path should not supersede");
+    }
+
+    @Test
+    void testFileSkeletonNotSupersededByCodeFragment() throws Exception {
+        var file = new ProjectFile(tempDir, "src/Target.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class Target {}");
+
+        var summary = new SummaryFragment(mockContextManager, file.toString(), SummaryType.FILE_SKELETONS);
+        var codeFrag = new CodeFragment(mockContextManager, "com.example.Target");
+
+        assertFalse(
+                summary.isSupersededBy(Collections.singletonList(codeFrag)),
+                "CodeFragment is wrong type for file summary");
+    }
+
+    @Test
+    void testCodeUnitSkeletonSupersededByProjectPathFragment() throws Exception {
+        var file = new ProjectFile(tempDir, "src/Foo.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class Foo {}");
+
+        var cu = CodeUnit.cls(file, "com.example", "Foo");
+        var project = new TestProject(tempDir, Languages.JAVA);
+        var testAnalyzer = new TestAnalyzer(Collections.singletonList(cu), Collections.emptyMap(), project);
+        var localCtxManager =
+                new TestContextManager(project, new NoOpConsoleIO(), Collections.emptySet(), testAnalyzer);
+
+        var summary = new SummaryFragment(localCtxManager, "com.example.Foo", SummaryType.CODEUNIT_SKELETON);
+        var ppf = new ProjectPathFragment(file, localCtxManager);
+
+        assertTrue(
+                summary.isSupersededBy(Collections.singletonList(ppf)),
+                "Should be superseded by path fragment containing the class");
+    }
+
+    @Test
+    void testCodeUnitSkeletonSupersededByCodeFragment() throws Exception {
+        var file = new ProjectFile(tempDir, "src/Bar.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class Bar {}");
+
+        var cu = CodeUnit.cls(file, "com.example", "Bar");
+        var project = new TestProject(tempDir, Languages.JAVA);
+        var testAnalyzer = new TestAnalyzer(Collections.singletonList(cu), Collections.emptyMap(), project);
+        var localCtxManager =
+                new TestContextManager(project, new NoOpConsoleIO(), Collections.emptySet(), testAnalyzer);
+
+        var summary = new SummaryFragment(localCtxManager, "com.example.Bar", SummaryType.CODEUNIT_SKELETON);
+        var codeFrag = new CodeFragment(localCtxManager, "com.example.Bar");
+
+        assertTrue(
+                summary.isSupersededBy(Collections.singletonList(codeFrag)),
+                "Should be superseded by direct CodeFragment");
+    }
+
+    @Test
+    void testCodeUnitSkeletonNotSupersededWhenSourcesDoNotMatch() throws Exception {
+        var file = new ProjectFile(tempDir, "src/Other.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class Other {}");
+
+        var cuOther = CodeUnit.cls(file, "com.example", "Other");
+        var project = new TestProject(tempDir, Languages.JAVA);
+        var testAnalyzer = new TestAnalyzer(Collections.singletonList(cuOther), Collections.emptyMap(), project);
+        var localCtxManager =
+                new TestContextManager(project, new NoOpConsoleIO(), Collections.emptySet(), testAnalyzer);
+
+        var summary = new SummaryFragment(localCtxManager, "com.example.Target", SummaryType.CODEUNIT_SKELETON);
+        var ppf = new ProjectPathFragment(file, localCtxManager);
+
+        assertFalse(
+                summary.isSupersededBy(Collections.singletonList(ppf)),
+                "Should not be superseded if class is not in fragment sources");
+    }
+
+    @Test
+    void testCodeUnitSkeletonNotSupersededByEmptyList() {
+        var summary = new SummaryFragment(mockContextManager, "com.example.Foo", SummaryType.CODEUNIT_SKELETON);
+        assertFalse(summary.isSupersededBy(Collections.emptyList()), "Empty list should not supersede");
     }
 }

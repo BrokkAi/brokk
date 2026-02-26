@@ -43,6 +43,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.xml.XMLConstants;
@@ -134,9 +135,17 @@ public class SearchTools {
                     .build());
 
     private final IContextManager contextManager; // Needed for file operations
+    private final AtomicInteger searchHits = new AtomicInteger(0);
 
     public SearchTools(IContextManager contextManager) {
         this.contextManager = contextManager;
+    }
+
+    /**
+     * Returns the number of search hits accumulated since the last call to this method, and resets the counter to zero.
+     */
+    public int getAndClearSearchHits() {
+        return searchHits.getAndSet(0);
     }
 
     // --- Sanitization Helper Methods
@@ -318,6 +327,7 @@ public class SearchTools {
         if (allDefinitions.isEmpty()) {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
+        searchHits.incrementAndGet();
 
         // Group by file, then by kind within each file
         var fileGroups = allDefinitions.stream()
@@ -387,7 +397,7 @@ public class SearchTools {
         if (results.isEmpty()) {
             return "No usages found for: " + String.join(", ", symbols);
         }
-
+        searchHits.incrementAndGet();
         return String.join("\n\n", results);
     }
 
@@ -512,6 +522,10 @@ public class SearchTools {
         StringBuilder result = new StringBuilder();
         result.append(String.join("\n", locationMappings));
 
+        if (!locationMappings.isEmpty()) {
+            searchHits.incrementAndGet();
+        }
+
         if (!notFound.isEmpty()) {
             result.append("\n\nNot found: ").append(String.join(", ", notFound));
         }
@@ -635,6 +649,7 @@ public class SearchTools {
             }
 
             sb.append("</git_log>");
+            searchHits.incrementAndGet();
             return sb.toString();
         } catch (GitAPIException e) {
             logger.error("Error retrieving git log for path '{}': {}", path, e.getMessage(), e);
@@ -740,6 +755,7 @@ public class SearchTools {
         if (matchingCommits.isEmpty()) {
             return "No commit messages found matching pattern: " + pattern;
         }
+        searchHits.incrementAndGet();
 
         boolean truncated = searchResult.truncated();
 
@@ -846,6 +862,7 @@ public class SearchTools {
             }
             return "No files found with content matching patterns: " + String.join(", ", patterns);
         }
+        searchHits.incrementAndGet();
 
         String prefix = "";
         if (truncated) {
@@ -1078,6 +1095,7 @@ public class SearchTools {
         if (fileResults.isEmpty()) {
             return "No matches found for pattern '" + pattern + "' in files matching '" + filepath + "'";
         }
+        searchHits.incrementAndGet();
 
         String output = String.join("\n", fileResults).trim();
         if (truncated) {
@@ -1182,7 +1200,7 @@ public class SearchTools {
             }
             return "No results for XPath query.";
         }
-
+        searchHits.incrementAndGet();
         return String.join("\n", fileResults).trim();
     }
 
@@ -1283,7 +1301,7 @@ public class SearchTools {
             }
             return "No results for jq filter.";
         }
-
+        searchHits.incrementAndGet();
         return String.join("\n", fileResults).trim();
     }
 
@@ -1335,7 +1353,7 @@ public class SearchTools {
         if (matchingFiles.isEmpty()) {
             return "No filenames found matching patterns: " + String.join(", ", patterns);
         }
-
+        searchHits.incrementAndGet();
         return "Matching filenames: " + String.join(", ", matchingFiles);
     }
 
@@ -1429,7 +1447,11 @@ public class SearchTools {
 
         logger.debug("Listing files for directory path: '{}' (normalized to `{}`)", directoryPath, normalizedPath);
 
-        return formatFilesInDirectory(contextManager.getProject().getAllFiles(), normalizedPath, directoryPath);
+        var result = formatFilesInDirectory(contextManager.getProject().getAllFiles(), normalizedPath, directoryPath);
+        if (!result.startsWith("No files found")) {
+            searchHits.incrementAndGet();
+        }
+        return result;
     }
 
     @Tool(
@@ -1518,6 +1540,7 @@ public class SearchTools {
         }
 
         if (!fullTruncated) {
+            searchHits.incrementAndGet();
             return fullSkim.toString();
         }
 
@@ -1538,6 +1561,7 @@ public class SearchTools {
 
         String filenamesResult = filenamesOnly.toString();
         if (Messages.getApproximateTokens(filenamesResult) <= MAX_TOKENS) {
+            searchHits.incrementAndGet();
             return filenamesResult;
         }
 

@@ -1078,6 +1078,17 @@ public final class JobRunner {
 
                                         try {
                                             store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
+
+                                            var issueCreatedData = new LinkedHashMap<String, Object>();
+                                            issueCreatedData.put("issueId", created.id());
+                                            if (created.htmlUrl() != null) {
+                                                issueCreatedData.put(
+                                                        "issueUrl",
+                                                        created.htmlUrl().toString());
+                                            }
+                                            issueCreatedData.put("repoOwner", repoOwner);
+                                            issueCreatedData.put("repoName", repoName);
+                                            store.appendEvent(jobId, JobEvent.of("ISSUE_CREATED", issueCreatedData));
                                         } catch (IOException ioe) {
                                             logger.warn(
                                                     "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
@@ -1495,7 +1506,7 @@ public final class JobRunner {
 
         requireNonNull(stop);
 
-        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), messages, TaskResult.Type.ASK, model, question);
+        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.ASK, model, question);
         return new TaskResult(ctx, stop);
     }
 
@@ -1668,8 +1679,7 @@ public final class JobRunner {
             responseText = Messages.getText(aiMessage);
         }
 
-        Context reviewContext =
-                ctx.addHistoryEntry(responseMessages, messages, TaskResult.Type.REVIEW, model, "PR Review");
+        Context reviewContext = ctx.addHistoryEntry(responseMessages, TaskResult.Type.REVIEW, model, "PR Review");
         return new ReviewDiffResult(new TaskResult(reviewContext, stop), responseText);
     }
 

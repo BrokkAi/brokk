@@ -265,8 +265,14 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
  */
 function waitForPort(child: ChildProcess): Promise<number> {
   return new Promise((resolve, reject) => {
+    const stderrChunks: string[] = [];
+
     const timeout = setTimeout(() => {
-      reject(new Error("Timed out waiting for executor to report its port"));
+      const stderr = stderrChunks.join("").trim();
+      reject(new Error(
+        "Timed out waiting for executor to report its port"
+        + (stderr ? `\n\nExecutor stderr:\n${stderr.slice(-2000)}` : "")
+      ));
     }, 120_000);
 
     if (!child.stdout) {
@@ -294,12 +300,16 @@ function waitForPort(child: ChildProcess): Promise<number> {
 
     child.on("exit", (code) => {
       clearTimeout(timeout);
-      reject(new Error(`Executor exited with code ${code} before reporting port`));
+      const stderr = stderrChunks.join("").trim();
+      reject(new Error(
+        `Executor exited with code ${code} before reporting port`
+        + (stderr ? `\n\nExecutor stderr:\n${stderr.slice(-2000)}` : "")
+      ));
     });
 
-    // Pipe stderr to the output channel for debugging
     child.stderr?.on("data", (data: Buffer) => {
       const msg = data.toString();
+      stderrChunks.push(msg);
       if (msg.trim()) {
         console.log(`[executor stderr] ${msg.trimEnd()}`);
       }

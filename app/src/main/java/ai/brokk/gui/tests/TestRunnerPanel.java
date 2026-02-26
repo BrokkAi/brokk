@@ -16,6 +16,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.Environment;
 import ai.brokk.util.SerialByKeyExecutor;
 import ai.brokk.util.ShellConfig;
@@ -514,7 +515,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        String command = BuildAgent.getBuildLintSomeCommand(chrome.getContextManager(), details, testFiles);
+        IContextManager cm = chrome.getContextManager();
+        String command = BuildTools.getBuildLintSomeCommand(cm, details, testFiles);
         if (command.isBlank()) {
             chrome.toolError("Could not determine test command for the selected files.", "Run Tests");
             return;

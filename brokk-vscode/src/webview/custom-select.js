@@ -190,6 +190,12 @@ function _populateModelDropdown(select, modelInfos, favorites, isPrimary) {
     defaultOpt.innerHTML = `<span class="option-label">${defaultCode}</span>`;
     dropdown.appendChild(defaultOpt);
     select.valueEl.textContent = defaultCode;
+    // Look up reasoning from favorites for the default code model
+    const defaultFav = favorites.find((f) => f.modelName === defaultCode);
+    if (defaultFav) {
+      defaultOpt.dataset.reasoning = defaultFav.reasoning;
+      defaultOpt.dataset.isFavorite = "true";
+    }
   }
 
   // Favorites
@@ -281,7 +287,10 @@ function _populateModelDropdown(select, modelInfos, favorites, isPrimary) {
       select.reasoning = "DEFAULT";
     }
   } else {
-    select.reasoning = "DEFAULT";
+    // For code select: use the default code model's favorite reasoning if available
+    const defaultCode = "gemini-3-flash-preview";
+    const codeFav = favorites.find((f) => f.modelName === defaultCode);
+    select.reasoning = codeFav ? codeFav.reasoning : "DEFAULT";
   }
 
   select.rebind();

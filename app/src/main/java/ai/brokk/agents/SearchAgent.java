@@ -16,7 +16,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
-import ai.brokk.mcp.McpUtils;
+import ai.brokk.mcpclient.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -26,6 +26,7 @@ import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -132,8 +133,18 @@ public class SearchAgent {
         NORMAL
     }
 
+    private final SearchTools searchTools;
     private final Set<ContextFragment> originalPinnedFragments;
     private final List<ContextFragment> droppedFragments = new ArrayList<>();
+
+    /**
+     * Tracks the fragment IDs present immediately after the most recent successful dropWorkspaceFragments call.
+     * The "worthwhile" heuristic is then based on how many tokens have been added since that point.
+     *
+     * <p>When no drop has ever occurred, this is intentionally empty so the heuristic considers the entire
+     * current Workspace as "added since last drop".</p>
+     */
+    private Set<String> fragmentIdsAtLastDrop = Set.of();
 
     public SearchAgent(
             Context initialContext,
@@ -193,6 +204,7 @@ public class SearchAgent {
         this.scanConfig = scanConfig;
         this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.objective = objective;
+        this.searchTools = new SearchTools(cm);
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -335,7 +347,7 @@ public class SearchAgent {
                             "Context limit exceeded. Restoring last successful checkpoint and entering recovery mode.");
 
                     currentState = checkpointState;
-                    if (!isPruningWorthwhile(currentState.context(), false)) {
+                    if (!isPruningWorthwhile(currentState.context())) {
                         return errorResult(
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.LLM_CONTEXT_SIZE,
@@ -391,7 +403,11 @@ public class SearchAgent {
     }
 
     private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider) {
-        var builder = cm.getToolRegistry().builder().register(wst).register(toolProvider);
+        var builder = cm.getToolRegistry()
+                .builder()
+                .register(searchTools)
+                .register(wst)
+                .register(toolProvider);
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
         }
@@ -548,36 +564,11 @@ public class SearchAgent {
             return context;
         }
 
-        var scanModel = getScanModel();
-        var wst = new WorkspaceTools(context);
-        var toolProvider = new SingleTurnAgent(this, currentState, DropMode.NORMAL, null, 0, MAX_TOTAL_TURNS);
-        var tr = createToolRegistry(wst, toolProvider);
+        var janitor = new JanitorAgent(cm, io, goal, context);
+        var result = janitor.execute();
 
-        var messages = SearchPrompts.instance.buildPruningPrompt(context, goal);
-        var toolNames = new ArrayList<String>();
-        toolNames.add("performedInitialReview");
-        if (hasDroppableFragments(context)) {
-            toolNames.add("dropWorkspaceFragments");
-        }
-        var toolSpecs = tr.getTools(toolNames);
-
-        io.llmOutput(
-                "\n**Brokk** performing initial workspace review…", ChatMessageType.AI, LlmOutputMeta.newMessage());
-        var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal, TaskResult.Type.SEARCH).withEcho();
-        var jLlm = cm.getLlm(janitorOpts);
-        jLlm.setOutput(this.io);
-
-        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
-        if (result.error() != null || result.isEmpty()) {
-            return currentState.context();
-        }
-
-        var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
-        for (var req : ai.toolExecutionRequests()) {
-            toolProvider.executeTool(req);
-        }
-
-        currentState = currentState.withContext(toolProvider.context);
+        currentState = currentState.withContext(result.context());
+        recordDropBaseline(result.context());
         contextPruned = true;
         return currentState.context();
     }
@@ -866,14 +857,12 @@ public class SearchAgent {
                     }
 
                     context = agent.resetPinsToOriginal(context);
+                    context = context.removeSupersededSummaries();
                     var pending = new PendingTerminal(termExec);
 
-                    // take an extra turn to drop fragments after making the terminal decision ONLY IF
-                    // - we didn't already drop this turn, AND
-                    // - there's a bunch of autopinned fragments that could have been stopping a drop this turn
-                    // ... in short, we trust the agent to drop appropriately, but if it maybe wanted to drop
-                    // but couldn't, we give it a final opportunity to do so.
-                    if (agent.isPruningWorthwhile(context, true)
+                    // take an extra turn to drop fragments after making the terminal decision now that
+                    // we are de-emphasizing constantly dropping during the search
+                    if (agent.isPruningWorthwhile(context)
                             && !categoriesSeen.contains(ToolCategory.WORKSPACE_HYGIENE)) {
                         return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                     }
@@ -897,20 +886,21 @@ public class SearchAgent {
         private TurnPrompt preparePrompt() throws InterruptedException {
             wst.setContext(context);
 
-            var related = context.buildRelatedSymbols(10, 20, agent.currentState.presentedRelatedFiles());
-            if (!related.isEmpty()) {
-                Set<ProjectFile> updatedRelated = new HashSet<>(agent.currentState.presentedRelatedFiles());
-                updatedRelated.addAll(related.keySet());
-                agent.currentState = agent.currentState.withPresentedRelatedFiles(updatedRelated);
-            }
-
             DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
 
             // update pins before generating prompt
+            Map<ProjectFile, String> related;
             if (effectiveDropMode == DropMode.DROP_ONLY) {
                 context = agent.resetPinsToOriginal(context);
+                related = Map.of();
                 assert agent.hasDroppableFragments(context);
             } else {
+                related = context.buildRelatedSymbols(10, 20, agent.currentState.presentedRelatedFiles());
+                if (!related.isEmpty()) {
+                    Set<ProjectFile> updatedRelated = new HashSet<>(agent.currentState.presentedRelatedFiles());
+                    updatedRelated.addAll(related.keySet());
+                    agent.currentState = agent.currentState.withPresentedRelatedFiles(updatedRelated);
+                }
                 context = agent.applyPinning(context, lastTurnContext);
             }
 
@@ -972,14 +962,13 @@ public class SearchAgent {
             if (agent.isWorkspaceTool(req, tr)) {
                 agent.updateDroppedHistory(context, wst.getContext());
                 context = wst.getContext();
+
+                if ("dropWorkspaceFragments".equals(req.name())
+                        && result.status() == ToolExecutionResult.Status.SUCCESS) {
+                    agent.recordDropBaseline(context);
+                }
             }
             return result;
-        }
-
-        @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
-        @SuppressWarnings("UnusedMethod")
-        public String performedInitialReview() {
-            return "Initial review complete; workspace is well-curated.";
         }
 
         @Tool(
@@ -1186,15 +1175,25 @@ public class SearchAgent {
     }
 
     /**
-     * Determines if the context contains enough dropable fragments
-     * that stripping them would meaningfully reduce context pressure.
+     * Determines if the context contains enough droppable fragments added since the last successful
+     * dropWorkspaceFragments call that stripping them would meaningfully reduce context pressure.
+     *
+     * <p>The threshold is based on tokens introduced by newly-added fragments since that last drop.</p>
      */
-    private boolean isPruningWorthwhile(Context context, boolean autoPinnedOnly) {
-        return context.allFragments()
-                        .filter(f -> !isPinnedBySystem(f) && (!autoPinnedOnly || context.isPinned(f)))
-                        .mapToLong(f -> Messages.getApproximateTokens(f.text().join()))
-                        .sum()
-                > 20_000;
+    private boolean isPruningWorthwhile(Context context) {
+        // autoPinnedOnly is intentionally ignored under the "tokens added since last drop" heuristic.
+        long addedTokens = context.allFragments()
+                .filter(f -> !fragmentIdsAtLastDrop.contains(f.id()))
+                .filter(f -> !isPinnedBySystem(f))
+                .mapToLong(f -> Messages.getApproximateTokens(f.text().join()))
+                .sum();
+
+        return addedTokens >= 20_000;
+    }
+
+    private void recordDropBaseline(Context contextAfterDrop) {
+        fragmentIdsAtLastDrop =
+                contextAfterDrop.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
     }
 
     private boolean isPinnedBySystem(ContextFragment cf) {
@@ -1316,6 +1315,11 @@ public class SearchAgent {
             return 1.0;
         }
 
+        // Consume accumulated search hits for this turn. A non-zero count means the agent
+        // was actively discovering information even if no fragments changed, which should
+        // prevent the convergence score from jumping to 1.0 and dropping all pins prematurely.
+        int hits = searchTools.getAndClearSearchHits();
+
         var currIds = context.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
         var prevIds = lastTurnContext.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
 
@@ -1333,7 +1337,14 @@ public class SearchAgent {
 
         Set<String> noveltySet = new HashSet<>(currIds);
         noveltySet.removeAll(prevIds);
-        double novelty = (double) noveltySet.size() / union.size();
+        double fragmentNovelty = (double) noveltySet.size() / union.size();
+
+        // Activity novelty: each search hit contributes a small novelty signal even when
+        // no fragments were added. Caps at 0.5 so a flood of searches can't fully override
+        // fragment-based convergence, but a few hits are enough to keep cacheWeight healthy.
+        double activityNovelty = hits > 0 ? Math.min(0.5, hits * 0.1) : 0.0;
+
+        double novelty = Math.min(1.0, fragmentNovelty + activityNovelty);
 
         return stability * (1.0 - novelty);
     }

@@ -138,6 +138,7 @@ public record TaskResult(Context context, StopDetails stopDetails) {
         MERGE,
         BLITZFORGE,
         REVIEW,
+        JANITOR,
         SUMMARIZE, // also "describe"
         CLASSIFY,
         EDIT;

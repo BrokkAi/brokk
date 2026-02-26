@@ -41,6 +41,7 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
   private readonly diffProvider: DiffContentProvider;
   private cachedModels: ModelInfo[] = [];
   private cachedFavorites: FavoriteModelInfo[] = [];
+  private cachedConnectionStatus: { status: string; detail: string } | null = null;
 
   constructor(extensionUri: vscode.Uri, diffProvider: DiffContentProvider) {
     this.extensionUri = extensionUri;
@@ -98,6 +99,12 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  /** Send a connection-status update to the webview (e.g. "noWorkspace", "starting", "failed"). */
+  sendConnectionStatus(status: string, detail?: string) {
+    this.cachedConnectionStatus = { status, detail: detail ?? "" };
+    this.sendToWebview("connectionStatus", this.cachedConnectionStatus);
+  }
+
   resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
@@ -135,32 +142,7 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    // Send cached state
-    if (this.lastContextJson) {
-      webviewView.webview.postMessage({
-        type: "contextUpdate",
-        data: JSON.parse(this.lastContextJson),
-      });
-    }
-    if (this.lastTaskListJson) {
-      webviewView.webview.postMessage({
-        type: "taskListUpdate",
-        data: JSON.parse(this.lastTaskListJson),
-      });
-    }
-    if (this.lastActivityJson) {
-      webviewView.webview.postMessage({
-        type: "activityUpdate",
-        ...JSON.parse(this.lastActivityJson),
-      });
-    }
-    if (this.cachedModels.length > 0) {
-      webviewView.webview.postMessage({
-        type: "modelsUpdate",
-        models: this.cachedModels,
-        favorites: this.cachedFavorites,
-      });
-    }
+    // Cached state is replayed when the webview sends "webviewReady" (see handleMessage).
   }
 
   // ── Context ──────────────────────────────────────────
@@ -278,6 +260,26 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
   // ── Message Handling ─────────────────────────────────
 
   private async handleMessage(msg: { type: string; [key: string]: unknown }) {
+    // Webview signals it's ready — replay all cached state
+    if (msg.type === "webviewReady") {
+      if (this.lastContextJson) {
+        this.sendToWebview("contextUpdate", { data: JSON.parse(this.lastContextJson) });
+      }
+      if (this.lastTaskListJson) {
+        this.sendToWebview("taskListUpdate", { data: JSON.parse(this.lastTaskListJson) });
+      }
+      if (this.lastActivityJson) {
+        this.sendToWebview("activityUpdate", JSON.parse(this.lastActivityJson));
+      }
+      if (this.cachedModels.length > 0) {
+        this.sendToWebview("modelsUpdate", { models: this.cachedModels, favorites: this.cachedFavorites });
+      }
+      if (this.cachedConnectionStatus) {
+        this.sendToWebview("connectionStatus", this.cachedConnectionStatus);
+      }
+      return;
+    }
+
     // Chat messages don't require client
     if (msg.type === "submit" || msg.type === "cancel") {
       await this.handleChatMessage(msg);
@@ -525,7 +527,13 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
           if (reasoningLevel) {
             opts.reasoningLevel = reasoningLevel;
           }
-          if (reasoningLevelCode) {
+          if (mode === "CODE") {
+            // In CODE mode the planner select IS the code model —
+            // propagate planner reasoning so the backend uses it
+            if (reasoningLevel) {
+              opts.reasoningLevelCode = reasoningLevel;
+            }
+          } else if (reasoningLevelCode) {
             opts.reasoningLevelCode = reasoningLevelCode;
           }
 

@@ -524,7 +524,24 @@ async def test_chat_panel_history_and_filtering():
         chat.refresh_log(show_verbose=True)
         await pilot.pause()
 
-        content = "".join(str(line) for line in log.lines)
+        def get_plain_text(line):
+            if isinstance(line, Text):
+                return line.plain
+            if hasattr(line, "plain"):
+                return line.plain
+            # For Strip and other objects, try to extract plain text
+            text_str = str(line)
+            # If it looks like a repr of Strip/Segment, try to extract content
+            if "Segment(" in text_str:
+                import re
+
+                # Match Segment('content', ...) or Segment('content')
+                matches = re.findall(r"Segment\('([^'\\]*(?:\\.[^'\\]*)*)'", text_str)
+                if matches:
+                    return "".join(matches)
+            return text_str
+
+        content = "".join(get_plain_text(line) for line in log.lines)
         assert "Hello User" in content
         assert "Thinking [-] (ctrl+o to collapse)" in content  # Reasoning panel title
         assert "Thinking hard" in content
@@ -537,18 +554,18 @@ async def test_chat_panel_history_and_filtering():
         chat.refresh_log(show_verbose=False)
         await pilot.pause()
 
-        content_filtered = "".join(str(line) for line in log.lines)
+        content_filtered = "".join(get_plain_text(line) for line in log.lines)
         assert "Hello User" in content_filtered
         assert "Hello from AI" in content_filtered
         assert "System info" in content_filtered
 
-        # REASONING should show header with collapse hint, but content hidden
+        # REASONING should show a compact collapsed summary, not a full panel body.
         assert "Thinking [+] (ctrl+o to expand)" in content_filtered
-        assert "Thinking hard" not in content_filtered
+        assert "Thinking hard" in content_filtered
 
-        # TOOL_RESULT should render collapsed header, but content hidden
+        # TOOL_RESULT should show compact single-line summary in collapsed mode.
         assert "Command Output [+] (ctrl+o to expand)" in content_filtered
-        assert "Command success" not in content_filtered
+        assert "Command success" in content_filtered
 
 
 @pytest.mark.asyncio
@@ -640,8 +657,7 @@ async def test_ai_tool_call_filtering():
 
         # But _filter_tool_call_blocks should collapse it
         filtered = chat._filter_tool_call_blocks(tool_markdown)
-        assert "path: foo.py" not in filtered
-        assert "Tool Call: read_file [+] (ctrl+o to expand)" in filtered
+        assert "read_file [+] (ctrl+o to expand) - path: foo.py" in filtered
         assert "I will check the file." in filtered
         assert "Done." in filtered
 
@@ -686,10 +702,8 @@ async def test_filter_tool_call_blocks_collapses_four_backtick_yaml():
 
         filtered = panel._filter_tool_call_blocks(content)
 
-        # YAML content should be hidden
-        assert "foo: bar" not in filtered
-        # Summary marker should be present
-        assert "Tool Call: Adding files to workspace [+] (ctrl+o to expand)" in filtered
+        # Summary marker should be present with first line of YAML as hint
+        assert "Adding files to workspace [+] (ctrl+o to expand) - foo: bar" in filtered
         # Surrounding content preserved
         assert "After." in filtered
 
@@ -713,10 +727,8 @@ async def test_filter_tool_call_blocks_triple_backtick_compatibility():
 
         filtered = panel._filter_tool_call_blocks(content)
 
-        # YAML content should be hidden
-        assert "path: foo.py" not in filtered
-        # Summary marker should be present
-        assert "Tool Call: read_file [+] (ctrl+o to expand)" in filtered
+        # Summary marker should be present with first line of YAML as hint
+        assert "read_file [+] (ctrl+o to expand) - path: foo.py" in filtered
         # Surrounding content preserved
         assert "Done." in filtered
 
@@ -756,20 +768,44 @@ async def test_tool_call_visibility_toggle_integration():
         chat.add_markdown(tool_markdown)
         await pilot.pause()
 
+        def get_plain_text(line):
+            if isinstance(line, Text):
+                return line.plain
+            if hasattr(line, "plain"):
+                return line.plain
+            # For Strip and other objects, try to extract plain text
+            text_str = str(line)
+            # If it looks like a repr of Strip/Segment, try to extract content
+            if "Segment(" in text_str:
+                import re
+
+                # Match Segment('content', ...) or Segment('content')
+                matches = re.findall(r"Segment\('([^'\\]*(?:\\.[^'\\]*)*)'", text_str)
+                if matches:
+                    return "".join(matches)
+            return text_str
+
+        rendered_off = "".join(
+            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+        )
+        # Collapsed tool call should show summary line with first YAML line as hint
+        assert "list_files [+] (ctrl+o to expand) - directory: src" in rendered_off
+
         # Verify the raw content is in history
         assert any(m["content"] == tool_markdown for m in chat._message_history)
 
         # Verify filtering works correctly based on show_verbose state
         chat.show_verbose = False
         filtered_off = chat._filter_tool_call_blocks(tool_markdown)
-        assert "directory: src" not in filtered_off
-        assert "Tool Call: list_files [+] (ctrl+o to expand)" in filtered_off
+        assert "list_files [+] (ctrl+o to expand) - directory: src" in filtered_off
 
         # Toggle output ON
         app.action_toggle_output()
         await pilot.pause()
         assert app.show_verbose_output is True
-        rendered_on = "".join(str(line) for line in chat.query_one("#chat-log", RichLog).lines)
+        rendered_on = "".join(
+            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+        )
         assert "Tool Call: list_files [-] (ctrl+o to collapse)" in rendered_on
 
         # With verbose ON, filtering should be a no-op
@@ -783,8 +819,44 @@ async def test_tool_call_visibility_toggle_integration():
         await pilot.pause()
         assert app.show_verbose_output is False
 
+        rendered_off_again = "".join(
+            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+        )
+        assert "list_files [+] (ctrl+o to expand) - directory: src" in rendered_off_again
+
         # Verify filtering works again when off
         chat.show_verbose = False
         filtered_off_again = chat._filter_tool_call_blocks(tool_markdown)
-        assert "Tool Call: list_files [+] (ctrl+o to expand)" in filtered_off_again
-        assert "directory: src" not in filtered_off_again
+        assert "list_files [+] (ctrl+o to expand) - directory: src" in filtered_off_again
+
+
+@pytest.mark.asyncio
+async def test_collapsed_summary_text_bold_label():
+    """Verify that _collapsed_summary_text renders the label portion in bold."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+
+        # Test with content
+        result = panel._collapsed_summary_text("Thinking", "Some content here")
+        assert result.plain == "Thinking [+] (ctrl+o to expand) - Some content here"
+
+        # Verify spans: first span should be bold covering the label
+        assert len(result.spans) >= 1
+        assert result.spans[0].start == 0
+        assert result.spans[0].end == len("Thinking")
+        assert "bold" in str(result.spans[0].style).lower()
+
+        # Test without content (empty string)
+        result2 = panel._collapsed_summary_text("Command Output", "")
+        assert result2.plain == "Command Output [+] (ctrl+o to expand)"
+        assert len(result2.spans) >= 1
+        assert result2.spans[0].start == 0
+        assert result2.spans[0].end == len("Command Output")
+        assert "bold" in str(result2.spans[0].style).lower()

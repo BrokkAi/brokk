@@ -157,6 +157,8 @@ public class UndoRedoRestoreTest {
                         new ContextFragments.ImageFileFragment(pfImg, cm),
                         new ContextFragments.ExternalPathFragment(extFile, cm))));
 
+        history.liveContext().awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+
         // Mutate again to a different on-disk state (v3)
         pfText.write("v3");
         writeImage(pfImg, Color.BLUE); // v3 image
