@@ -19,6 +19,11 @@ final class UnanalyzedPromptCapping {
         // Do not use content.split("\\R", -1) here: for large files (e.g. logs) it allocates a String[]
         // for every line, which is expensive in both time and memory. Instead, scan once and keep only
         // offsets for the top/bottom lines we will include in the prompt.
+        //
+        // Limitation (accepted for now): this scanner intentionally recognizes only LF ('\n'), CR ('\r'),
+        // and CRLF ("\r\n") as line breaks. It does NOT implement full Java "\\R" semantics (e.g. Unicode
+        // line separators). totalLines/omitted is only a hint for the LLM, so we accept this tradeoff to
+        // keep memory usage bounded on huge files.
         int[] headStarts = new int[topShown];
         int[] headEnds = new int[topShown];
         int headCount = 0;
