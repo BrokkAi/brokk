@@ -828,7 +828,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                 var agent = new BuildAgent(
                         proj,
                         cm.getLlm(cm.getService().getScanModel(), "Infer build details", TaskResult.Type.NONE),
-                        cm.getToolRegistry());
+                        cm.getToolRegistry(),
+                        cm.getIo());
                 var newBuildDetails = agent.execute();
 
                 // Check if task was cancelled during execution

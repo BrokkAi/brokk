@@ -372,7 +372,7 @@ class BuildAgentTest {
         testProject.setExclusionPatterns(Set.of("*.svg", "*.png", "build"));
 
         // Create a BuildAgent - we don't need LLM for this test
-        var agent = new BuildAgent(testProject, null, null);
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
 
         // Call reportBuildDetails with new patterns from "LLM"
         // This simulates what happens when BuildAgent runs again
@@ -424,7 +424,7 @@ class BuildAgentTest {
         }
 
         var project = MainProject.forTests(tempDir);
-        var agent = new BuildAgent(project, null, null);
+        var agent = new BuildAgent(project, null, null, new TestConsoleIO());
 
         var patterns = Set.of(
                 "node_modules", // Gitignored - should be removed
@@ -462,7 +462,7 @@ class BuildAgentTest {
         }
 
         var project = MainProject.forTests(tempDir);
-        var agent = new BuildAgent(project, null, null);
+        var agent = new BuildAgent(project, null, null, new TestConsoleIO());
 
         agent.reportBuildDetails(
                 "npm run build",
@@ -1109,7 +1109,7 @@ class BuildAgentTest {
             // Lint command succeeds
             Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> "ok";
 
-            var agent = new BuildAgent(project, null, null);
+            var agent = new BuildAgent(project, null, null, new TestConsoleIO());
             var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
 
             String result = agent.validateBuildDetails(details);
@@ -1131,7 +1131,7 @@ class BuildAgentTest {
                 throw new Environment.FailureException("build failed", "compile error", 1);
             };
 
-            var agent = new BuildAgent(project, null, null);
+            var agent = new BuildAgent(project, null, null, new TestConsoleIO());
             var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
 
             String result = agent.validateBuildDetails(details);
@@ -1147,7 +1147,7 @@ class BuildAgentTest {
         Files.writeString(tempDir.resolve("README.md"), "x");
         var project = new TestProject(tempDir);
 
-        var agent = new BuildAgent(project, null, null);
+        var agent = new BuildAgent(project, null, null, new TestConsoleIO());
         // Both commands are blank - should skip validation entirely and return null
         var details = new BuildAgent.BuildDetails("", "", "", Set.of(), Map.of());
 

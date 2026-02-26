@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
@@ -92,6 +93,7 @@ public class BuildAgent {
 
     private final Llm llm;
     private final ToolRegistry globalRegistry;
+    private final IConsoleIO io;
 
     // Use standard ChatMessage history
     private final List<ChatMessage> chatHistory = new ArrayList<>();
@@ -105,10 +107,11 @@ public class BuildAgent {
     // Patterns that came directly from the LLM (not gitignore baseline)
     private Set<String> llmAddedPatterns = Set.of();
 
-    public BuildAgent(IProject project, Llm llm, ToolRegistry globalRegistry) {
+    public BuildAgent(IProject project, Llm llm, ToolRegistry globalRegistry, IConsoleIO io) {
         this.project = project;
         this.llm = llm;
         this.globalRegistry = globalRegistry;
+        this.io = io;
     }
 
     /**
@@ -156,7 +159,11 @@ public class BuildAgent {
                 .name("listTrackedFiles")
                 .arguments("{\"directoryPath\": \".\"}") // Request root dir
                 .build();
+
+        io.beforeToolCall(initialRequest);
         ToolExecutionResult initialResult = tr.executeTool(initialRequest);
+        io.afterToolOutput(initialResult);
+
         chatHistory.add(new UserMessage(
                 """
         Here are the contents of the project root directory:
@@ -295,7 +302,10 @@ public class BuildAgent {
 
             // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
-                tr.executeTool(reportRequest);
+                io.beforeToolCall(reportRequest);
+                ToolExecutionResult termResult = tr.executeTool(reportRequest);
+                io.afterToolOutput(termResult);
+
                 var details = requireNonNull(
                         reportedDetails,
                         "reportedDetails should be non-null after successful reportBuildDetails tool execution");
@@ -325,7 +335,10 @@ public class BuildAgent {
                 }
                 return details;
             } else if (abortRequest != null) {
-                tr.executeTool(abortRequest);
+                io.beforeToolCall(abortRequest);
+                ToolExecutionResult termResult = tr.executeTool(abortRequest);
+                io.afterToolOutput(termResult);
+
                 assert abortReason != null;
                 return BuildDetails.EMPTY;
             }
@@ -336,7 +349,10 @@ public class BuildAgent {
                 String toolName = request.name();
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
 
+                io.beforeToolCall(request);
                 ToolExecutionResult execResult = tr.executeTool(request);
+                io.afterToolOutput(execResult);
+
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
                 // Log tool result for debugging
