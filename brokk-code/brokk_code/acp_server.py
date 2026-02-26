@@ -371,6 +371,10 @@ def map_executor_event_to_session_update(
     event: dict[str, Any],
     update_agent_message_text: Callable[[str], Any],
     update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+    start_tool_call: Optional[Callable[..., Any]] = None,
+    update_tool_call: Optional[Callable[..., Any]] = None,
+    tool_content: Optional[Callable[[Any], Any]] = None,
+    text_block: Optional[Callable[[str], Any]] = None,
 ) -> Optional[Any]:
     event_type = event.get("type")
     data = event.get("data", {})
@@ -414,11 +418,53 @@ def map_executor_event_to_session_update(
     if event_type == "TOOL_CALL":
         name = data.get("name", "tool")
         args = data.get("arguments", "")
+        tool_call_id = (
+            data.get("toolCallId")
+            or data.get("tool_call_id")
+            or data.get("id")
+            or data.get("callId")
+        )
+
+        if start_tool_call and tool_call_id:
+            content = None
+            if args and text_block and tool_content:
+                content = [tool_content(text_block(str(args)))]
+            return start_tool_call(
+                tool_call_id=str(tool_call_id),
+                title=name,
+                status="in_progress",
+                content=content,
+            )
+
         return update_agent_message_text(f"\n[CALLING TOOL] {name}({args})\n")
 
     if event_type == "TOOL_OUTPUT":
-        status = data.get("status", "SUCCESS")
-        return update_agent_message_text(f"[TOOL {status}]\n")
+        status_raw = str(data.get("status", "SUCCESS")).upper()
+        # Map executor status to ACP ToolCallStatus: "pending", "in_progress", "completed", "failed"
+        acp_status = "completed" if status_raw == "SUCCESS" else "failed"
+
+        tool_call_id = (
+            data.get("toolCallId")
+            or data.get("tool_call_id")
+            or data.get("id")
+            or data.get("callId")
+        )
+
+        if update_tool_call and tool_call_id:
+            content = None
+            output_payload = (
+                data.get("output") or data.get("result") or data.get("message")
+            )
+            if output_payload and text_block and tool_content:
+                content = [tool_content(text_block(str(output_payload)))]
+
+            return update_tool_call(
+                tool_call_id=str(tool_call_id),
+                status=acp_status,
+                content=content,
+            )
+
+        return update_agent_message_text(f"[TOOL {status_raw}]\n")
 
     return None
 
@@ -623,8 +669,12 @@ class BrokkAcpBridge:
         reasoning_level_code: Optional[str],
         send_update: Callable[[str, Any], Awaitable[Any]],
         update_agent_message_text: Callable[[str], Any],
-        update_agent_thought_text: Optional[Callable[[str], Any]],
-        build_context_snapshot_update: Callable[[str, str, str], Any],
+        update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+        build_context_snapshot_update: Optional[Callable[[str, str, str], Any]] = None,
+        start_tool_call: Optional[Callable[..., Any]] = None,
+        update_tool_call: Optional[Callable[..., Any]] = None,
+        tool_content: Optional[Callable[[Any], Any]] = None,
+        text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
         use_short_description_context: bool = False,
         **kwargs: Any,
@@ -673,6 +723,10 @@ class BrokkAcpBridge:
                     event,
                     update_agent_message_text,
                     update_agent_thought_text,
+                    start_tool_call=start_tool_call,
+                    update_tool_call=update_tool_call,
+                    tool_content=tool_content,
+                    text_block=text_block,
                 )
                 if update:
                     await send_update(session_id, update)
@@ -814,9 +868,13 @@ async def run_acp_server(
             embedded_text_resource,
             resource_block,
             run_agent,
+            start_tool_call,
+            text_block,
+            tool_content,
             update_agent_message,
             update_agent_message_text,
             update_agent_thought_text,
+            update_tool_call,
         )
         from acp.agent import connection as acp_agent_connection
         from acp.agent import router as acp_agent_router
@@ -1386,6 +1444,10 @@ async def run_acp_server(
                         )
                     )
                 ),
+                start_tool_call=start_tool_call,
+                update_tool_call=update_tool_call,
+                tool_content=tool_content,
+                text_block=text_block,
                 use_short_description_context=(ide_profile == "intellij"),
             )
             return PromptResponse(stop_reason="end_turn")
