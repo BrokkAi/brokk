@@ -186,4 +186,88 @@ public class ContextAgentTest {
         assertTrue(rendered.contains("LINE_000"));
         assertTrue(rendered.contains("LINE_049"));
     }
+
+    @Test
+    void unanalyzedPrompt_handlesCrLfLineBreaksAndDoesNotLeakCarriageReturns() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+
+        ProjectFile crlf = new ProjectFile(root, "src/un/analyzed/CrLf.txt");
+        crlf.create();
+
+        String content = java.util.stream.IntStream.range(0, 56)
+                .mapToObj(i -> "LINE_%03d".formatted(i))
+                .collect(java.util.stream.Collectors.joining("\r\n"));
+        crlf.write(content);
+
+        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        String rendered = ContextAgent.renderFileForPrompt(crlf, capped);
+
+        assertTrue(
+                rendered.startsWith(
+                        "<file path='src/un/analyzed/CrLf.txt' truncated=\"true\" total_lines=\"56\" top_shown=\"25\" bottom_shown=\"25\">"),
+                rendered);
+
+        assertTrue(rendered.contains("----- BRK_OMITTED 6 LINES -----"), rendered);
+
+        assertTrue(rendered.contains("LINE_000"));
+        assertTrue(rendered.contains("LINE_024"));
+        assertTrue(rendered.contains("LINE_031"));
+        assertTrue(rendered.contains("LINE_055"));
+
+        assertFalse(rendered.contains("LINE_030"));
+        assertFalse(rendered.contains("\r"), rendered);
+    }
+
+    @Test
+    void unanalyzedPrompt_handlesCrOnlyLineBreaks() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+
+        ProjectFile cr = new ProjectFile(root, "src/un/analyzed/CrOnly.txt");
+        cr.create();
+
+        String content = java.util.stream.IntStream.range(0, 56)
+                .mapToObj(i -> "LINE_%03d".formatted(i))
+                .collect(java.util.stream.Collectors.joining("\r"));
+        cr.write(content);
+
+        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        String rendered = ContextAgent.renderFileForPrompt(cr, capped);
+
+        assertTrue(
+                rendered.startsWith(
+                        "<file path='src/un/analyzed/CrOnly.txt' truncated=\"true\" total_lines=\"56\" top_shown=\"25\" bottom_shown=\"25\">"),
+                rendered);
+
+        assertTrue(rendered.contains("----- BRK_OMITTED 6 LINES -----"), rendered);
+
+        assertTrue(rendered.contains("LINE_000"));
+        assertTrue(rendered.contains("LINE_024"));
+        assertTrue(rendered.contains("LINE_031"));
+        assertTrue(rendered.contains("LINE_055"));
+
+        assertFalse(rendered.contains("LINE_030"));
+        assertFalse(rendered.contains("\r"), rendered);
+    }
+
+    @Test
+    void unanalyzedPrompt_trailingNewlineCountsAsExtraLineAndMayTriggerTruncation() {
+        String content = java.util.stream.IntStream.range(0, 50)
+                        .mapToObj(i -> "LINE_%03d".formatted(i))
+                        .collect(java.util.stream.Collectors.joining("\n"))
+                + "\n";
+
+        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        assertTrue(capped.truncated());
+        assertEquals(51, capped.totalLines());
+        assertTrue(capped.promptText().contains("----- BRK_OMITTED 1 LINES -----"), capped.promptText());
+        assertTrue(capped.promptText().contains("LINE_000"));
+        assertTrue(capped.promptText().contains("LINE_049"));
+    }
+
+    @Test
+    void unanalyzedPrompt_emptyContentIsNotTruncated() {
+        var capped = ContextAgent.capUnanalyzedTextForPrompt("");
+        assertFalse(capped.truncated());
+        assertEquals("", capped.promptText());
+    }
 }

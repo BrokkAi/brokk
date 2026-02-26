@@ -83,8 +83,7 @@ public class ContextAgent {
         UNANALYZED
     }
 
-    private record PromptFileContent(
-            String promptText, boolean truncated, int totalLines, int topShown, int bottomShown) {
+    record PromptFileContent(String promptText, boolean truncated, int totalLines, int topShown, int bottomShown) {
         static PromptFileContent full(String promptText) {
             return new PromptFileContent(promptText, false, 0, 0, 0);
         }
@@ -1041,33 +1040,8 @@ public class ContextAgent {
     }
 
     static PromptFileContent capUnanalyzedTextForPrompt(String content) {
-        int totalLines = countLines(content);
-        if (totalLines <= UNANALYZED_MAX_LINES) {
-            return PromptFileContent.full(content);
-        }
-
-        var lines = content.split("\\R", -1);
-        int top = min(UNANALYZED_TOP_SHOWN, lines.length);
-        int bottom = min(UNANALYZED_BOTTOM_SHOWN, max(0, lines.length - top));
-        int omitted = max(0, lines.length - top - bottom);
-
-        String head = Arrays.stream(lines).limit(top).collect(Collectors.joining("\n"));
-        String tail = Arrays.stream(lines).skip(lines.length - bottom).collect(Collectors.joining("\n"));
-
-        String delimiter = "----- BRK_OMITTED " + omitted + " LINES -----";
-
-        String promptText =
-                Stream.of(head, delimiter, tail).filter(s -> !s.isEmpty()).collect(Collectors.joining("\n\n"));
-
-        return PromptFileContent.truncated(promptText, totalLines, UNANALYZED_TOP_SHOWN, UNANALYZED_BOTTOM_SHOWN);
-    }
-
-    static int countLines(String content) {
-        if (content.isEmpty()) {
-            return 0;
-        }
-        // Count lines in a way that matches split("\\R", -1) behavior (including trailing empty line).
-        return content.split("\\R", -1).length;
+        return UnanalyzedPromptCapping.cap(
+                content, UNANALYZED_MAX_LINES, UNANALYZED_TOP_SHOWN, UNANALYZED_BOTTOM_SHOWN);
     }
 
     static String renderFileForPrompt(ProjectFile file, PromptFileContent content) {
