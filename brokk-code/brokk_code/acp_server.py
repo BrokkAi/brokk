@@ -376,6 +376,7 @@ def map_executor_event_to_session_update(
     update_tool_call: Optional[Callable[..., Any]] = None,
     tool_content: Optional[Callable[[Any], Any]] = None,
     text_block: Optional[Callable[[str], Any]] = None,
+    tool_call_titles_only: bool = False,
 ) -> Optional[Any]:
     event_type = event.get("type")
     data = event.get("data", {})
@@ -426,6 +427,14 @@ def map_executor_event_to_session_update(
             or data.get("callId")
         )
 
+        if tool_call_titles_only:
+            raw_title = str(name or "tool")
+            safe_title = " ".join(raw_title.split())
+            if not safe_title:
+                safe_title = "tool"
+            safe_title = safe_title[:120]
+            return update_agent_message_text(f"\n[TOOL] {safe_title}\n")
+
         if start_tool_call and tool_call_id:
             content = None
             if args and text_block and tool_content:
@@ -440,6 +449,9 @@ def map_executor_event_to_session_update(
         return update_agent_message_text(f"\n[CALLING TOOL] {name}({args})\n")
 
     if event_type == "TOOL_OUTPUT":
+        if tool_call_titles_only:
+            return None
+
         status_raw = str(data.get("status", "SUCCESS")).upper()
         # Map executor status to ACP ToolCallStatus: "pending", "in_progress", "completed", "failed"
         acp_status = "completed" if status_raw == "SUCCESS" else "failed"
@@ -676,6 +688,8 @@ class BrokkAcpBridge:
         text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
         use_short_description_context: bool = False,
+        emit_token_bar: bool = True,
+        tool_call_titles_only: bool = False,
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
@@ -726,6 +740,7 @@ class BrokkAcpBridge:
                     update_tool_call=update_tool_call,
                     tool_content=tool_content,
                     text_block=text_block,
+                    tool_call_titles_only=tool_call_titles_only,
                 )
                 if update:
                     await send_update(session_id, update)
@@ -764,9 +779,10 @@ class BrokkAcpBridge:
                         ),
                     )
 
-                    # Emit SVG bar if token info is present.
+                    # Some ACP clients (e.g. IntelliJ) render data URI markdown images
+                    # as literal text, so only emit the token bar where supported.
                     used_tokens_raw = context_data.get("usedTokens")
-                    if used_tokens_raw is not None:
+                    if emit_token_bar and used_tokens_raw is not None:
                         used_tokens_local = int(used_tokens_raw or 0)
                         fragments = context_data.get("fragments", [])
                         bar_md = get_token_bar_markdown(
@@ -1448,6 +1464,8 @@ async def run_acp_server(
                 tool_content=tool_content,
                 text_block=text_block,
                 use_short_description_context=(ide_profile == "intellij"),
+                emit_token_bar=(ide_profile != "intellij"),
+                tool_call_titles_only=(ide_profile == "intellij"),
             )
             return PromptResponse(stop_reason="end_turn")
 

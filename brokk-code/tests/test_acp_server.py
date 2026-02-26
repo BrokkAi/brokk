@@ -402,6 +402,42 @@ def test_map_executor_tool_output_fallback() -> None:
     assert "[TOOL ERROR]" in update["text"]
 
 
+def test_map_executor_tool_calls_title_only_mode() -> None:
+    start_event = {
+        "type": "TOOL_CALL",
+        "data": {"name": "read_file", "arguments": '{"path":"foo.py"}', "id": "call-1"},
+    }
+    start_update = map_executor_event_to_session_update(
+        start_event,
+        _text_block,
+        _thought_block,
+        _start_tool_call,
+        _update_tool_call,
+        _tool_content,
+        _text_block_helper,
+        tool_call_titles_only=True,
+    )
+    assert start_update == {"sessionUpdate": "agent_message_chunk", "text": "\n[TOOL] read_file\n"}
+
+    output_event = {"type": "TOOL_OUTPUT", "data": {"status": "SUCCESS", "id": "call-1"}}
+    assert (
+        map_executor_event_to_session_update(output_event, _text_block, tool_call_titles_only=True)
+        is None
+    )
+
+
+def test_map_executor_tool_call_title_only_sanitizes_title() -> None:
+    event = {
+        "type": "TOOL_CALL",
+        "data": {"name": " read_file  \n  {json-ish}", "id": "call-1"},
+    }
+    update = map_executor_event_to_session_update(event, _text_block, tool_call_titles_only=True)
+    assert update == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n[TOOL] read_file {json-ish}\n",
+    }
+
+
 def test_extract_session_id_for_cancel() -> None:
     assert _extract_session_id_for_cancel((), {"session_id": "abc"}) == "abc"
     assert _extract_session_id_for_cancel(({"sessionId": "def"},), {}) == "def"
