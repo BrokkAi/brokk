@@ -440,7 +440,7 @@ public class BuildAgent {
                 - Only suggest patterns for files that ACTUALLY EXIST in this project
                 - For file extensions, use simple `*.ext` format (e.g., `*.svg`, `*.png`) - do NOT use `**/*.ext`
                 - For specific filenames, use the literal name (e.g., `package-lock.json`) - do NOT use `**/filename`
-                - Do NOT duplicate directories here - if a directory in `excludedDirectories`, don't add it as a pattern
+                - Do NOT duplicate directories here - if a directory is in `excludedDirectories`, don't add it as a pattern
 
                 Common file pattern exclusions (only include if files with these extensions exist in this project):
                 - Lock files: package-lock.json, yarn.lock, pnpm-lock.yaml
