@@ -16,6 +16,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
@@ -79,8 +82,57 @@ public class InlineTestProjectCreator {
         }
     }
 
+    private static class ZipContentStrategy implements ProjectContentStrategy {
+        private final Path zipPath;
+
+        public ZipContentStrategy(Path zipPath) {
+            this.zipPath = zipPath;
+        }
+
+        @Override
+        public void populate(Path root) throws IOException {
+            try (var fis = Files.newInputStream(zipPath);
+                    var zis = new ZipInputStream(fis)) {
+                ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    Path target = root.resolve(entry.getName()).normalize();
+                    if (!target.startsWith(root)) {
+                        throw new IOException("Zip entry outside of root: " + entry.getName());
+                    }
+                    if (entry.isDirectory()) {
+                        Files.createDirectories(target);
+                    } else {
+                        if (target.getParent() != null) {
+                            Files.createDirectories(target.getParent());
+                        }
+                        Files.copy(zis, target);
+                    }
+                    zis.closeEntry();
+                }
+            }
+        }
+
+        @Override
+        public Set<Language> detectLanguages() {
+            return Set.of(); // Handled by post-population scan in builder
+        }
+
+        @Override
+        public List<String> getFilesForInitialCommit() {
+            return List.of("."); // Add everything
+        }
+    }
+
     public static TestProjectBuilder code(String contents, String filename) {
+        return fromInline(contents, filename);
+    }
+
+    public static TestProjectBuilder fromInline(String contents, String filename) {
         return new TestProjectBuilder(new InlineContentStrategy()).addFileContents(contents, filename);
+    }
+
+    public static TestProjectBuilder fromZip(Path zipPath) {
+        return new TestProjectBuilder(new ZipContentStrategy(zipPath));
     }
 
     public static class TestProjectBuilder {
@@ -108,6 +160,10 @@ public class InlineTestProjectCreator {
             strategy.populate(newTemporaryDirectory);
 
             Set<Language> detected = strategy.detectLanguages();
+            if (detected.isEmpty()) {
+                detected = scanLanguages(newTemporaryDirectory);
+            }
+
             Language selectedLang = null;
             if (detected.size() == 1) {
                 selectedLang = detected.iterator().next();
@@ -156,6 +212,25 @@ public class InlineTestProjectCreator {
             return selectedLang != null
                     ? new EphemeralTestProject(newTemporaryDirectory, selectedLang)
                     : new EphemeralTestProject(newTemporaryDirectory);
+        }
+
+        private Set<Language> scanLanguages(Path root) throws IOException {
+            Set<Language> detected = new LinkedHashSet<>();
+            try (Stream<Path> stream = Files.walk(root)) {
+                stream.filter(Files::isRegularFile).forEach(path -> {
+                    String filename = path.getFileName().toString();
+                    int dot = filename.lastIndexOf('.');
+                    if (dot > 0 && dot < filename.length() - 1) {
+                        String ext = filename.substring(dot + 1);
+                        for (Language lang : Languages.ALL_LANGUAGES) {
+                            if (lang.getExtensions().contains(ext)) {
+                                detected.add(lang);
+                            }
+                        }
+                    }
+                });
+            }
+            return detected;
         }
     }
 
