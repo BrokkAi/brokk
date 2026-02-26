@@ -908,7 +908,16 @@ def main():
         resume_session=resume_session,
         vendor=args.vendor,
     )
-    app.run()
+    try:
+        app.run()
+    finally:
+        # Best-effort cleanup for abnormal TUI exits (e.g., KeyboardInterrupt / runtime errors)
+        # so the Java executor and Windows asyncio pipe transports do not linger.
+        try:
+            if app.executor.check_alive():
+                asyncio.run(app.executor.stop())
+        except Exception:
+            pass
 
     # Print resume hint on exit if the session has tasks
     from brokk_code.session_persistence import (

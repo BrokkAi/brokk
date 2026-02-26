@@ -449,6 +449,7 @@ class ConflictAnnotatorTest {
         // configure identity for commits
         runGit(root, "config user.name TestUser");
         runGit(root, "config user.email test@example.com");
+        runGit(root, "config commit.gpgsign false");
     }
 
     private static void createCommit(Path root, String fileName, String content, String message) throws Exception {

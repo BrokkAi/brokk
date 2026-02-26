@@ -1897,6 +1897,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
+            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
 
             Files.writeString(remoteRoot.resolve("A.java"), "public class A {}");
             Files.writeString(remoteRoot.resolve("B.cpp"), "int main() {}");
@@ -1971,6 +1975,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     .start()
                     .waitFor();
             new ProcessBuilder("git", "config", "user.name", "test")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
