@@ -452,9 +452,7 @@ def map_executor_event_to_session_update(
 
         if update_tool_call and tool_call_id:
             content = None
-            output_payload = (
-                data.get("output") or data.get("result") or data.get("message")
-            )
+            output_payload = data.get("output") or data.get("result") or data.get("message")
             if output_payload and text_block and tool_content:
                 content = [tool_content(text_block(str(output_payload)))]
 
