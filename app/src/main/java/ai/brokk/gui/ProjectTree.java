@@ -895,7 +895,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         // Filter out .brokk internal directory events early
         var nonBrokkFiles = batch.getFiles().stream()
                 .filter(f -> {
-                    String first = f.getRelPath().getName(0).toString();
+                    Path rel = f.getRelPath();
+                    if (rel.getNameCount() == 0) return true;
+                    String first = rel.getName(0).toString();
                     return !".brokk".equals(first);
                 })
                 .toList();
@@ -923,11 +925,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             logger.trace("{} of {} files visible, refreshing tree", visibleFiles.size(), nonBrokkFiles.size());
 
             var affectedDirs = visibleFiles.stream()
-                    .map(f -> f.getRelPath().getParent())
-                    .filter(Objects::nonNull)
+                    .map(f -> {
+                        Path parent = f.getRelPath().getParent();
+                        return parent != null ? parent : Path.of("");
+                    })
                     .collect(Collectors.toSet());
 
-            scheduleRefresh(affectedDirs.isEmpty() ? null : affectedDirs);
+            scheduleRefresh(affectedDirs);
             return;
         }
 
