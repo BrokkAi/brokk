@@ -8,14 +8,18 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.testutil.FileUtil;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -61,6 +65,28 @@ public class SearchToolsTest {
     static void teardownAnalyzer() {
         if (javaTestProject != null) {
             javaTestProject.close();
+        }
+    }
+
+    private static Path createDisposableTestProjectCopy() throws IOException {
+        Path sourceDir =
+                Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
+        Path copyDir = Files.createTempDirectory("brokk-searchtools-testcode-java-");
+        FileUtil.copyDirectory(sourceDir, copyDir);
+        return copyDir;
+    }
+
+    private static void deleteRecursively(Path path) {
+        try (Stream<Path> walk = Files.walk(path)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        } catch (IOException | UncheckedIOException e) {
+            throw new RuntimeException("Failed to delete temp directory: " + path, e);
         }
     }
 
@@ -243,43 +269,50 @@ public class SearchToolsTest {
 
     @Test
     void testSkimDirectory_dependenciesNotGitignored() throws IOException {
-        // Create a context manager that provides the Java analyzer and the test project
-        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
-                    return switch (method.getName()) {
-                        case "getAnalyzer" -> javaAnalyzer;
-                        case "getAnalyzerUninterrupted" -> javaAnalyzer;
-                        case "getProject" -> javaTestProject;
-                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
-                    };
-                });
+        Path projectRootCopy = createDisposableTestProjectCopy();
+        try (TestProject localProject = new TestProject(projectRootCopy, Languages.JAVA)) {
+            JavaAnalyzer localAnalyzer = new JavaAnalyzer(localProject);
 
-        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+            // Create a context manager that provides the Java analyzer and the test project
+            IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                    getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                        return switch (method.getName()) {
+                            case "getAnalyzer" -> localAnalyzer;
+                            case "getAnalyzerUninterrupted" -> localAnalyzer;
+                            case "getProject" -> localProject;
+                            default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                        };
+                    });
 
-        // 1. Create a .brokk/dependencies/testrepo directory structure
-        Path depsRepoPath = javaTestProject
-                .getRoot()
-                .resolve(AbstractProject.BROKK_DIR)
-                .resolve(AbstractProject.DEPENDENCIES_DIR)
-                .resolve("testrepo");
-        Files.createDirectories(depsRepoPath);
-        Path testFile = depsRepoPath.resolve("DependencyFile.java");
-        Files.writeString(testFile, "public class DependencyFile {}");
+            SearchTools tools = new SearchTools(ctxWithAnalyzer);
 
-        try {
-            // 2. Call skimDirectory on the dependency path
-            String pathString = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo")
-                    .toString();
-            String result = tools.skimDirectory(pathString, "testing dependencies bypass gitignore");
+            // 1. Create a .brokk/dependencies/testrepo directory structure
+            Path depsRepoPath = localProject
+                    .getRoot()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.DEPENDENCIES_DIR)
+                    .resolve("testrepo");
+            Files.createDirectories(depsRepoPath);
+            Path testFile = depsRepoPath.resolve("DependencyFile.java");
+            Files.writeString(testFile, "public class DependencyFile {}");
 
-            // 3. Verify that the file IS returned (not filtered out by the .brokk gitignore simulation)
-            assertTrue(
-                    result.contains("DependencyFile.java"),
-                    "File in dependencies should be found even if .brokk is gitignored");
+            try {
+                // 2. Call skimDirectory on the dependency path
+                String pathString = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo")
+                        .toString();
+                String result = tools.skimDirectory(pathString, "testing dependencies bypass gitignore");
+
+                // 3. Verify that the file IS returned (not filtered out by the .brokk gitignore simulation)
+                assertTrue(
+                        result.contains("DependencyFile.java"),
+                        "File in dependencies should be found even if .brokk is gitignored");
+            } finally {
+                // Clean up the created directory in the test project
+                Files.deleteIfExists(testFile);
+                Files.deleteIfExists(depsRepoPath);
+            }
         } finally {
-            // Clean up the created directory in the test project
-            Files.deleteIfExists(testFile);
-            Files.deleteIfExists(depsRepoPath);
+            deleteRecursively(projectRootCopy);
         }
     }
 
