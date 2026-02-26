@@ -74,9 +74,24 @@ public class ContextAgent {
 
     private static final int DESIRED_CANDIDATES = 100;
 
+    private static final int UNANALYZED_MAX_LINES = 50;
+    private static final int UNANALYZED_TOP_SHOWN = 25;
+    private static final int UNANALYZED_BOTTOM_SHOWN = 25;
+
     private enum GroupType {
         ANALYZED,
         UNANALYZED
+    }
+
+    private record PromptFileContent(
+            String promptText, boolean truncated, int totalLines, int topShown, int bottomShown) {
+        static PromptFileContent full(String promptText, int totalLines) {
+            return new PromptFileContent(promptText, false, totalLines, 0, 0);
+        }
+
+        static PromptFileContent truncated(String promptText, int totalLines, int topShown, int bottomShown) {
+            return new PromptFileContent(promptText, true, totalLines, topShown, bottomShown);
+        }
     }
 
     private final IContextManager cm;
@@ -421,8 +436,10 @@ public class ContextAgent {
         if (type == GroupType.ANALYZED) {
             initialTokens = estimateAnalyzedTokens(groupFiles);
         } else {
-            var contentsMap = readFileContents(groupFiles);
-            initialTokens = Messages.getApproximateTokens(contentsMap.values());
+            var contentsMap = readFileContentsCappedForPrompt(groupFiles);
+            initialTokens = Messages.getApproximateTokens(contentsMap.values().stream()
+                    .map(PromptFileContent::promptText)
+                    .toList());
         }
 
         logger.debug("{} group initial token estimate: ~{}", type, initialTokens);
@@ -459,8 +476,10 @@ public class ContextAgent {
             if (type == GroupType.ANALYZED) {
                 postExpansionTokens = estimateAnalyzedTokens(workingFiles);
             } else {
-                var contentsMap = readFileContents(workingFiles);
-                postExpansionTokens = Messages.getApproximateTokens(contentsMap.values());
+                var contentsMap = readFileContentsCappedForPrompt(workingFiles);
+                postExpansionTokens = Messages.getApproximateTokens(contentsMap.values().stream()
+                        .map(PromptFileContent::promptText)
+                        .toList());
             }
             logger.debug("{} group post-expansion token estimate: ~{}", type, postExpansionTokens);
         }
@@ -501,8 +520,13 @@ public class ContextAgent {
 
         List<ProjectFile> current = new ArrayList<>(files);
         while (true) {
-            Map<ProjectFile, String> fileText;
-            fileText = type == GroupType.ANALYZED ? getCachedIdentifiers(current) : readFileContents(current);
+            Map<ProjectFile, PromptFileContent> fileText = type == GroupType.ANALYZED
+                    ? getCachedIdentifiers(current).entrySet().stream()
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> PromptFileContent.full(e.getValue(), countLines(e.getValue())),
+                                    (v1, v2) -> v1))
+                    : readFileContentsCappedForPrompt(current);
 
             try {
                 return askLlmDeepRecommendContext(fileText, workspaceRepresentation, llm);
@@ -855,7 +879,7 @@ public class ContextAgent {
     // --- Evaluate-for-relevance (single-group context window) ---
 
     private LlmRecommendation askLlmDeepRecommendContext(
-            Map<ProjectFile, String> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
+            Map<ProjectFile, PromptFileContent> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();
@@ -876,8 +900,7 @@ public class ContextAgent {
 
         if (!filesMap.isEmpty()) {
             var filesText = filesMap.entrySet().stream()
-                    .map(entry -> "<file path='%s'>\n%s\n</file>"
-                            .formatted(entry.getKey().toString(), entry.getValue()))
+                    .map(entry -> renderFileForPrompt(entry.getKey(), entry.getValue()))
                     .collect(Collectors.joining("\n\n"));
             userMessageText.append("<available_files>\n").append(filesText).append("\n</available_files>\n\n");
         }
@@ -1005,5 +1028,60 @@ public class ContextAgent {
                 })
                 .filter(entry -> !entry.getValue().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+    }
+
+    private Map<ProjectFile, PromptFileContent> readFileContentsCappedForPrompt(Collection<ProjectFile> files) {
+        return files.stream()
+                .distinct()
+                .parallel()
+                .map(file -> {
+                    var content = file.read().orElse("");
+                    return Map.entry(file, capUnanalyzedTextForPrompt(content));
+                })
+                .filter(entry -> !entry.getValue().promptText().isEmpty())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+    }
+
+    private PromptFileContent capUnanalyzedTextForPrompt(String content) {
+        int totalLines = countLines(content);
+        if (totalLines <= UNANALYZED_MAX_LINES) {
+            return PromptFileContent.full(content, totalLines);
+        }
+
+        var lines = content.split("\\R", -1);
+        int top = min(UNANALYZED_TOP_SHOWN, lines.length);
+        int bottom = min(UNANALYZED_BOTTOM_SHOWN, max(0, lines.length - top));
+        int omitted = max(0, lines.length - top - bottom);
+
+        String head = Arrays.stream(lines).limit(top).collect(Collectors.joining("\n"));
+        String tail = Arrays.stream(lines).skip(lines.length - bottom).collect(Collectors.joining("\n"));
+
+        String delimiter = "----- BRK_OMITTED " + omitted + " LINES -----";
+
+        String promptText =
+                Stream.of(head, delimiter, tail).filter(s -> !s.isEmpty()).collect(Collectors.joining("\n\n"));
+
+        return PromptFileContent.truncated(promptText, totalLines, UNANALYZED_TOP_SHOWN, UNANALYZED_BOTTOM_SHOWN);
+    }
+
+    private int countLines(String content) {
+        if (content.isEmpty()) {
+            return 0;
+        }
+        // Count lines in a way that matches split("\\R", -1) behavior (including trailing empty line).
+        return content.split("\\R", -1).length;
+    }
+
+    private String renderFileForPrompt(ProjectFile file, PromptFileContent content) {
+        if (!content.truncated()) {
+            return "<file path='%s'>\n%s\n</file>".formatted(file.toString(), content.promptText());
+        }
+        return "<file path='%s' truncated=\"true\" total_lines=\"%d\" top_shown=\"%d\" bottom_shown=\"%d\">\n%s\n</file>"
+                .formatted(
+                        file.toString(),
+                        content.totalLines(),
+                        content.topShown(),
+                        content.bottomShown(),
+                        content.promptText());
     }
 }

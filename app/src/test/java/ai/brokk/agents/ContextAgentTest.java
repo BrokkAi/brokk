@@ -133,4 +133,74 @@ public class ContextAgentTest {
 
         assertDoesNotThrow(() -> new ContextAgent(cm, model, "100% sure: use %s and %d literally"));
     }
+
+    @Test
+    void unanalyzedPrompt_cappedAndAnnotatedWhenOverMaxLines() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+
+        // Create a file that will be UNANALYZED (TestAnalyzer returns no top-level declarations).
+        ProjectFile big = new ProjectFile(root, "src/un/analyzed/Big.txt");
+        big.create();
+        String content = java.util.stream.IntStream.rangeClosed(1, 312)
+                .mapToObj(i -> "line " + i)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        big.write(content);
+
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        var model = new TestScriptedLanguageModel(
+                // Ensure the tool gets called; we do not care what it recommends for this test.
+                "I will call the tool now.");
+        var agent = new ContextAgent(cm, model, "test goal");
+
+        // Trigger the UNANALYZED path by having an empty workspace and only 1 non-analyzable file.
+        agent.getRecommendations(cm.liveContext(), true);
+
+        var seen = model.seenRequests();
+        assertFalse(seen.isEmpty());
+
+        String prompt = seen.getLast().messages().toString();
+
+        assertTrue(prompt.contains("truncated=\"true\" total_lines=\"312\" top_shown=\"25\" bottom_shown=\"25\""));
+
+        assertTrue(prompt.contains("line 1"));
+        assertTrue(prompt.contains("line 25"));
+        assertTrue(prompt.contains("line 288"));
+        assertTrue(prompt.contains("line 312"));
+
+        assertTrue(prompt.contains("----- BRK_OMITTED 262 LINES -----"));
+        assertFalse(prompt.contains("line 26"));
+        assertFalse(prompt.contains("line 287"));
+    }
+
+    @Test
+    void unanalyzedPrompt_notAnnotatedWhenAtOrBelowMaxLines() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+
+        ProjectFile small = new ProjectFile(root, "src/un/analyzed/Small.txt");
+        small.create();
+        String content = java.util.stream.IntStream.rangeClosed(1, 50)
+                .mapToObj(i -> "line " + i)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        small.write(content);
+
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        var model = new TestScriptedLanguageModel("Calling tool.");
+        var agent = new ContextAgent(cm, model, "test goal");
+
+        agent.getRecommendations(cm.liveContext(), true);
+
+        var seen = model.seenRequests();
+        assertFalse(seen.isEmpty());
+        String prompt = seen.getLast().messages().toString();
+
+        assertTrue(prompt.contains("<file path='src/un/analyzed/Small.txt'>"));
+        assertFalse(prompt.contains("truncated=\"true\""));
+        assertFalse(prompt.contains("BRK_OMITTED"));
+        assertTrue(prompt.contains("line 1"));
+        assertTrue(prompt.contains("line 50"));
+    }
 }
