@@ -132,25 +132,30 @@ public class InlineTestProjectCreator {
 
         private final String url;
         private final String ref;
+        private int depth = 0;
 
         public GitCloneStrategy(String url, String ref) {
             this.url = url;
             this.ref = ref;
         }
 
+        public void setDepth(int depth) {
+            this.depth = depth;
+        }
+
         @Override
         public void populate(Path root) throws IOException {
             Files.createDirectories(CACHE_ROOT);
-            String cacheKey = hash(url);
+            String cacheKey = hash(url + "|" + depth);
             Path cachePath = CACHE_ROOT.resolve(cacheKey);
 
             try {
                 if (!Files.exists(cachePath)) {
-                    GitRepoFactory.cloneRepo(url, cachePath, 0);
+                    GitRepoFactory.cloneRepo(url, cachePath, depth);
                 }
 
                 // Clone from cache to target root
-                GitRepoFactory.cloneRepo(cachePath.toUri().toString(), root, 0, ref);
+                GitRepoFactory.cloneRepo(cachePath.toUri().toString(), root, depth, ref);
             } catch (GitAPIException e) {
                 throw new IOException("Failed to clone repository: " + url, e);
             }
@@ -316,6 +321,13 @@ public class InlineTestProjectCreator {
 
         @Override
         public TestGitProjectBuilder withGit() {
+            return this;
+        }
+
+        public TestGitProjectBuilder withDepth(int depth) {
+            if (strategy instanceof GitCloneStrategy gitCloneStrategy) {
+                gitCloneStrategy.setDepth(depth);
+            }
             return this;
         }
 
