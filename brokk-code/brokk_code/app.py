@@ -1313,6 +1313,29 @@ class BrokkApp(App):
 
         return list(dict.fromkeys(attached_fragment_ids))
 
+    async def _login_openai(self) -> None:
+        """Async helper to initiate OpenAI OAuth login flow."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        if not self._executor_ready:
+            chat.add_system_message(
+                "Brokk executor is not yet ready. Please wait a moment and try again.",
+                level="WARNING",
+            )
+            return
+
+        try:
+            await self.executor.start_openai_oauth()
+            chat.add_system_message(
+                "Opening browser for OpenAI authorization. After completing the login flow, "
+                "Codex-gated models will become available."
+            )
+        except Exception as e:
+            logger.exception("OpenAI OAuth login failed")
+            chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
+
     async def _run_job(self, task_input: str) -> None:
         self.current_job_cost = 0.0
         self.job_in_progress = True
@@ -1508,6 +1531,7 @@ class BrokkApp(App):
         """Returns the structured catalog of supported slash commands."""
         return [
             {"command": "/api-key", "description": "Update your Brokk API key"},
+            {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
@@ -1659,6 +1683,14 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+        elif base == "/login-openai":
+            if len(parts) > 1:
+                chat.add_system_message(
+                    "Usage: /login-openai (opens browser for authorization)",
+                    level="WARNING",
+                )
+            else:
+                self.run_worker(self._login_openai())
         elif base == "/api-key":
 
             async def on_key_entered(key: str) -> bool:
