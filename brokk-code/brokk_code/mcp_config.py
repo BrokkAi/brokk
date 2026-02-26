@@ -118,10 +118,9 @@ def _atomic_write_toml(path: Path, text: str) -> None:
     temp_path.replace(path)
 
 
-def _brokk_mcp_config() -> dict[str, Any]:
-    jbang_command = resolve_jbang_binary() or "jbang"
+def _brokk_mcp_config(jbang_path: str) -> dict[str, Any]:
     return {
-        "command": jbang_command,
+        "command": jbang_path,
         "args": [
             "--java",
             "21",
@@ -138,8 +137,16 @@ def _brokk_mcp_config() -> dict[str, Any]:
 
 
 def configure_claude_code_mcp_settings(
-    *, force: bool = False, settings_path: Path | None = None
+    *, force: bool = False, settings_path: Path | None = None, jbang_path: str | None = None
 ) -> Path:
+    """Configure Claude Code MCP settings.
+
+    Args:
+        force: Overwrite existing brokk entry if present.
+        settings_path: Custom path to .claude.json (default: ~/.claude.json).
+        jbang_path: Absolute path to JBang binary. If None, resolved via
+            resolve_jbang_binary() for non-login shell compatibility.
+    """
     path = settings_path or Path.home() / ".claude.json"
     if path.exists():
         raw_text = path.read_text(encoding="utf-8")
@@ -164,7 +171,8 @@ def configure_claude_code_mcp_settings(
             f"mcpServers['{_SERVER_NAME}'] already exists; use --force to overwrite it"
         )
 
-    server_config = _brokk_mcp_config() | {
+    effective_jbang = jbang_path or resolve_jbang_binary() or "jbang"
+    server_config = _brokk_mcp_config(effective_jbang) | {
         "env": {
             "MCP_TIMEOUT": "60000",
             "MCP_TOOL_TIMEOUT": "300000",
@@ -185,7 +193,17 @@ def configure_claude_code_mcp_settings(
     return path
 
 
-def configure_codex_mcp_settings(*, force: bool = False, settings_path: Path | None = None) -> Path:
+def configure_codex_mcp_settings(
+    *, force: bool = False, settings_path: Path | None = None, jbang_path: str | None = None
+) -> Path:
+    """Configure Codex MCP settings.
+
+    Args:
+        force: Overwrite existing brokk entry if present.
+        settings_path: Custom path to config.toml (default: ~/.codex/config.toml).
+        jbang_path: Absolute path to JBang binary. If None, resolved via
+            resolve_jbang_binary() for non-login shell compatibility.
+    """
     path = settings_path or Path.home() / ".codex" / "config.toml"
     if path.exists():
         raw_text = path.read_text(encoding="utf-8")
@@ -213,7 +231,8 @@ def configure_codex_mcp_settings(*, force: bool = False, settings_path: Path | N
             f"mcp_servers['{_SERVER_NAME}'] already exists; use --force to overwrite it"
         )
 
-    server_config = _brokk_mcp_config() | {
+    effective_jbang = jbang_path or resolve_jbang_binary() or "jbang"
+    server_config = _brokk_mcp_config(effective_jbang) | {
         "startup_timeout_sec": 60.0,
         "tool_timeout_sec": 300.0,
     }

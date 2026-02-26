@@ -751,8 +751,12 @@ def main():
                 )
                 messages = [f"Configured IntelliJ ACP integration in {settings_path}"]
             elif args.target == "mcp":
-                claude_settings_path = configure_claude_code_mcp_settings(force=args.force)
-                codex_settings_path = configure_codex_mcp_settings(force=args.force)
+                claude_settings_path = configure_claude_code_mcp_settings(
+                    force=args.force, jbang_path=jbang_binary
+                )
+                codex_settings_path = configure_codex_mcp_settings(
+                    force=args.force, jbang_path=jbang_binary
+                )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
                     jbang_binary=jbang_binary,
