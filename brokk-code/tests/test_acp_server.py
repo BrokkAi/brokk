@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from brokk_code.acp_server import (
     BASE_MODEL_IDS,
@@ -29,6 +30,22 @@ def _text_block(value: str) -> dict[str, str]:
 
 def _thought_block(value: str) -> dict[str, str]:
     return {"sessionUpdate": "agent_thought_chunk", "text": value}
+
+
+def _start_tool_call(**kwargs: Any) -> dict[str, Any]:
+    return {"sessionUpdate": "tool_call", **kwargs}
+
+
+def _update_tool_call(**kwargs: Any) -> dict[str, Any]:
+    return {"sessionUpdate": "tool_call_update", **kwargs}
+
+
+def _tool_content(block: Any) -> dict[str, Any]:
+    return {"type": "content", "content": block}
+
+
+def _text_block_helper(text: str) -> dict[str, str]:
+    return {"type": "text", "text": text}
 
 
 def test_normalize_mode_defaults_and_known_values() -> None:
@@ -328,6 +345,61 @@ def test_map_executor_status_token_mojibake_is_minimally_normalized() -> None:
         "sessionUpdate": "agent_message_chunk",
         "text": "\n**Brokk** performing initial workspace review...",
     }
+
+
+def test_map_executor_tool_call_structured() -> None:
+    event = {
+        "type": "TOOL_CALL",
+        "data": {"name": "read_file", "arguments": '{"path": "foo.py"}', "id": "call-1"},
+    }
+    update = map_executor_event_to_session_update(
+        event,
+        _text_block,
+        _thought_block,
+        _start_tool_call,
+        _update_tool_call,
+        _tool_content,
+        _text_block_helper,
+    )
+    assert update["sessionUpdate"] == "tool_call"
+    assert update["tool_call_id"] == "call-1"
+    assert update["title"] == "read_file"
+    assert update["content"][0]["content"]["text"] == '{"path": "foo.py"}'
+
+
+def test_map_executor_tool_call_fallback() -> None:
+    # No ID or no callbacks
+    event = {"type": "TOOL_CALL", "data": {"name": "read_file", "arguments": "{}"}}
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update["sessionUpdate"] == "agent_message_chunk"
+    assert "[CALLING TOOL] read_file({})" in update["text"]
+
+
+def test_map_executor_tool_output_structured() -> None:
+    event = {
+        "type": "TOOL_OUTPUT",
+        "data": {"status": "SUCCESS", "id": "call-1", "result": "done"},
+    }
+    update = map_executor_event_to_session_update(
+        event,
+        _text_block,
+        _thought_block,
+        _start_tool_call,
+        _update_tool_call,
+        _tool_content,
+        _text_block_helper,
+    )
+    assert update["sessionUpdate"] == "tool_call_update"
+    assert update["tool_call_id"] == "call-1"
+    assert update["status"] == "completed"
+    assert update["content"][0]["content"]["text"] == "done"
+
+
+def test_map_executor_tool_output_fallback() -> None:
+    event = {"type": "TOOL_OUTPUT", "data": {"status": "ERROR"}}
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update["sessionUpdate"] == "agent_message_chunk"
+    assert "[TOOL ERROR]" in update["text"]
 
 
 def test_extract_session_id_for_cancel() -> None:
