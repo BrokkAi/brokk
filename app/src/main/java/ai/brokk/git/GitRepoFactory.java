@@ -165,9 +165,6 @@ public class GitRepoFactory {
                 var token = tokenSupplier.get();
                 if (!token.trim().isEmpty()) {
                     cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
-                } else {
-                    throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
-                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
                 }
             }
 

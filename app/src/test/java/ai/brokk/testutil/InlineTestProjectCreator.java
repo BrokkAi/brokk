@@ -149,15 +149,45 @@ public class InlineTestProjectCreator {
             String cacheKey = hash(url + "|" + depth);
             Path cachePath = CACHE_ROOT.resolve(cacheKey);
 
+            // Use an empty token for tests to allow cloning public GitHub repos without a configured token
+            java.util.function.Supplier<String> noToken = () -> "";
+
             try {
                 if (!Files.exists(cachePath)) {
-                    GitRepoFactory.cloneRepo(url, cachePath, depth);
+                    GitRepoFactory.cloneRepo(noToken, url, cachePath, depth);
                 }
 
-                // Clone from cache to target root
-                GitRepoFactory.cloneRepo(cachePath.toUri().toString(), root, depth, ref);
+                // Clone from cache to target root.
+                // GitRepoFactory.cloneRepo with branch/tag selection works for branches and tags.
+                // For SHAs, we clone the default then checkout.
+                boolean isSha = ref.matches("^[0-9a-f]{7,40}$");
+                if (!isSha) {
+                    try {
+                        GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth, ref);
+                    } catch (GitAPIException e) {
+                        isSha = true; // Try SHA logic as fallback
+                    }
+                }
+
+                if (isSha) {
+                    try (GitRepo ignored =
+                            GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth)) {
+                        try (Git git = Git.open(root.toFile())) {
+                            git.checkout().setName(ref).call();
+                        }
+                    } catch (GitAPIException e) {
+                        throw new IOException("Failed to checkout commit SHA: " + ref, e);
+                    }
+                }
+
+                if (Boolean.getBoolean("brokk.test.debug.git")) {
+                    System.out.println("Files in root after clone/checkout of " + ref + ":");
+                    try (var s = Files.walk(root)) {
+                        s.limit(20).forEach(System.out::println);
+                    }
+                }
             } catch (GitAPIException e) {
-                throw new IOException("Failed to clone repository: " + url, e);
+                throw new IOException("Failed to clone repository: " + url + " at ref: " + ref, e);
             }
         }
 
@@ -194,7 +224,7 @@ public class InlineTestProjectCreator {
         return new TestProjectBuilder(new ZipContentStrategy(zipPath));
     }
 
-    public static TestProjectBuilder fromGitUrl(String url, String ref) {
+    public static TestGitProjectBuilder fromGitUrl(String url, String ref) {
         return new TestProjectBuilder(new GitCloneStrategy(url, ref)).withGit();
     }
 
@@ -222,11 +252,7 @@ public class InlineTestProjectCreator {
             var newTemporaryDirectory = Files.createTempDirectory("brokk-analyzer-test-");
             strategy.populate(newTemporaryDirectory);
 
-            Set<Language> detected = strategy.detectLanguages();
-            if (detected.isEmpty()) {
-                detected = scanLanguages(newTemporaryDirectory);
-            }
-
+            EphemeralTestProject project;
             if (this instanceof TestGitProjectBuilder gitBuilder) {
                 try {
                     boolean alreadyRepo = GitRepoFactory.hasGitRepo(newTemporaryDirectory);
@@ -258,29 +284,27 @@ public class InlineTestProjectCreator {
                                     .call();
                         }
                     }
-                    EphemeralTestGitProject project = detected.size() == 1
-                            ? new EphemeralTestGitProject(
-                                    newTemporaryDirectory,
-                                    detected.iterator().next(),
-                                    new GitRepo(newTemporaryDirectory))
-                            : new EphemeralTestGitProject(newTemporaryDirectory, new GitRepo(newTemporaryDirectory));
-                    if (!detected.isEmpty()) {
-                        project.setAnalyzerLanguages(detected);
-                    }
+                    project = new EphemeralTestGitProject(newTemporaryDirectory, new GitRepo(newTemporaryDirectory));
                     project.setHasGit(true);
-                    return project;
                 } catch (GitAPIException e) {
                     throw new IOException("Failed to initialize git repo for test project", e);
                 }
+            } else {
+                project = new EphemeralTestProject(newTemporaryDirectory);
             }
 
-            EphemeralTestProject project = detected.size() == 1
-                    ? new EphemeralTestProject(
-                            newTemporaryDirectory, detected.iterator().next())
-                    : new EphemeralTestProject(newTemporaryDirectory);
+            // Ensure languages are set before getting analyzer
+            Set<Language> detected = strategy.detectLanguages();
+            if (detected.isEmpty()) {
+                detected = scanLanguages(newTemporaryDirectory);
+            }
             if (!detected.isEmpty()) {
                 project.setAnalyzerLanguages(detected);
             }
+
+            // Force an initial update so the analyzer is populated with code units
+            IAnalyzer analyzer = project.getAnalyzer();
+            project.analyzer = analyzer.update();
             return project;
         }
 
@@ -289,17 +313,26 @@ public class InlineTestProjectCreator {
             try (Stream<Path> stream = Files.walk(root)) {
                 stream.filter(Files::isRegularFile).forEach(path -> {
                     String filename = path.getFileName().toString();
+
+                    // Detect by specific project files first
+                    if (filename.equals("pyproject.toml") || filename.equals("requirements.txt")) {
+                        detected.add(Languages.PYTHON);
+                    } else if (filename.equals("Cargo.toml")) {
+                        detected.add(Languages.RUST);
+                    }
+
+                    // Then by extension
                     int dot = filename.lastIndexOf('.');
-                    if (dot > 0 && dot < filename.length() - 1) {
+                    if (dot >= 0 && dot < filename.length() - 1) {
                         String ext = filename.substring(dot + 1);
-                        for (Language lang : Languages.ALL_LANGUAGES) {
-                            if (lang.getExtensions().contains(ext)) {
-                                detected.add(lang);
-                            }
+                        Language lang = Languages.fromExtension(ext);
+                        if (lang != Languages.NONE) {
+                            detected.add(lang);
                         }
                     }
                 });
             }
+            detected.remove(Languages.NONE);
             return detected;
         }
     }
@@ -363,10 +396,26 @@ public class InlineTestProjectCreator {
                 synchronized (this) {
                     if (analyzer == null) {
                         Set<Language> languages = getAnalyzerLanguages();
-                        if (languages.size() == 1) {
-                            analyzer = AnalyzerCreator.createTreeSitterAnalyzer(this);
+                        // Filter out NONE
+                        List<Language> activeLanguages = languages.stream()
+                                .filter(l -> l != Languages.NONE)
+                                .toList();
+
+                        if (activeLanguages.isEmpty()) {
+                            analyzer = Languages.NONE.createAnalyzer(this);
                         } else {
-                            analyzer = AnalyzerCreator.createMultiAnalyzer(this, languages.toArray(new Language[0]));
+                            // Set the primary build language to the first detected one if not already set
+                            if (getBuildLanguage() == Languages.NONE) {
+                                setBuildLanguage(activeLanguages.getFirst());
+                            }
+
+                            if (activeLanguages.size() == 1) {
+                                // Important: use the detected language to create the analyzer
+                                analyzer = activeLanguages.getFirst().createAnalyzer(this);
+                            } else {
+                                analyzer = AnalyzerCreator.createMultiAnalyzer(
+                                        this, activeLanguages.toArray(new Language[0]));
+                            }
                         }
                     }
                 }

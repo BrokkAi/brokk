@@ -41,6 +41,43 @@ class RealProjectFixtureTest {
     }
 
     @Test
+    void testRuffProject() throws Exception {
+        String url = "https://github.com/astral-sh/ruff.git";
+        String commitId = "0e19fc9a61477e71abc4eb76f05a129b6b9ab873";
+
+        try (ITestProject project =
+                InlineTestProjectCreator.fromGitUrl(url, commitId).build()) {
+            assertNotNull(project, "Project should not be null");
+            assertNotNull(project.getRoot(), "Project root should not be null");
+            assertTrue(Files.exists(project.getRoot().resolve("pyproject.toml")), "pyproject.toml should exist");
+            assertTrue(Files.exists(project.getRoot().resolve("Cargo.toml")), "Cargo.toml should exist");
+
+            assertTrue(project.hasGit(), "Project should have git");
+            assertNotNull(project.getRepo(), "Project repo should not be null");
+            assertEquals(commitId, project.getRepo().getCurrentCommitId(), "Commit ID should match");
+
+            IAnalyzer analyzer = project.getAnalyzer();
+            assertNotNull(analyzer, "Analyzer should not be null");
+
+            assertFalse(
+                    analyzer.isEmpty(),
+                    "Analyzer should not be empty for Ruff project. Detected project languages: "
+                            + project.getAnalyzerLanguages() + " Analyzer languages: " + analyzer.languages());
+
+            assertTrue(
+                    analyzer.languages().contains(ai.brokk.analyzer.Languages.PYTHON),
+                    "Should detect Python. Analyzer languages: " + analyzer.languages());
+            assertTrue(
+                    analyzer.languages().contains(ai.brokk.analyzer.Languages.RUST),
+                    "Should detect Rust. Analyzer languages: " + analyzer.languages());
+
+            // Ruff is a Python project, so we expect to find some Python declarations
+            var declarations = analyzer.getAllDeclarations();
+            assertFalse(declarations.isEmpty(), "Should find some declarations in Ruff project");
+        }
+    }
+
+    @Test
     void testFromGitUrl() throws Exception {
         // 1. Create a local source repo
         Path sourceRepoPath = tempDir.resolve("source-repo");
