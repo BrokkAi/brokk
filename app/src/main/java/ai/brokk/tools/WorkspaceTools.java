@@ -28,6 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Provides tools for manipulating the context (adding/removing files and fragments) and adding analysis results
@@ -40,8 +41,19 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 public class WorkspaceTools {
     private static final Logger logger = LogManager.getLogger(WorkspaceTools.class);
 
+    public record DropReport(
+            Set<String> droppedFragmentIds, Set<String> protectedFragmentIds, Set<String> unknownFragmentIds) {
+        public DropReport {
+            droppedFragmentIds = Set.copyOf(droppedFragmentIds);
+            protectedFragmentIds = Set.copyOf(protectedFragmentIds);
+            unknownFragmentIds = Set.copyOf(unknownFragmentIds);
+        }
+    }
+
     // Per-instance working context (immutable Context instances replaced on modification)
     private Context context;
+
+    private @Nullable DropReport lastDropReport = null;
 
     /**
      * Construct a WorkspaceTools instance operating on the provided Context.
@@ -56,12 +68,22 @@ public class WorkspaceTools {
         return context;
     }
 
+    public @Nullable DropReport getLastDropReport() {
+        return lastDropReport;
+    }
+
+    public void clearLastDropReport() {
+        this.lastDropReport = null;
+    }
+
     /**
      * Represents a fragment removal request with its ID and structured drop metadata.
      * Used by {@link #dropWorkspaceFragments(List)} to structure the input.
      */
     public record FragmentRemoval(
-            @D("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
+            @D(
+                            "The alphanumeric ID exactly as listed in <workspace_toc>. If you do not see a `fragmentid` attribute you cannot drop it. Filenames are not IDs, descriptions are not IDs.")
+                    String fragmentId,
             @D(KEY_FACTS_DESCRIPTION) String keyFacts,
             @D(DROP_REASON_DESCRIPTION) String dropReason) {}
 
@@ -204,7 +226,7 @@ public class WorkspaceTools {
 
     @Tool(
             value = "Remove specified fragments (files, text snippets, task history, analysis results) "
-                    + "from the Workspace and record structured breadcrumbs (keyFacts + dropReason) in DISCARDED_CONTEXT. "
+                    + "from the Workspace by their `fragmentid` and record structured breadcrumbs (keyFacts + dropReason) in DISCARDED_CONTEXT. "
                     + "Do not drop file fragments that you still need to read or edit.")
     public String dropWorkspaceFragments(
             @P("List of fragments to remove from the Workspace. Must not be empty. Pinned fragments are ineligible.")
@@ -228,7 +250,7 @@ public class WorkspaceTools {
         var foundFragments =
                 idsToDropSet.stream().filter(byId::containsKey).map(byId::get).toList();
         var unknownIds =
-                idsToDropSet.stream().filter(id -> !byId.containsKey(id)).toList();
+                idsToDropSet.stream().filter(id -> !byId.containsKey(id)).collect(Collectors.toSet());
 
         // Partition found into droppable vs protected based on pinning policy
         var partitioned =
@@ -251,13 +273,16 @@ public class WorkspaceTools {
         // Serialize updated JSON
         String discardedJson = SpecialTextType.serializeDiscardedContext(mergedDiscarded);
 
-        // Apply removal and upsert DISCARDED_CONTEXT in the local context
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
+        var protectedIds = protectedFragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
+        this.lastDropReport = new DropReport(droppedIds, protectedIds, unknownIds);
+
+        // Apply removal and upsert DISCARDED_CONTEXT in the local context
         context =
                 context.removeFragmentsByIds(droppedIds).withSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
 
         logger.debug(
-                "dropWorkspaceFragments: dropped={}, pinned={}, unknown={}, updatedDiscardedEntries={}",
+                "dropWorkspaceFragments: dropped={}, pinned={}, unknown={}. discardedFragments map now {} entries",
                 droppedIds.size(),
                 protectedFragments.size(),
                 unknownIds.size(),

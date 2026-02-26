@@ -16,7 +16,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.SearchPrompts;
@@ -25,6 +24,7 @@ import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
@@ -141,6 +141,8 @@ public class ArchitectAgent {
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
 
+    private boolean deferBuildForInitialCodeAgentCall = false;
+
     @Nullable
     private String verifyCommand;
 
@@ -205,6 +207,10 @@ public class ArchitectAgent {
 
     public void setVerifyCommand(@Nullable String verifyCommand) {
         this.verifyCommand = verifyCommand;
+    }
+
+    public void setDeferBuildForInitialCodeAgentCall(boolean deferBuildForInitialCodeAgentCall) {
+        this.deferBuildForInitialCodeAgentCall = deferBuildForInitialCodeAgentCall;
     }
 
     public void setListener(@Nullable ArchitectListener listener) {
@@ -290,8 +296,8 @@ public class ArchitectAgent {
                 codeAgentJustSucceeded = true;
 
                 if (verifyCommand != null) {
-                    context = BuildAgent.runExplicitCommand(
-                            context, verifyCommand, cm.getProject().awaitBuildDetails());
+                    BuildAgent.@Nullable BuildDetails override = cm.getProject().awaitBuildDetails();
+                    context = BuildTools.runExplicitCommand(context, verifyCommand, override);
                     if (!context.getBuildError().isBlank()) {
                         codeAgentJustSucceeded = false;
                         reason = StopReason.BUILD_ERROR;
@@ -353,7 +359,7 @@ public class ArchitectAgent {
 
         // Offer undo and attach diff if the CodeAgent failed and left changes behind
         if (!changedFragments.isEmpty()) {
-            String combinedDiffText = DiffService.cumulativeDiff(initialContext, context);
+            String combinedDiffText = CodeAgent.cumulativeDiffForChanges(initialContext, context);
             // FIXME the if here is working around a bug, ContextDelta should not return
             // changed fragments with an empty diff
             if (!combinedDiffText.isBlank()) {
@@ -365,111 +371,16 @@ public class ArchitectAgent {
         }
 
         // Format recoverable errors with clear guidance for the LLM
-        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation()) + reasoningSummarySuffix;
+        var diffPresentation =
+                context.getSpecial(SpecialTextType.CODE_AGENT_CHANGES).isPresent()
+                        ? CodeAgent.DiffPresentation.WORKSPACE_FRAGMENT
+                        : CodeAgent.DiffPresentation.NONE;
+        String resultString =
+                CodeAgent.formatPostFailureResponse(reason, stopDetails.explanation(), diffPresentation, null)
+                        + reasoningSummarySuffix;
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
         return resultString;
-    }
-
-    /**
-     * Formats CodeAgent failure messages with clear, structured guidance for the LLM.
-     * Each failure type includes actionable next steps.
-     */
-    private String formatCodeAgentFailure(StopReason reason, String explanation) {
-        String base =
-                switch (reason) {
-                    case READ_ONLY_EDIT ->
-                        """
-                            **Constraint Violation: Read-Only File**
-
-                            The Code Agent thought that your instructions implied that it should modify a file marked read-only in the Workspace:
-                            %s
-
-                            To proceed, do one of the following:
-                            1. Add the file for editing with addFilesToWorkspace([...]).
-                            2. Clarify how to accomplish the task without modifying this file.
-                            """
-                                .formatted(explanation);
-                    case PARSE_ERROR ->
-                        """
-                            **Parse Error: Invalid Response Format**
-
-                            The Code Agent couldn't parse the response after multiple attempts:
-                            %s
-
-                            Possible solutions:
-                            1. Slim down the Workspace to essentials so that Code Agent can focus more easily on following its instructions.
-                            2. Give CodeAgent a smaller pieces of the task, possibly with deferBuild set.
-                            """
-                                .formatted(explanation);
-                    case APPLY_ERROR ->
-                        """
-                            **Apply Error: Edit Blocks Failed**
-
-                            The Code Agent couldn't apply edits after multiple attempts:
-                            %s
-
-                            Possible solutions:
-                            1. Slim down the Workspace to essentials so that Code Agent can focus more easily on following its instructions.
-                            2. Give CodeAgent a smaller pieces of the task, possibly with deferBuild set.
-                            """
-                                .formatted(explanation);
-                    case BUILD_ERROR ->
-                        """
-                            **Build Error: Failed to Compile/Test**
-
-                            %s
-
-                            Details are in the Workspace. The Code Agent applied changes but could not make them pass verification.
-                            Since you are smarter than Code Agent, first think about what it did, then instruct it how to
-                            proceed to solve the problems.
-
-                            If the verification is failing because of environmental issues that you cannot solve,
-                            e.g. permissions issues or system-level dependencies, you should abort with an explanation
-                            of the problem.
-                            """
-                                .formatted(explanation);
-                    case IO_ERROR ->
-                        """
-                            **IO Error: File System Issue**
-
-                            An error occurred while reading or writing files:
-                            %s
-
-                            This may be a transient issue. You can retry.
-                            """
-                                .formatted(explanation);
-                    default ->
-                        """
-                            **Code Agent Failed**
-
-                            Reason: %s
-                            Details: %s
-                            """
-                                .formatted(reason, explanation);
-                };
-
-        String postscript = "";
-        var changesFragment = context.getSpecial(SpecialTextType.CODE_AGENT_CHANGES);
-        if (changesFragment.isPresent()) {
-            String diffText = changesFragment.get().text().join();
-            assert !diffText.isBlank();
-            postscript =
-                    """
-                    **Code Agent changes (unified diff)**
-
-                    A unified diff of the Code Agent's changes is available in the Workspace under 'Last Code Agent Changes'.
-
-                    If this is going in the wrong direction entirely, call `undoLastChanges` to revert and start over.
-                    """
-                            .stripIndent()
-                            .stripTrailing();
-        }
-
-        if (postscript.isBlank()) {
-            return base;
-        }
-        return base.stripTrailing() + "\n\n" + postscript;
     }
 
     private void addPlanningToHistory() throws InterruptedException {
@@ -740,9 +651,8 @@ public class ArchitectAgent {
                     .build();
 
             io.beforeToolCall(req);
-            var initialSummary = callCodeAgent(goal, false);
+            var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
             io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
-
             architectMessages.add(new UserMessage(
                     "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
                             + initialSummary));

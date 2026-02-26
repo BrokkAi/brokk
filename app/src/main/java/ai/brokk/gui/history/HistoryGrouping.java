@@ -303,8 +303,8 @@ public final class HistoryGrouping {
     /**
      * Build a mapping from Context.id to the visible row index in the given JTable.
      * Visible children map to their own row; children of collapsed groups map to the group's header row.
-     * If descriptors are empty, maps only currently visible Context rows (collapsed children cannot be
-     * resolved to headers without descriptors).
+     * If descriptors are empty, maps only currently visible ContextUiModel rows (collapsed children
+     * cannot be resolved to headers without descriptors).
      */
     public static Map<UUID, Integer> buildContextToRowMap(List<GroupDescriptor> descriptors, JTable table) {
         // Index descriptors by UUID key (groupId for id-groups; first-child id for legacy action groups)
@@ -324,8 +324,8 @@ public final class HistoryGrouping {
         // First pass: map visible Context rows directly
         for (int row = 0; row < model.getRowCount(); row++) {
             var val = model.getValueAt(row, 2);
-            if (val instanceof Context ctx) {
-                result.put(ctx.id(), row);
+            if (val instanceof ActivityTableRenderers.ContextUiModel uiModel) {
+                result.put(uiModel.context().id(), row);
             }
         }
 

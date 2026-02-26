@@ -27,17 +27,31 @@ const webviewOpts = {
   minify: !watch,
 };
 
+/** @type {esbuild.BuildOptions} */
+const workerOpts = {
+  entryPoints: ["src/webview/markdown-worker.ts"],
+  bundle: true,
+  outdir: "media",
+  format: "iife",
+  platform: "browser",
+  target: "es2020",
+  sourcemap: false,
+  minify: !watch,
+};
+
 if (watch) {
-  const [extCtx, webCtx] = await Promise.all([
+  const [extCtx, webCtx, wrkCtx] = await Promise.all([
     esbuild.context(extensionOpts),
     esbuild.context(webviewOpts),
+    esbuild.context(workerOpts),
   ]);
-  await Promise.all([extCtx.watch(), webCtx.watch()]);
+  await Promise.all([extCtx.watch(), webCtx.watch(), wrkCtx.watch()]);
   console.log("Watching for changes...");
 } else {
   await Promise.all([
     esbuild.build(extensionOpts),
     esbuild.build(webviewOpts),
+    esbuild.build(workerOpts),
   ]);
   console.log("Build complete.");
 }

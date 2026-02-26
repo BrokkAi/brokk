@@ -9,7 +9,6 @@ import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BlitzForge;
-import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.analyzer.Language;
@@ -30,6 +29,7 @@ import ai.brokk.gui.util.ScaledIcon;
 import ai.brokk.project.MainProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.github.mustachejava.DefaultMustacheFactory;
@@ -666,7 +666,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
             // Build-first checkbox handling (runs off-EDT via ContextManager)
             final @Nullable String option = selectedOption; // capture for async callback
-            BuildAgent.determineVerificationCommandAsync(cm)
+            BuildTools.determineVerificationCommandAsync(cm)
                     .thenAccept(verificationCommand -> SwingUtilities.invokeLater(() -> {
                         boolean hasVerification = !Objects.requireNonNullElse(verificationCommand, "")
                                 .isBlank();
@@ -1482,7 +1482,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 String buildFailureText;
                 if (buildFirst) {
-                    buildFailureText = BuildAgent.runVerification(cm);
+                    buildFailureText = BuildTools.runVerification(cm);
                 } else {
                     buildFailureText = "";
                 }

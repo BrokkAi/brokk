@@ -4,29 +4,19 @@ import static ai.brokk.project.FileFilteringService.normalizeExclusionPattern;
 import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.AnalyzerUtil;
-import ai.brokk.ContextManager;
-import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.LlmOutputMeta;
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.project.IProject;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
-import ai.brokk.util.BuildOutputProcessor;
 import ai.brokk.util.BuildToolConventions;
 import ai.brokk.util.BuildToolConventions.BuildSystem;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
-import ai.brokk.util.EnvironmentPython;
 import ai.brokk.util.Messages;
-import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -36,10 +26,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import com.github.mustachejava.DefaultMustacheFactory;
-import com.github.mustachejava.Mustache;
-import com.github.mustachejava.MustacheFactory;
-import com.github.mustachejava.util.DecoratedCollection;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -47,27 +33,16 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.io.IOException;
-import java.io.StringReader;
-import java.io.StringWriter;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
-import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Locale;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -130,10 +105,21 @@ public class BuildAgent {
      * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
      */
     public BuildDetails execute() throws InterruptedException {
+        return execute(false);
+    }
+
+    /**
+     * Execute the build information gathering process with optional validation.
+     *
+     * @param validate If true, validates reported commands before returning.
+     * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
+     */
+    public BuildDetails execute(boolean validate) throws InterruptedException {
         var tr = globalRegistry.builder().register(this).build();
 
         // Loop safety tracking
         int iterationCount = 0;
+        int reportAttempts = 0;
         List<String> recentToolCalls = new ArrayList<>();
 
         // build message containing root directory contents
@@ -280,31 +266,39 @@ public class BuildAgent {
 
             // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
-                var terminalResult = tr.executeTool(reportRequest);
+                tr.executeTool(reportRequest);
+                var details = requireNonNull(
+                        reportedDetails,
+                        "reportedDetails should be non-null after successful reportBuildDetails tool execution");
 
-                if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
-                    // The assertion was here, but requireNonNull is more explicit for NullAway
-                    return requireNonNull(
-                            reportedDetails,
-                            "reportedDetails should be non-null after successful reportBuildDetails tool execution");
-                } else {
-                    // Tool execution failed
-                    logger.warn("reportBuildDetails tool execution failed. Error: {}", terminalResult.resultText());
-                    chatHistory.add(terminalResult.toExecutionResultMessage());
-                    continue;
+                if (validate) {
+                    reportAttempts++;
+                    String validationError = validateBuildDetails(details);
+                    if (validationError == null) {
+                        return details;
+                    }
+
+                    if (reportAttempts < 3) {
+                        String feedback =
+                                """
+                                The reported build details were validated and the following command failed:
+                                %s
+                                Please review the build configuration and call reportBuildDetails again with corrected commands."""
+                                        .formatted(validationError);
+                        chatHistory.add(
+                                new ToolExecutionResultMessage(reportRequest.id(), "reportBuildDetails", feedback));
+                        reportedDetails = null;
+                        continue;
+                    } else {
+                        logger.warn("BuildAgent exhausted validation retries. Returning EMPTY.");
+                        return BuildDetails.EMPTY;
+                    }
                 }
+                return details;
             } else if (abortRequest != null) {
-                var terminalResult = tr.executeTool(abortRequest);
-
-                if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
-                    assert abortReason != null;
-                    return BuildDetails.EMPTY;
-                } else {
-                    // Tool execution failed
-                    logger.warn("abortBuildDetails tool execution failed. Error: {}", terminalResult.resultText());
-                    chatHistory.add(terminalResult.toExecutionResultMessage());
-                    continue;
-                }
+                tr.executeTool(abortRequest);
+                assert abortReason != null;
+                return BuildDetails.EMPTY;
             }
 
             // 7. Execute Non-Terminal Tools
@@ -314,7 +308,6 @@ public class BuildAgent {
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
 
                 ToolExecutionResult execResult = tr.executeTool(request);
-
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
                 // Log tool result for debugging
@@ -410,6 +403,10 @@ public class BuildAgent {
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
 
                 The lists are DecoratedCollection instances, so you get first/last/index/value fields.
+
+                Since the lists are file- and class- oriented, for test environments like `go test` and `cargo test`
+                that are function-oriented, we fall back to running all tests.
+
                 Examples:
 
                 | Build tool        | One-liner a user could write
@@ -616,6 +613,47 @@ public class BuildAgent {
         return pattern.startsWith("*.") && !pattern.contains("/");
     }
 
+    @VisibleForTesting
+    @Nullable
+    String validateBuildDetails(BuildDetails details) throws InterruptedException {
+        // 1. Build/lint command
+        if (!details.buildLintCommand().isBlank()) {
+            var result = BuildVerifier.verify(project, details.buildLintCommand(), details.environmentVariables());
+            if (!result.success()) {
+                return "Build/lint command failed (exit code %d):\n%s"
+                        .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+            }
+        }
+
+        // 2. Testsome command
+        if (!details.testSomeCommand().isBlank()) {
+            var testFiles = project.getRepo().getTrackedFiles().stream()
+                    .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
+                    .toList();
+
+            if (!testFiles.isEmpty()) {
+                var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
+                String relPath = randomTestFile.toString();
+                String template = details.testSomeCommand();
+
+                String interpolatedCmd = null;
+                if (template.contains("{{#files}}")) {
+                    interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
+                }
+
+                if (interpolatedCmd != null) {
+                    var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
+                    if (!result.success()) {
+                        return "Test command failed (exit code %d):\n%s"
+                                .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
     /**
      * Remove patterns that are redundant because they match gitignored directories.
      * FileFilteringService already applies gitignore rules at runtime, so storing
@@ -720,564 +758,6 @@ public class BuildAgent {
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
                     afterTaskListCommand != null ? afterTaskListCommand : "");
-        }
-    }
-
-    /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
-    @Blocking
-    public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
-        return determineVerificationCommand(ctx, null);
-    }
-
-    /** Determine the best verification command using the provided Context and an optional override. */
-    @Blocking
-    public static @Nullable String determineVerificationCommand(Context ctx, @Nullable BuildDetails override)
-            throws InterruptedException {
-        var cm = ctx.getContextManager();
-
-        // Retrieve build details from the project associated with the ContextManager
-        BuildDetails details = override != null ? override : cm.getProject().awaitBuildDetails();
-
-        if (details.equals(BuildDetails.EMPTY)) {
-            logger.warn("No build details available, cannot determine verification command.");
-            return null;
-        }
-
-        // Check project setting for test scope
-        IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
-        if (testScope == IProject.CodeAgentTestScope.ALL) {
-            String cmd = System.getenv("BRK_TESTALL_CMD") != null
-                    ? System.getenv("BRK_TESTALL_CMD")
-                    : details.testAllCommand();
-            logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", cmd);
-            return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
-        }
-
-        // Proceed with workspace-specific test determination (based on the provided Context)
-        logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace (Context-based).");
-
-        // Get ProjectFiles from editable and read-only fragments
-        var projectFilesFromEditableOrReadOnly = ctx.allFragments()
-                .filter(f -> f.getType().isPath())
-                .flatMap(fragment -> fragment.sourceFiles().join().stream()); // No analyzer
-
-        // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        var projectFilesFromSkeletons = ctx.allFragments()
-                .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(skeletonFragment -> skeletonFragment.sourceFiles().join().stream()); // No analyzer
-
-        // Combine all relevant ProjectFiles into a single set for checking against test files
-        var workspaceFiles = Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)
-                .collect(Collectors.toSet());
-
-        // Check if any of the identified project test files are present in the current workspace set
-        var analyzer = cm.getAnalyzer();
-        var workspaceTestFiles = workspaceFiles.stream()
-                .filter(f -> ContextManager.isTestFile(f, analyzer))
-                .toList();
-
-        // Decide which command to use
-        if (workspaceTestFiles.isEmpty()) {
-            var summaries = ContextFragment.describe(ctx.allFragments());
-            logger.debug(
-                    "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
-                    cm.getProject().getRoot(),
-                    summaries,
-                    details.buildLintCommand());
-            return interpolateCommandWithPythonVersion(
-                    details.buildLintCommand(), cm.getProject().getRoot());
-        }
-
-        return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
-    }
-
-    /**
-     * Determine and interpolate the "run some tests" command for the current workspace.
-     */
-    public static String getBuildLintSomeCommand(
-            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
-            throws InterruptedException {
-        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null);
-    }
-
-    /**
-     * Runs determineVerificationCommand on the {@link ContextManager} background pool and
-     * delivers the result asynchronously.
-     *
-     * @return a {@link CompletableFuture} that completes on the background thread.
-     */
-    public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
-        return cm.submitBackgroundTask(
-                "Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
-    }
-
-    /**
-     * Determine and interpolate the "run some tests" command for the current workspace.
-     * Supports files-based, classes-based, fqclasses-based, and modules-based templates.
-     */
-    public static String getBuildLintSomeCommand(
-            IContextManager cm,
-            BuildDetails details,
-            Collection<ProjectFile> workspaceTestFiles,
-            @Nullable String pythonVersionOverride)
-            throws InterruptedException {
-
-        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
-                ? System.getenv("BRK_TESTSOME_CMD")
-                : details.testSomeCommand();
-
-        // No test-some command configured - silently fall back to build/lint
-        if (testSomeTemplate.isBlank()) {
-            return details.buildLintCommand();
-        }
-
-        boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
-        boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
-        boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
-        boolean isModulesBased =
-                testSomeTemplate.contains("{{#modules}}") || testSomeTemplate.contains("{{#packages}}");
-
-        if (!isFilesBased && !isClassesBased && !isModulesBased) {
-            // Template is defined but may be misconfigured
-            logger.debug(
-                    "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, {{#modules}}, or {{#packages}})");
-            return testSomeTemplate;
-        }
-
-        final Path projectRoot = cm.getProject().getRoot();
-        String pythonVersion =
-                pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
-
-        if (isModulesBased) {
-            List<String> modules = cm.getAnalyzer().getTestModules(workspaceTestFiles);
-
-            if (modules.isEmpty()) {
-                logger.debug("No modules/packages derived; falling back to build/lint: {}", details.buildLintCommand());
-                return details.buildLintCommand();
-            }
-
-            logger.debug("Using modules/packages template with {} entries", modules.size());
-            Map<String, List<String>> vars = new HashMap<>();
-            vars.put("modules", modules);
-            vars.put("packages", modules);
-            return interpolateMustacheTemplate(testSomeTemplate, vars, pythonVersion);
-        }
-
-        List<String> targetItems;
-
-        if (isFilesBased) {
-            targetItems = workspaceTestFiles.stream().map(ProjectFile::toString).toList();
-            logger.debug("Using files-based template with {} files", targetItems.size());
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "files", pythonVersion);
-        }
-
-        IAnalyzer analyzer = cm.getAnalyzer();
-
-        if (analyzer.isEmpty()) {
-            logger.warn("Analyzer is empty; falling back to build/lint: {}", details.buildLintCommand());
-            return details.buildLintCommand();
-        }
-
-        var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
-        if (isFqBased) {
-            targetItems = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
-            if (targetItems.isEmpty()) {
-                logger.debug("No fqclasses derived; falling back to build/lint: {}", details.buildLintCommand());
-                return details.buildLintCommand();
-            }
-            logger.debug("Using fqclasses-based template with {} entries", targetItems.size());
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "fqclasses", pythonVersion);
-        } else {
-            targetItems = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
-            if (targetItems.isEmpty()) {
-                logger.debug("No classes derived; falling back to build/lint: {}", details.buildLintCommand());
-                return details.buildLintCommand();
-            }
-            logger.debug("Using classes-based template with {} entries", targetItems.size());
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "classes", pythonVersion);
-        }
-    }
-
-    /** Get the Python version for the project, or null if unable to determine. */
-    private static @Nullable String getPythonVersionForProject(Path projectRoot) {
-        try {
-            return new EnvironmentPython(projectRoot).getPythonVersion();
-        } catch (Exception e) {
-            logger.debug("Unable to determine Python version for project", e);
-            return null;
-        }
-    }
-
-    /**
-     * Interpolate a build/test command with just the Python version variable.
-     * Used when there are no specific files or classes to substitute.
-     * If the template doesn't contain {{pyver}}, returns the original command.
-     */
-    private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
-        if (command.isEmpty()) {
-            return command;
-        }
-        // Allow override via environment variable
-        if (System.getenv("BRK_TESTALL_CMD") != null) {
-            command = System.getenv("BRK_TESTALL_CMD");
-        }
-        String pythonVersion = getPythonVersionForProject(projectRoot);
-        return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
-    }
-
-    /**
-     * Interpolates a Mustache template with the given list of items and optional Python version.
-     * Supports {{files}}, {{classes}}, {{fqclasses}}, {{modules}}, and {{pyver}} variables.
-     */
-    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
-        return interpolateMustacheTemplate(template, items, listKey, null);
-    }
-
-    /**
-     * Interpolates a Mustache template with the given list of items and optional Python version.
-     * Supports {{files}}, {{classes}}, {{fqclasses}}, {{modules}}, and {{pyver}} variables.
-     */
-    public static String interpolateMustacheTemplate(
-            String template, List<String> items, String listKey, @Nullable String pythonVersion) {
-        return interpolateMustacheTemplate(template, Map.of(listKey, items), pythonVersion);
-    }
-
-    /**
-     * Interpolates a Mustache template with a map of list variables and optional Python version.
-     * Each list in the map is wrapped in a {@link DecoratedCollection} for Mustache sections.
-     */
-    public static String interpolateMustacheTemplate(
-            String template, Map<String, List<String>> listVariables, @Nullable String pythonVersion) {
-        if (template.isEmpty()) {
-            return "";
-        }
-
-        MustacheFactory mf = new DefaultMustacheFactory();
-        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
-
-        Map<String, Object> context = new HashMap<>();
-        listVariables.forEach((key, list) -> context.put(key, new DecoratedCollection<>(list)));
-        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
-
-        StringWriter writer = new StringWriter();
-        mustache.execute(writer, context);
-
-        return writer.toString();
-    }
-
-    /**
-     * Run the verification build for the current project, stream output to the console, and update the session's Build
-     * Results fragment.
-     *
-     * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
-     * text.
-     */
-    @Blocking
-    public static String runVerification(IContextManager cm) throws InterruptedException {
-        return runVerification(cm, null);
-    }
-
-    /**
-     * Run the verification build for the current project with optional build details override.
-     */
-    @Blocking
-    public static String runVerification(IContextManager cm, @Nullable BuildDetails override)
-            throws InterruptedException {
-        var interrupted = new AtomicReference<InterruptedException>(null);
-        var updated = cm.pushContext(ctx -> {
-            try {
-                return runVerification(ctx, override);
-            } catch (InterruptedException e) {
-                // Preserve interrupt status and defer propagation until after pushContext returns
-                Thread.currentThread().interrupt();
-                interrupted.set(e);
-                return ctx;
-            }
-        });
-        var ie = interrupted.get();
-        if (ie != null) {
-            throw ie;
-        }
-        return updated.getBuildError();
-    }
-
-    /**
-     * Context-based overload that performs build/check and returns an updated Context with the build results. No pushes
-     * are performed here; callers decide when to persist.
-     */
-    @Blocking
-    public static Context runVerification(Context ctx) throws InterruptedException {
-        return runVerification(ctx, null);
-    }
-
-    /**
-     * Context-based overload that performs build/check with an optional build details override.
-     */
-    @Blocking
-    public static Context runVerification(Context ctx, @Nullable BuildDetails override) throws InterruptedException {
-        var cm = ctx.getContextManager();
-        var io = cm.getIo();
-
-        var verificationCommand = determineVerificationCommand(ctx, override);
-        if (verificationCommand == null || verificationCommand.isBlank()) {
-            io.llmOutput(
-                    "\nNo verification command specified, skipping build/check.",
-                    ChatMessageType.CUSTOM,
-                    LlmOutputMeta.DEFAULT);
-            return ctx; // unchanged
-        }
-
-        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
-        if (noConcurrentBuilds) {
-            var lock = acquireBuildLock(cm);
-            if (lock == null) {
-                logger.warn("Failed to acquire build lock; proceeding without it");
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
-            }
-            try (var ignored = lock) {
-                logger.debug("Acquired build lock {}", lock.lockFile());
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
-            } catch (Exception e) {
-                logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
-            }
-        } else {
-            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
-        }
-    }
-
-    /**
-     * Context-based overload that performs a caller-specified command and returns an updated Context with the build
-     * results. No pushes are performed here; callers decide when to persist.
-     */
-    @Blocking
-    public static Context runExplicitCommand(Context ctx, String command, @Nullable BuildDetails override)
-            throws InterruptedException {
-        var cm = ctx.getContextManager();
-        var io = cm.getIo();
-
-        if (command.isBlank()) {
-            io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-            return ctx.withBuildResult(true, "");
-        }
-
-        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
-        if (noConcurrentBuilds) {
-            var lock = acquireBuildLock(cm);
-            if (lock == null) {
-                logger.warn("Failed to acquire build lock; proceeding without it");
-                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
-            }
-            try (var ignored = lock) {
-                logger.debug("Acquired build lock {}", lock.lockFile());
-                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
-            } catch (Exception e) {
-                logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
-                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
-            }
-        } else {
-            return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
-        }
-    }
-
-    /** Holder for lock resources, AutoCloseable so try-with-resources releases it. */
-    private record BuildLock(FileChannel channel, FileLock lock, Path lockFile) implements AutoCloseable {
-        @Override
-        public void close() {
-            try {
-                if (lock.isValid()) lock.release();
-            } catch (Exception e) {
-                logger.debug("Error releasing build lock {}: {}", lockFile, e.toString());
-            }
-            try {
-                if (channel.isOpen()) channel.close();
-            } catch (Exception e) {
-                logger.debug("Error closing lock channel {}: {}", lockFile, e.toString());
-            }
-        }
-    }
-
-    /** Attempts to acquire an inter-process build lock. Returns a non-null BuildLock on success, or null on failure. */
-    private static @Nullable BuildLock acquireBuildLock(IContextManager cm) {
-        Path lockDir = Paths.get(System.getProperty("java.io.tmpdir"), "brokk");
-        try {
-            Files.createDirectories(lockDir);
-        } catch (IOException e) {
-            logger.warn("Unable to create lock directory {}; proceeding without build lock", lockDir, e);
-            return null;
-        }
-
-        var repoNameForLock = getOriginRepositoryName(cm);
-        Path lockFile = lockDir.resolve(repoNameForLock + ".lock");
-
-        try {
-            var channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            var lock = channel.lock();
-            logger.debug("Acquired build lock {}", lockFile);
-            return new BuildLock(channel, lock, lockFile);
-        } catch (IOException ioe) {
-            logger.warn("Failed to acquire file lock {}; proceeding without it", lockFile, ioe);
-            return null;
-        }
-    }
-
-    private static String getOriginRepositoryName(IContextManager cm) {
-        var url = cm.getRepo().getRemoteUrl();
-        if (url == null || url.isBlank()) {
-            return cm.getRepo().getGitTopLevel().getFileName().toString();
-        }
-        if (url.endsWith(".git")) url = url.substring(0, url.length() - 4);
-        int idx = Math.max(url.lastIndexOf('/'), url.lastIndexOf(':'));
-        if (idx >= 0 && idx < url.length() - 1) {
-            return url.substring(idx + 1);
-        }
-        throw new IllegalArgumentException("Unable to parse git repo url " + url);
-    }
-
-    /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */
-    private static Context runBuildAndUpdateFragmentInternal(
-            Context ctx, String verificationCommand, @Nullable BuildDetails override) throws InterruptedException {
-        var cm = ctx.getContextManager();
-        var io = cm.getIo();
-
-        var details = override != null ? override : cm.getProject().awaitBuildDetails();
-
-        // When BRK_TEST_RETRIES is set, decouple lint from tests and retry flaky test failures
-        @Nullable String testRetriesEnv = System.getenv("BRK_TEST_RETRIES");
-        if (testRetriesEnv != null && !testRetriesEnv.isBlank()) {
-            int retries;
-            try {
-                retries = Integer.parseInt(testRetriesEnv.trim());
-            } catch (NumberFormatException e) {
-                throw new RuntimeException(e);
-            }
-            return runBuildWithTestRetries(ctx, verificationCommand, details, retries);
-        }
-
-        io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-
-        io.llmOutput(
-                verificationCommand + "\n\n",
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.newMessage().withTerminal(true));
-
-        try {
-            var envVars = details.environmentVariables();
-            var execCfg = cm.getProject().getShellConfig();
-
-            Duration timeout = resolveTimeout(cm.getProject().getRunCommandTimeoutSeconds());
-
-            var output = Environment.instance.runShellCommand(
-                    verificationCommand,
-                    cm.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    timeout,
-                    execCfg,
-                    envVars);
-
-            logger.debug("Verification command successful. Output: {}", output);
-            return ctx.withBuildResult(true, "Build succeeded.");
-        } catch (Environment.SubprocessException e) {
-            String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
-            String processed = BuildOutputProcessor.processForLlm(rawBuild, cm);
-            return ctx.withBuildResult(false, processed);
-        }
-    }
-
-    /**
-     * When BRK_TEST_RETRIES is set, run lint first, then run the test command with retries.
-     * This decouples persistent build errors from transient (flaky) test failures.
-     */
-    private static Context runBuildWithTestRetries(
-            Context ctx, String verificationCommand, BuildDetails details, int maxRetries) throws InterruptedException {
-        var cm = ctx.getContextManager();
-        var io = cm.getIo();
-
-        String lintCommand = details.buildLintCommand();
-        // The verificationCommand is the test command that was determined by determineVerificationCommand.
-        // If it equals the buildLintCommand, there are no separate tests to run.
-        String testCommand = verificationCommand.equals(lintCommand) ? "" : verificationCommand;
-
-        io.llmOutput(
-                "\nRunning verification with test retries enabled:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-
-        if (!lintCommand.isBlank()) {
-            io.llmOutput(
-                    "\nLint/compile: " + lintCommand + "\n",
-                    ChatMessageType.CUSTOM,
-                    LlmOutputMeta.newMessage().withTerminal(true));
-        }
-        if (!testCommand.isBlank()) {
-            io.llmOutput(
-                    "Test: " + testCommand + " (up to " + maxRetries + " attempts)\n\n",
-                    ChatMessageType.CUSTOM,
-                    LlmOutputMeta.terminal());
-        }
-
-        var envVars = details.environmentVariables();
-        var result = BuildVerifier.verifyWithRetries(
-                cm.getProject(),
-                lintCommand,
-                testCommand,
-                maxRetries,
-                envVars,
-                line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()));
-
-        if (result.success()) {
-            logger.debug("Verification with retries succeeded. Output: {}", result.output());
-            return ctx.withBuildResult(true, "Build succeeded.");
-        } else {
-            String processed = BuildOutputProcessor.processForLlm(result.output(), cm);
-            return ctx.withBuildResult(false, processed);
-        }
-    }
-
-    private static Context runExplicitBuildAndUpdateFragmentInternal(
-            Context ctx, String command, @Nullable BuildDetails override) throws InterruptedException {
-        var cm = ctx.getContextManager();
-        var io = cm.getIo();
-
-        io.llmOutput(
-                "\nRunning command: \n\n```bash\n" + command + "\n```\n",
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.DEFAULT);
-        String shellLang = ShellConfig.getShellLanguageFromProject(cm.getProject());
-        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-
-        try {
-            var details = override != null ? override : cm.getProject().awaitBuildDetails();
-            var envVars = details.environmentVariables();
-            var execCfg = cm.getProject().getShellConfig();
-
-            Duration timeout = resolveTimeout(cm.getProject().getTestCommandTimeoutSeconds());
-
-            var output = Environment.instance.runShellCommand(
-                    command,
-                    cm.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    timeout,
-                    execCfg,
-                    envVars);
-            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-
-            logger.debug("Explicit command successful. Output: {}", output);
-            return ctx.withBuildResult(true, "Build succeeded.");
-        } catch (Environment.SubprocessException e) {
-            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-
-            String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
-            String processed = BuildOutputProcessor.processForLlm(rawBuild, cm);
-            return ctx.withBuildResult(false, processed);
-        }
-    }
-
-    private static Duration resolveTimeout(long timeoutSeconds) {
-        if (timeoutSeconds == -1) {
-            return Environment.UNLIMITED_TIMEOUT;
-        } else if (timeoutSeconds <= 0) {
-            return Environment.DEFAULT_TIMEOUT;
-        } else {
-            return Duration.ofSeconds(timeoutSeconds);
         }
     }
 

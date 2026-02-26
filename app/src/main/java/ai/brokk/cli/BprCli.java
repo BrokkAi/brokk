@@ -29,6 +29,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildTools;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -401,10 +402,12 @@ public final class BprCli implements Callable<Integer> {
         project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
         logger.trace("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
         cm = new ContextManager(project);
+        var io = cm.getIo();
 
+        cm.createHeadless(true, new HeadlessConsole());
         // Build BuildDetails from environment variables
-        String buildLintCmd = System.getenv("BRK_BUILD_CMD");
         String testAllCmd = System.getenv("BRK_TESTALL_CMD");
+        String buildLintCmd = System.getenv("BRK_BUILD_CMD");
         String testSomeCmd = System.getenv("BRK_TESTSOME_CMD");
         var buildDetails = new BuildAgent.BuildDetails(
                 buildLintCmd != null ? buildLintCmd : "",
@@ -413,9 +416,7 @@ public final class BprCli implements Callable<Integer> {
                 Set.of(),
                 Map.of("VIRTUAL_ENV", ".venv")); // venv is hardcoded to override swebench task runner
         logger.info("Build Details: " + buildDetails);
-
-        cm.createHeadless(buildDetails, true);
-        var io = cm.getIo();
+        mainProject.setBuildDetails(buildDetails);
 
         //  Model Overrides initialization
         var service = cm.getService();
@@ -767,7 +768,7 @@ public final class BprCli implements Callable<Integer> {
                     context = result.context();
                     scope.append(result);
                 } else if (build) {
-                    String buildError = BuildAgent.runVerification(cm);
+                    String buildError = BuildTools.runVerification(cm);
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             buildError.isEmpty()

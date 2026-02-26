@@ -2,6 +2,8 @@ package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -13,12 +15,14 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,7 +47,7 @@ class BuildAgentTest {
         String template = "tests/runtests.py{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("servers.tests");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules");
 
         assertEquals("tests/runtests.py servers.tests", result);
     }
@@ -53,7 +57,7 @@ class BuildAgentTest {
         String template = "pytest{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("tests.unit", "tests.integration", "tests.e2e");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules");
 
         assertEquals("pytest tests.unit tests.integration tests.e2e", result);
     }
@@ -63,7 +67,7 @@ class BuildAgentTest {
         String template = "jest{{#files}} {{value}}{{/files}}";
         List<String> files = List.of("src/app.test.js", "src/util.test.js");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
+        String result = BuildTools.interpolateMustacheTemplate(template, files, "files");
 
         assertEquals("jest src/app.test.js src/util.test.js", result);
     }
@@ -73,7 +77,7 @@ class BuildAgentTest {
         String template = "pytest{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules");
 
         assertEquals("pytest", result);
     }
@@ -83,7 +87,7 @@ class BuildAgentTest {
         String template = "go test -run '{{#classes}} {{value}}{{/classes}}'";
         List<String> classes = List.of("TestFoo");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
+        String result = BuildTools.interpolateMustacheTemplate(template, classes, "classes");
 
         assertEquals("go test -run ' TestFoo'", result);
     }
@@ -266,7 +270,7 @@ class BuildAgentTest {
         String template = "python{{pyver}} -m pytest";
         List<String> empty = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", "3.11");
+        String result = BuildTools.interpolateMustacheTemplate(template, empty, "modules", "3.11");
 
         assertEquals("python3.11 -m pytest", result);
     }
@@ -276,7 +280,7 @@ class BuildAgentTest {
         String template = "pytest";
         List<String> empty = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", "3.11");
+        String result = BuildTools.interpolateMustacheTemplate(template, empty, "modules", "3.11");
 
         assertEquals("pytest", result);
     }
@@ -286,7 +290,7 @@ class BuildAgentTest {
         String template = "pytest --pyver={{pyver}}";
         List<String> empty = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", null);
+        String result = BuildTools.interpolateMustacheTemplate(template, empty, "modules", null);
 
         assertEquals("pytest --pyver=", result);
     }
@@ -296,7 +300,7 @@ class BuildAgentTest {
         String template = "python{{pyver}} tests/runtests.py{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("tests.unit", "tests.integration");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "3.10");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules", "3.10");
 
         assertEquals("python3.10 tests/runtests.py tests.unit tests.integration", result);
     }
@@ -306,7 +310,7 @@ class BuildAgentTest {
         String template = "uv run {{#modules}}{{value}}{{/modules}}";
         List<String> modules = List.of("tests.e2e");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules", "");
 
         assertEquals("uv run tests.e2e", result);
     }
@@ -454,7 +458,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertTrue(updated.getBuildError().isBlank(), "Build error should be blank on success");
             assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
@@ -482,7 +486,7 @@ class BuildAgentTest {
                 throw new Environment.FailureException("boom", "stdout:\nfail", 1);
             };
 
-            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertFalse(updated.getBuildError().isBlank(), "Build error should be non-blank on failure");
             assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
@@ -515,7 +519,7 @@ class BuildAgentTest {
                 };
             };
 
-            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertFalse(updated.getBuildError().contains("null"), "Build error must not contain the literal 'null'");
         } finally {
@@ -536,7 +540,7 @@ class BuildAgentTest {
 
         var ctxWithError = ctx.withBuildResult(false, "previous failure");
 
-        var updated = BuildAgent.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
+        var updated = BuildTools.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
 
         assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
         assertTrue(io.getOutputLog().contains("No explicit command specified, skipping."), "Should log skip message");
@@ -561,7 +565,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            BuildAgent.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+            BuildTools.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
 
             assertEquals(
                     Duration.ofSeconds(120), capturedTimeout.get(), "Test command should use test-specific timeout");
@@ -589,7 +593,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            BuildAgent.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+            BuildTools.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
 
             assertEquals(
                     Environment.UNLIMITED_TIMEOUT,
@@ -619,7 +623,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            BuildAgent.runVerification(ctx);
+            BuildTools.runVerification(ctx);
 
             assertEquals(
                     Duration.ofSeconds(45),
@@ -815,19 +819,27 @@ class BuildAgentTest {
     @Test
     void testGetBuildLintSomeCommandGoModules(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.GO);
-        // Use real GoAnalyzer to test directory-based module logic
-        ai.brokk.analyzer.GoAnalyzer analyzer = new ai.brokk.analyzer.GoAnalyzer(project);
+        // Mock GoAnalyzer to return specific test packages
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return List.of(".", "./auth");
+            }
+        };
         TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
         ProjectFile file1 = new ProjectFile(tempDir, "main_test.go");
-        Path authDir = tempDir.resolve("auth");
-        Files.createDirectories(authDir);
         ProjectFile file2 = new ProjectFile(tempDir, "auth/auth_test.go");
 
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
                 "go build", "go test ./...", "go test {{#packages}}{{value}} {{/packages}}", Set.of());
 
-        String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
         // GoAnalyzer.getTestModules returns ./path and .
         assertEquals("go test . ./auth ", result);
@@ -836,8 +848,18 @@ class BuildAgentTest {
     @Test
     void testGetBuildLintSomeCommandPythonPackages(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.PYTHON);
-        // Use real PythonAnalyzer to test dotted module label logic
-        ai.brokk.analyzer.PythonAnalyzer analyzer = new ai.brokk.analyzer.PythonAnalyzer(project);
+        // Mock PythonAnalyzer to return specific test modules
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return List.of("auth.test_login", "tests.test_foo");
+            }
+        };
         TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
         ProjectFile file1 = new ProjectFile(tempDir, "tests/test_foo.py");
@@ -849,7 +871,7 @@ class BuildAgentTest {
                 "python -m pytest {{#packages}}{{value}} {{/packages}}",
                 Set.of());
 
-        String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
         // Result should be sorted dotted labels: auth.test_login tests.test_foo
         assertEquals("python -m pytest auth.test_login tests.test_foo ", result);
@@ -859,7 +881,22 @@ class BuildAgentTest {
     void testGetBuildLintSomeCommandJavaPackages(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir, Languages.JAVA);
         // Java uses default IAnalyzer.getTestModules which extracts packageName from CodeUnits
-        TestAnalyzer analyzer = new TestAnalyzer();
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return files.stream()
+                        .flatMap(f -> getTopLevelDeclarations(f).stream())
+                        .map(ai.brokk.analyzer.CodeUnit::packageName)
+                        .distinct()
+                        .sorted()
+                        .toList();
+            }
+        };
         TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
         ProjectFile file1 = new ProjectFile(tempDir, "src/main/java/com/example/App.java");
@@ -874,7 +911,7 @@ class BuildAgentTest {
                 "mvn test -Dtest={{#packages}}{{value}}.*{{^last}} {{/last}}{{/packages}}",
                 Set.of());
 
-        String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
         assertEquals("mvn test -Dtest=com.example.* com.example.util.*", result);
     }
@@ -886,6 +923,11 @@ class BuildAgentTest {
             private final Map<ProjectFile, List<CodeUnit>> fileToDecls = new java.util.HashMap<>();
 
             @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
             public void addDeclaration(CodeUnit cu) {
                 super.addDeclaration(cu);
                 fileToDecls.computeIfAbsent(cu.source(), k -> new ArrayList<>()).add(cu);
@@ -894,6 +936,16 @@ class BuildAgentTest {
             @Override
             public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
                 return fileToDecls.getOrDefault(file, List.of());
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return files.stream()
+                        .flatMap(f -> getTopLevelDeclarations(f).stream())
+                        .map(ai.brokk.analyzer.CodeUnit::packageName)
+                        .distinct()
+                        .sorted()
+                        .toList();
             }
         };
         TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
@@ -910,9 +962,65 @@ class BuildAgentTest {
                 "cargo test {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}",
                 Set.of());
 
-        String result = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
         assertEquals("cargo test crate crate::foo", result);
+    }
+
+    @Test
+    void testValidateBuildDetailsSuccess(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            // Lint command succeeds
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> "ok";
+
+            var agent = new BuildAgent(project, null, null);
+            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
+
+            String result = agent.validateBuildDetails(details);
+            assertNull(result, "validateBuildDetails should return null when commands pass");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testValidateBuildDetailsLintFailure(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                outputConsumer.accept("compile error");
+                throw new Environment.FailureException("build failed", "compile error", 1);
+            };
+
+            var agent = new BuildAgent(project, null, null);
+            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
+
+            String result = agent.validateBuildDetails(details);
+            assertNotNull(result, "validateBuildDetails should return error when lint fails");
+            assertTrue(result.contains("Build/lint command failed"), "Error should mention build/lint failure");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testValidateBuildDetailsBlankCommandsSkipsValidation(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("README.md"), "x");
+        var project = new TestProject(tempDir);
+
+        var agent = new BuildAgent(project, null, null);
+        // Both commands are blank - should skip validation entirely and return null
+        var details = new BuildAgent.BuildDetails("", "", "", Set.of(), Map.of());
+
+        String result = agent.validateBuildDetails(details);
+        assertNull(result, "validateBuildDetails should return null when all commands are blank");
     }
 
     @Test

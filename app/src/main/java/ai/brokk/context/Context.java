@@ -161,6 +161,37 @@ public class Context {
     }
 
     /**
+     * Removes unpinned {@link ContextFragments.SummaryFragment}s that are superseded by full
+     * file or class fragments already present in this context.
+     *
+     * <p>A summary is superseded when a {@link ContextFragments.ProjectPathFragment} or
+     * {@link ContextFragments.CodeFragment} covering the same underlying source exists in the
+     * context. Pinned summaries are never removed.</p>
+     *
+     * @return a new Context with superseded summaries removed, or {@code this} if nothing changed
+     */
+    @Blocking
+    public Context removeSupersededSummaries() {
+        var nonSummaryFragments = fragments.stream()
+                .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
+                .toList();
+
+        var superseded = fragments.stream()
+                .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                .map(f -> (ContextFragments.SummaryFragment) f)
+                .filter(sf -> !pinnedFragments.contains(sf))
+                .filter(sf -> sf.isSupersededBy(nonSummaryFragments))
+                .toList();
+
+        if (superseded.isEmpty()) {
+            return this;
+        }
+
+        logger.debug("removeSupersededSummaries: removing {} superseded summaries: {}", superseded.size(), superseded);
+        return removeFragments(superseded);
+    }
+
+    /**
      * Adds fragments to the context.
      * <p>
      * Fragments are deduplicated by semantic equivalence ({@code hasSameSource}) within the input and against the current context.
@@ -191,24 +222,13 @@ public class Context {
             }
         }
 
-        // 2. Identify files that are being added as full PATH fragments.
-        // These will "kill" any existing SKELETON fragments for the same files.
-        var incomingPathFiles = expanded.stream()
-                .filter(f -> f instanceof ContextFragments.PathFragment)
-                .map(f -> (ContextFragments.PathFragment) f)
-                .flatMap(pf -> pf.sourceFiles().join().stream())
-                .collect(Collectors.toSet());
-
-        // 3. Process the CURRENT fragments:
+        // Process the CURRENT fragments:
         //    a) Identify SUMMARY fragments superseded by incoming PATHS.
         //    b) Keep everything else (we will deduplicate against new inputs in the next step).
         var partitioned = this.fragments.stream().collect(Collectors.partitioningBy(f -> {
-            if (f instanceof ContextFragments.SummaryFragment) {
-                var skeletonFiles = f.sourceFiles().join();
-                // If the skeleton's files overlap with incoming full paths, drop the skeleton.
-                return !Collections.disjoint(skeletonFiles, incomingPathFiles);
-            }
-            return false;
+            return f instanceof ContextFragments.SummaryFragment sf
+                    && !pinnedFragments.contains(f)
+                    && sf.isSupersededBy(toAdd);
         }));
 
         var supersededFragments = castNonNull(partitioned.get(true));

@@ -1936,6 +1936,32 @@ public class ContextFragments {
             return Set.of();
         }
 
+        /**
+         * Returns true if this summary fragment is superseded by a full fragment in the given collection.
+         *
+         * <ul>
+         *   <li>A FILE_SKELETONS summary is superseded when a {@link ProjectPathFragment} covering
+         *       the same file is present.</li>
+         *   <li>A CODEUNIT_SKELETON summary is superseded when a {@link ProjectPathFragment} or
+         *       {@link CodeFragment} whose resolved sources include the target class is present.</li>
+         * </ul>
+         */
+        @Blocking
+        public boolean isSupersededBy(Collection<? extends ContextFragment> candidates) {
+            return switch (summaryType) {
+                case FILE_SKELETONS ->
+                    candidates.stream()
+                            .filter(c -> c instanceof ProjectPathFragment)
+                            .map(c -> (ProjectPathFragment) c)
+                            .anyMatch(ppf -> ppf.file().toString().equals(targetIdentifier));
+                case CODEUNIT_SKELETON ->
+                    candidates.stream()
+                            .filter(c -> c instanceof ProjectPathFragment || c instanceof CodeFragment)
+                            .anyMatch(c -> c.sources().join().stream()
+                                    .anyMatch(cu -> cu.fqName().equals(targetIdentifier)));
+            };
+        }
+
         @Override
         public boolean isEligibleForAutoContext() {
             return false;
