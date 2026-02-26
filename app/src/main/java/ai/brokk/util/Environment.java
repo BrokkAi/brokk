@@ -801,7 +801,8 @@ public class Environment {
                     ancestor,
                     headless,
                     url,
-                    "Sorry, unable to open browser automatically. This is a known problem on WSL.\nPlease visit: " + url,
+                    "Sorry, unable to open browser automatically. This is a known problem on WSL.\nPlease visit: "
+                            + url,
                     "Browser Unsupported",
                     JOptionPane.WARNING_MESSAGE);
         } catch (Exception ex) {

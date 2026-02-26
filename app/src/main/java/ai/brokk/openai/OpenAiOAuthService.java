@@ -196,7 +196,8 @@ public class OpenAiOAuthService {
                 pendingState = null;
                 pendingVerifier = null;
                 pendingAuthorizationUrl = null;
-                if (ancestor != null || !GraphicsEnvironment.isHeadless()) {
+                boolean canShowDialog = ancestor != null || !GraphicsEnvironment.isHeadless();
+                if (canShowDialog) {
                     SwingUtilities.invokeLater(() -> {
                         javax.swing.JOptionPane.showMessageDialog(
                                 ancestor,
@@ -205,6 +206,8 @@ public class OpenAiOAuthService {
                                 "OAuth Server Error",
                                 javax.swing.JOptionPane.ERROR_MESSAGE);
                     });
+                } else {
+                    throw new IllegalStateException("Failed to start OAuth callback server on port " + OAUTH_PORT, e);
                 }
                 return;
             }
