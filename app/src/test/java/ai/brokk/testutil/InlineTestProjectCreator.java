@@ -9,9 +9,13 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -123,6 +127,56 @@ public class InlineTestProjectCreator {
         }
     }
 
+    private static class GitCloneStrategy implements ProjectContentStrategy {
+        private static final Path CACHE_ROOT = Path.of(System.getProperty("user.home"), ".brokk", "test-cache", "git");
+
+        private final String url;
+        private final String ref;
+
+        public GitCloneStrategy(String url, String ref) {
+            this.url = url;
+            this.ref = ref;
+        }
+
+        @Override
+        public void populate(Path root) throws IOException {
+            Files.createDirectories(CACHE_ROOT);
+            String cacheKey = hash(url);
+            Path cachePath = CACHE_ROOT.resolve(cacheKey);
+
+            try {
+                if (!Files.exists(cachePath)) {
+                    GitRepoFactory.cloneRepo(url, cachePath, 0);
+                }
+
+                // Clone from cache to target root
+                GitRepoFactory.cloneRepo(cachePath.toUri().toString(), root, 0, ref);
+            } catch (GitAPIException e) {
+                throw new IOException("Failed to clone repository: " + url, e);
+            }
+        }
+
+        @Override
+        public Set<Language> detectLanguages() {
+            return Set.of(); // Post-population scan
+        }
+
+        @Override
+        public List<String> getFilesForInitialCommit() {
+            return List.of(); // Already initialized by clone
+        }
+
+        private static String hash(String input) {
+            try {
+                var md = MessageDigest.getInstance("SHA-256");
+                byte[] messageDigest = md.digest(input.getBytes(StandardCharsets.UTF_8));
+                return String.format("%064x", new BigInteger(1, messageDigest));
+            } catch (NoSuchAlgorithmException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
     public static TestProjectBuilder code(String contents, String filename) {
         return fromInline(contents, filename);
     }
@@ -133,6 +187,10 @@ public class InlineTestProjectCreator {
 
     public static TestProjectBuilder fromZip(Path zipPath) {
         return new TestProjectBuilder(new ZipContentStrategy(zipPath));
+    }
+
+    public static TestProjectBuilder fromGitUrl(String url, String ref) {
+        return new TestProjectBuilder(new GitCloneStrategy(url, ref)).withGit();
     }
 
     public static class TestProjectBuilder {
@@ -173,7 +231,11 @@ public class InlineTestProjectCreator {
 
             if (this instanceof TestGitProjectBuilder gitBuilder) {
                 try {
-                    GitRepoFactory.initRepo(newTemporaryDirectory);
+                    boolean alreadyRepo = GitRepoFactory.hasGitRepo(newTemporaryDirectory);
+                    if (!alreadyRepo) {
+                        GitRepoFactory.initRepo(newTemporaryDirectory);
+                    }
+
                     try (Git git = Git.open(newTemporaryDirectory.toFile())) {
                         if (!gitBuilder.commits.isEmpty()) {
                             for (var commit : gitBuilder.commits) {
@@ -187,7 +249,7 @@ public class InlineTestProjectCreator {
                                         .setSign(false)
                                         .call();
                             }
-                        } else {
+                        } else if (!alreadyRepo) {
                             for (var relPath : strategy.getFilesForInitialCommit()) {
                                 git.add().addFilepattern(relPath).call();
                             }
