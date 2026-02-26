@@ -921,14 +921,14 @@ def main():
 
     # Print resume hint on exit if the session has tasks
     from brokk_code.session_persistence import (
-        get_session_zip_path,
+        get_session_zip_resume_path,
         has_tasks,
         load_last_session_id,
     )
 
     last_id = load_last_session_id(workspace_path)
     if last_id:
-        zip_path = get_session_zip_path(workspace_path, last_id)
+        zip_path = get_session_zip_resume_path(workspace_path, last_id)
         if has_tasks(zip_path):
             print(f"brokk resume {last_id}")
 

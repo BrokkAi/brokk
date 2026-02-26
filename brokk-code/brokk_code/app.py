@@ -633,7 +633,7 @@ class BrokkApp(App):
             chat.set_job_running(True)
         try:
             from brokk_code.session_persistence import (
-                get_session_zip_path,
+                get_session_zip_resume_path,
                 load_last_session_id,
                 save_last_session_id,
             )
@@ -663,7 +663,9 @@ class BrokkApp(App):
 
             resumed = False
             if session_to_resume:
-                zip_path = get_session_zip_path(self.executor.workspace_dir, session_to_resume)
+                zip_path = get_session_zip_resume_path(
+                    self.executor.workspace_dir, session_to_resume
+                )
                 if zip_path.exists():
                     try:
                         msg = f"Resuming session {session_to_resume}..."
