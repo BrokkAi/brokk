@@ -46,13 +46,17 @@ def test_install_jbang_success(monkeypatch):
     path = install_jbang()
 
     assert path == "/fixed/jbang"
-    # Verify both install script and trust command were attempted
+    # Verify both install script and trust commands were attempted
     assert any("jbang.dev" in str(c) for c in run_calls)
-    assert any(
-        len(c) > 2 and c[1] == "trust" and c[2] == "add" and "brokk-releases" in c[3]
+
+    # Verify both specific trust URLs were added
+    trust_calls = [
+        c[3]
         for c in run_calls
-        if isinstance(c, list)
-    )
+        if isinstance(c, list) and len(c) > 3 and c[1] == "trust" and c[2] == "add"
+    ]
+    assert "https://github.com/BrokkAi/brokk-releases" in trust_calls
+    assert "https://github.com/BrokkAi/brokk-releases/releases/download/" in trust_calls
 
 
 def test_install_jbang_fails_on_subprocess_error(monkeypatch):
@@ -91,7 +95,12 @@ def test_install_jbang_tolerates_trust_failure(monkeypatch, caplog):
 
     path = install_jbang()
     assert path == "/fixed/jbang"
-    assert "Failed to trust brokk catalog: trust failed" in caplog.text
+    # It should log for both URLs if they fail
+    assert "Failed to trust https://github.com/BrokkAi/brokk-releases: trust failed" in caplog.text
+    assert (
+        "Failed to trust https://github.com/BrokkAi/brokk-releases/releases/download/: trust failed"
+        in caplog.text
+    )
 
 
 def test_install_jbang_timeout(monkeypatch):

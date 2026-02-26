@@ -633,7 +633,7 @@ class BrokkApp(App):
             chat.set_job_running(True)
         try:
             from brokk_code.session_persistence import (
-                get_session_zip_path,
+                get_session_zip_resume_path,
                 load_last_session_id,
                 save_last_session_id,
             )
@@ -663,7 +663,9 @@ class BrokkApp(App):
 
             resumed = False
             if session_to_resume:
-                zip_path = get_session_zip_path(self.executor.workspace_dir, session_to_resume)
+                zip_path = get_session_zip_resume_path(
+                    self.executor.workspace_dir, session_to_resume
+                )
                 if zip_path.exists():
                     try:
                         msg = f"Resuming session {session_to_resume}..."
@@ -689,6 +691,22 @@ class BrokkApp(App):
                 self._executor_ready = True
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
+
+                if resumed:
+                    try:
+                        conversation_data = await self.executor.get_conversation()
+                        replayed = self._replay_conversation_entries(conversation_data)
+                        if replayed:
+                            msg = (
+                                f"Replayed {replayed} conversation "
+                                f"{'entry' if replayed == 1 else 'entries'}."
+                            )
+                            if chat:
+                                chat.add_system_message(msg)
+                            else:
+                                logger.info(msg)
+                    except Exception as e:
+                        logger.warning("Failed to replay conversation transcript: %s", e)
 
                 # Process prompt queued during startup
                 if self._startup_pending_prompt:
@@ -1463,6 +1481,66 @@ class BrokkApp(App):
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
                 self.run_worker(self._refresh_context_panel())
+
+    def _replay_conversation_entries(self, conversation_data: Dict[str, Any]) -> int:
+        """Render executor conversation history into the ChatPanel."""
+        chat = self._maybe_chat()
+        if not chat:
+            return 0
+
+        entries = conversation_data.get("entries")
+        if not isinstance(entries, list):
+            return 0
+
+        replayed_entries = 0
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+
+            messages = entry.get("messages")
+            if isinstance(messages, list):
+                rendered_any = False
+                for msg in messages:
+                    if not isinstance(msg, dict):
+                        continue
+
+                    role = str(msg.get("role", "")).strip().lower()
+                    text = msg.get("text")
+                    if not isinstance(text, str):
+                        text = ""
+
+                    reasoning = msg.get("reasoning")
+                    if isinstance(reasoning, str) and reasoning.strip():
+                        content = reasoning.strip()
+                        chat._message_history.append({"kind": "REASONING", "content": content})
+                        chat._render_message_entry("REASONING", content)
+                        rendered_any = True
+
+                    if not text.strip():
+                        continue
+
+                    if role == "user":
+                        chat.add_user_message(text)
+                    elif role in ("ai", "assistant"):
+                        chat.add_markdown(text)
+                    elif "tool" in role:
+                        chat.add_tool_result(text)
+                    elif role in ("system", "notification", "error"):
+                        chat.add_system_message(text, level="ERROR" if role == "error" else "INFO")
+                    else:
+                        chat.append_message(role.title() if role else "System", text)
+                    rendered_any = True
+
+                if rendered_any:
+                    replayed_entries += 1
+                continue
+
+            summary = entry.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                chat.add_markdown(summary)
+                replayed_entries += 1
+
+        return replayed_entries
 
     def _set_mode(self, new_mode: str, *, announce: bool = True) -> None:
         """Sets the agent mode, updates the status line, and optionally announces to chat."""
