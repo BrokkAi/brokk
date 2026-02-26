@@ -145,8 +145,9 @@ public class BuildTools {
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
         boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
+        boolean isPackagesBased = testSomeTemplate.contains("{{#packages}}");
 
-        if (!isFilesBased && !isClassesBased && !isModulesBased) {
+        if (!isFilesBased && !isClassesBased && !isModulesBased && !isPackagesBased) {
             return testSomeTemplate;
         }
 
@@ -155,6 +156,8 @@ public class BuildTools {
                 pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
 
         List<String> targetItems;
+
+        IAnalyzer analyzer = cm.getAnalyzer();
 
         if (isModulesBased) {
             Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
@@ -165,10 +168,21 @@ public class BuildTools {
                     .sorted()
                     .toList();
 
-            if (targetItems.isEmpty()) {
-                return details.buildLintCommand();
+            // Fallback to analyzer modules if anchor-based detection yields nothing
+            if (targetItems.isEmpty() && !analyzer.isEmpty()) {
+                targetItems = analyzer.getTestModules(workspaceTestFiles);
             }
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
+
+            if (!targetItems.isEmpty()) {
+                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
+            }
+        }
+
+        if (isPackagesBased) {
+            targetItems = analyzer.getTestModules(workspaceTestFiles);
+            if (!targetItems.isEmpty()) {
+                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "packages", pythonVersion);
+            }
         }
 
         if (isFilesBased) {
@@ -176,7 +190,6 @@ public class BuildTools {
             return interpolateMustacheTemplate(testSomeTemplate, targetItems, "files", pythonVersion);
         }
 
-        IAnalyzer analyzer = cm.getAnalyzer();
         if (analyzer.isEmpty()) {
             return details.buildLintCommand();
         }
@@ -184,13 +197,17 @@ public class BuildTools {
         var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
         if (isFqBased) {
             targetItems = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
-            if (targetItems.isEmpty()) return details.buildLintCommand();
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "fqclasses", pythonVersion);
-        } else {
+            if (!targetItems.isEmpty()) {
+                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "fqclasses", pythonVersion);
+            }
+        } else if (isClassesBased) {
             targetItems = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
-            if (targetItems.isEmpty()) return details.buildLintCommand();
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "classes", pythonVersion);
+            if (!targetItems.isEmpty()) {
+                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "classes", pythonVersion);
+            }
         }
+
+        return details.buildLintCommand();
     }
 
     private static Optional<Path> detectModuleAnchor(Path projectRoot, BuildDetails details) {

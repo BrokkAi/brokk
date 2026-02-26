@@ -414,9 +414,9 @@ public class BuildAgent {
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
                 | **Maven**         | `mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                | **Go**            | `go test`
+                | **Go**            | `go test {{#packages}}{{value}} {{/packages}} -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
                 | **.NET CLI**      | `dotnet test --verbosity quiet --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}}|{{/last}}{{/classes}}"`
-                | **Cargo**         | `cargo test`
+                | **Cargo**         | `cargo test -q {{#packages}}{{value}} {{/packages}}`
                 | **pytest**        | `uv sync && pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Poetry**        | `poetry install --no-interaction && poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Jest**          | `jest --silent {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
@@ -500,7 +500,7 @@ public class BuildAgent {
                             "Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String testAllCommand,
             @P(
-                            "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
+                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, {{modules}}, or {{packages}}. {{modules}} and {{packages}} provide dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
                             "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
@@ -613,6 +613,47 @@ public class BuildAgent {
         return pattern.startsWith("*.") && !pattern.contains("/");
     }
 
+    @VisibleForTesting
+    @Nullable
+    String validateBuildDetails(BuildDetails details) throws InterruptedException {
+        // 1. Build/lint command
+        if (!details.buildLintCommand().isBlank()) {
+            var result = BuildVerifier.verify(project, details.buildLintCommand(), details.environmentVariables());
+            if (!result.success()) {
+                return "Build/lint command failed (exit code %d):\n%s"
+                        .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+            }
+        }
+
+        // 2. Testsome command
+        if (!details.testSomeCommand().isBlank()) {
+            var testFiles = project.getRepo().getTrackedFiles().stream()
+                    .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
+                    .toList();
+
+            if (!testFiles.isEmpty()) {
+                var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
+                String relPath = randomTestFile.toString();
+                String template = details.testSomeCommand();
+
+                String interpolatedCmd = null;
+                if (template.contains("{{#files}}")) {
+                    interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
+                }
+
+                if (interpolatedCmd != null) {
+                    var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
+                    if (!result.success()) {
+                        return "Test command failed (exit code %d):\n%s"
+                                .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
     /**
      * Remove patterns that are redundant because they match gitignored directories.
      * FileFilteringService already applies gitignore rules at runtime, so storing
@@ -718,47 +759,6 @@ public class BuildAgent {
                     maxBuildAttempts,
                     afterTaskListCommand != null ? afterTaskListCommand : "");
         }
-    }
-
-    @VisibleForTesting
-    @Nullable
-    String validateBuildDetails(BuildDetails details) throws InterruptedException {
-        // 1. Build/lint command
-        if (!details.buildLintCommand().isBlank()) {
-            var result = BuildVerifier.verify(project, details.buildLintCommand(), details.environmentVariables());
-            if (!result.success()) {
-                return "Build/lint command failed (exit code %d):\n%s"
-                        .formatted(result.exitCode(), Objects.toString(result.output(), ""));
-            }
-        }
-
-        // 2. Testsome command
-        if (!details.testSomeCommand().isBlank()) {
-            var testFiles = project.getRepo().getTrackedFiles().stream()
-                    .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
-                    .toList();
-
-            if (!testFiles.isEmpty()) {
-                var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
-                String relPath = randomTestFile.toString();
-                String template = details.testSomeCommand();
-
-                String interpolatedCmd = null;
-                if (template.contains("{{#files}}")) {
-                    interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
-                }
-
-                if (interpolatedCmd != null) {
-                    var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
-                    if (!result.success()) {
-                        return "Test command failed (exit code %d):\n%s"
-                                .formatted(result.exitCode(), Objects.toString(result.output(), ""));
-                    }
-                }
-            }
-        }
-
-        return null;
     }
 
     /**

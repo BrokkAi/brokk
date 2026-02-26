@@ -6,7 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -17,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -808,6 +814,157 @@ class BuildAgentTest {
         } finally {
             Environment.shellCommandRunnerFactory = originalFactory;
         }
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandGoModules(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.GO);
+        // Mock GoAnalyzer to return specific test packages
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return List.of(".", "./auth");
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "main_test.go");
+        ProjectFile file2 = new ProjectFile(tempDir, "auth/auth_test.go");
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "go build", "go test ./...", "go test {{#packages}}{{value}} {{/packages}}", Set.of());
+
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        // GoAnalyzer.getTestModules returns ./path and .
+        assertEquals("go test . ./auth ", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandPythonPackages(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.PYTHON);
+        // Mock PythonAnalyzer to return specific test modules
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return List.of("auth.test_login", "tests.test_foo");
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "tests/test_foo.py");
+        ProjectFile file2 = new ProjectFile(tempDir, "auth/test_login.py");
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "python -m compile",
+                "python -m pytest",
+                "python -m pytest {{#packages}}{{value}} {{/packages}}",
+                Set.of());
+
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        // Result should be sorted dotted labels: auth.test_login tests.test_foo
+        assertEquals("python -m pytest auth.test_login tests.test_foo ", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandJavaPackages(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.JAVA);
+        // Java uses default IAnalyzer.getTestModules which extracts packageName from CodeUnits
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return files.stream()
+                        .flatMap(f -> getTopLevelDeclarations(f).stream())
+                        .map(ai.brokk.analyzer.CodeUnit::packageName)
+                        .distinct()
+                        .sorted()
+                        .toList();
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "src/main/java/com/example/App.java");
+        ProjectFile file2 = new ProjectFile(tempDir, "src/main/java/com/example/util/Helper.java");
+
+        analyzer.addDeclaration(CodeUnit.cls(file1, "com.example", "App"));
+        analyzer.addDeclaration(CodeUnit.cls(file2, "com.example.util", "Helper"));
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "mvn compile",
+                "mvn test",
+                "mvn test -Dtest={{#packages}}{{value}}.*{{^last}} {{/last}}{{/packages}}",
+                Set.of());
+
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        assertEquals("mvn test -Dtest=com.example.* com.example.util.*", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandRustModules(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.RUST);
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            private final Map<ProjectFile, List<CodeUnit>> fileToDecls = new java.util.HashMap<>();
+
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public void addDeclaration(CodeUnit cu) {
+                super.addDeclaration(cu);
+                fileToDecls.computeIfAbsent(cu.source(), k -> new ArrayList<>()).add(cu);
+            }
+
+            @Override
+            public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+                return fileToDecls.getOrDefault(file, List.of());
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return files.stream()
+                        .flatMap(f -> getTopLevelDeclarations(f).stream())
+                        .map(ai.brokk.analyzer.CodeUnit::packageName)
+                        .distinct()
+                        .sorted()
+                        .toList();
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "src/lib.rs");
+        ProjectFile file2 = new ProjectFile(tempDir, "src/foo.rs");
+
+        analyzer.addDeclaration(new CodeUnit(file1, CodeUnitType.FUNCTION, "crate", "test_lib"));
+        analyzer.addDeclaration(new CodeUnit(file2, CodeUnitType.FUNCTION, "crate::foo", "test_foo"));
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "cargo check",
+                "cargo test",
+                "cargo test {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}",
+                Set.of());
+
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        assertEquals("cargo test crate crate::foo", result);
     }
 
     @Test
