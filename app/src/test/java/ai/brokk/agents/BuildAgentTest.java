@@ -44,8 +44,8 @@ class BuildAgentTest {
     private static final Logger logger = LogManager.getLogger(BuildAgentTest.class);
 
     @Test
-    void testResolveModule_selectsLongestMatchingPrefix() throws Exception {
-        var project = ai.brokk.project.MainProject.forTests(java.nio.file.Path.of("/tmp"));
+    void testResolveModule_selectsLongestMatchingPrefix(@TempDir Path tempDir) throws Exception {
+        var project = ai.brokk.project.MainProject.forTests(tempDir);
         var cm = new ai.brokk.testutil.TestContextManager(project);
 
         var details = new BuildAgent.BuildDetails(
@@ -63,15 +63,15 @@ class BuildAgentTest {
 
         // File is in a/b/c/File.java, which matches root (""), a ("a"), and ab ("a/b").
         // "a/b" is the longest match.
-        var testFile = new ai.brokk.analyzer.ProjectFile(java.nio.file.Path.of("/tmp"), "a/b/c/File.java");
+        var testFile = new ai.brokk.analyzer.ProjectFile(tempDir, "a/b/c/File.java");
         String cmd = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(testFile));
 
         assertEquals("mvn test -ab", cmd);
     }
 
     @Test
-    void testGetBuildLintSomeCommand_fallsBackToTestAll() throws Exception {
-        var project = ai.brokk.project.MainProject.forTests(java.nio.file.Path.of("/tmp"));
+    void testGetBuildLintSomeCommand_fallsBackToTestAll(@TempDir Path tempDir) throws Exception {
+        var project = ai.brokk.project.MainProject.forTests(tempDir);
         var cm = new ai.brokk.testutil.TestContextManager(project);
 
         var details = new BuildAgent.BuildDetails(
@@ -84,7 +84,7 @@ class BuildAgentTest {
                 "",
                 List.of(new BuildAgent.ModuleBuildEntry("mod", "mod", "mvn compile -pl mod", "mvn test -pl mod", "")));
 
-        var testFile = new ai.brokk.analyzer.ProjectFile(java.nio.file.Path.of("/tmp"), "mod/src/Test.java");
+        var testFile = new ai.brokk.analyzer.ProjectFile(tempDir, "mod/src/Test.java");
         String cmd = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(testFile));
 
         assertEquals("mvn test -pl mod", cmd);
