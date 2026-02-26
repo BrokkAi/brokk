@@ -802,6 +802,32 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/tasklist")
             raise  # Should not be reached
 
+    async def start_openai_oauth(self) -> Dict[str, Any]:
+        """Initiates the OpenAI OAuth flow."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/openai/oauth/start")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/openai/oauth/start (status={status}): {e}") from e
+
+    async def get_openai_oauth_status(self) -> Dict[str, Any]:
+        """Checks the connection status of OpenAI OAuth."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/openai/oauth/status")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/openai/oauth/status")
+            raise  # Should not be reached
+
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:
