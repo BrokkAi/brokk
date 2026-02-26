@@ -32,9 +32,7 @@ def test_configure_claude_code_mcp_settings_preserves_existing_keys(tmp_path):
     existing_data = {
         "firstStartTime": "2024-01-01T00:00:00Z",
         "unrelatedKey": 42,
-        "mcpServers": {
-            "other": {"command": "node", "args": ["server.js"]}
-        },
+        "mcpServers": {"other": {"command": "node", "args": ["server.js"]}},
     }
     config_path.write_text(json.dumps(existing_data), encoding="utf-8")
 

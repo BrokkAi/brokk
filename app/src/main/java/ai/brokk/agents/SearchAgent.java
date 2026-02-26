@@ -135,6 +135,15 @@ public class SearchAgent {
     private final Set<ContextFragment> originalPinnedFragments;
     private final List<ContextFragment> droppedFragments = new ArrayList<>();
 
+    /**
+     * Tracks the fragment IDs present immediately after the most recent successful dropWorkspaceFragments call.
+     * The "worthwhile" heuristic is then based on how many tokens have been added since that point.
+     *
+     * <p>When no drop has ever occurred, this is intentionally empty so the heuristic considers the entire
+     * current Workspace as "added since last drop".</p>
+     */
+    private Set<String> fragmentIdsAtLastDrop = Set.of();
+
     public SearchAgent(
             Context initialContext,
             String goal,
@@ -335,7 +344,7 @@ public class SearchAgent {
                             "Context limit exceeded. Restoring last successful checkpoint and entering recovery mode.");
 
                     currentState = checkpointState;
-                    if (!isPruningWorthwhile(currentState.context(), false)) {
+                    if (!isPruningWorthwhile(currentState.context())) {
                         return errorResult(
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.LLM_CONTEXT_SIZE,
@@ -552,6 +561,7 @@ public class SearchAgent {
         var result = janitor.execute();
 
         currentState = currentState.withContext(result.context());
+        recordDropBaseline(result.context());
         contextPruned = true;
         return currentState.context();
     }
@@ -842,12 +852,9 @@ public class SearchAgent {
                     context = agent.resetPinsToOriginal(context);
                     var pending = new PendingTerminal(termExec);
 
-                    // take an extra turn to drop fragments after making the terminal decision ONLY IF
-                    // - we didn't already drop this turn, AND
-                    // - there's a bunch of autopinned fragments that could have been stopping a drop this turn
-                    // ... in short, we trust the agent to drop appropriately, but if it maybe wanted to drop
-                    // but couldn't, we give it a final opportunity to do so.
-                    if (agent.isPruningWorthwhile(context, true)
+                    // take an extra turn to drop fragments after making the terminal decision now that
+                    // we are de-emphasizing constantly dropping during the search
+                    if (agent.isPruningWorthwhile(context)
                             && !categoriesSeen.contains(ToolCategory.WORKSPACE_HYGIENE)) {
                         return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                     }
@@ -947,6 +954,11 @@ public class SearchAgent {
             if (agent.isWorkspaceTool(req, tr)) {
                 agent.updateDroppedHistory(context, wst.getContext());
                 context = wst.getContext();
+
+                if ("dropWorkspaceFragments".equals(req.name())
+                        && result.status() == ToolExecutionResult.Status.SUCCESS) {
+                    agent.recordDropBaseline(context);
+                }
             }
             return result;
         }
@@ -1155,15 +1167,25 @@ public class SearchAgent {
     }
 
     /**
-     * Determines if the context contains enough dropable fragments
-     * that stripping them would meaningfully reduce context pressure.
+     * Determines if the context contains enough droppable fragments added since the last successful
+     * dropWorkspaceFragments call that stripping them would meaningfully reduce context pressure.
+     *
+     * <p>The threshold is based on tokens introduced by newly-added fragments since that last drop.</p>
      */
-    private boolean isPruningWorthwhile(Context context, boolean autoPinnedOnly) {
-        return context.allFragments()
-                        .filter(f -> !isPinnedBySystem(f) && (!autoPinnedOnly || context.isPinned(f)))
-                        .mapToLong(f -> Messages.getApproximateTokens(f.text().join()))
-                        .sum()
-                > 20_000;
+    private boolean isPruningWorthwhile(Context context) {
+        // autoPinnedOnly is intentionally ignored under the "tokens added since last drop" heuristic.
+        long addedTokens = context.allFragments()
+                .filter(f -> !fragmentIdsAtLastDrop.contains(f.id()))
+                .filter(f -> !isPinnedBySystem(f))
+                .mapToLong(f -> Messages.getApproximateTokens(f.text().join()))
+                .sum();
+
+        return addedTokens >= 20_000;
+    }
+
+    private void recordDropBaseline(Context contextAfterDrop) {
+        fragmentIdsAtLastDrop =
+                contextAfterDrop.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
     }
 
     private boolean isPinnedBySystem(ContextFragment cf) {

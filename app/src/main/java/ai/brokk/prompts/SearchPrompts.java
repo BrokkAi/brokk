@@ -1,7 +1,5 @@
 package ai.brokk.prompts;
 
-import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
-
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
@@ -222,7 +220,6 @@ public class SearchPrompts {
                 String deliverable,
                 String mission,
                 boolean includeHandoff,
-                String dropExplanationGuidance,
                 String supportedTypes) {}
 
         var data = new SearchSystemData(
@@ -231,7 +228,6 @@ public class SearchPrompts {
                 objective.deliverable(),
                 objective.mission(),
                 objective.includeHandoff(),
-                DROP_EXPLANATION_GUIDANCE.indent(12).stripTrailing(),
                 supportedTypes);
 
         try {
@@ -278,7 +274,7 @@ public class SearchPrompts {
 
                 Your responsibilities are:
                   1.  **Find & Discover:** Use search and inspection tools to locate relevant code (files, classes, methods).
-                  2.  **Curate & Prune:** Aggressively prune the Workspace to leave *only* essential context.
+                  2.  **Curate & Prune:** Prune the Workspace of irrelevant content.
                 {{#if includeHandoff~}}
                   3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent.
                 {{~/if}}
@@ -295,16 +291,7 @@ public class SearchPrompts {
                   - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
 
                 Critical rules:
-                  1) PRUNE the Workspace continuously.
-                     - You may drop a fragment only when it is:
-                         (a) unrelated to the goal, OR
-                         (b) adequately replaced by smaller Workspace artifacts (method sources and/or class/file summaries).
-                     - When using dropWorkspaceFragments, provide:
-                {{dropExplanationGuidance}}
-                     - Workspace granularity (Prefer the smallest sufficient unit of context):
-                         - Structure/types/navigation: class or file summary is usually sufficient.
-                         - Behavior/implementation: method source > class source > full file.
-                  2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                  1) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
                      - Search tool selection:
                           Definitions / declarations only?
                           -> searchSymbols
@@ -316,17 +303,17 @@ public class SearchPrompts {
                        They do NOT surface local variables or hardcoded strings like environment variable names,
                        system properties, or comments. If findFilesContaining finds a hit in a file but the summary
                        doesn't reveal the match, you MUST load the full file or method source to see the actual content.
-                  3) The symbol-based tools only have visibility into the following file types: {{supportedTypes}}
+                  2) The symbol-based tools only have visibility into the following file types: {{supportedTypes}}
                      Use text-based tools if you need to search other file types.
-                  4) Group related lookups into a single tool call when possible.
-                  5) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
+                  3) Group related lookups into a single tool call when possible.
+                  4) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
                      Do not write code, and do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
                      and let the Code Agent write the code. (For more localized changes, you can use `addMethodsToWorkspace`
                      or `addClassesToWorkspace`, instead of adding entire files.)
                      Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
-                  6) When you have enough information to take a final action, do so.
+                  5) When you have enough information to take a final action, do so.
                      There are no bonus points for grooming the perfect Workspace.
 
                 Working efficiently:
@@ -365,10 +352,7 @@ public class SearchPrompts {
                 {{~/if}}
 
                 {{#if terminalTasks~}}
-                Invariant: Before any final action:
-                  1. Prune fragments that are no longer needed (superseded by summaries or irrelevant to the goal).
-                     Do not finalize while the Workspace still contains obvious noise or superseded large fragments.
-                  2. Add the minimum sufficient, decision-relevant context to remove guesswork.
+                Invariant: Before any final action, add the minimum sufficient, decision-relevant context to remove guesswork.
                 An unchanged or empty Workspace is a failure unless the question is explicitly independent of this codebase.
 
                 Workspace context guidance:
@@ -450,8 +434,8 @@ public class SearchPrompts {
                 usefully do so.
 
                 Terminal actions ({{#if terminalAnswer}}answer, {{/if}}{{#if terminalTasks}}createOrReplaceTaskList, {{/if}}{{#if terminalWorkspace}}workspaceComplete, {{/if}}{{#if terminalCode}}callCodeAgent, {{/if}}{{#if terminalIssue}}describeIssue, {{/if}}abortSearch)
-                must be the ONLY tool in a turn. If final cleanup is needed (for example, dropWorkspaceFragments), do it first,
-                then finalize on the next turn. If you include a terminal together with other tools, the terminal will be ignored for this turn.
+                must be the ONLY tool in a turn, other than final cleanup via dropWorkspaceFragments.
+                If you include a terminal together with other tools, the terminal will be ignored for this turn.
 
                 Remember: it is NOT your objective to write code.
 
