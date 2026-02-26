@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.git.GitRepoFactory;
-import ai.brokk.project.IProject;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -29,10 +28,10 @@ class RealProjectFixtureTest {
         Path zipPath = tempDir.resolve("test.zip");
         createTestZip(zipPath, "src/Main.java", "public class Main { public void hello() {} }");
 
-        try (IProject project = InlineTestProjectCreator.fromZip(zipPath).build()) {
+        try (ITestProject project = InlineTestProjectCreator.fromZip(zipPath).build()) {
             assertTrue(Files.exists(project.getRoot().resolve("src/Main.java")));
 
-            IAnalyzer analyzer = ((ITestProject) project).getAnalyzer();
+            IAnalyzer analyzer = project.getAnalyzer();
             assertNotNull(analyzer);
             assertFalse(analyzer.isEmpty());
 
@@ -65,14 +64,15 @@ class RealProjectFixtureTest {
         // 2. Use fromGitUrl to "clone" from the local path.
         // Using "HEAD" ensures we get the default branch regardless of whether it is 'master' or 'main'.
         String url = sourceRepoPath.toUri().toString();
-        try (IProject project = InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
+        try (ITestProject project =
+                InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
             assertTrue(project.hasGit());
             assertNotNull(project.getRepo());
             assertEquals(commitId, project.getRepo().getCurrentCommitId());
 
             assertTrue(Files.exists(project.getRoot().resolve("Foo.java")));
 
-            IAnalyzer analyzer = ((ITestProject) project).getAnalyzer();
+            IAnalyzer analyzer = project.getAnalyzer();
             assertNotNull(analyzer, "Analyzer should not be null");
             assertFalse(analyzer.isEmpty(), "Analyzer should not be empty");
             assertFalse(analyzer.getDefinitions("Foo").isEmpty(), "Should find Foo class definition");

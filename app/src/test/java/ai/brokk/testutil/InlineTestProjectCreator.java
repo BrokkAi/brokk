@@ -6,7 +6,6 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
-import ai.brokk.project.IProject;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
 import java.math.BigInteger;
@@ -214,7 +213,7 @@ public class InlineTestProjectCreator {
             return new TestGitProjectBuilder(this);
         }
 
-        public IProject build() throws IOException {
+        public ITestProject build() throws IOException {
             var newTemporaryDirectory = Files.createTempDirectory("brokk-analyzer-test-");
             strategy.populate(newTemporaryDirectory);
 
