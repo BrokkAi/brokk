@@ -1,5 +1,6 @@
 package ai.brokk.testutil;
 
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.git.GitRepo;
@@ -153,7 +154,9 @@ public class InlineTestProjectCreator {
         }
     }
 
-    private static class EphemeralTestProject extends TestProject {
+    private static class EphemeralTestProject extends TestProject implements ITestProject {
+
+        private volatile IAnalyzer analyzer;
 
         public EphemeralTestProject(Path root) {
             super(root);
@@ -161,6 +164,23 @@ public class InlineTestProjectCreator {
 
         public EphemeralTestProject(Path root, Language language) {
             super(root, language);
+        }
+
+        @Override
+        public IAnalyzer getAnalyzer() {
+            if (analyzer == null) {
+                synchronized (this) {
+                    if (analyzer == null) {
+                        Set<Language> languages = getAnalyzerLanguages();
+                        if (languages.size() == 1) {
+                            analyzer = AnalyzerCreator.createTreeSitterAnalyzer(this);
+                        } else {
+                            analyzer = AnalyzerCreator.createMultiAnalyzer(this, languages.toArray(new Language[0]));
+                        }
+                    }
+                }
+            }
+            return analyzer;
         }
 
         @Override
