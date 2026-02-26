@@ -118,6 +118,11 @@ def _atomic_write_toml(path: Path, text: str) -> None:
     temp_path.replace(path)
 
 
+def _resolve_effective_jbang(jbang_path: str | None) -> str:
+    """Resolve the effective JBang binary path using the fallback chain."""
+    return jbang_path or resolve_jbang_binary() or "jbang"
+
+
 def _brokk_mcp_config(jbang_path: str) -> dict[str, Any]:
     return {
         "command": jbang_path,
@@ -171,7 +176,7 @@ def configure_claude_code_mcp_settings(
             f"mcpServers['{_SERVER_NAME}'] already exists; use --force to overwrite it"
         )
 
-    effective_jbang = jbang_path or resolve_jbang_binary() or "jbang"
+    effective_jbang = _resolve_effective_jbang(jbang_path)
     server_config = _brokk_mcp_config(effective_jbang) | {
         "env": {
             "MCP_TIMEOUT": "60000",
@@ -231,7 +236,7 @@ def configure_codex_mcp_settings(
             f"mcp_servers['{_SERVER_NAME}'] already exists; use --force to overwrite it"
         )
 
-    effective_jbang = jbang_path or resolve_jbang_binary() or "jbang"
+    effective_jbang = _resolve_effective_jbang(jbang_path)
     server_config = _brokk_mcp_config(effective_jbang) | {
         "startup_timeout_sec": 60.0,
         "tool_timeout_sec": 300.0,
