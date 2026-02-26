@@ -36,13 +36,18 @@ def resolve_jbang_binary() -> Optional[str]:
 
     # 2. Check common install locations
     home = Path.home()
-    candidates = [
-        home / ".jbang" / "bin" / "jbang",
-        Path("/opt/homebrew/bin/jbang"),
-        Path("/usr/local/bin/jbang"),
-    ]
     if sys.platform == "win32":
-        candidates.append(home / ".jbang" / "bin" / "jbang.cmd")
+        candidates = [
+            home / ".jbang" / "bin" / "jbang.cmd",
+            home / ".jbang" / "bin" / "jbang.exe",
+            home / ".jbang" / "bin" / "jbang",
+        ]
+    else:
+        candidates = [
+            home / ".jbang" / "bin" / "jbang",
+            Path("/opt/homebrew/bin/jbang"),
+            Path("/usr/local/bin/jbang"),
+        ]
 
     for candidate in candidates:
         if candidate.exists():
@@ -739,6 +744,19 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/tasklist")
+            raise  # Should not be reached
+
+    async def get_conversation(self) -> Dict[str, Any]:
+        """Returns displayable conversation entries for the current session context."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/context/conversation")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/context/conversation")
             raise  # Should not be reached
 
     async def add_context_files(self, relative_paths: List[str]) -> Dict[str, Any]:

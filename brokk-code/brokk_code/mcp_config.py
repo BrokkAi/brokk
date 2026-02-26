@@ -5,6 +5,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from brokk_code.executor import resolve_jbang_binary
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, atomic_write_settings
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -118,8 +119,9 @@ def _atomic_write_toml(path: Path, text: str) -> None:
 
 
 def _brokk_mcp_config() -> dict[str, Any]:
+    jbang_command = resolve_jbang_binary() or "jbang"
     return {
-        "command": "jbang",
+        "command": jbang_command,
         "args": [
             "--java",
             "21",
