@@ -97,22 +97,28 @@ def install_jbang() -> str:
             "jbang was installed but could not be found. You may need to restart your terminal."
         )
 
-    # Trust the brokk catalog
-    try:
-        trust_proc = subprocess.run(
-            [jbang_path, "trust", "add", "https://github.com/BrokkAi/brokk-releases"],
-            capture_output=True,
-            text=True,
-        )
-        if trust_proc.returncode != 0:
-            logger.warning(
-                "Failed to trust brokk catalog: %s",
-                trust_proc.stderr.strip()
-                if trust_proc.stderr
-                else f"exit code {trust_proc.returncode}",
+    # Trust the brokk catalog and release download URL
+    trust_urls = [
+        "https://github.com/BrokkAi/brokk-releases",
+        "https://github.com/BrokkAi/brokk-releases/releases/download/",
+    ]
+    for url in trust_urls:
+        try:
+            trust_proc = subprocess.run(
+                [jbang_path, "trust", "add", url],
+                capture_output=True,
+                text=True,
             )
-    except Exception as e:
-        logger.warning("Failed to run trust command: %s", e)
+            if trust_proc.returncode != 0:
+                logger.warning(
+                    "Failed to trust %s: %s",
+                    url,
+                    trust_proc.stderr.strip()
+                    if trust_proc.stderr
+                    else f"exit code {trust_proc.returncode}",
+                )
+        except Exception as e:
+            logger.warning("Failed to run trust command for %s: %s", url, e)
 
     return jbang_path
 
