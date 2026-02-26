@@ -117,8 +117,7 @@ public class Environment {
      */
     public String runShellCommand(String command, Path root, Consumer<String> outputConsumer, Duration timeout)
             throws SubprocessException, InterruptedException {
-        String normalized = normalizeCommandForOs(command);
-        return shellCommandRunnerFactory.apply(normalized, root).run(outputConsumer, timeout);
+        return shellCommandRunnerFactory.apply(command, root).run(outputConsumer, timeout);
     }
 
     /**
@@ -157,23 +156,11 @@ public class Environment {
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
-        String normalized = normalizeCommandForOs(command);
-        // For tests that override shellCommandRunnerFactory, still normalize using the provided shellConfig (if any)
-        // so we can assert the final command string without spawning a process.
-        ShellConfig normalizationConfig = shellConfig != null ? shellConfig : ShellConfig.basic();
-        normalized = normalizeGradleWrapperForWindowsShell(normalized, normalizationConfig);
-
-        // Check if shellCommandRunnerFactory has been overridden for testing.
-        // If so, use the factory path (which allows tests to mock/stub).
-        // Otherwise, use the direct path with ExecutorConfig and environment support.
         if (shellCommandRunnerFactory != DEFAULT_SHELL_COMMAND_RUNNER_FACTORY) {
-            // Test hook: delegate to factory
-            return shellCommandRunnerFactory.apply(normalized, root).run(outputConsumer, timeout);
+            return shellCommandRunnerFactory.apply(command, root).run(outputConsumer, timeout);
         }
 
-        // Production path: use the new overload with full support
-        return runShellCommandInternal(
-                normalized, root, false, timeout, outputConsumer, shellConfig, environment, processConsumer);
+        return runShellCommandInternal(command, root, false, timeout, outputConsumer, shellConfig, environment, processConsumer);
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
@@ -187,7 +174,6 @@ public class Environment {
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
-        command = normalizeCommandForOs(command);
 
         logger.trace(
                 "Running internal `{}` in `{}` (sandbox={}, has-consumer={})",
@@ -206,8 +192,6 @@ public class Environment {
             }
             activeConfig = ShellConfig.basic();
         }
-
-        command = normalizeGradleWrapperForWindowsShell(command, activeConfig);
 
         String[] shellCommand;
         if (sandbox) {
@@ -374,57 +358,6 @@ public class Environment {
     }
 
     private static final String ANSI_ESCAPE_PATTERN = "\\x1B(?:\\[[;\\d]*[ -/]*[@-~]|\\]\\d+;[^\\x07]*\\x07)";
-
-    private static final Pattern GRADLEW_UNIX_TOKEN_PATTERN =
-            Pattern.compile("(?:^|(?<=[\\s;&|()]))([\"']?)\\./gradlew\\1(?=\\s|$)", Pattern.CASE_INSENSITIVE);
-
-    private static final Pattern GRADLEW_BAT_TOKEN_PATTERN = Pattern.compile(
-            "(?:^|(?<=[\\s;&|()]))([\"']?)(?:\\.\\\\)?gradlew\\.bat\\1(?=\\s|$)", Pattern.CASE_INSENSITIVE);
-
-    private static String normalizeCommandForOs(String command) {
-        if (!isWindows() || command.isBlank()) {
-            return command;
-        }
-
-        // Windows shells differ: cmd.exe does not accept "./gradlew", and PowerShell generally needs ".\\gradlew.bat".
-        // Here we do a shell-agnostic rewrite away from "./gradlew" to the Windows wrapper name.
-        return replaceWrapperToken(command, GRADLEW_UNIX_TOKEN_PATTERN, "gradlew.bat");
-    }
-
-    private static String normalizeGradleWrapperForWindowsShell(String command, ShellConfig shellConfig) {
-        if (!isWindows() || command.isBlank()) {
-            return command;
-        }
-
-        String displayName = shellConfig.getDisplayName().toLowerCase(Locale.ROOT);
-        boolean isPowerShell =
-                switch (displayName) {
-                    case "powershell.exe", "powershell", "pwsh.exe", "pwsh" -> true;
-                    default -> false;
-                };
-        String desiredWrapper = isPowerShell ? ".\\gradlew.bat" : "gradlew.bat";
-
-        String updated = replaceWrapperToken(command, GRADLEW_UNIX_TOKEN_PATTERN, desiredWrapper);
-        updated = replaceWrapperToken(updated, GRADLEW_BAT_TOKEN_PATTERN, desiredWrapper);
-        return updated;
-    }
-
-    private static String replaceWrapperToken(String command, Pattern tokenPattern, String replacementToken) {
-        Matcher m = tokenPattern.matcher(command);
-        if (!m.find()) {
-            return command;
-        }
-
-        m.reset();
-        StringBuffer sb = new StringBuffer(command.length() + 16);
-        while (m.find()) {
-            String quote = m.group(1);
-            String replacement = quote + replacementToken + quote;
-            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
-        }
-        m.appendTail(sb);
-        return sb.toString();
-    }
 
     // Pattern for leading environment variable references like $VAR or ${VAR}
     private static final Pattern LEADING_ENV_VAR_PATTERN =
