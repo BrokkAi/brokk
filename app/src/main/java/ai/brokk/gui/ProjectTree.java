@@ -1263,7 +1263,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 }));
     }
 
-    private @Nullable DefaultMutableTreeNode findNodeWithoutExpanding(DefaultMutableTreeNode root, Path relativeDirPath) {
+    private @Nullable DefaultMutableTreeNode findNodeWithoutExpanding(
+            DefaultMutableTreeNode root, Path relativeDirPath) {
         if (relativeDirPath.getNameCount() == 0) {
             return root;
         }
