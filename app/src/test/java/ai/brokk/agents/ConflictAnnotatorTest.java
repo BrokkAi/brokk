@@ -446,6 +446,7 @@ class ConflictAnnotatorTest {
 
     private static void initRepo(Path root) throws Exception {
         runGit(root, "init");
+        runGit(root, "config commit.gpgsign false");
         // configure identity for commits
         runGit(root, "config user.name TestUser");
         runGit(root, "config user.email test@example.com");
