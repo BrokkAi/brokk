@@ -2250,6 +2250,8 @@ public class GitRepo implements Closeable, IGitRepo {
         remote().fetchPrRef(prNumber, "origin");
     }
 
+    public record SearchCommitsResult(List<CommitInfo> commits, boolean truncated) {}
+
     /**
      * Search commits whose full message, author name, or author e-mail match the supplied regular expression
      * (case-insensitive).
@@ -2260,6 +2262,14 @@ public class GitRepo implements Closeable, IGitRepo {
      * @throws GitRepoException if the regex is invalid
      */
     public List<CommitInfo> searchCommits(String query) throws GitAPIException {
+        return searchCommitsWithTruncation(query, Integer.MAX_VALUE).commits();
+    }
+
+    public SearchCommitsResult searchCommits(String query, int limit) throws GitAPIException {
+        return searchCommitsWithTruncation(query, limit);
+    }
+
+    private SearchCommitsResult searchCommitsWithTruncation(String query, int limit) throws GitAPIException {
         var matches = new ArrayList<CommitInfo>();
 
         Pattern pattern = null;
@@ -2275,13 +2285,16 @@ public class GitRepo implements Closeable, IGitRepo {
             } else {
                 // Try again with pattern escaping from the start
                 try {
-                    return searchCommits(".*" + Pattern.quote(query) + ".*");
+                    return searchCommitsWithTruncation(".*" + Pattern.quote(query) + ".*", limit);
                 } catch (PatternSyntaxException rethrownException) {
                     regexValid = false;
                 }
             }
         }
         final String fallbackPattern = query.toLowerCase(Locale.ROOT);
+
+        // Collect up to limit + 1 so we can distinguish "exactly limit" from "more than limit"
+        int collectLimit = (limit == Integer.MAX_VALUE) ? Integer.MAX_VALUE : limit + 1;
 
         for (var commit : git.log().call()) {
             var msg = commit.getFullMessage();
@@ -2302,9 +2315,17 @@ public class GitRepo implements Closeable, IGitRepo {
 
             if (match) {
                 matches.add(this.fromRevCommit(commit));
+                if (matches.size() >= collectLimit) {
+                    break;
+                }
             }
         }
-        return matches;
+
+        boolean truncated = matches.size() > limit;
+        if (truncated) {
+            matches.remove(matches.size() - 1);
+        }
+        return new SearchCommitsResult(List.copyOf(matches), truncated);
     }
 
     @Override

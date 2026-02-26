@@ -15,6 +15,7 @@ export function initSettings(vscode) {
   const saveBtn = document.getElementById("settings-save-btn");
   const messageEl = document.getElementById("settings-message");
   const hintEl = document.getElementById("settings-key-hint");
+  const clearKeyBtn = document.getElementById("settings-clear-key");
 
   settingsBtn.addEventListener("click", () => {
     overlay.classList.remove("hidden");
@@ -40,6 +41,14 @@ export function initSettings(vscode) {
     }
   });
 
+  clearKeyBtn.addEventListener("click", () => {
+    apiKeyInput.value = "";
+    clearKeyBtn.style.display = "none";
+    hintEl.style.display = "";
+    balanceEl.textContent = "--";
+    vscode.postMessage({ type: "saveApiKey", apiKey: "" });
+  });
+
   saveBtn.addEventListener("click", () => {
     saveBtn.disabled = true;
     saveBtn.textContent = "Saving...";
@@ -56,6 +65,7 @@ export function initSettings(vscode) {
     onSettingsLoaded(msg) {
       apiKeyInput.value = msg.apiKey || "";
       hintEl.style.display = msg.apiKey ? "none" : "";
+      clearKeyBtn.style.display = msg.apiKey ? "" : "none";
       balanceEl.textContent = "--";
       if (msg.apiKey) {
         vscode.postMessage({ type: "fetchBalance" });
@@ -65,12 +75,14 @@ export function initSettings(vscode) {
     onSettingsSaved(msg) {
       saveBtn.disabled = false;
       saveBtn.textContent = "Save";
+      var hasKey = apiKeyInput.value.trim() !== "";
+      clearKeyBtn.style.display = hasKey ? "" : "none";
       if (msg.balance != null) {
         balanceEl.textContent = "$" + msg.balance.toFixed(2);
         hintEl.style.display = "none";
       } else {
         balanceEl.textContent = "--";
-        hintEl.style.display = "";
+        hintEl.style.display = hasKey ? "none" : "";
       }
       showSettingsMessage("Saved", false);
     },

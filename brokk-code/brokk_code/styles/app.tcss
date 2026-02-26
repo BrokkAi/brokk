@@ -2,7 +2,11 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen, TaskListModalScreen, TaskTitleModalScreen, ModelReasoningSelectModal {
+ContextModalScreen, TaskListModalScreen {
+    align: center middle;
+}
+
+BrokkApiKeyModalScreen, TaskTitleModalScreen, ModelReasoningSelectModal {
     align: center middle;
 }
 
@@ -406,4 +410,50 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
 
 #model-select-list > ListItem, #reasoning-select-list > ListItem {
     padding: 0 1;
+}
+
+#api-key-modal-container {
+    width: 100%;
+    height: 100%;
+    background: $surface;
+    padding: 1 2;
+}
+
+#api-key-modal-scroll {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#api-key-modal-icon {
+    width: 100%;
+    content-align: center middle;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#api-key-modal-welcome {
+    background: transparent;
+    padding: 0 1;
+}
+
+#api-key-modal-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#api-key-modal-spinner {
+    height: 1;
+    width: 100%;
+    color: $accent;
+    background: transparent;
+    margin-bottom: 1;
+}
+
+#api-key-modal-footer {
+    text-align: center;
+    width: 100%;
+    margin-top: 1;
+    color: $text-disabled;
 }

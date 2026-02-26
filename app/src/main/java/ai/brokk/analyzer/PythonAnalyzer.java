@@ -7,6 +7,7 @@ import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -37,6 +38,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPython(reference);
+    }
+
+    @Override
+    public List<String> getTestModules(Collection<ProjectFile> files) {
+        return files.stream()
+                .map(file -> resolveModuleInfo(file).moduleQualifiedPackage())
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
@@ -472,44 +482,38 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
      */
     private String getPackageNameForFile(ProjectFile file) {
         // Python's package naming is directory-based, relative to project root or __init__.py markers.
-        var absPath = file.absPath();
-        var projectRoot = getProject().getRoot();
-        var parentDir = absPath.getParent();
+        Path projectRoot = getProject().getRoot();
+        Path relPath = file.getRelPath();
+        Path parentRel = relPath.getParent();
 
         // If the file is directly in the project root, the package path is empty
-        if (parentDir == null || parentDir.equals(projectRoot)) {
+        if (parentRel == null || parentRel.toString().isEmpty()) {
             return "";
         }
 
         // Find the highest directory containing __init__.py between project root and the file's parent
-        var effectivePackageRoot = projectRoot;
-        var current = parentDir;
-        while (current != null && !current.equals(projectRoot)) {
-            if (Files.exists(current.resolve("__init__.py"))) {
-                effectivePackageRoot = current; // Found a potential root, keep checking higher
+        // Note: we must still check the filesystem for __init__.py existence.
+        Path effectivePackageRootRel = null;
+        Path currentRel = parentRel;
+        while (currentRel != null) {
+            if (Files.exists(projectRoot.resolve(currentRel).resolve("__init__.py"))) {
+                effectivePackageRootRel = currentRel;
             }
-            current = current.getParent();
+            currentRel = currentRel.getParent();
         }
 
-        // Calculate the relative path from the (parent of the effective package root OR project root)
-        // to the file's parent directory.
-        Path rootForRelativize =
-                effectivePackageRoot.equals(projectRoot) ? projectRoot : effectivePackageRoot.getParent();
-        if (rootForRelativize == null) { // Should not happen if projectRoot is valid
-            rootForRelativize = projectRoot;
+        // If no __init__.py found, it's a top-level module or in a non-package directory.
+        if (effectivePackageRootRel == null) {
+            return parentRel.toString().replace('/', '.').replace('\\', '.');
         }
 
-        // If parentDir is not under rootForRelativize (e.g. parentDir is projectRoot, effectivePackageRoot is deeper
-        // due to missing __init__.py)
-        // or if parentDir is the same as rootForRelativize, then there's no relative package path.
-        if (!parentDir.startsWith(rootForRelativize) || parentDir.equals(rootForRelativize)) {
-            return "";
+        // The import root is the parent of the top-most package directory.
+        Path importRootRel = effectivePackageRootRel.getParent();
+        if (importRootRel == null) {
+            return parentRel.toString().replace('/', '.').replace('\\', '.');
         }
 
-        var relPath = rootForRelativize.relativize(parentDir);
-
-        // Convert path separators to dots for package name
-        return relPath.toString().replace('/', '.').replace('\\', '.');
+        return importRootRel.relativize(parentRel).toString().replace('/', '.').replace('\\', '.');
     }
 
     @Override
@@ -864,15 +868,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected FileAnalysisContext createModulesFromImports(
+    protected FileAnalysisAccumulator createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            FileAnalysisContext ctx) {
+            FileAnalysisAccumulator acc) {
 
         if (modulePackageName.isBlank()) {
-            return ctx;
+            return acc;
         }
 
         int idx = modulePackageName.lastIndexOf('.');
@@ -883,29 +887,27 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         // If the module CodeUnit already exists in context (e.g. from another file in the same package),
         // we should still associate this file's TLDs with it.
-        CodeUnit existing = ctx.cuByFqName().get(moduleCu.fqName());
+        CodeUnit existing = acc.getByFqName(moduleCu.fqName());
         CodeUnit targetCu = (existing != null && existing.isModule()) ? existing : moduleCu;
 
-        FileAnalysisContext updated = ctx;
         if (existing == null) {
-            updated = updated.withLookupKey(targetCu.fqName(), targetCu);
+            acc.addLookupKey(targetCu.fqName(), targetCu);
         }
 
-        updated = updated.withSignature(targetCu, "# module " + modulePackageName)
-                .withHasBody(targetCu, true)
-                .withSymbolIndex(targetCu.identifier(), targetCu)
-                .withSymbolIndex(targetCu.shortName(), targetCu);
+        acc.addSignature(targetCu, "# module " + modulePackageName)
+                .setHasBody(targetCu, true)
+                .addSymbolIndex(targetCu.identifier(), targetCu)
+                .addSymbolIndex(targetCu.shortName(), targetCu);
 
-        List<CodeUnit> children = updated.topLevelCUs().stream()
+        List<CodeUnit> children = acc.topLevelCUs().stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
                 .filter(cu -> !cu.isModule())
                 .toList();
 
         for (CodeUnit child : children) {
-            updated = updated.withChild(targetCu, child);
+            acc.addChild(targetCu, child);
         }
-
-        return updated;
+        return acc;
     }
 
     @Override

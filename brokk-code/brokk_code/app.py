@@ -14,7 +14,13 @@ from textual.widgets import Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
-from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
+from brokk_code.settings import (
+    DEFAULT_THEME,
+    Settings,
+    normalize_theme_name,
+    write_brokk_api_key,
+)
+from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.status_line import StatusLine
@@ -95,6 +101,91 @@ class TaskTitleModalScreen(ModalScreen[Optional[str]]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = str(event.value or "").strip()
         self.dismiss(value if value else None)
+
+
+class BrokkApiKeyModalScreen(ModalScreen[None]):
+    """Modal to prompt for the Brokk API key."""
+
+    BINDINGS = [
+        Binding("ctrl+c", "quit_prompt", "Quit", show=False),
+        Binding("ctrl+d", "quit_prompt", "Quit", show=False),
+    ]
+
+    def __init__(
+        self,
+        on_submit: Callable[[str], asyncio.Future[bool] | Any],
+        message: str = "Enter Brokk API Key",
+        is_update: bool = False,
+    ) -> None:
+        super().__init__()
+        self._on_submit = on_submit
+        self._message = message
+        self._is_update = is_update
+
+    def compose(self) -> ComposeResult:
+        from textual.widgets import LoadingIndicator, Markdown
+
+        with Vertical(id="api-key-modal-container"):
+            with VerticalScroll(id="api-key-modal-scroll"):
+                yield Static(get_braille_icon(), id="api-key-modal-icon")
+                yield Markdown(
+                    build_welcome_message(BrokkApp.get_slash_commands()),
+                    id="api-key-modal-welcome",
+                )
+            yield Static(self._message, id="api-key-modal-title")
+            yield LoadingIndicator(id="api-key-modal-spinner", classes="hidden")
+            yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
+            footer_text = "Press Ctrl+C or Ctrl+D to exit."
+            if self._is_update:
+                footer_text += (
+                    "\n[dim]Note: API key updates will apply to " + "the next executor restart.[/]"
+                )
+            yield Static(footer_text, id="api-key-modal-footer")
+
+    def on_mount(self) -> None:
+        self.query_one("#api-key-input", Input).focus()
+
+    async def action_quit_prompt(self) -> None:
+        await self.app.action_quit()
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = str(event.value or "").strip()
+        if not value:
+            self.query_one("#api-key-modal-title", Static).update(
+                "[bold red]API Key is required[/]"
+            )
+            return
+
+        # Show spinner and disable input while processing
+        spinner = self.query_one("#api-key-modal-spinner")
+        title = self.query_one("#api-key-modal-title", Static)
+        spinner.remove_class("hidden")
+        event.input.disabled = True
+        if self._is_update:
+            title.update("Saving key...")
+        else:
+            title.update("Starting Brokk… (first run may take a moment)")
+
+        try:
+            res = self._on_submit(value)
+            if asyncio.iscoroutine(res):
+                success = await res
+            else:
+                success = bool(res)
+
+            if success:
+                self.dismiss(None)
+            else:
+                spinner.add_class("hidden")
+                title.update("[bold red]Failed to save API key[/]")
+                event.input.disabled = False
+                event.input.focus()
+        except Exception as e:
+            logger.exception("API key submission failed")
+            spinner.add_class("hidden")
+            title.update(f"[bold red]{str(e)}[/]")
+            event.input.disabled = False
+            event.input.focus()
 
 
 class ModelSelectModal(ModalScreen[str]):
@@ -327,6 +418,7 @@ class BrokkApp(App):
         # Footer/help-bar ordering: Context, Tasks, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
+        Binding("ctrl+o", "toggle_output", "Toggle Output", show=True),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
 
@@ -342,6 +434,7 @@ class BrokkApp(App):
         vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
+        self.settings = Settings.load()
         if executor:
             self.executor = executor
             if workspace_dir:
@@ -355,12 +448,13 @@ class BrokkApp(App):
                 executor_version=executor_version,
                 executor_snapshot=executor_snapshot,
                 vendor=vendor,
+                brokk_api_key=self.settings.get_brokk_api_key(),
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
-        self.settings = Settings.load()
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
+        self.show_verbose_output: bool = False
 
         # Initialize model and reasoning settings from persisted Settings if present,
         # otherwise fall back to safe defaults.
@@ -396,15 +490,23 @@ class BrokkApp(App):
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
+        self._startup_pending_prompt: Optional[str] = None
         self._pending_updated_at: float = 0
         self._pending_generation: int = 0
         self._pending_min_wait_until: float = 0.0
         self._resubmit_grace_s: float = 0.2
         self._last_ctrl_c_time: float = 0
+        self._executor_started: bool = False
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
         self._reasoning_target: str = "planner"
+
+        # Accumulators for LLM usage costs (USD).
+        # current_job_cost resets at the start of each new job submission.
+        # session_total_cost accumulates for the lifetime of the App instance.
+        self.current_job_cost: float = 0.0
+        self.session_total_cost: float = 0.0
 
         self._tasklist_restore_focus_widget: Any | None = None
 
@@ -429,6 +531,14 @@ class BrokkApp(App):
             return self.query_one(ChatPanel)
         except (ScreenStackError, Exception):
             return None
+
+    def _show_welcome_message(self) -> None:
+        """Constructs and displays the branded welcome message in the ChatPanel."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        chat.add_welcome(get_braille_icon(), build_welcome_message(self.get_slash_commands()))
 
     def _maybe_statusline(self) -> Optional[StatusLine]:
         """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
@@ -467,6 +577,8 @@ class BrokkApp(App):
                 reasoning=getattr(self, "reasoning_level", None),
                 workspace=workspace,
                 branch=getattr(self, "current_branch", "unknown"),
+                turn_cost=getattr(self, "current_job_cost", None),
+                session_cost=getattr(self, "session_total_cost", None),
             )
         except Exception:
             # Swallow all errors when updating UI that's possibly not mounted in tests.
@@ -481,14 +593,35 @@ class BrokkApp(App):
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
+            chat.show_verbose = self.show_verbose_output
             chat.set_token_bar_visible(True)
-            chat.add_system_message("Starting Brokk executor...")
 
             # Load initial prompt history for arrow-key navigation
             history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
 
-        self.run_worker(self._start_executor())
+            self._show_welcome_message()
+
+        # Check for API key before starting executor
+        if not self.settings.get_brokk_api_key():
+
+            async def on_key_entered(key: str) -> bool:
+                try:
+                    await asyncio.to_thread(write_brokk_api_key, key)
+                    self.executor.brokk_api_key = key
+                    if chat:
+                        chat.add_system_message("API key saved. Starting Brokk executor...")
+                    self.run_worker(self._start_executor())
+                    return True
+                except Exception as e:
+                    logger.exception("Failed to save API key on startup")
+                    raise e
+
+            self.push_screen(BrokkApiKeyModalScreen(on_submit=on_key_entered))
+        else:
+            if chat:
+                chat.add_system_message("Starting Brokk executor...")
+            self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
         self.run_worker(self._poll_tasklist())
         self.run_worker(self._poll_context())
@@ -496,6 +629,8 @@ class BrokkApp(App):
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
         try:
             from brokk_code.session_persistence import (
                 get_session_zip_path,
@@ -504,6 +639,8 @@ class BrokkApp(App):
             )
 
             await self.executor.start()
+            # Mark as started only after successful launch so monitor begins checks
+            self._executor_started = True
 
             # Fetch and display effective build hint immediately
             try:
@@ -550,12 +687,14 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
-                if chat:
-                    chat.add_system_message("Ready!")
-                else:
-                    logger.info("Executor ready")
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
+
+                # Process prompt queued during startup
+                if self._startup_pending_prompt:
+                    queued_prompt = self._startup_pending_prompt
+                    self._startup_pending_prompt = None
+                    self.run_worker(self._run_job(queued_prompt))
             else:
                 msg = "Executor failed to become ready (timeout)."
                 if chat:
@@ -563,21 +702,38 @@ class BrokkApp(App):
                 else:
                     logger.error(msg)
         except ExecutorError as e:
+            msg = str(e)
+            if "jbang" in msg.lower():
+                msg += (
+                    "\n\nHint: Install jbang from https://jbang.dev "
+                    "or provide a local JAR with --jar."
+                )
             if chat:
-                chat.add_system_message(str(e), level="ERROR")
+                chat.add_system_message(msg, level="ERROR")
             else:
-                logger.error(str(e))
+                logger.error(msg)
         except Exception as e:
             msg = f"Unexpected startup error: {e}"
             if chat:
                 chat.add_system_message(msg, level="ERROR")
             else:
                 logger.error(msg)
+        finally:
+            if chat:
+                chat.set_job_running(False)
 
     async def _monitor_executor(self) -> None:
         """Background worker to check if the executor dies unexpectedly."""
         while True:
+            if not self._executor_started:
+                await asyncio.sleep(0.5)
+                continue
+
             await asyncio.sleep(2.0)
+            # Re-check started flag in case of rapid stop during sleep
+            if not self._executor_started:
+                continue
+
             if not self.executor.check_alive():
                 msg = "Executor process crashed unexpectedly."
                 chat = self._maybe_chat()
@@ -640,7 +796,9 @@ class BrokkApp(App):
                     used = context_data.get("usedTokens", 0)
                     max_tokens = context_data.get("maxTokens")
                     fragments = context_data.get("fragments")
-                    chat.set_token_usage(used, max_tokens, fragments)
+                    chat.set_token_usage(
+                        used, max_tokens, fragments, session_cost=self.session_total_cost
+                    )
 
                 self._update_statusline()
 
@@ -1004,6 +1162,9 @@ class BrokkApp(App):
                 if self._pending_generation == 1:
                     chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
+            elif not self._executor_ready:
+                self._startup_pending_prompt = raw_text
+                chat.add_system_message("Queuing prompt until Brokk is ready...")
             else:
                 self.run_worker(self._run_job(raw_text))
 
@@ -1153,10 +1314,12 @@ class BrokkApp(App):
         return list(dict.fromkeys(attached_fragment_ids))
 
     async def _run_job(self, task_input: str) -> None:
+        self.current_job_cost = 0.0
         self.job_in_progress = True
-        chat = self.query_one(ChatPanel)
-        chat.set_job_running(True)
-        chat.set_response_pending()
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
+            chat.set_response_pending()
         attached_fragment_ids: List[str] = []
         try:
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)
@@ -1185,10 +1348,14 @@ class BrokkApp(App):
                         attached_fragment_ids,
                     )
 
-            chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
+            if chat:
+                chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
+            else:
+                logger.error("Job failed: %s", e)
         finally:
-            chat.set_response_finished()
-            chat.set_job_running(False)
+            if chat:
+                chat.set_response_finished()
+                chat.set_job_running(False)
 
             # Yield to the event loop to allow any rapid subsequent submissions
             # triggered by the cancellation to be processed before we check _pending_prompt.
@@ -1235,24 +1402,60 @@ class BrokkApp(App):
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
         data = event.get("data", {})
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
 
         if event_type == "LLM_TOKEN":
-            chat.append_token(
-                token=data.get("token", ""),
-                message_type=data.get("messageType", "AI"),
-                is_new_message=bool(data.get("isNewMessage", False)),
-                is_reasoning=bool(data.get("isReasoning", False)),
-                is_terminal=bool(data.get("isTerminal", False)),
-            )
+            if chat:
+                chat.append_token(
+                    token=data.get("token", ""),
+                    message_type=data.get("messageType", "AI"),
+                    is_new_message=bool(data.get("isNewMessage", False)),
+                    is_reasoning=bool(data.get("isReasoning", False)),
+                    is_terminal=bool(data.get("isTerminal", False)),
+                )
         elif event_type == "NOTIFICATION":
             level = data.get("level", "INFO")
             msg = data.get("message", "")
-            chat.add_system_message(msg, level=level)
+            cost = data.get("cost")
+
+            level_upper = level.upper()
+            is_cost = level_upper == "COST"
+            is_confirm = level_upper == "CONFIRM"
+
+            if is_cost and isinstance(cost, (int, float)):
+                increment = float(cost)
+                # Use rounding to avoid floating point precision artifacts
+                # (e.g. 0.1 + 0.05 = 0.15000000000000002)
+                # LLM costs often go to 4+ decimal places.
+                self.current_job_cost = round(self.current_job_cost + increment, 6)
+                self.session_total_cost = round(self.session_total_cost + increment, 6)
+                self._update_statusline()
+
+            if chat and not is_cost and not is_confirm:
+                chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
             msg = data.get("message", "Unknown error")
-            chat.add_system_message(msg, level="ERROR")
+            if chat:
+                chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
+        elif event_type == "COMMAND_RESULT":
+            if chat:
+                stage = data.get("stage", "Command")
+                command = data.get("command", "")
+                success = data.get("success", False)
+                output = data.get("output", "").strip()
+                exception = data.get("exception")
+
+                status = "[bold green]Success[/]" if success else "[bold red]Failed[/]"
+                header = f"**{stage}**: `{command}` ({status})"
+
+                parts = [header]
+                if output:
+                    parts.append(f"```\n{output}\n```")
+                if exception:
+                    parts.append(f"**Error**: {exception}")
+
+                chat.add_tool_result("\n\n".join(parts))
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
@@ -1277,7 +1480,8 @@ class BrokkApp(App):
         status = (
             "[bold green]Ready[/]" if self._executor_ready else "[bold yellow]Initializing...[/]"
         )
-        jar_path = self.executor.resolved_jar_path or "Unknown"
+        jar_path = self.executor.resolved_jar_path or "via jbang"
+        launch_mode = "Direct JAR" if self.executor.resolved_jar_path else "jbang"
 
         planner_info = (
             f"Planner Model: [bold]{self.current_model}[/] "
@@ -1290,6 +1494,7 @@ class BrokkApp(App):
         info_markup = (
             f"Status: {status}\n"
             f"Workspace: [bold]{self.executor.workspace_dir}[/]\n"
+            f"Launch Mode: [bold]{launch_mode}[/]\n"
             f"Executor JAR: [bold]{jar_path}[/]\n"
             f"Mode: [bold]{self.agent_mode}[/]\n"
             f"Auto-commit: [bold]{'ON' if self.auto_commit else 'OFF'}[/]\n"
@@ -1302,6 +1507,7 @@ class BrokkApp(App):
     def get_slash_commands() -> List[Dict[str, str]]:
         """Returns the structured catalog of supported slash commands."""
         return [
+            {"command": "/api-key", "description": "Update your Brokk API key"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
@@ -1453,6 +1659,24 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
+        elif base == "/api-key":
+
+            async def on_key_entered(key: str) -> bool:
+                try:
+                    await asyncio.to_thread(write_brokk_api_key, key)
+                    self.executor.brokk_api_key = key
+                    chat.add_system_message(
+                        "API key updated. New key will be used on the next executor launch."
+                    )
+                    return True
+                except Exception as e:
+                    logger.error("Failed to update API key: %s", e)
+                    chat.add_system_message(f"Failed to update API key: {e}", level="ERROR")
+                    raise
+
+            self.push_screen(
+                BrokkApiKeyModalScreen(on_key_entered, "Update Brokk API Key", is_update=True)
+            )
         elif base == "/context":
             self.action_toggle_context()
         elif base == "/task":
@@ -1728,6 +1952,14 @@ class BrokkApp(App):
             self.run_worker(self._edit_selected_task(result))
 
         self.push_screen(TaskTitleModalScreen("Edit Task", initial=initial), on_done)
+
+    def action_toggle_output(self) -> None:
+        """Toggles visibility of reasoning and tool output."""
+        self.show_verbose_output = not self.show_verbose_output
+        chat = self._maybe_chat()
+        if chat:
+            chat.show_verbose = self.show_verbose_output
+            chat.refresh_log(self.show_verbose_output)
 
     def action_toggle_mode(self) -> None:
         """Cycles through agent modes: CODE -> ASK -> LUTZ -> CODE."""

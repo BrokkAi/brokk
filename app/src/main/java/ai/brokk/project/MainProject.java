@@ -18,7 +18,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.init.onboarding.GitIgnoreUtils;
 import ai.brokk.init.onboarding.StyleGuideMigrator;
-import ai.brokk.mcp.McpConfig;
+import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
@@ -118,6 +118,7 @@ public final class MainProject extends AbstractProject {
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
     private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
     private static final String MIGRATION_DECLINED_KEY = "styleMdMigrationDeclined";
+    private static final String GIT_CONFIG_DECLINED_KEY = "gitConfigDeclined";
 
     // Old keys for migration
     private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
@@ -851,7 +852,8 @@ public final class MainProject extends AbstractProject {
         if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Languages.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
-            String langsString = languages.stream().map(Language::name).collect(Collectors.joining(","));
+            String langsString =
+                    languages.stream().map(Language::internalName).sorted().collect(Collectors.joining(","));
             projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
         autoDetectedLanguagesCache = null;
@@ -1369,6 +1371,21 @@ public final class MainProject extends AbstractProject {
 
     public void setMigrationDeclined(boolean declined) {
         projectProps.setProperty(MIGRATION_DECLINED_KEY, String.valueOf(declined));
+        saveProjectProperties();
+    }
+
+    @Override
+    public boolean isGitConfigDeclined() {
+        return Boolean.parseBoolean(projectProps.getProperty(GIT_CONFIG_DECLINED_KEY, "false"));
+    }
+
+    @Override
+    public void setGitConfigDeclined(boolean declined) {
+        if (declined) {
+            projectProps.setProperty(GIT_CONFIG_DECLINED_KEY, "true");
+        } else {
+            projectProps.remove(GIT_CONFIG_DECLINED_KEY);
+        }
         saveProjectProperties();
     }
 

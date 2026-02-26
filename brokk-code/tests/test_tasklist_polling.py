@@ -7,6 +7,11 @@ from brokk_code.executor import ExecutorManager
 from brokk_code.widgets.context_panel import ContextPanel
 
 
+@pytest.fixture(autouse=True)
+def _set_test_api_key(monkeypatch):
+    monkeypatch.setenv("BROKK_API_KEY", "test-api-key")
+
+
 class StubExecutor(ExecutorManager):
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir=workspace_dir)
@@ -179,6 +184,7 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
     """
     stub = StubExecutor(tmp_path)
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+    app.settings.get_brokk_api_key = lambda: "test-key"
 
     mock_context = {"usedTokens": 100, "fragments": []}
     mock_tasklist = {"bigPicture": "Test", "tasks": []}
@@ -210,8 +216,8 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
             await app._refresh_context_panel()
 
             mock_ctx.assert_called()
-            # Open context modal
-            await pilot.press("/", *"context".split(), "enter")
+            # Open context modal directly (avoid slash-command ordering dependence)
+            app.action_toggle_context()
             await app._refresh_context_panel()
             await pilot.pause()
             panel = app.screen.query_one(ContextPanel)
@@ -225,6 +231,7 @@ async def test_context_chips_wrap_into_multiple_rows(tmp_path):
     """Verifies chip rendering wraps to additional rows when width is constrained."""
     stub = StubExecutor(tmp_path)
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+    app.settings.get_brokk_api_key = lambda: "test-key"
 
     mock_context = {
         "usedTokens": 2500,
@@ -247,8 +254,8 @@ async def test_context_chips_wrap_into_multiple_rows(tmp_path):
 
         async with app.run_test() as pilot:
             app._executor_ready = True
-            # Open context modal
-            await pilot.press("/", *"context".split(), "enter")
+            # Open context modal directly (avoid slash-command ordering dependence)
+            app.action_toggle_context()
             await app._refresh_context_panel()
             await pilot.pause()
 

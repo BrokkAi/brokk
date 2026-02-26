@@ -1603,7 +1603,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             addField(p, "Test Some Command:", testSomeField, gbc, row++);
 
             var testSomeNote = new JLabel(
-                    "<html>Mustache variables {{#files}}, {{#classes}}, or {{#fqclasses}} will be interpolated with filenames, class names, or fully-qualified class names, respectively</html>");
+                    "<html>Mustache variables {{#files}}, {{#classes}}, {{#fqclasses}}, {{#modules}}, or {{#packages}} will be interpolated with filenames, class names, fully-qualified class names, or package/module names, respectively</html>");
             testSomeNote.setFont(testSomeNote
                     .getFont()
                     .deriveFont(Font.ITALIC, testSomeNote.getFont().getSize() * 0.9f));

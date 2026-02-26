@@ -7,6 +7,10 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Label, Static
 
+# Arrow glyphs for UI display (ASCII-only source)
+UP_ARROW = chr(0x2191)  # ↑
+DOWN_ARROW = chr(0x2193)  # ↓
+
 
 class TaskListPanel(Vertical):
     """

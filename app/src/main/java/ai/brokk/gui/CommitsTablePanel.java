@@ -2,11 +2,13 @@ package ai.brokk.gui;
 
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.ICommitInfo;
+import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Font;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -15,6 +17,9 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
@@ -22,6 +27,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
+import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import org.jspecify.annotations.NullMarked;
@@ -32,6 +38,7 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
     private final JTable table;
     private final DefaultTableModel tableModel;
     private final List<ICommitInfo> currentCommits = new ArrayList<>();
+    private final MaterialButton viewAllBtn;
     private boolean suppressSelectionEvents = false;
 
     private @javax.annotation.Nullable ActionListener guidedReviewListener;
@@ -48,10 +55,29 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
         };
 
         table = new JTable(tableModel);
+
+        viewAllBtn = new MaterialButton("View All");
+        viewAllBtn.setFocusable(false);
+        viewAllBtn.setEnabled(false);
+        viewAllBtn.addActionListener(e -> table.clearSelection());
+
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        header.setBorder(new EmptyBorder(4, 4, 4, 4));
+        header.setOpaque(false);
+
+        JLabel titleLabel = new JLabel("Commits");
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
+        header.add(titleLabel);
+        header.add(Box.createHorizontalGlue());
+        header.add(viewAllBtn);
+
+        add(header, BorderLayout.NORTH);
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.setTableHeader(null);
         table.setShowGrid(false);
         table.setIntercellSpacing(new java.awt.Dimension(0, 0));
+        table.setFillsViewportHeight(true);
 
         CommitCellRenderer renderer = new CommitCellRenderer();
         table.getColumnModel().getColumn(0).setCellRenderer(renderer);
@@ -66,6 +92,19 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
             @Override
             public void mouseReleased(MouseEvent e) {
                 handleContextMenu(e);
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (table.rowAtPoint(e.getPoint()) == -1) {
+                    table.clearSelection();
+                }
+            }
+        });
+
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                viewAllBtn.setEnabled(table.getSelectedRowCount() > 0);
             }
         });
 
@@ -177,6 +216,7 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         SwingUtilities.updateComponentTreeUI(this);
+        viewAllBtn.updateUI();
     }
 
     private static class CommitCellRenderer extends DefaultTableCellRenderer {

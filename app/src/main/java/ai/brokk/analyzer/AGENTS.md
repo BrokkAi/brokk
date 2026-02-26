@@ -27,3 +27,7 @@
 1. **Persistent State**: If state needs to persist across `update()` calls (e.g., caches, indexes), it must be stored in the `AnalyzerState` record.
 1. **PMap usage**: `AnalyzerState` uses `PMap` (persistent/immutable maps from `pcollections`) to enable efficient structural sharing and avoid unnecessary garbage collection.
 1. **Lazy caches**: Lazy caches (like `LazyTypeHierarchyCache`, `LazyImportCache`) are instance-level and reset on `update()`; their computed values are merged into `AnalyzerState` via `snapshotState()` for serialization.
+
+### 5. Expanding Analyzer Capabilities
+1. **Default Implementations**: When adding a new `IAnalyzer` API or capability, add it with a default implementation so that the project compiles.
+1. **Incremental Implementation**: Plan tasks to handle each subclass one at a time. Bringing all subclasses into the context at once will fill up the context and result in either exceeding model context or general context confusion.

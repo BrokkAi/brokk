@@ -184,3 +184,47 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     kwargs = mock_status.update_status.call_args.kwargs
     assert kwargs["mode"] == "ASK", "Status line should reflect the new mode 'ASK'"
     assert "branch" in kwargs, "Status line update should include branch"
+
+
+def test_action_toggle_output_state_and_refresh():
+    """Verify that action_toggle_output toggles state and calls ChatPanel.refresh_log."""
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+    app._maybe_chat = MagicMock(return_value=mock_chat)
+
+    # Initial state
+    assert app.show_verbose_output is False
+
+    # Toggle 1: False -> True
+    app.action_toggle_output()
+    assert app.show_verbose_output is True
+    mock_chat.refresh_log.assert_called_with(True)
+
+    # Toggle 2: True -> False
+    app.action_toggle_output()
+    assert app.show_verbose_output is False
+    mock_chat.refresh_log.assert_called_with(False)
+
+
+@pytest.mark.asyncio
+async def test_ctrl_o_keypress_toggles_output_in_running_app():
+    """Verify that Ctrl+O keypress toggles output verbosity."""
+    app = BrokkApp(executor=MagicMock())
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    assert app.show_verbose_output is False
+
+    async with app.run_test() as pilot:
+        await pilot.press("ctrl+o")
+        assert app.show_verbose_output is True
+
+        await pilot.press("ctrl+o")
+        assert app.show_verbose_output is False

@@ -946,6 +946,11 @@ public class EditBlock {
 
         // 1. Exact match (common case)
         if (file.exists() || maybeNewFile) {
+            // Ensure we aren't trying to treat a directory as a file target
+            if (file.exists() && Files.isDirectory(file.absPath())) {
+                throw new SymbolInvalidException(
+                        "Path '%s' exists but is a directory, not a file.".formatted(stripped));
+            }
             return file;
         }
 

@@ -22,6 +22,7 @@ import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildOutputProcessor;
 import ai.brokk.util.BuildToolConventions;
 import ai.brokk.util.BuildToolConventions.BuildSystem;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentPython;
@@ -62,12 +63,12 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.*;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -133,10 +134,21 @@ public class BuildAgent {
      * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
      */
     public BuildDetails execute() throws InterruptedException {
+        return execute(false);
+    }
+
+    /**
+     * Execute the build information gathering process with optional validation.
+     *
+     * @param validate If true, validates reported commands before returning.
+     * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
+     */
+    public BuildDetails execute(boolean validate) throws InterruptedException {
         var tr = globalRegistry.builder().register(this).build();
 
         // Loop safety tracking
         int iterationCount = 0;
+        int reportAttempts = 0;
         List<String> recentToolCalls = new ArrayList<>();
 
         // build message containing root directory contents
@@ -283,29 +295,39 @@ public class BuildAgent {
 
             // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
-                var terminalResult = tr.executeTool(reportRequest);
-                if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
-                    // The assertion was here, but requireNonNull is more explicit for NullAway
-                    return requireNonNull(
-                            reportedDetails,
-                            "reportedDetails should be non-null after successful reportBuildDetails tool execution");
-                } else {
-                    // Tool execution failed
-                    logger.warn("reportBuildDetails tool execution failed. Error: {}", terminalResult.resultText());
-                    chatHistory.add(terminalResult.toExecutionResultMessage());
-                    continue;
+                tr.executeTool(reportRequest);
+                var details = requireNonNull(
+                        reportedDetails,
+                        "reportedDetails should be non-null after successful reportBuildDetails tool execution");
+
+                if (validate) {
+                    reportAttempts++;
+                    String validationError = validateBuildDetails(details);
+                    if (validationError == null) {
+                        return details;
+                    }
+
+                    if (reportAttempts < 3) {
+                        String feedback =
+                                """
+                                The reported build details were validated and the following command failed:
+                                %s
+                                Please review the build configuration and call reportBuildDetails again with corrected commands."""
+                                        .formatted(validationError);
+                        chatHistory.add(
+                                new ToolExecutionResultMessage(reportRequest.id(), "reportBuildDetails", feedback));
+                        reportedDetails = null;
+                        continue;
+                    } else {
+                        logger.warn("BuildAgent exhausted validation retries. Returning EMPTY.");
+                        return BuildDetails.EMPTY;
+                    }
                 }
+                return details;
             } else if (abortRequest != null) {
-                var terminalResult = tr.executeTool(abortRequest);
-                if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
-                    assert abortReason != null;
-                    return BuildDetails.EMPTY;
-                } else {
-                    // Tool execution failed
-                    logger.warn("abortBuildDetails tool execution failed. Error: {}", terminalResult.resultText());
-                    chatHistory.add(terminalResult.toExecutionResultMessage());
-                    continue;
-                }
+                tr.executeTool(abortRequest);
+                assert abortReason != null;
+                return BuildDetails.EMPTY;
             }
 
             // 7. Execute Non-Terminal Tools
@@ -313,6 +335,7 @@ public class BuildAgent {
             for (var request : otherRequests) {
                 String toolName = request.name();
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
+
                 ToolExecutionResult execResult = tr.executeTool(request);
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
@@ -410,6 +433,10 @@ public class BuildAgent {
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
 
                 The lists are DecoratedCollection instances, so you get first/last/index/value fields.
+
+                Since the lists are file- and class- oriented, for test environments like `go test` and `cargo test`
+                that are function-oriented, we fall back to running all tests.
+
                 Examples:
 
                 | Build tool        | One-liner a user could write
@@ -417,9 +444,9 @@ public class BuildAgent {
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
                 | **Maven**         | `mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                | **Go**            | `go test -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
+                | **Go**            | `go test {{#packages}}{{value}} {{/packages}} -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
                 | **.NET CLI**      | `dotnet test --verbosity quiet --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}}|{{/last}}{{/classes}}"`
-                | **Cargo**         | `cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}`
+                | **Cargo**         | `cargo test -q {{#packages}}{{value}} {{/packages}}`
                 | **pytest**        | `uv sync && pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Poetry**        | `poetry install --no-interaction && poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **Jest**          | `jest --silent {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
@@ -567,7 +594,7 @@ public class BuildAgent {
                             "Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String testAllCommand,
             @P(
-                            "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
+                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, {{modules}}, or {{packages}}. {{modules}} and {{packages}} provide dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
                             "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
@@ -684,6 +711,47 @@ public class BuildAgent {
 
     private static boolean isFileExtensionPattern(String pattern) {
         return pattern.startsWith("*.") && !pattern.contains("/");
+    }
+
+    @VisibleForTesting
+    @Nullable
+    String validateBuildDetails(BuildDetails details) throws InterruptedException {
+        // 1. Build/lint command
+        if (!details.buildLintCommand().isBlank()) {
+            var result = BuildVerifier.verify(project, details.buildLintCommand(), details.environmentVariables());
+            if (!result.success()) {
+                return "Build/lint command failed (exit code %d):\n%s"
+                        .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+            }
+        }
+
+        // 2. Testsome command
+        if (!details.testSomeCommand().isBlank()) {
+            var testFiles = project.getRepo().getTrackedFiles().stream()
+                    .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
+                    .toList();
+
+            if (!testFiles.isEmpty()) {
+                var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
+                String relPath = randomTestFile.toString();
+                String template = details.testSomeCommand();
+
+                String interpolatedCmd = null;
+                if (template.contains("{{#files}}")) {
+                    interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
+                }
+
+                if (interpolatedCmd != null) {
+                    var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
+                    if (!result.success()) {
+                        return "Test command failed (exit code %d):\n%s"
+                                .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1637,7 +1705,6 @@ public class BuildAgent {
             return Duration.ofSeconds(timeoutSeconds);
         }
     }
-
     /**
      * Provide default environment variables for the project when the agent reports details:
      * - For Python projects: VIRTUAL_ENV=.venv

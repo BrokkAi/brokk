@@ -164,6 +164,7 @@ class ContextDeltaTest {
         Files.createDirectories(pf.absPath().getParent());
         pf.write("v1");
         var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        frag.text().join(); // Ensure v1 is read before we write v2
 
         var ctx1 = new Context(contextManager).addFragments(List.of(frag));
 

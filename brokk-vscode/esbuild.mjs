@@ -31,22 +31,21 @@ const webviewOpts = {
 const workerOpts = {
   entryPoints: ["src/webview/markdown-worker.ts"],
   bundle: true,
-  outfile: "media/markdown-worker.js",
-  format: "esm",
+  outdir: "media",
+  format: "iife",
   platform: "browser",
   target: "es2020",
-  conditions: ["worker"],  // Prefer "worker" exports (avoids DOM-dependent browser paths)
   sourcemap: false,
   minify: !watch,
 };
 
 if (watch) {
-  const [extCtx, webCtx, workerCtx] = await Promise.all([
+  const [extCtx, webCtx, wrkCtx] = await Promise.all([
     esbuild.context(extensionOpts),
     esbuild.context(webviewOpts),
     esbuild.context(workerOpts),
   ]);
-  await Promise.all([extCtx.watch(), webCtx.watch(), workerCtx.watch()]);
+  await Promise.all([extCtx.watch(), webCtx.watch(), wrkCtx.watch()]);
   console.log("Watching for changes...");
 } else {
   await Promise.all([

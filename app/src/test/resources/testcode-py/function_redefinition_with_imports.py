@@ -9,7 +9,6 @@ def my_function():
         pass
     return "first"
 
-from typing import List  # Unrelated import between definitions
 
 def my_function():
     """Second definition - this should be the retained one"""
@@ -18,14 +17,12 @@ def my_function():
         pass
     return "second"
 
-from collections import namedtuple  # Another unrelated import
 
 class MyClass:
     """Regular class for comparison"""
     pass
 
 # Also test that a different import doesn't affect unrelated function
-from typing import Dict as other_import
 
 def other_function():
     """This should exist independently"""

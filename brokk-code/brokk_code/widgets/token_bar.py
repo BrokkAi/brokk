@@ -1,3 +1,4 @@
+import base64
 import math
 from typing import Any, Dict, List, Optional
 
@@ -40,6 +41,7 @@ class TokenBar(Static):
         self._used_tokens = 0
         self._max_tokens = 200_000
         self._fragments: List[Dict[str, Any]] = []
+        self._session_cost: Optional[float] = None
         self._test_size: Optional[Size] = None
         self._rendered_text: Text = Text()
         self._segment_layout: list[tuple[int, int, str, List[Dict[str, Any]]]] = []
@@ -51,6 +53,7 @@ class TokenBar(Static):
         used_tokens: int,
         max_tokens: Optional[int] = None,
         fragments: Optional[List[Dict[str, Any]]] = None,
+        session_cost: Optional[float] = None,
     ) -> None:
         """
         Update the displayed token counts and store fragment metadata.
@@ -60,6 +63,7 @@ class TokenBar(Static):
         # to signal absolute token count rendering.
         self._max_tokens = max_tokens if max_tokens is not None else 200_000
         self._fragments = fragments if fragments is not None else []
+        self._session_cost = session_cost
         self._render_bar()
 
     def on_resize(self) -> None:
@@ -96,13 +100,17 @@ class TokenBar(Static):
             self._rendered_text = Text(usage_str, style="dim")
             self._emit_hover(None, None)
         else:
+            cost_hint = ""
+            if self._session_cost is not None and self._session_cost > 0:
+                cost_hint = f" (${self._session_cost:.2f})"
+
             if self._max_tokens > 0:
                 # Clamp used_tokens to 0 for percentage display if negative
                 display_used = max(0, self._used_tokens)
                 pct = max(0.0, min(100.0, 100 * (1 - display_used / self._max_tokens)))
-                usage_str = f" {pct:.1f}% context remaining"
+                usage_str = f" {pct:.1f}% context remaining{cost_hint}"
             else:
-                usage_str = f" {format_token_count(self._used_tokens)} tokens"
+                usage_str = f" {format_token_count(self._used_tokens)} tokens{cost_hint}"
 
             # Reserve space for the text at the end
             bar_width = width - len(usage_str)
@@ -436,3 +444,66 @@ class TokenBar(Static):
                     for item in working_items
                     if item["width"] > 0
                 ]
+
+
+def get_token_bar_svg(
+    used_tokens: int,
+    max_tokens: int,
+    fragments: List[Dict[str, Any]],
+    width_px: int = 400,
+    height_px: int = 16,
+) -> str:
+    """
+    Generate a pure SVG string representing the token usage bar.
+    """
+    if width_px <= 0:
+        return ""
+
+    details = TokenBar.compute_segment_details(width_px, used_tokens, max_tokens, fragments)
+
+    # Track background
+    svg_parts = [
+        f'<svg width="{width_px}" height="{height_px}" xmlns="http://www.w3.org/2000/svg">',
+        f'<rect width="{width_px}" height="{height_px}" fill="#333333" rx="2" ry="2" />',
+    ]
+
+    x_offset = 0
+    for w, kind, _frags in details:
+        if w <= 0:
+            continue
+        color = _KIND_TO_HEX.get(kind.upper(), "#757575")
+        svg_parts.append(
+            f'<rect x="{x_offset}" y="0" width="{w}" height="{height_px}" fill="{color}" />'
+        )
+        x_offset += w
+
+    svg_parts.append("</svg>")
+    return "".join(svg_parts)
+
+
+def get_token_bar_markdown(
+    used_tokens: int,
+    max_tokens: int,
+    fragments: List[Dict[str, Any]],
+    width_px: int = 400,
+    height_px: int = 16,
+) -> str:
+    """
+    Generate a Markdown image string with a base64-encoded SVG token bar.
+    """
+    svg = get_token_bar_svg(used_tokens, max_tokens, fragments, width_px, height_px)
+    if not svg:
+        return ""
+    b64_svg = base64.b64encode(svg.encode("ascii")).decode("ascii")
+    return f"![Token usage](data:image/svg+xml;base64,{b64_svg})"
+
+
+_KIND_TO_HEX = {
+    "EDIT": "#4CAF50",
+    "SUMMARY": "#FFC107",
+    "SUMMARIES": "#FFC107",
+    "HISTORY": "#E91E63",
+    "TASK_LIST": "#2196F3",
+    "INVALID": "#F44336",
+    "OTHER": "#757575",
+}

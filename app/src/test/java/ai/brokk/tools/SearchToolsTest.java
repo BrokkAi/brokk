@@ -8,14 +8,18 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.testutil.FileUtil;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -61,6 +65,28 @@ public class SearchToolsTest {
     static void teardownAnalyzer() {
         if (javaTestProject != null) {
             javaTestProject.close();
+        }
+    }
+
+    private static Path createDisposableTestProjectCopy() throws IOException {
+        Path sourceDir =
+                Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
+        Path copyDir = Files.createTempDirectory("brokk-searchtools-testcode-java-");
+        FileUtil.copyDirectory(sourceDir, copyDir);
+        return copyDir;
+    }
+
+    private static void deleteRecursively(Path path) {
+        try (Stream<Path> walk = Files.walk(path)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        } catch (IOException | UncheckedIOException e) {
+            throw new RuntimeException("Failed to delete temp directory: " + path, e);
         }
     }
 
@@ -140,7 +166,7 @@ public class SearchToolsTest {
 
     @Test
     void testSearchGitCommitMessages_invalidRegexFallback() {
-        String result = searchTools.searchGitCommitMessages("[[", "testing invalid regex fallback");
+        String result = searchTools.searchGitCommitMessages("[[", "testing invalid regex fallback", 200);
 
         // We should get the commit we added that contains the substring "[["
         assertTrue(result.contains("Commit with [[ pattern"), "Commit message should appear in the result");
@@ -157,7 +183,7 @@ public class SearchToolsTest {
     @Test
     void testfindFilesContaining_invalidRegexThrows() throws Exception {
         // SearchTools.compilePatterns throws on invalid regex for this tool
-        String result = searchTools.findFilesContaining(List.of("[["), "testing invalid regex error");
+        String result = searchTools.findFilesContaining(List.of("[["), "testing invalid regex error", 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
@@ -243,43 +269,50 @@ public class SearchToolsTest {
 
     @Test
     void testSkimDirectory_dependenciesNotGitignored() throws IOException {
-        // Create a context manager that provides the Java analyzer and the test project
-        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
-                    return switch (method.getName()) {
-                        case "getAnalyzer" -> javaAnalyzer;
-                        case "getAnalyzerUninterrupted" -> javaAnalyzer;
-                        case "getProject" -> javaTestProject;
-                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
-                    };
-                });
+        Path projectRootCopy = createDisposableTestProjectCopy();
+        try (TestProject localProject = new TestProject(projectRootCopy, Languages.JAVA)) {
+            JavaAnalyzer localAnalyzer = new JavaAnalyzer(localProject);
 
-        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+            // Create a context manager that provides the Java analyzer and the test project
+            IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                    getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                        return switch (method.getName()) {
+                            case "getAnalyzer" -> localAnalyzer;
+                            case "getAnalyzerUninterrupted" -> localAnalyzer;
+                            case "getProject" -> localProject;
+                            default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                        };
+                    });
 
-        // 1. Create a .brokk/dependencies/testrepo directory structure
-        Path depsRepoPath = javaTestProject
-                .getRoot()
-                .resolve(AbstractProject.BROKK_DIR)
-                .resolve(AbstractProject.DEPENDENCIES_DIR)
-                .resolve("testrepo");
-        Files.createDirectories(depsRepoPath);
-        Path testFile = depsRepoPath.resolve("DependencyFile.java");
-        Files.writeString(testFile, "public class DependencyFile {}");
+            SearchTools tools = new SearchTools(ctxWithAnalyzer);
 
-        try {
-            // 2. Call skimDirectory on the dependency path
-            String pathString = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo")
-                    .toString();
-            String result = tools.skimDirectory(pathString, "testing dependencies bypass gitignore");
+            // 1. Create a .brokk/dependencies/testrepo directory structure
+            Path depsRepoPath = localProject
+                    .getRoot()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.DEPENDENCIES_DIR)
+                    .resolve("testrepo");
+            Files.createDirectories(depsRepoPath);
+            Path testFile = depsRepoPath.resolve("DependencyFile.java");
+            Files.writeString(testFile, "public class DependencyFile {}");
 
-            // 3. Verify that the file IS returned (not filtered out by the .brokk gitignore simulation)
-            assertTrue(
-                    result.contains("DependencyFile.java"),
-                    "File in dependencies should be found even if .brokk is gitignored");
+            try {
+                // 2. Call skimDirectory on the dependency path
+                String pathString = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo")
+                        .toString();
+                String result = tools.skimDirectory(pathString, "testing dependencies bypass gitignore");
+
+                // 3. Verify that the file IS returned (not filtered out by the .brokk gitignore simulation)
+                assertTrue(
+                        result.contains("DependencyFile.java"),
+                        "File in dependencies should be found even if .brokk is gitignored");
+            } finally {
+                // Clean up the created directory in the test project
+                Files.deleteIfExists(testFile);
+                Files.deleteIfExists(depsRepoPath);
+            }
         } finally {
-            // Clean up the created directory in the test project
-            Files.deleteIfExists(testFile);
-            Files.deleteIfExists(depsRepoPath);
+            deleteRecursively(projectRootCopy);
         }
     }
 
@@ -419,7 +452,7 @@ public class SearchToolsTest {
         Files.writeString(txt, "line1\nline2 MATCH\nline3\nline4");
         mockProjectFiles.add(new ProjectFile(projectRoot, "grep_test.txt"));
 
-        String result = searchTools.searchFileContents("MATCH", "**/grep_test.txt", 1);
+        String result = searchTools.searchFileContents("MATCH", "**/grep_test.txt", 1, 200);
 
         assertTrue(result.contains("grep_test.txt"));
         assertTrue(result.contains("1: line1"));
@@ -431,7 +464,7 @@ public class SearchToolsTest {
     @Test
     void testSearchFileContents_invalidRegexThrows() throws Exception {
         // "[[" is invalid regex, should return error message
-        String result = searchTools.searchFileContents("[[", "README.md", 0);
+        String result = searchTools.searchFileContents("[[", "README.md", 0, 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
@@ -483,7 +516,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "root.txt"));
 
         // Verify that **/root.txt matches a file at the project root via the retry logic
-        String result = searchTools.searchFileContents("found", "**/root.txt", 0);
+        String result = searchTools.searchFileContents("found", "**/root.txt", 0, 200);
         assertTrue(result.contains("root.txt"), "Should find file at root even with **/ prefix");
     }
 
@@ -547,7 +580,7 @@ public class SearchToolsTest {
         // Match 1 (idx 1) -> lines 0, 1, 2
         // Match 2 (idx 3) -> lines 2, 3, 4
         // De-duped output should show L1, L2, L3, L4, L5 exactly once.
-        String result = searchTools.searchFileContents("MATCH", "context_test.txt", 1);
+        String result = searchTools.searchFileContents("MATCH", "context_test.txt", 1, 200);
 
         assertTrue(result.contains("1: L1"));
         assertTrue(result.contains("2: L2 MATCH"));
@@ -561,7 +594,7 @@ public class SearchToolsTest {
 
         // Verify clamping: contextLines=999 should be clamped to 50
         // Our file is small, so it should just show everything.
-        String resultsCapped = searchTools.searchFileContents("MATCH", "context_test.txt", 999);
+        String resultsCapped = searchTools.searchFileContents("MATCH", "context_test.txt", 999, 200);
         assertTrue(resultsCapped.contains("7: L7"));
     }
 

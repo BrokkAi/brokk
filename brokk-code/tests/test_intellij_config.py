@@ -14,7 +14,7 @@ def test_configure_intellij_acp_settings_creates_file(tmp_path) -> None:
 
     assert written_path == settings_path
     data = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert data["agent_servers"]["Brokk Code"]["command"] == "brokk-code"
+    assert data["agent_servers"]["Brokk Code"]["command"] == "brokk"
     assert data["agent_servers"]["Brokk Code"]["args"] == ["acp", "--ide", "intellij"]
     assert data["default_mcp_settings"] == {}
 
@@ -84,7 +84,7 @@ def test_configure_intellij_acp_settings_force_overwrites_existing_brokk_code(tm
     configure_intellij_acp_settings(settings_path=settings_path, force=True)
 
     data = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert data["agent_servers"]["Brokk Code"]["command"] == "brokk-code"
+    assert data["agent_servers"]["Brokk Code"]["command"] == "brokk"
 
 
 def test_configure_intellij_acp_settings_preserves_existing_permissions(tmp_path) -> None:

@@ -2,6 +2,7 @@ package ai.brokk.tools;
 
 import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.lang.Math.max;
+import static java.lang.Math.min;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
@@ -42,6 +43,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.xml.XMLConstants;
@@ -72,6 +74,9 @@ public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
     private static final Pattern LINE_SPLIT = Pattern.compile("\\r?\\n");
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
+
+    private static final int FILE_SEARCH_LIMIT = 200;
+    private static final int CLASS_COUNT_LIMIT = 10;
 
     private static final int SEARCH_TOOLS_PARALLELISM =
             max(2, Runtime.getRuntime().availableProcessors());
@@ -130,9 +135,17 @@ public class SearchTools {
                     .build());
 
     private final IContextManager contextManager; // Needed for file operations
+    private final AtomicInteger searchHits = new AtomicInteger(0);
 
     public SearchTools(IContextManager contextManager) {
         this.contextManager = contextManager;
+    }
+
+    /**
+     * Returns the number of search hits accumulated since the last call to this method, and resets the counter to zero.
+     */
+    public int getAndClearSearchHits() {
+        return searchHits.getAndSet(0);
     }
 
     // --- Sanitization Helper Methods
@@ -314,6 +327,7 @@ public class SearchTools {
         if (allDefinitions.isEmpty()) {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
+        searchHits.incrementAndGet();
 
         // Group by file, then by kind within each file
         var fileGroups = allDefinitions.stream()
@@ -383,7 +397,7 @@ public class SearchTools {
         if (results.isEmpty()) {
             return "No usages found for: " + String.join(", ", symbols);
         }
-
+        searchHits.incrementAndGet();
         return String.join("\n\n", results);
     }
 
@@ -421,7 +435,7 @@ public class SearchTools {
                     Use this when you need the complete implementation details, or if you think multiple methods in the classes may be relevant.
                     """)
     public String getClassSources(
-            @P("Fully qualified class names to retrieve the full source code for") List<String> classNames) {
+            @P("Fully qualified class names to retrieve the full source code for; max 10") List<String> classNames) {
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
@@ -430,15 +444,25 @@ public class SearchTools {
 
         StringBuilder result = new StringBuilder();
         Set<String> added = new HashSet<>();
+        int processedCount = 0;
+        boolean truncated = false;
 
         var analyzer = getAnalyzer();
-        classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(className -> {
+        List<String> distinctNames =
+                classNames.stream().distinct().filter(s -> !s.isBlank()).toList();
+
+        for (String className : distinctNames) {
+            if (processedCount >= CLASS_COUNT_LIMIT) {
+                truncated = true;
+                break;
+            }
             var cuOpt = analyzer.getDefinitions(className).stream()
                     .filter(CodeUnit::isClass)
                     .findFirst();
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
+                    processedCount++;
                     var fragment = new ContextFragments.CodeFragment(contextManager, cu);
                     var text = fragment.text().join();
                     if (!text.isEmpty()) {
@@ -449,13 +473,20 @@ public class SearchTools {
                     }
                 }
             }
-        });
+        }
 
         if (result.isEmpty()) {
             return "No sources found for classes: " + String.join(", ", classNames);
         }
 
-        return result.toString();
+        String output = result.toString();
+        if (truncated) {
+            output = "### WARNING: Result limit reached (max " + CLASS_COUNT_LIMIT + " classes). Showing first "
+                    + CLASS_COUNT_LIMIT + " class sources. "
+                    + "Retrying the same tool call will return the same results.\n\n" + output;
+        }
+
+        return output;
     }
 
     @Tool(
@@ -490,6 +521,10 @@ public class SearchTools {
 
         StringBuilder result = new StringBuilder();
         result.append(String.join("\n", locationMappings));
+
+        if (!locationMappings.isEmpty()) {
+            searchHits.incrementAndGet();
+        }
 
         if (!notFound.isEmpty()) {
             result.append("\n\nNot found: ").append(String.join(", ", notFound));
@@ -561,7 +596,7 @@ public class SearchTools {
         var repo = contextManager.getRepo();
 
         // Cap limit at 100 and ensure at least 1
-        int effectiveLimit = max(1, Math.min(limit, 100));
+        int effectiveLimit = max(1, min(limit, 100));
 
         // Canonicalize: normalize the path, treat blank as empty
         String canonicalPathString = path.isBlank() ? "" : path.strip();
@@ -614,6 +649,7 @@ public class SearchTools {
             }
 
             sb.append("</git_log>");
+            searchHits.incrementAndGet();
             return sb.toString();
         } catch (GitAPIException e) {
             logger.error("Error retrieving git log for path '{}': {}", path, e.getMessage(), e);
@@ -685,7 +721,8 @@ public class SearchTools {
     public String searchGitCommitMessages(
             @P("Java-style regex pattern to search for within commit messages.") String pattern,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
+                    String reasoning,
+            @P("Maximum number of matching commits to return (capped at 200).") int limit) {
         if (pattern.isBlank()) {
             throw new IllegalArgumentException("Cannot search commit messages: pattern is empty");
         }
@@ -704,19 +741,35 @@ public class SearchTools {
                     + repo.getClass().getName() + ").";
         }
 
-        List<CommitInfo> matchingCommits;
+        int effectiveLimit = max(1, min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT));
+
+        GitRepo.SearchCommitsResult searchResult;
         try {
-            matchingCommits = gitRepo.searchCommits(pattern);
+            searchResult = gitRepo.searchCommits(pattern, effectiveLimit);
         } catch (GitAPIException e) {
             logger.error("Error searching commit messages", e);
             return "Error searching commit messages: " + e.getMessage();
         }
 
+        List<CommitInfo> matchingCommits = searchResult.commits();
         if (matchingCommits.isEmpty()) {
             return "No commit messages found matching pattern: " + pattern;
         }
+        searchHits.incrementAndGet();
+
+        boolean truncated = searchResult.truncated();
 
         StringBuilder resultBuilder = new StringBuilder();
+        if (truncated) {
+            resultBuilder
+                    .append("### WARNING: Result limit reached (max ")
+                    .append(effectiveLimit)
+                    .append(" commits). Showing first ")
+                    .append(effectiveLimit)
+                    .append(" matching commits. ")
+                    .append("Retrying the same tool call will return the same results.\n\n");
+        }
+
         for (var commit : matchingCommits) {
             resultBuilder.append("<commit id=\"").append(commit.id()).append("\">\n");
             try {
@@ -764,7 +817,8 @@ public class SearchTools {
                             "Java-style regex patterns to search for within file contents. Unlike searchSymbols this does not automatically include any implicit anchors or case insensitivity.")
                     List<String> patterns,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning)
+                    String reasoning,
+            @P("Maximum number of files to return (capped at 200).") int limit)
             throws InterruptedException {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search substrings: patterns list is empty");
@@ -788,10 +842,15 @@ public class SearchTools {
 
         var searchResult = findFilesContainingPatterns(
                 compiledPatterns, contextManager.getProject().getAllFiles());
-        var matchingFilenames = searchResult.matches().stream()
+        // sort to provide deterministic results because getAllFiles() is an unordered Set
+        var allMatches = searchResult.matches().stream()
                 .map(ProjectFile::toString)
                 .sorted()
                 .toList();
+
+        int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
+        boolean truncated = allMatches.size() > effectiveLimit;
+        var matchingFilenames = allMatches.stream().limit(effectiveLimit).toList();
 
         if (matchingFilenames.isEmpty()) {
             if (!searchResult.errors().isEmpty()) {
@@ -803,8 +862,15 @@ public class SearchTools {
             }
             return "No files found with content matching patterns: " + String.join(", ", patterns);
         }
+        searchHits.incrementAndGet();
 
-        var msg = "Files with content matching patterns: " + String.join(", ", matchingFilenames);
+        String prefix = "";
+        if (truncated) {
+            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " files). Showing first "
+                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
+        }
+
+        var msg = prefix + "Files with content matching patterns: " + String.join(", ", matchingFilenames);
         if (!searchResult.errors().isEmpty()) {
             msg += " (warnings: errors occurred reading %d files; first: %s)"
                     .formatted(
@@ -824,36 +890,50 @@ public class SearchTools {
             return new FindFilesContainingResult(Set.of(), List.of());
         }
 
-        final List<FilePatternSearchResult> results;
-        try {
-            results = runInSearchToolsPool(() -> filesToSearch.parallelStream()
-                    .map(file -> {
-                        try {
-                            if (!file.isText()) {
-                                return new FilePatternSearchResult(null, null);
-                            }
-                            var fileContentsOpt = file.read();
-                            if (fileContentsOpt.isEmpty()) {
-                                return new FilePatternSearchResult(null, null);
-                            }
+        var orderedFiles = filesToSearch.stream().sorted().toList();
+        int batchSize = 2 * FILE_SEARCH_LIMIT;
 
-                            String fileContents = fileContentsOpt.get();
-                            boolean matched = patterns.stream()
-                                    .anyMatch(p -> p.matcher(fileContents).find());
+        var results = new ArrayList<FilePatternSearchResult>(orderedFiles.size());
 
-                            return matched
-                                    ? new FilePatternSearchResult(file, null)
-                                    : new FilePatternSearchResult(null, null);
-                        } catch (Exception e) {
-                            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                            return new FilePatternSearchResult(null, file + ": " + message);
-                        }
-                    })
-                    .toList());
-        } catch (RuntimeException e) {
-            logger.error("Error searching file contents", e);
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            return new FindFilesContainingResult(Set.of(), List.of(message));
+        for (int start = 0; start < orderedFiles.size(); start += batchSize) {
+            if (Thread.interrupted()) {
+                throw new InterruptedException("Interrupted between file search batches");
+            }
+            var batch = orderedFiles.subList(start, min(start + batchSize, orderedFiles.size()));
+
+            final List<FilePatternSearchResult> batchResults;
+            try {
+                batchResults = runInSearchToolsPool(() -> batch.parallelStream()
+                        .map(file -> {
+                            try {
+                                if (!file.isText()) {
+                                    return new FilePatternSearchResult(null, null);
+                                }
+                                var fileContentsOpt = file.read();
+                                if (fileContentsOpt.isEmpty()) {
+                                    return new FilePatternSearchResult(null, null);
+                                }
+
+                                String fileContents = fileContentsOpt.get();
+                                boolean matched = patterns.stream()
+                                        .anyMatch(p -> p.matcher(fileContents).find());
+
+                                return matched
+                                        ? new FilePatternSearchResult(file, null)
+                                        : new FilePatternSearchResult(null, null);
+                            } catch (Exception e) {
+                                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                                return new FilePatternSearchResult(null, file + ": " + message);
+                            }
+                        })
+                        .toList());
+            } catch (RuntimeException e) {
+                logger.error("Error searching file contents", e);
+                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                return new FindFilesContainingResult(Set.of(), List.of(message));
+            }
+
+            results.addAll(batchResults);
         }
 
         var matches = results.stream()
@@ -883,7 +963,8 @@ public class SearchTools {
     public String searchFileContents(
             @P("Java-style regex pattern to search for.") String pattern,
             @P("Glob pattern for file paths (e.g., '**/AGENTS.md', 'src/**/*.java').") String filepath,
-            @P("Number of context lines to show around each match (0-50).") int contextLines)
+            @P("Number of context lines to show around each match (0-5).") int contextLines,
+            @P("Maximum number of files to return results for (capped at 200).") int limit)
             throws InterruptedException {
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
@@ -907,9 +988,9 @@ public class SearchTools {
             return "No text files found matching: " + filepath;
         }
 
-        final List<ProjectFile> filesToSearch = files;
+        int clampedContext = max(0, min(contextLines, 5));
+        int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
 
-        int clampedContext = max(0, Math.min(contextLines, 50));
         final List<Pattern> compiledPatterns;
         try {
             compiledPatterns = compilePatterns(List.of(pattern));
@@ -923,48 +1004,89 @@ public class SearchTools {
 
         var lineSplitter = Splitter.on(LINE_SPLIT);
 
+        int batchSize = 2 * FILE_SEARCH_LIMIT;
+
         final List<String> fileResults;
+        final boolean truncated;
         try {
-            fileResults = runInSearchToolsPool(() -> filesToSearch.parallelStream()
-                    .map(file -> {
-                        var contentOpt = file.read();
-                        if (contentOpt.isEmpty()) return null;
+            List<String> results = new ArrayList<>();
+            boolean hasOverflow = false;
 
-                        List<String> lines = lineSplitter.splitToList(contentOpt.get());
-                        List<Integer> matchLines = new ArrayList<>();
+            // Collect up to effectiveLimit + 1 so we can distinguish "exactly limit" from "more than limit"
+            int collectLimit = effectiveLimit + 1;
 
-                        for (int i = 0; i < lines.size(); i++) {
-                            for (var p : compiledPatterns) {
-                                if (p.matcher(lines.get(i)).find()) {
-                                    matchLines.add(i);
-                                    break;
-                                }
-                            }
-                        }
+            for (int start = 0; start < files.size(); start += batchSize) {
+                if (Thread.interrupted()) {
+                    throw new InterruptedException("Interrupted between file content search batches");
+                }
+                var batch = files.subList(start, min(start + batchSize, files.size()));
 
-                        if (matchLines.isEmpty()) return null;
+                record IndexedResult(int index, @Nullable String result) {}
+                List<@Nullable String> batchResults =
+                        runInSearchToolsPool(() -> java.util.stream.IntStream.range(0, batch.size())
+                                .parallel()
+                                .mapToObj(idx -> {
+                                    var file = batch.get(idx);
+                                    var contentOpt = file.read();
+                                    if (contentOpt.isEmpty()) return new IndexedResult(idx, null);
 
-                        String filePath = file.toString().replace('\\', '/');
-                        List<String> outLines = new ArrayList<>();
-                        outLines.add(filePath);
+                                    List<String> lines = lineSplitter.splitToList(contentOpt.get());
+                                    List<Integer> matchLines = new ArrayList<>();
 
-                        Set<Integer> printed = new HashSet<>();
-                        for (int matchIdx : matchLines) {
-                            int start = max(0, matchIdx - clampedContext);
-                            int end = Math.min(lines.size() - 1, matchIdx + clampedContext);
+                                    for (int i = 0; i < lines.size(); i++) {
+                                        for (var p : compiledPatterns) {
+                                            if (p.matcher(lines.get(i)).find()) {
+                                                matchLines.add(i);
+                                                break;
+                                            }
+                                        }
+                                    }
 
-                            for (int i = start; i <= end; i++) {
-                                if (printed.add(i)) {
-                                    outLines.add("%d: %s".formatted(i + 1, lines.get(i)));
-                                }
-                            }
-                        }
+                                    if (matchLines.isEmpty()) return new IndexedResult(idx, null);
 
-                        return String.join("\n", outLines) + "\n";
-                    })
-                    .filter(Objects::nonNull)
-                    .map(Objects::requireNonNull)
-                    .toList());
+                                    String filePath = file.toString().replace('\\', '/');
+                                    List<String> outLines = new ArrayList<>();
+                                    outLines.add(filePath);
+
+                                    Set<Integer> printed = new HashSet<>();
+                                    for (int matchIdx : matchLines) {
+                                        int blockStart = max(0, matchIdx - clampedContext);
+                                        int blockEnd = min(lines.size() - 1, matchIdx + clampedContext);
+
+                                        for (int i = blockStart; i <= blockEnd; i++) {
+                                            if (printed.add(i)) {
+                                                outLines.add("%d: %s".formatted(i + 1, lines.get(i)));
+                                            }
+                                        }
+                                    }
+
+                                    return new IndexedResult(idx, String.join("\n", outLines) + "\n");
+                                })
+                                .sorted(java.util.Comparator.comparingInt(IndexedResult::index))
+                                .map(IndexedResult::result)
+                                .toList());
+
+                for (var res : batchResults) {
+                    if (res == null) continue;
+
+                    results.add(res);
+                    if (results.size() >= collectLimit) {
+                        hasOverflow = true;
+                        break;
+                    }
+                }
+
+                if (hasOverflow) {
+                    break;
+                }
+            }
+
+            truncated = results.size() > effectiveLimit;
+            // Drop the sentinel extra result if present
+            if (truncated) {
+                results.remove(results.size() - 1);
+            }
+            fileResults = results;
         } catch (RuntimeException e) {
             logger.error("Error searching file contents for '{}' in '{}'", pattern, filepath, e);
             return "Error searching file contents: " + (e.getMessage() == null ? e.toString() : e.getMessage());
@@ -973,8 +1095,16 @@ public class SearchTools {
         if (fileResults.isEmpty()) {
             return "No matches found for pattern '" + pattern + "' in files matching '" + filepath + "'";
         }
+        searchHits.incrementAndGet();
 
-        return String.join("\n", fileResults).trim();
+        String output = String.join("\n", fileResults).trim();
+        if (truncated) {
+            output = "### WARNING: Result limit reached (max " + effectiveLimit + " files with context). Showing first "
+                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n"
+                    + output;
+        }
+
+        return output;
     }
 
     @Tool(
@@ -1070,7 +1200,7 @@ public class SearchTools {
             }
             return "No results for XPath query.";
         }
-
+        searchHits.incrementAndGet();
         return String.join("\n", fileResults).trim();
     }
 
@@ -1171,7 +1301,7 @@ public class SearchTools {
             }
             return "No results for jq filter.";
         }
-
+        searchHits.incrementAndGet();
         return String.join("\n", fileResults).trim();
     }
 
@@ -1223,7 +1353,7 @@ public class SearchTools {
         if (matchingFiles.isEmpty()) {
             return "No filenames found matching patterns: " + String.join(", ", patterns);
         }
-
+        searchHits.incrementAndGet();
         return "Matching filenames: " + String.join(", ", matchingFiles);
     }
 
@@ -1317,7 +1447,11 @@ public class SearchTools {
 
         logger.debug("Listing files for directory path: '{}' (normalized to `{}`)", directoryPath, normalizedPath);
 
-        return formatFilesInDirectory(contextManager.getProject().getAllFiles(), normalizedPath, directoryPath);
+        var result = formatFilesInDirectory(contextManager.getProject().getAllFiles(), normalizedPath, directoryPath);
+        if (!result.startsWith("No files found")) {
+            searchHits.incrementAndGet();
+        }
+        return result;
     }
 
     @Tool(
@@ -1362,6 +1496,7 @@ public class SearchTools {
             if (!isInDependencies && project.isGitignored(targetDir.resolve(name))) {
                 continue;
             }
+
             if (item.isDirectory()) {
                 subDirs.add(name + "/");
             } else {
@@ -1369,44 +1504,74 @@ public class SearchTools {
             }
         }
 
-        StringBuilder sb = new StringBuilder();
-        if (!subDirs.isEmpty()) {
-            sb.append("<subdirectories>\n  ")
-                    .append(subDirs.stream().sorted().collect(Collectors.joining(", ")))
-                    .append("\n</subdirectories>\n\n");
+        if (subDirs.isEmpty() && children.isEmpty()) {
+            return "No files or directories found in: " + directoryPath;
         }
 
-        int totalTokens = Messages.getApproximateTokens(sb.toString());
-        int maxTokens = 12800; // ~10% of 128k
-        boolean tooLarge = false;
-
-        StringBuilder fileSummaries = new StringBuilder();
         children.sort(ProjectFile::compareTo);
+        subDirs.sort(String::compareTo);
+
+        int MAX_TOKENS = 12_800; // ~10% of 128k
+
+        // Try full skim (subdirs + symbol summaries)
+        StringBuilder fullSkim = new StringBuilder();
+        int fullTokens = 0;
+        boolean fullTruncated = false;
+
+        if (!subDirs.isEmpty()) {
+            String subDirText = "<subdirectories>\n  " + String.join(", ", subDirs) + "\n</subdirectories>\n\n";
+            fullTokens += Messages.getApproximateTokens(subDirText);
+            fullSkim.append(subDirText);
+        }
+
         for (var file : children) {
             String identifiers = analyzer.summarizeSymbols(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
             String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\">\n" + content + "\n</file>\n";
 
-            totalTokens += Messages.getApproximateTokens(fileBlock);
-            if (totalTokens > maxTokens) {
-                tooLarge = true;
+            int blockTokens = Messages.getApproximateTokens(fileBlock);
+            if (fullTokens + blockTokens > MAX_TOKENS) {
+                fullTruncated = true;
                 break;
             }
-            fileSummaries.append(fileBlock);
+
+            fullSkim.append(fileBlock);
+            fullTokens += blockTokens;
         }
 
-        if (tooLarge) {
-            String fileList = children.stream().map(ProjectFile::getFileName).collect(Collectors.joining("\n"));
-            return sb.append("The directory summary is too large. Files:\n")
-                    .append(fileList)
-                    .toString();
+        if (!fullTruncated) {
+            searchHits.incrementAndGet();
+            return fullSkim.toString();
         }
 
-        if (fileSummaries.isEmpty() && subDirs.isEmpty()) {
-            return "No files or directories found in: " + directoryPath;
+        // Downgrade to filename-only list
+        StringBuilder filenamesOnly = new StringBuilder();
+        filenamesOnly.append("### WARNING: The symbol summary for this directory is too large for the token limit. "
+                + "Switching to filename-only listing.\n\n");
+
+        if (!subDirs.isEmpty()) {
+            filenamesOnly
+                    .append("<subdirectories>\n  ")
+                    .append(String.join(", ", subDirs))
+                    .append("\n</subdirectories>\n\n");
         }
 
-        return sb.append(fileSummaries).toString();
+        String filesCdl = children.stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
+        filenamesOnly.append("Files: ").append(filesCdl);
+
+        String filenamesResult = filenamesOnly.toString();
+        if (Messages.getApproximateTokens(filenamesResult) <= MAX_TOKENS) {
+            searchHits.incrementAndGet();
+            return filenamesResult;
+        }
+
+        // Final fallback: Too many files to even list names
+        return """
+                ### ERROR: Too many files to skim. \
+                The directory contains %d subdirectories and %d files, which exceeds the display limit even without summaries. \
+                Please try listing specific subdirectories or using search tools to narrow your scope.\
+                """
+                .formatted(subDirs.size(), children.size());
     }
 
     private static <T> T runInSearchToolsPool(Callable<T> callable) throws InterruptedException {

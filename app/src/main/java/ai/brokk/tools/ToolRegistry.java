@@ -226,8 +226,8 @@ public class ToolRegistry {
             throw ie;
         } catch (Exception e) {
             GlobalExceptionHandler.handle(e);
-            return ToolExecutionResult.internalError(
-                    request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
+            String msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+            return ToolExecutionResult.internalError(request, msg);
         }
     }
 

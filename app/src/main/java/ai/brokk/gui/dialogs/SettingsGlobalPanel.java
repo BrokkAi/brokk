@@ -17,11 +17,11 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
-import ai.brokk.mcp.HttpMcpServer;
-import ai.brokk.mcp.McpConfig;
-import ai.brokk.mcp.McpServer;
-import ai.brokk.mcp.McpUtils;
-import ai.brokk.mcp.StdioMcpServer;
+import ai.brokk.mcpclient.HttpMcpServer;
+import ai.brokk.mcpclient.McpConfig;
+import ai.brokk.mcpclient.McpServer;
+import ai.brokk.mcpclient.McpUtils;
+import ai.brokk.mcpclient.StdioMcpServer;
 import ai.brokk.openai.OpenAiOAuthService;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
@@ -2277,12 +2277,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     /**
-     * Updates the visibility of the connections section based on subscription status.
-     * Paid subscribers see the OpenAI connection controls and provider keys link.
+     * Updates the visibility of provider key controls based on subscription status.
+     * OpenAI connection controls are always visible. Paid subscribers also see provider keys.
      * Non-paid users see an upgrade link instead.
      */
     private void updateConnectionsUiForSubscriptionStatus(boolean isPaid) {
-        connectionsPaidPanel.setVisible(isPaid);
+        connectionsPaidPanel.setVisible(true);
+        providerKeysLabel.setVisible(isPaid);
         upgradeLabel.setVisible(!isPaid);
         revalidate();
         repaint();
@@ -2352,28 +2353,27 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 }
             }
 
-            var codeModelConfig =
-                    new Service.ModelConfig(ModelProperties.GPT_5_2_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW);
+            var codeModelConfig = new Service.ModelConfig(
+                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.DISABLE);
             var architectModelConfig =
-                    new Service.ModelConfig(ModelProperties.GPT_5_2_OAUTH, AbstractService.ReasoningLevel.DISABLE);
+                    new Service.ModelConfig(ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW);
 
-            // Add favorites for both models if not already present
-            var favorites = new ArrayList<>(MainProject.loadFavoriteModels());
-            boolean hasCodexFavorite =
-                    favorites.stream().anyMatch(fm -> fm.config().name().equals(ModelProperties.GPT_5_2_CODEX_OAUTH));
-            boolean hasArchitectFavorite =
-                    favorites.stream().anyMatch(fm -> fm.config().name().equals(ModelProperties.GPT_5_2_OAUTH));
-
-            if (!hasCodexFavorite) {
-                favorites.add(new Service.FavoriteModel("Codex", codeModelConfig));
-            }
-            if (!hasArchitectFavorite) {
-                favorites.add(new Service.FavoriteModel("GPT-5.2", architectModelConfig));
-            }
-            if (!hasCodexFavorite || !hasArchitectFavorite) {
-                MainProject.saveFavoriteModels(favorites);
-                logger.info("Added Codex models to favorites list");
-            }
+            // Replace favorites list with only Codex OAuth models
+            var codexFavorites = List.of(
+                    new Service.FavoriteModel(
+                            "5.3 Codex instant",
+                            new Service.ModelConfig(
+                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.DISABLE)),
+                    new Service.FavoriteModel(
+                            "5.3 Codex low",
+                            new Service.ModelConfig(
+                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.LOW)),
+                    new Service.FavoriteModel(
+                            "5.3 Codex high",
+                            new Service.ModelConfig(
+                                    ModelProperties.GPT_5_3_CODEX_OAUTH, AbstractService.ReasoningLevel.HIGH)));
+            MainProject.saveFavoriteModels(codexFavorites);
+            logger.info("Replaced favorites list with Codex OAuth models");
 
             mainProject.setModelConfig(ModelProperties.ModelType.CODE, codeModelConfig);
             mainProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, architectModelConfig);

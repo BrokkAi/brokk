@@ -22,9 +22,9 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.NonRetriableException;
+import dev.langchain4j.exception.OverthinkingException;
 import dev.langchain4j.exception.PaymentRequiredException;
 import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.internal.ExceptionMapper;
@@ -1081,7 +1081,7 @@ public class Llm {
             if (error == null && originalResponse != null) {
                 boolean isLength = originalResponse.finishReason() == FinishReason.LENGTH;
                 if (isLength && nsr.isEmpty()) {
-                    error = new ContextTooLargeException("Model reached max output tokens before generating text");
+                    error = new OverthinkingException("Model reached max output tokens before generating text");
                     // If we set error, we must ensure NullSafeResponse doesn't have the originalResponse
                     // to satisfy the constructor assertion.
                     nsr = new NullSafeResponse(nsr.text(), nsr.reasoningContent(), nsr.toolRequests(), null);

@@ -250,8 +250,13 @@ public final class JobRunner {
     static SearchPrompts.Objective objectiveForMode(Mode mode) {
         return switch (mode) {
             case ASK, SEARCH, REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
-            case LUTZ, PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
+            case LUTZ -> SearchPrompts.Objective.LUTZ;
+            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
         };
+    }
+
+    static SearchPrompts.Objective objectiveForLutzSearchPhase() {
+        return objectiveForMode(Mode.LUTZ);
     }
 
     public static Mode parseMode(JobSpec spec) {
@@ -869,10 +874,25 @@ public final class JobRunner {
 
                                             if (reviewResponse == null) {
                                                 if (reviewText.isBlank()) {
+                                                    var stopDetails = reviewResult.stopDetails();
                                                     logger.error(
-                                                            "LLM returned empty response for review job {}", jobId);
+                                                            "LLM returned empty response for review job {}. Stop reason: {}, explanation: {}",
+                                                            jobId,
+                                                            stopDetails.reason(),
+                                                            stopDetails.explanation());
+                                                    String causeDetail =
+                                                            stopDetails.reason() == TaskResult.StopReason.SUCCESS
+                                                                    ? ""
+                                                                    : " Cause: "
+                                                                            + stopDetails
+                                                                                    .explanation()
+                                                                                    .lines()
+                                                                                    .findFirst()
+                                                                                    .orElse(stopDetails
+                                                                                            .reason()
+                                                                                            .name());
                                                     throw new IllegalStateException(
-                                                            "LLM returned empty response for PR review");
+                                                            "LLM returned empty response for PR review." + causeDetail);
                                                 }
                                                 // JSON parsing failed - treat as hard error
                                                 String preview = reviewText.length() > 500
@@ -1058,6 +1078,17 @@ public final class JobRunner {
 
                                         try {
                                             store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
+
+                                            var issueCreatedData = new LinkedHashMap<String, Object>();
+                                            issueCreatedData.put("issueId", created.id());
+                                            if (created.htmlUrl() != null) {
+                                                issueCreatedData.put(
+                                                        "issueUrl",
+                                                        created.htmlUrl().toString());
+                                            }
+                                            issueCreatedData.put("repoOwner", repoOwner);
+                                            issueCreatedData.put("repoName", repoName);
+                                            store.appendEvent(jobId, JobEvent.of("ISSUE_CREATED", issueCreatedData));
                                         } catch (IOException ioe) {
                                             logger.warn(
                                                     "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
@@ -1213,9 +1244,7 @@ public final class JobRunner {
     void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
             throws InterruptedException {
         var context = cm.liveContext();
-        // LUTZ mode always uses TASKS_ONLY for the search/planning phase to ensure
-        // a consistent task list structure for the subsequent execution loop.
-        var searchAgent = new SearchAgent(context, taskInput, plannerModel, SearchPrompts.Objective.TASKS_ONLY, scope);
+        var searchAgent = new SearchAgent(context, taskInput, plannerModel, objectiveForLutzSearchPhase(), scope);
         var taskListResult = searchAgent.execute();
         scope.append(taskListResult);
     }
@@ -1477,7 +1506,7 @@ public final class JobRunner {
 
         requireNonNull(stop);
 
-        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), messages, TaskResult.Type.ASK, model, question);
+        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.ASK, model, question);
         return new TaskResult(ctx, stop);
     }
 
@@ -1650,8 +1679,7 @@ public final class JobRunner {
             responseText = Messages.getText(aiMessage);
         }
 
-        Context reviewContext =
-                ctx.addHistoryEntry(responseMessages, messages, TaskResult.Type.REVIEW, model, "PR Review");
+        Context reviewContext = ctx.addHistoryEntry(responseMessages, TaskResult.Type.REVIEW, model, "PR Review");
         return new ReviewDiffResult(new TaskResult(reviewContext, stop), responseText);
     }
 
@@ -2430,7 +2458,17 @@ public final class JobRunner {
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
                     if (reviewResponse == null) {
                         if (reviewText.isBlank()) {
-                            throw new IssueExecutionException("LLM returned empty response for issue diff review");
+                            var stopDetails = review.taskResult().stopDetails();
+                            String causeDetail = stopDetails.reason() == TaskResult.StopReason.SUCCESS
+                                    ? ""
+                                    : " Cause: "
+                                            + stopDetails
+                                                    .explanation()
+                                                    .lines()
+                                                    .findFirst()
+                                                    .orElse(stopDetails.reason().name());
+                            throw new IssueExecutionException(
+                                    "LLM returned empty response for issue diff review." + causeDetail);
                         }
                         String preview = reviewText.length() > 500 ? reviewText.substring(0, 500) + "..." : reviewText;
                         throw new IssueExecutionException(

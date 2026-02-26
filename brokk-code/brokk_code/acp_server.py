@@ -7,9 +7,12 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
+from urllib.parse import urlparse
 
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.settings import Settings
 from brokk_code.token_format import format_token_count
+from brokk_code.widgets.token_bar import get_token_bar_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +310,63 @@ def extract_prompt_text(prompt: Any) -> str:
     return "\n".join(parts).strip()
 
 
+def extract_resource_file_paths(prompt: Any, cwd: str) -> list[str]:
+    """Extract workspace-relative file paths from EmbeddedResource and ResourceLink blocks."""
+    if not prompt or isinstance(prompt, str):
+        return []
+    cwd_path = Path(cwd) if cwd else None
+    paths: list[str] = []
+    for block in prompt:
+        block_type = getattr(block, "type", None)
+        if isinstance(block, dict):
+            block_type = block.get("type")
+        uri: Optional[str] = None
+        if block_type == "embedded_resource":
+            resource = getattr(block, "resource", None)
+            if isinstance(block, dict):
+                resource = block.get("resource")
+            if resource is not None:
+                uri = getattr(resource, "uri", None)
+                if isinstance(resource, dict):
+                    uri = resource.get("uri")
+        elif block_type == "resource_link":
+            uri = getattr(block, "uri", None)
+            if isinstance(block, dict):
+                uri = block.get("uri")
+        if not isinstance(uri, str):
+            continue
+        parsed = urlparse(uri)
+        if parsed.scheme != "file":
+            continue
+        try:
+            file_path = Path(parsed.path)
+            if cwd_path:
+                paths.append(str(file_path.relative_to(cwd_path)))
+            else:
+                paths.append(str(file_path))
+        except (ValueError, TypeError):
+            logger.debug("Could not make %s relative to %s", uri, cwd)
+    return list(dict.fromkeys(paths))
+
+
+def _extract_fragment_ids(resp: Any) -> list[str]:
+    if not isinstance(resp, dict):
+        return []
+    added = resp.get("added")
+    if not isinstance(added, list):
+        return []
+    ids: list[str] = []
+    for item in added:
+        if not isinstance(item, dict):
+            continue
+        raw_id = item.get("id", item.get("fragmentId"))
+        if raw_id is not None:
+            frag_id = str(raw_id).strip()
+            if frag_id:
+                ids.append(frag_id)
+    return list(dict.fromkeys(ids))
+
+
 def map_executor_event_to_session_update(
     event: dict[str, Any],
     update_agent_message_text: Callable[[str], Any],
@@ -350,6 +410,15 @@ def map_executor_event_to_session_update(
         # These are transient UI state updates and should not be appended to
         # persistent chat output.
         return None
+
+    if event_type == "TOOL_CALL":
+        name = data.get("name", "tool")
+        args = data.get("arguments", "")
+        return update_agent_message_text(f"\n[CALLING TOOL] {name}({args})\n")
+
+    if event_type == "TOOL_OUTPUT":
+        status = data.get("status", "SUCCESS")
+        return update_agent_message_text(f"[TOOL {status}]\n")
 
     return None
 
@@ -556,6 +625,7 @@ class BrokkAcpBridge:
         update_agent_message_text: Callable[[str], Any],
         update_agent_thought_text: Optional[Callable[[str], Any]],
         build_context_snapshot_update: Callable[[str, str, str], Any],
+        cwd: str = "",
         use_short_description_context: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -566,15 +636,35 @@ class BrokkAcpBridge:
         if not prompt_text:
             raise ExecutorError("Prompt must contain at least one non-empty text block.")
 
-        job_id = await self.executor.submit_job(
-            task_input=prompt_text,
-            planner_model=planner_model,
-            code_model=code_model,
-            reasoning_level=reasoning_level,
-            reasoning_level_code=reasoning_level_code,
-            mode=mode,
-            session_id=executor_session_id,
-        )
+        # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
+        attached_fragment_ids: list[str] = []
+        file_paths = extract_resource_file_paths(prompt, cwd)
+        if file_paths:
+            try:
+                resp = await self.executor.add_context_files(file_paths)
+                attached_fragment_ids.extend(_extract_fragment_ids(resp))
+            except Exception:
+                logger.exception("Failed attaching ACP resource file paths to context")
+
+        try:
+            job_id = await self.executor.submit_job(
+                task_input=prompt_text,
+                planner_model=planner_model,
+                code_model=code_model,
+                reasoning_level=reasoning_level,
+                reasoning_level_code=reasoning_level_code,
+                mode=mode,
+                session_id=executor_session_id,
+            )
+        except Exception:
+            if attached_fragment_ids:
+                try:
+                    await self.executor.drop_context_fragments(attached_fragment_ids)
+                except Exception:
+                    logger.exception(
+                        "Failed to rollback context fragments " + "after submit_job failure"
+                    )
+            raise
         self._active_job_by_session[session_id] = job_id
 
         try:
@@ -620,6 +710,20 @@ class BrokkAcpBridge:
                             f"{format_token_count(max_tokens)} tokens\n"
                         ),
                     )
+
+                    # Emit SVG bar if token info is present.
+                    used_tokens_raw = context_data.get("usedTokens")
+                    if used_tokens_raw is not None:
+                        used_tokens_local = int(used_tokens_raw or 0)
+                        fragments = context_data.get("fragments", [])
+                        bar_md = get_token_bar_markdown(
+                            used_tokens=used_tokens_local,
+                            max_tokens=int(max_tokens),
+                            fragments=fragments if isinstance(fragments, list) else [],
+                        )
+                        if bar_md:
+                            await send_update(session_id, update_agent_message_text(bar_md + "\n"))
+
                 current_kind: Optional[str] = None
                 for block in blocks:
                     kind = str(block["chip_kind"])
@@ -722,9 +826,12 @@ async def run_acp_server(
             Implementation,
             ListSessionsResponse,
             ModelInfo,
+            PromptCapabilities,
+            SessionCapabilities,
             SessionConfigOption,
             SessionConfigSelectOption,
             SessionInfo,
+            SessionListCapabilities,
             SessionMode,
             SessionModelState,
             SessionModeState,
@@ -748,6 +855,7 @@ async def run_acp_server(
     # closed by the IDE (for example, when IntelliJ terminates/restarts the run profile).
     # This stdin-based parent-death signal prevents orphaned Java executor processes in
     # cases where Python's finally blocks may not run (e.g., abrupt IDE lifecycle events).
+    settings = Settings.load()
     executor = ExecutorManager(
         workspace_dir=workspace_dir,
         jar_path=jar_path,
@@ -755,6 +863,7 @@ async def run_acp_server(
         executor_snapshot=executor_snapshot,
         vendor=vendor,
         exit_on_stdin_eof=ide_profile == "intellij",
+        brokk_api_key=settings.get_brokk_api_key(),
     )
     bridge = BrokkAcpBridge(executor)
 
@@ -981,8 +1090,12 @@ async def run_acp_server(
         ) -> InitializeResponse:
             return InitializeResponse(
                 protocol_version=protocol_version,
-                agent_info=Implementation(name="brokk-code", version="0.1.0"),
-                agent_capabilities=AgentCapabilities(),
+                agent_info=Implementation(name="brokk", version="0.1.0"),
+                agent_capabilities=AgentCapabilities(
+                    load_session=True,
+                    prompt_capabilities=PromptCapabilities(embedded_context=True),
+                    session_capabilities=SessionCapabilities(list=SessionListCapabilities()),
+                ),
             )
 
         async def new_session(
@@ -1249,6 +1362,7 @@ async def run_acp_server(
             await bridge.prompt(
                 prompt=prompt,
                 session_id=session_id,
+                cwd=self._cwd_by_session.get(session_id, ""),
                 mode=mode,
                 planner_model=planner_model_id,
                 code_model=code_model,
