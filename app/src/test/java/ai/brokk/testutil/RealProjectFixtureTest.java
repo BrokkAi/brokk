@@ -64,8 +64,8 @@ class RealProjectFixtureTest {
 
         // 2. Use fromGitUrl to "clone" from the local path
         String url = sourceRepoPath.toUri().toString();
-        try (IProject project =
-                InlineTestProjectCreator.fromGitUrl(url, "master").build()) {
+        String branch = "master";
+        try (IProject project = InlineTestProjectCreator.fromGitUrl(url, branch).build()) {
             assertTrue(project.hasGit());
             assertNotNull(project.getRepo());
             assertEquals(commitId, project.getRepo().getCurrentCommitId());

@@ -118,7 +118,7 @@ public class InlineTestProjectCreator {
 
         @Override
         public Set<Language> detectLanguages() {
-            return Set.of(); // Handled by post-population scan in builder
+            return Set.of();
         }
 
         @Override
@@ -158,7 +158,7 @@ public class InlineTestProjectCreator {
 
         @Override
         public Set<Language> detectLanguages() {
-            return Set.of(); // Post-population scan
+            return Set.of();
         }
 
         @Override
@@ -348,8 +348,10 @@ public class InlineTestProjectCreator {
                 synchronized (this) {
                     if (analyzer == null) {
                         Set<Language> languages = getAnalyzerLanguages();
-                        if (languages.size() == 1) {
-                            analyzer = AnalyzerCreator.createTreeSitterAnalyzer(this);
+                        if (languages.isEmpty()) {
+                            analyzer = AnalyzerCreator.createMultiAnalyzer(this);
+                        } else if (languages.size() == 1) {
+                            analyzer = languages.iterator().next().createAnalyzer(this);
                         } else {
                             analyzer = AnalyzerCreator.createMultiAnalyzer(this, languages.toArray(new Language[0]));
                         }
