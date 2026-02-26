@@ -128,7 +128,8 @@ public class InlineTestProjectCreator {
     }
 
     private static class GitCloneStrategy implements ProjectContentStrategy {
-        private static final Path CACHE_ROOT = Path.of(System.getProperty("user.home"), ".brokk", "test-cache", "git");
+        private static final Path CACHE_ROOT =
+                Path.of("build", "test-cache", "git").toAbsolutePath();
 
         private final String url;
         private final String ref;
@@ -222,13 +223,6 @@ public class InlineTestProjectCreator {
                 detected = scanLanguages(newTemporaryDirectory);
             }
 
-            Language selectedLang = null;
-            if (detected.size() == 1) {
-                selectedLang = detected.iterator().next();
-            } else if (!detected.isEmpty()) {
-                selectedLang = new Language.MultiLanguage(detected);
-            }
-
             if (this instanceof TestGitProjectBuilder gitBuilder) {
                 try {
                     boolean alreadyRepo = GitRepoFactory.hasGitRepo(newTemporaryDirectory);
@@ -260,10 +254,15 @@ public class InlineTestProjectCreator {
                                     .call();
                         }
                     }
-                    EphemeralTestGitProject project = selectedLang != null
+                    EphemeralTestGitProject project = detected.size() == 1
                             ? new EphemeralTestGitProject(
-                                    newTemporaryDirectory, selectedLang, new GitRepo(newTemporaryDirectory))
+                                    newTemporaryDirectory,
+                                    detected.iterator().next(),
+                                    new GitRepo(newTemporaryDirectory))
                             : new EphemeralTestGitProject(newTemporaryDirectory, new GitRepo(newTemporaryDirectory));
+                    if (!detected.isEmpty()) {
+                        project.setAnalyzerLanguages(detected);
+                    }
                     project.setHasGit(true);
                     return project;
                 } catch (GitAPIException e) {
@@ -271,9 +270,14 @@ public class InlineTestProjectCreator {
                 }
             }
 
-            return selectedLang != null
-                    ? new EphemeralTestProject(newTemporaryDirectory, selectedLang)
+            EphemeralTestProject project = detected.size() == 1
+                    ? new EphemeralTestProject(
+                            newTemporaryDirectory, detected.iterator().next())
                     : new EphemeralTestProject(newTemporaryDirectory);
+            if (!detected.isEmpty()) {
+                project.setAnalyzerLanguages(detected);
+            }
+            return project;
         }
 
         private Set<Language> scanLanguages(Path root) throws IOException {
@@ -348,10 +352,8 @@ public class InlineTestProjectCreator {
                 synchronized (this) {
                     if (analyzer == null) {
                         Set<Language> languages = getAnalyzerLanguages();
-                        if (languages.isEmpty()) {
-                            analyzer = AnalyzerCreator.createMultiAnalyzer(this);
-                        } else if (languages.size() == 1) {
-                            analyzer = languages.iterator().next().createAnalyzer(this);
+                        if (languages.size() == 1) {
+                            analyzer = AnalyzerCreator.createTreeSitterAnalyzer(this);
                         } else {
                             analyzer = AnalyzerCreator.createMultiAnalyzer(this, languages.toArray(new Language[0]));
                         }
