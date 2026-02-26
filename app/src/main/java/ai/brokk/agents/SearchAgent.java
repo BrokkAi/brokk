@@ -26,6 +26,7 @@ import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -132,6 +133,7 @@ public class SearchAgent {
         NORMAL
     }
 
+    private final SearchTools searchTools;
     private final Set<ContextFragment> originalPinnedFragments;
     private final List<ContextFragment> droppedFragments = new ArrayList<>();
 
@@ -202,6 +204,7 @@ public class SearchAgent {
         this.scanConfig = scanConfig;
         this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.objective = objective;
+        this.searchTools = new SearchTools(cm);
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -400,7 +403,11 @@ public class SearchAgent {
     }
 
     private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider) {
-        var builder = cm.getToolRegistry().builder().register(wst).register(toolProvider);
+        var builder = cm.getToolRegistry()
+                .builder()
+                .register(searchTools)
+                .register(wst)
+                .register(toolProvider);
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
         }
@@ -850,6 +857,7 @@ public class SearchAgent {
                     }
 
                     context = agent.resetPinsToOriginal(context);
+                    context = context.removeSupersededSummaries();
                     var pending = new PendingTerminal(termExec);
 
                     // take an extra turn to drop fragments after making the terminal decision now that
@@ -1307,6 +1315,11 @@ public class SearchAgent {
             return 1.0;
         }
 
+        // Consume accumulated search hits for this turn. A non-zero count means the agent
+        // was actively discovering information even if no fragments changed, which should
+        // prevent the convergence score from jumping to 1.0 and dropping all pins prematurely.
+        int hits = searchTools.getAndClearSearchHits();
+
         var currIds = context.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
         var prevIds = lastTurnContext.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
 
@@ -1324,7 +1337,14 @@ public class SearchAgent {
 
         Set<String> noveltySet = new HashSet<>(currIds);
         noveltySet.removeAll(prevIds);
-        double novelty = (double) noveltySet.size() / union.size();
+        double fragmentNovelty = (double) noveltySet.size() / union.size();
+
+        // Activity novelty: each search hit contributes a small novelty signal even when
+        // no fragments were added. Caps at 0.5 so a flood of searches can't fully override
+        // fragment-based convergence, but a few hits are enough to keep cacheWeight healthy.
+        double activityNovelty = hits > 0 ? Math.min(0.5, hits * 0.1) : 0.0;
+
+        double novelty = Math.min(1.0, fragmentNovelty + activityNovelty);
 
         return stability * (1.0 - novelty);
     }
