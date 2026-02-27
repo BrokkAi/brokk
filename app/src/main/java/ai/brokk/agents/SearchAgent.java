@@ -242,6 +242,7 @@ public class SearchAgent {
         tools.add("findFilesContaining");
         tools.add("findFilenames");
         tools.add("searchFileContents");
+        tools.add("readLineRange");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
         if (project.hasGit()) {

@@ -9,31 +9,40 @@ class LinesTest {
     @Test
     void rangeUsesInclusiveOneBasedEndLine() {
         String content = "a\nb\nc\n";
-        assertEquals("a\n", Lines.range(content, 1, 1));
-        assertEquals("b\nc\n", Lines.range(content, 2, 3));
+        assertEquals("1: a\n", Lines.range(content, 1, 1).text());
+        assertEquals("2: b\n3: c\n", Lines.range(content, 2, 3).text());
+        assertEquals(2, Lines.range(content, 2, 3).lineCount());
     }
 
     @Test
     void rangeAllowsEndBeyondFileLength() {
         String content = "a\nb\nc";
-        assertEquals("b\nc", Lines.range(content, 2, 99));
+        var result = Lines.range(content, 2, 99);
+        assertEquals("2: b\n3: c\n", result.text());
+        assertEquals(2, result.lineCount());
     }
 
     @Test
     void rangeReturnsEmptyWhenStartIsPastEndOfContent() {
         String content = "a\nb\nc";
-        assertEquals("", Lines.range(content, 5, 7));
+        var result = Lines.range(content, 5, 7);
+        assertEquals("", result.text());
+        assertEquals(0, result.lineCount());
+    }
+
+    @Test
+    void rangeReturnsEmptyForEmptyContent() {
+        var result = Lines.range("", 1, 1);
+        assertEquals("", result.text());
+        assertEquals(0, result.lineCount());
     }
 
     @Test
     void rangeTreatsCrLfAsSingleLineBreak() {
         String content = "a\r\nb\r\nc";
-        assertEquals("a\r\nb\r\n", Lines.range(content, 1, 2));
-    }
-
-    @Test
-    void rangeReturnsEmptyForEmptyContent() {
-        assertEquals("", Lines.range("", 1, 1));
+        var result = Lines.range(content, 1, 2);
+        assertEquals("1: a\n2: b\n", result.text());
+        assertEquals(2, result.lineCount());
     }
 
     @Test

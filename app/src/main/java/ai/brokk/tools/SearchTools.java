@@ -1526,6 +1526,39 @@ public class SearchTools {
 
     @Tool(
             """
+            Reads a specific range of lines from a file.
+            Use this to examine large files where getFileContents would be too expensive or exceed context limits.
+            Lines are returned with line numbers. Maximum range size is 200 lines.
+            """)
+    public String readLineRange(
+            @P("The filename relative to project root.") String filename,
+            @P("The 1-based start line number (inclusive).") int startLine,
+            @P("The 1-based end line number (inclusive). Maximum 200 lines from start.") int endLine) {
+        var file = contextManager.toFile(filename);
+        if (!file.exists()) {
+            return "File not found: " + filename;
+        }
+        var contentOpt = file.read();
+        if (contentOpt.isEmpty()) {
+            return "Could not read file: " + filename;
+        }
+
+        int effectiveStart = max(1, startLine);
+        int requestedEnd = min(endLine, effectiveStart + 199);
+
+        var rangeResult = ai.brokk.util.Lines.range(contentOpt.get(), effectiveStart, requestedEnd);
+        if (rangeResult.lineCount() == 0) {
+            return "No lines found in range %d-%d for file %s".formatted(effectiveStart, requestedEnd, filename);
+        }
+
+        int actualEnd = effectiveStart + rangeResult.lineCount() - 1;
+
+        return recordResearchTokens(
+                "File: %s (lines %d-%d)\n%s".formatted(filename, effectiveStart, actualEnd, rangeResult.text()));
+    }
+
+    @Tool(
+            """
                     Returns the full contents of the specified files. Use this after findFilenames, findFilesContaining or searchSymbols or when you need the content of a non-code file.
                     This can be expensive for large files.
                     """)
