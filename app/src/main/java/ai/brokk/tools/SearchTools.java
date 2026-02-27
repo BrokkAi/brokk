@@ -43,7 +43,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.xml.XMLConstants;
@@ -135,17 +135,22 @@ public class SearchTools {
                     .build());
 
     private final IContextManager contextManager; // Needed for file operations
-    private final AtomicInteger searchHits = new AtomicInteger(0);
+    private final AtomicLong researchTokens = new AtomicLong(0);
 
     public SearchTools(IContextManager contextManager) {
         this.contextManager = contextManager;
     }
 
     /**
-     * Returns the number of search hits accumulated since the last call to this method, and resets the counter to zero.
+     * Returns the number of research tokens accumulated since the last call to this method, and resets the counter to zero.
      */
-    public int getAndClearSearchHits() {
-        return searchHits.getAndSet(0);
+    public long getAndClearResearchTokens() {
+        return researchTokens.getAndSet(0);
+    }
+
+    private String recordResearchTokens(String output) {
+        researchTokens.addAndGet(Messages.getApproximateTokens(output));
+        return output;
     }
 
     // --- Sanitization Helper Methods
@@ -267,7 +272,7 @@ public class SearchTools {
         }
 
         // Return the combined skeleton strings directly, joined by newlines
-        return String.join("\n\n", allSkeletons);
+        return recordResearchTokens(String.join("\n\n", allSkeletons));
     }
 
     // --- Tool Methods requiring analyzer
@@ -327,7 +332,6 @@ public class SearchTools {
         if (allDefinitions.isEmpty()) {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
-        searchHits.incrementAndGet();
 
         // Group by file, then by kind within each file
         var fileGroups = allDefinitions.stream()
@@ -358,7 +362,7 @@ public class SearchTools {
             result.append("</file>\n");
         });
 
-        return result.toString();
+        return recordResearchTokens(result.toString());
     }
 
     @Tool(
@@ -397,8 +401,7 @@ public class SearchTools {
         if (results.isEmpty()) {
             return "No usages found for: " + String.join(", ", symbols);
         }
-        searchHits.incrementAndGet();
-        return String.join("\n\n", results);
+        return recordResearchTokens(String.join("\n\n", results));
     }
 
     @Tool(
@@ -425,7 +428,7 @@ public class SearchTools {
             return "No classes found in: " + String.join(", ", classNames);
         }
 
-        return result;
+        return recordResearchTokens(result);
     }
 
     @Tool(
@@ -486,7 +489,7 @@ public class SearchTools {
                     + "Retrying the same tool call will return the same results.\n\n" + output;
         }
 
-        return output;
+        return recordResearchTokens(output);
     }
 
     @Tool(
@@ -519,18 +522,18 @@ public class SearchTools {
             }
         });
 
+        if (locationMappings.isEmpty()) {
+            return "No symbols found for: " + String.join(", ", symbols);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append(String.join("\n", locationMappings));
-
-        if (!locationMappings.isEmpty()) {
-            searchHits.incrementAndGet();
-        }
 
         if (!notFound.isEmpty()) {
             result.append("\n\nNot found: ").append(String.join(", ", notFound));
         }
 
-        return result.toString();
+        return recordResearchTokens(result.toString());
     }
 
     @Tool(
@@ -573,7 +576,7 @@ public class SearchTools {
             return "No sources found for methods: " + String.join(", ", methodNames);
         }
 
-        return result.toString();
+        return recordResearchTokens(result.toString());
     }
 
     @Tool(
@@ -649,8 +652,7 @@ public class SearchTools {
             }
 
             sb.append("</git_log>");
-            searchHits.incrementAndGet();
-            return sb.toString();
+            return recordResearchTokens(sb.toString());
         } catch (GitAPIException e) {
             logger.error("Error retrieving git log for path '{}': {}", path, e.getMessage(), e);
             return "Error retrieving git log: " + e.getMessage();
@@ -755,7 +757,6 @@ public class SearchTools {
         if (matchingCommits.isEmpty()) {
             return "No commit messages found matching pattern: " + pattern;
         }
-        searchHits.incrementAndGet();
 
         boolean truncated = searchResult.truncated();
 
@@ -802,7 +803,7 @@ public class SearchTools {
             }
         }
 
-        return resultBuilder.toString();
+        return recordResearchTokens(resultBuilder.toString());
     }
 
     // --- Text search tools
@@ -862,8 +863,6 @@ public class SearchTools {
             }
             return "No files found with content matching patterns: " + String.join(", ", patterns);
         }
-        searchHits.incrementAndGet();
-
         String prefix = "";
         if (truncated) {
             prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " files). Showing first "
@@ -877,7 +876,7 @@ public class SearchTools {
                             searchResult.errors().size(), searchResult.errors().getFirst());
         }
         logger.debug(msg);
-        return msg;
+        return recordResearchTokens(msg);
     }
 
     public record FindFilesContainingResult(Set<ProjectFile> matches, List<String> errors) {}
@@ -1095,8 +1094,6 @@ public class SearchTools {
         if (fileResults.isEmpty()) {
             return "No matches found for pattern '" + pattern + "' in files matching '" + filepath + "'";
         }
-        searchHits.incrementAndGet();
-
         String output = String.join("\n", fileResults).trim();
         if (truncated) {
             output = "### WARNING: Result limit reached (max " + effectiveLimit + " files with context). Showing first "
@@ -1104,7 +1101,7 @@ public class SearchTools {
                     + output;
         }
 
-        return output;
+        return recordResearchTokens(output);
     }
 
     @Tool(
@@ -1200,8 +1197,7 @@ public class SearchTools {
             }
             return "No results for XPath query.";
         }
-        searchHits.incrementAndGet();
-        return String.join("\n", fileResults).trim();
+        return recordResearchTokens(String.join("\n", fileResults).trim());
     }
 
     @Tool(
@@ -1301,8 +1297,7 @@ public class SearchTools {
             }
             return "No results for jq filter.";
         }
-        searchHits.incrementAndGet();
-        return String.join("\n", fileResults).trim();
+        return recordResearchTokens(String.join("\n", fileResults).trim());
     }
 
     @Tool(
@@ -1353,8 +1348,7 @@ public class SearchTools {
         if (matchingFiles.isEmpty()) {
             return "No filenames found matching patterns: " + String.join(", ", patterns);
         }
-        searchHits.incrementAndGet();
-        return "Matching filenames: " + String.join(", ", matchingFiles);
+        return recordResearchTokens("Matching filenames: " + String.join(", ", matchingFiles));
     }
 
     @Tool(
@@ -1407,7 +1401,7 @@ public class SearchTools {
             return "None of the requested files could be read: " + String.join(", ", filenames);
         }
 
-        return result.toString();
+        return recordResearchTokens(result.toString());
     }
 
     /**
@@ -1448,10 +1442,10 @@ public class SearchTools {
         logger.debug("Listing files for directory path: '{}' (normalized to `{}`)", directoryPath, normalizedPath);
 
         var result = formatFilesInDirectory(contextManager.getProject().getAllFiles(), normalizedPath, directoryPath);
-        if (!result.startsWith("No files found")) {
-            searchHits.incrementAndGet();
+        if (result.startsWith("No files found")) {
+            return result;
         }
-        return result;
+        return recordResearchTokens(result);
     }
 
     @Tool(
@@ -1540,8 +1534,7 @@ public class SearchTools {
         }
 
         if (!fullTruncated) {
-            searchHits.incrementAndGet();
-            return fullSkim.toString();
+            return recordResearchTokens(fullSkim.toString());
         }
 
         // Downgrade to filename-only list
@@ -1561,8 +1554,7 @@ public class SearchTools {
 
         String filenamesResult = filenamesOnly.toString();
         if (Messages.getApproximateTokens(filenamesResult) <= MAX_TOKENS) {
-            searchHits.incrementAndGet();
-            return filenamesResult;
+            return recordResearchTokens(filenamesResult);
         }
 
         // Final fallback: Too many files to even list names

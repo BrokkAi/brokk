@@ -15,6 +15,7 @@ class SessionStubExecutor(StubExecutor):
         self.workspace_dir = None
         self.import_calls = []
         self.create_calls = []
+        self.conversation = {"entries": []}
 
     async def create_session(self, name: str = "TUI Session") -> str:
         self.create_calls.append(name)
@@ -25,6 +26,9 @@ class SessionStubExecutor(StubExecutor):
         self.import_calls.append((zip_bytes, session_id))
         self.session_id = session_id or "imported-session"
         return self.session_id
+
+    async def get_conversation(self):
+        return self.conversation
 
 
 @pytest.mark.asyncio
@@ -190,3 +194,58 @@ def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
 
     captured = capsys.readouterr()
     assert "brokk resume" not in captured.out
+
+
+def test_replay_conversation_entries_renders_messages(tmp_path):
+    workspace = tmp_path
+    stub = SessionStubExecutor()
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+
+    class FakeChat:
+        def __init__(self):
+            self.calls = []
+            self._message_history = []
+
+        def _render_message_entry(self, kind, content, **kwargs):
+            self.calls.append(("render", kind, content, kwargs))
+
+        def add_user_message(self, text):
+            self.calls.append(("user", text))
+
+        def add_markdown(self, text):
+            self.calls.append(("ai", text))
+
+        def add_tool_result(self, text):
+            self.calls.append(("tool", text))
+
+        def add_system_message(self, text, level="INFO"):
+            self.calls.append(("system", level, text))
+
+        def append_message(self, author, text):
+            self.calls.append(("legacy", author, text))
+
+    fake_chat = FakeChat()
+    app._maybe_chat = lambda: fake_chat  # type: ignore[method-assign]
+
+    replayed = app._replay_conversation_entries(
+        {
+            "entries": [
+                {
+                    "sequence": 1,
+                    "messages": [
+                        {"role": "user", "text": "Please fix it"},
+                        {"role": "ai", "text": "Done", "reasoning": "Thinking steps"},
+                        {"role": "tool_execution_result", "text": "Command output"},
+                    ],
+                },
+                {"sequence": 2, "summary": "Compressed summary"},
+            ]
+        }
+    )
+
+    assert replayed == 2
+    assert ("user", "Please fix it") in fake_chat.calls
+    assert ("ai", "Done") in fake_chat.calls
+    assert ("tool", "Command output") in fake_chat.calls
+    assert any(call[:3] == ("render", "REASONING", "Thinking steps") for call in fake_chat.calls)
+    assert ("ai", "Compressed summary") in fake_chat.calls

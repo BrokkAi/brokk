@@ -481,3 +481,21 @@ async def test_executor_start_includes_brokk_api_key_flag(monkeypatch, tmp_path)
     assert captured_cmd[idx + 1] == "sk-test-123"
 
     await manager.stop()
+
+
+def test_resolve_jbang_binary_prefers_windows_wrapper(monkeypatch, tmp_path):
+    import brokk_code.executor as executor_module
+
+    jbang_bin_dir = tmp_path / ".jbang" / "bin"
+    jbang_bin_dir.mkdir(parents=True)
+    (jbang_bin_dir / "jbang").write_text("sh launcher")
+    (jbang_bin_dir / "jbang.cmd").write_text("@echo off")
+
+    monkeypatch.setattr(executor_module.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(executor_module.sys, "platform", "win32")
+    monkeypatch.setattr(executor_module.Path, "home", lambda: tmp_path)
+
+    resolved = executor_module.resolve_jbang_binary()
+
+    assert resolved is not None
+    assert resolved.endswith("jbang.cmd")

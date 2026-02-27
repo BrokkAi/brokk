@@ -133,9 +133,12 @@ public class SearchAgent {
         NORMAL
     }
 
+    private static final double RESEARCH_TOKENS_EMA_ALPHA = 0.5;
+
     private final SearchTools searchTools;
     private final Set<ContextFragment> originalPinnedFragments;
     private final List<ContextFragment> droppedFragments = new ArrayList<>();
+    private double researchTokensEma = 0.0;
 
     /**
      * Tracks the fragment IDs present immediately after the most recent successful dropWorkspaceFragments call.
@@ -1311,42 +1314,67 @@ public class SearchAgent {
         if (!cm.getService().supportsPrefixCache(model)) {
             return 1.0;
         }
-        if (lastTurnContext == null) {
+        if (lastTurnContext == null || context.isEmpty()) {
+            return 0.0;
+        }
+
+        long researchTokens = searchTools.getAndClearResearchTokens();
+        researchTokensEma =
+                RESEARCH_TOKENS_EMA_ALPHA * researchTokens + (1.0 - RESEARCH_TOKENS_EMA_ALPHA) * researchTokensEma;
+
+        var currFragments = context.allFragments().toList();
+        var prevFragments = lastTurnContext.allFragments().toList();
+
+        double prevTotal = 0.0;
+        var prevWeightsById = new HashMap<String, Double>(prevFragments.size());
+        for (var f : prevFragments) {
+            double w = sqrtTokenWeight(f);
+            prevWeightsById.put(f.id(), w);
+            prevTotal += w;
+        }
+
+        double currTotal = 0.0;
+        double intersectionWeight = 0.0;
+        Set<String> matchedPrevIds = new HashSet<>();
+
+        for (var f : currFragments) {
+            double wCurr = sqrtTokenWeight(f);
+            currTotal += wCurr;
+
+            var prevMatchOpt = lastTurnContext.findWithSameSource(f);
+            if (prevMatchOpt.isEmpty()) {
+                continue;
+            }
+
+            var prevMatch = prevMatchOpt.get();
+            if (!matchedPrevIds.add(prevMatch.id())) {
+                continue;
+            }
+
+            double wPrev = prevWeightsById.getOrDefault(prevMatch.id(), sqrtTokenWeight(prevMatch));
+            intersectionWeight += Math.min(wCurr, wPrev);
+        }
+
+        double unionWeight = prevTotal + currTotal - intersectionWeight;
+        if (!(unionWeight > 0.0)) {
             return 1.0;
         }
 
-        // Consume accumulated search hits for this turn. A non-zero count means the agent
-        // was actively discovering information even if no fragments changed, which should
-        // prevent the convergence score from jumping to 1.0 and dropping all pins prematurely.
-        int hits = searchTools.getAndClearSearchHits();
+        double stability = intersectionWeight / unionWeight;
 
-        var currIds = context.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
-        var prevIds = lastTurnContext.allFragments().map(ContextFragment::id).collect(Collectors.toSet());
-
-        Set<String> intersection = new HashSet<>(prevIds);
-        intersection.retainAll(currIds);
-
-        Set<String> union = new HashSet<>(prevIds);
-        union.addAll(currIds);
-
-        if (union.isEmpty()) {
-            return 1.0;
-        }
-
-        double stability = (double) intersection.size() / union.size();
-
-        Set<String> noveltySet = new HashSet<>(currIds);
-        noveltySet.removeAll(prevIds);
-        double fragmentNovelty = (double) noveltySet.size() / union.size();
-
-        // Activity novelty: each search hit contributes a small novelty signal even when
-        // no fragments were added. Caps at 0.5 so a flood of searches can't fully override
-        // fragment-based convergence, but a few hits are enough to keep cacheWeight healthy.
-        double activityNovelty = hits > 0 ? Math.min(0.5, hits * 0.1) : 0.0;
-
-        double novelty = Math.min(1.0, fragmentNovelty + activityNovelty);
+        long workspaceTokens = currFragments.stream()
+                .mapToLong(f -> Messages.getApproximateTokens(f.text().join()))
+                .sum();
+        double novelty = researchTokensEma <= 0.0 || workspaceTokens <= 0
+                ? 0.0
+                : (researchTokensEma / (researchTokensEma + workspaceTokens));
 
         return stability * (1.0 - novelty);
+    }
+
+    private static double sqrtTokenWeight(ContextFragment fragment) {
+        int tokens = Messages.getApproximateTokens(fragment.text().join());
+        return Math.sqrt(Math.max(0, tokens));
     }
 
     private record PendingTerminal(ToolExecutionResult terminalExecution) {

@@ -26,10 +26,12 @@ class SearchAgentCachePinningTest {
 
         // Create fragments with controlled sizes
         // Tokens approximated: "short" (1), "medium content here" (3), "very long content..." (12)
-        ContextFragment f1 = new ContextFragments.StringFragment(cm, "short", "f1", SyntaxConstants.SYNTAX_STYLE_NONE);
-        ContextFragment f2 =
-                new ContextFragments.StringFragment(cm, "medium content here", "f2", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment f1 =
+                new ContextFragments.StringFragment("f1", cm, "short", "f1", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment f2 = new ContextFragments.StringFragment(
+                "f2", cm, "medium content here", "f2", SyntaxConstants.SYNTAX_STYLE_NONE);
         ContextFragment f3 = new ContextFragments.StringFragment(
+                "f3",
                 cm,
                 "very long content that should be pinned if cache weight is high",
                 "f3",
@@ -53,15 +55,15 @@ class SearchAgentCachePinningTest {
 
         // Turn 2: Force a state that leads to score < 1.0.
         // We use large strings to exceed the 10,000 token threshold (approx 4 chars per token)
-        ContextFragment bigF2 =
-                new ContextFragments.StringFragment(cm, "a".repeat(40000), "f2", SyntaxConstants.SYNTAX_STYLE_NONE);
-        ContextFragment bigF3 =
-                new ContextFragments.StringFragment(cm, "b".repeat(80000), "f3", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment bigF2 = new ContextFragments.StringFragment(
+                "f2", cm, "a".repeat(40000), "f2", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment bigF3 = new ContextFragments.StringFragment(
+                "f3", cm, "b".repeat(80000), "f3", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         // To trigger pinning, we need a state of flux.
         // Let's create a 'last turn' that is significantly different from 'current turn'.
         ContextFragment fluxF =
-                new ContextFragments.StringFragment(cm, "flux", "flux", SyntaxConstants.SYNTAX_STYLE_NONE);
+                new ContextFragments.StringFragment("flux", cm, "flux", "flux", SyntaxConstants.SYNTAX_STYLE_NONE);
         Context lastTurn = new Context(cm).addFragments(List.of(f1, bigF2, fluxF));
 
         // current context has {f1, bigF2, bigF3}.
@@ -90,10 +92,10 @@ class SearchAgentCachePinningTest {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
         // Use very large strings to exceed the 10k token delta (approx 4 chars/token)
         // f1: ~20k tokens, f2: ~20k tokens
-        ContextFragment f1 =
-                new ContextFragments.StringFragment(cm, "a".repeat(80000), "f1", SyntaxConstants.SYNTAX_STYLE_NONE);
-        ContextFragment f2 =
-                new ContextFragments.StringFragment(cm, "b".repeat(80000), "f2", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment f1 = new ContextFragments.StringFragment(
+                "f1", cm, "a".repeat(80000), "f1", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment f2 = new ContextFragments.StringFragment(
+                "f2", cm, "b".repeat(160000), "f2", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         Context initialCtx = new Context(cm).addFragments(f1);
         Context ctx = initialCtx.addFragments(f2);
@@ -103,7 +105,7 @@ class SearchAgentCachePinningTest {
         // f1 is "old" (in both turns), f2 is "new" (added this turn)
         // To ensure cacheWeight > 0, we need some churn.
         ContextFragment fluxF =
-                new ContextFragments.StringFragment(cm, "flux", "flux", SyntaxConstants.SYNTAX_STYLE_NONE);
+                new ContextFragments.StringFragment("flux", cm, "flux", "flux", SyntaxConstants.SYNTAX_STYLE_NONE);
         Context lastTurn = initialCtx.addFragments(fluxF);
 
         Context pinned = agent.applyPinning(ctx, lastTurn);
@@ -125,10 +127,10 @@ class SearchAgentCachePinningTest {
                 SearchAgent.ScanConfig.disabled());
 
         // Case 1: No last turn
-        assertTrue(agent.calculateConvergenceScore(empty, null) == 1.0);
+        assertTrue(agent.calculateConvergenceScore(empty, null) == 0.0);
 
         // Case 2: Union is empty (both contexts empty)
-        assertTrue(agent.calculateConvergenceScore(empty, empty) == 1.0);
+        assertTrue(agent.calculateConvergenceScore(empty, empty) == 0.0);
 
         // Case 3: Identity (converged)
         ContextFragment f1 =

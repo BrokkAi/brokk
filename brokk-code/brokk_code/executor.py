@@ -14,7 +14,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.0.beta4"
+BUNDLED_EXECUTOR_VERSION = "0.23.0.beta9"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -36,13 +36,18 @@ def resolve_jbang_binary() -> Optional[str]:
 
     # 2. Check common install locations
     home = Path.home()
-    candidates = [
-        home / ".jbang" / "bin" / "jbang",
-        Path("/opt/homebrew/bin/jbang"),
-        Path("/usr/local/bin/jbang"),
-    ]
     if sys.platform == "win32":
-        candidates.append(home / ".jbang" / "bin" / "jbang.cmd")
+        candidates = [
+            home / ".jbang" / "bin" / "jbang.cmd",
+            home / ".jbang" / "bin" / "jbang.exe",
+            home / ".jbang" / "bin" / "jbang",
+        ]
+    else:
+        candidates = [
+            home / ".jbang" / "bin" / "jbang",
+            Path("/opt/homebrew/bin/jbang"),
+            Path("/usr/local/bin/jbang"),
+        ]
 
     for candidate in candidates:
         if candidate.exists():
@@ -92,22 +97,28 @@ def install_jbang() -> str:
             "jbang was installed but could not be found. You may need to restart your terminal."
         )
 
-    # Trust the brokk catalog
-    try:
-        trust_proc = subprocess.run(
-            [jbang_path, "trust", "add", "https://github.com/BrokkAi/brokk-releases"],
-            capture_output=True,
-            text=True,
-        )
-        if trust_proc.returncode != 0:
-            logger.warning(
-                "Failed to trust brokk catalog: %s",
-                trust_proc.stderr.strip()
-                if trust_proc.stderr
-                else f"exit code {trust_proc.returncode}",
+    # Trust the brokk catalog and release download URL
+    trust_urls = [
+        "https://github.com/BrokkAi/brokk-releases",
+        "https://github.com/BrokkAi/brokk-releases/releases/download/",
+    ]
+    for url in trust_urls:
+        try:
+            trust_proc = subprocess.run(
+                [jbang_path, "trust", "add", url],
+                capture_output=True,
+                text=True,
             )
-    except Exception as e:
-        logger.warning("Failed to run trust command: %s", e)
+            if trust_proc.returncode != 0:
+                logger.warning(
+                    "Failed to trust %s: %s",
+                    url,
+                    trust_proc.stderr.strip()
+                    if trust_proc.stderr
+                    else f"exit code {trust_proc.returncode}",
+                )
+        except Exception as e:
+            logger.warning("Failed to run trust command for %s: %s", url, e)
 
     return jbang_path
 
@@ -377,6 +388,37 @@ class ExecutorManager:
             return self.session_id
         except httpx.HTTPError as e:
             raise ExecutorError(f"Failed to create session: {e}")
+
+    async def list_sessions(self) -> Dict[str, Any]:
+        """Lists known sessions and the current active session ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/sessions")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/sessions")
+            raise  # Should not be reached
+
+    async def switch_session(self, session_id: str) -> Dict[str, Any]:
+        """Switches the active session by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not session_id or not session_id.strip():
+            raise ExecutorError("session_id must not be blank")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/sessions/switch", json={"sessionId": session_id}
+            )
+            resp.raise_for_status()
+            self.session_id = session_id
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/sessions/switch (status={status}): {e}") from e
 
     async def download_session_zip(self, session_id: str) -> bytes:
         """Downloads the ZIP archive for a specific session."""
@@ -741,6 +783,19 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/tasklist")
             raise  # Should not be reached
 
+    async def get_conversation(self) -> Dict[str, Any]:
+        """Returns displayable conversation entries for the current session context."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/context/conversation")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/context/conversation")
+            raise  # Should not be reached
+
     async def add_context_files(self, relative_paths: List[str]) -> Dict[str, Any]:
         """Adds files to context by workspace-relative paths."""
         if not self._http_client:
@@ -800,6 +855,32 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/tasklist")
+            raise  # Should not be reached
+
+    async def start_openai_oauth(self) -> Dict[str, Any]:
+        """Initiates the OpenAI OAuth flow."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/openai/oauth/start")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/openai/oauth/start (status={status}): {e}") from e
+
+    async def get_openai_oauth_status(self) -> Dict[str, Any]:
+        """Checks the connection status of OpenAI OAuth."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/openai/oauth/status")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/openai/oauth/status")
             raise  # Should not be reached
 
     async def cancel_job(self, job_id: str):

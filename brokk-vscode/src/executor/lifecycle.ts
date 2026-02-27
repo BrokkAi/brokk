@@ -215,7 +215,18 @@ export async function installJbang(): Promise<string> {
     throw new Error("jbang was installed but could not be found. You may need to restart VS Code.");
   }
 
-  execSync(`"${jbangPath}" trust add https://github.com/BrokkAi/brokk-releases`, { stdio: "pipe" });
+  const trustUrls = [
+    "https://github.com/BrokkAi/brokk-releases",
+    "https://github.com/BrokkAi/brokk-releases/releases/download/",
+  ];
+
+  for (const url of trustUrls) {
+    try {
+      execSync(`"${jbangPath}" trust add ${url}`, { stdio: "pipe" });
+    } catch {
+      // Best-effort trust; don't fail installation if trust fails
+    }
+  }
 
   return jbangPath;
 }

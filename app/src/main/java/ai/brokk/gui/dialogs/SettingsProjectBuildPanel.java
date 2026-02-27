@@ -10,6 +10,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
@@ -705,7 +706,11 @@ public class SettingsProjectBuildPanel extends JPanel {
                 var agent = new BuildAgent(
                         proj,
                         cm.getLlm(cm.getService().getScanModel(), "Infer build details", TaskResult.Type.NONE),
-                        cm.getToolRegistry());
+                        cm.getToolRegistry()
+                                .builder()
+                                .register(new SearchTools(cm))
+                                .build(),
+                        cm.getIo());
                 var newBuildDetails = agent.execute();
 
                 // Check if task was cancelled during execution

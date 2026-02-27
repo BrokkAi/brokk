@@ -3,12 +3,13 @@ import json
 import logging
 import re
 import sys
-import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 from urllib.parse import urlparse
 
+from brokk_code import __version__
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.settings import Settings
 from brokk_code.token_format import format_token_count
@@ -371,6 +372,11 @@ def map_executor_event_to_session_update(
     event: dict[str, Any],
     update_agent_message_text: Callable[[str], Any],
     update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+    start_tool_call: Optional[Callable[..., Any]] = None,
+    update_tool_call: Optional[Callable[..., Any]] = None,
+    tool_content: Optional[Callable[[Any], Any]] = None,
+    text_block: Optional[Callable[[str], Any]] = None,
+    tool_call_titles_only: bool = False,
 ) -> Optional[Any]:
     event_type = event.get("type")
     data = event.get("data", {})
@@ -414,11 +420,62 @@ def map_executor_event_to_session_update(
     if event_type == "TOOL_CALL":
         name = data.get("name", "tool")
         args = data.get("arguments", "")
+        tool_call_id = (
+            data.get("toolCallId")
+            or data.get("tool_call_id")
+            or data.get("id")
+            or data.get("callId")
+        )
+
+        if tool_call_titles_only:
+            raw_title = str(name or "tool")
+            safe_title = " ".join(raw_title.split())
+            if not safe_title:
+                safe_title = "tool"
+            safe_title = safe_title[:120]
+            return update_agent_message_text(f"\n[TOOL] {safe_title}\n")
+
+        if start_tool_call and tool_call_id:
+            content = None
+            if args and text_block and tool_content:
+                content = [tool_content(text_block(str(args)))]
+            return start_tool_call(
+                tool_call_id=str(tool_call_id),
+                title=name,
+                status="in_progress",
+                content=content,
+            )
+
         return update_agent_message_text(f"\n[CALLING TOOL] {name}({args})\n")
 
     if event_type == "TOOL_OUTPUT":
-        status = data.get("status", "SUCCESS")
-        return update_agent_message_text(f"[TOOL {status}]\n")
+        if tool_call_titles_only:
+            return None
+
+        status_raw = str(data.get("status", "SUCCESS")).upper()
+        # Map executor status to ACP ToolCallStatus: "pending", "in_progress", "completed", "failed"
+        acp_status = "completed" if status_raw == "SUCCESS" else "failed"
+
+        tool_call_id = (
+            data.get("toolCallId")
+            or data.get("tool_call_id")
+            or data.get("id")
+            or data.get("callId")
+        )
+
+        if update_tool_call and tool_call_id:
+            content = None
+            output_payload = data.get("output") or data.get("result") or data.get("message")
+            if output_payload and text_block and tool_content:
+                content = [tool_content(text_block(str(output_payload)))]
+
+            return update_tool_call(
+                tool_call_id=str(tool_call_id),
+                status=acp_status,
+                content=content,
+            )
+
+        return update_agent_message_text(f"[TOOL {status_raw}]\n")
 
     return None
 
@@ -547,6 +604,33 @@ def _is_brokk_context_uri(uri: str) -> bool:
     return uri.startswith("brokk://context/")
 
 
+def _to_iso8601_utc(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+        # Headless API timestamps are epoch-millis; fall back to seconds for small values.
+        if seconds > 10_000_000_000:
+            seconds = seconds / 1000.0
+        return datetime.fromtimestamp(seconds, tz=UTC).isoformat().replace("+00:00", "Z")
+    return None
+
+
+def _session_id_from_entry(entry: Any) -> Optional[str]:
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get("id")
+    if raw is None:
+        raw = entry.get("sessionId")
+    if raw is None:
+        raw = entry.get("session_id")
+    if raw is None:
+        return None
+    sid = str(raw).strip()
+    return sid or None
+
+
 def build_context_chip_blocks(
     context_data: dict[str, Any], fragment_resources: dict[str, dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -607,10 +691,25 @@ class BrokkAcpBridge:
     async def _ensure_session(self, acp_session_id: str) -> str:
         existing = self._acp_to_brokk_session.get(acp_session_id)
         if existing:
+            await self._switch_executor_session(existing)
             return existing
+        if await self._switch_executor_session(acp_session_id):
+            self._acp_to_brokk_session[acp_session_id] = acp_session_id
+            return acp_session_id
         session_id = await self.executor.create_session(name=f"ACP Session {acp_session_id}")
         self._acp_to_brokk_session[acp_session_id] = session_id
         return session_id
+
+    async def _switch_executor_session(self, session_id: str) -> bool:
+        switch_session = getattr(self.executor, "switch_session", None)
+        if not callable(switch_session):
+            return False
+        try:
+            await switch_session(session_id)
+            return True
+        except Exception:
+            logger.debug("Failed to switch executor session %s", session_id, exc_info=True)
+            return False
 
     async def prompt(
         self,
@@ -623,14 +722,21 @@ class BrokkAcpBridge:
         reasoning_level_code: Optional[str],
         send_update: Callable[[str, Any], Awaitable[Any]],
         update_agent_message_text: Callable[[str], Any],
-        update_agent_thought_text: Optional[Callable[[str], Any]],
-        build_context_snapshot_update: Callable[[str, str, str], Any],
+        update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+        build_context_snapshot_update: Optional[Callable[[str, str, str], Any]] = None,
+        start_tool_call: Optional[Callable[..., Any]] = None,
+        update_tool_call: Optional[Callable[..., Any]] = None,
+        tool_content: Optional[Callable[[Any], Any]] = None,
+        text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
         use_short_description_context: bool = False,
+        emit_token_bar: bool = True,
+        tool_call_titles_only: bool = False,
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
         executor_session_id = await self._ensure_session(session_id)
+        await self._switch_executor_session(executor_session_id)
 
         prompt_text = extract_prompt_text(prompt)
         if not prompt_text:
@@ -673,6 +779,11 @@ class BrokkAcpBridge:
                     event,
                     update_agent_message_text,
                     update_agent_thought_text,
+                    start_tool_call=start_tool_call,
+                    update_tool_call=update_tool_call,
+                    tool_content=tool_content,
+                    text_block=text_block,
+                    tool_call_titles_only=tool_call_titles_only,
                 )
                 if update:
                     await send_update(session_id, update)
@@ -711,9 +822,10 @@ class BrokkAcpBridge:
                         ),
                     )
 
-                    # Emit SVG bar if token info is present.
+                    # Some ACP clients (e.g. IntelliJ) render data URI markdown images
+                    # as literal text, so only emit the token bar where supported.
                     used_tokens_raw = context_data.get("usedTokens")
-                    if used_tokens_raw is not None:
+                    if emit_token_bar and used_tokens_raw is not None:
                         used_tokens_local = int(used_tokens_raw or 0)
                         fragments = context_data.get("fragments", [])
                         bar_md = get_token_bar_markdown(
@@ -809,14 +921,19 @@ async def run_acp_server(
             LoadSessionResponse,
             NewSessionResponse,
             PromptResponse,
+            ResumeSessionResponse,
             SetSessionModelResponse,
             SetSessionModeResponse,
             embedded_text_resource,
             resource_block,
             run_agent,
+            start_tool_call,
+            text_block,
+            tool_content,
             update_agent_message,
             update_agent_message_text,
             update_agent_thought_text,
+            update_tool_call,
         )
         from acp.agent import connection as acp_agent_connection
         from acp.agent import router as acp_agent_router
@@ -835,6 +952,7 @@ async def run_acp_server(
             SessionMode,
             SessionModelState,
             SessionModeState,
+            SessionResumeCapabilities,
             SetSessionConfigOptionRequest,
             SetSessionConfigOptionResponse,
         )
@@ -1078,6 +1196,22 @@ async def run_acp_server(
                 }
             }
 
+        def _ensure_session_defaults(self, session_id: str, cwd: Optional[str] = None) -> None:
+            if session_id not in self._mode_by_session:
+                self._mode_by_session[session_id] = "LUTZ"
+            if session_id not in self._model_by_session:
+                self._model_by_session[session_id] = (
+                    self._default_model_id or DEFAULT_MODEL_SELECTION
+                )
+            if session_id not in self._reasoning_by_session:
+                self._reasoning_by_session[session_id] = (
+                    self._default_reasoning_level or DEFAULT_REASONING_LEVEL
+                )
+            if cwd is not None:
+                self._cwd_by_session[session_id] = cwd
+            elif session_id not in self._cwd_by_session:
+                self._cwd_by_session[session_id] = str(workspace_dir)
+
         def on_connect(self, client: Any) -> None:
             self.client = client
 
@@ -1090,11 +1224,14 @@ async def run_acp_server(
         ) -> InitializeResponse:
             return InitializeResponse(
                 protocol_version=protocol_version,
-                agent_info=Implementation(name="brokk", version="0.1.0"),
+                agent_info=Implementation(name="brokk", version=__version__),
                 agent_capabilities=AgentCapabilities(
                     load_session=True,
                     prompt_capabilities=PromptCapabilities(embedded_context=True),
-                    session_capabilities=SessionCapabilities(list=SessionListCapabilities()),
+                    session_capabilities=SessionCapabilities(
+                        list=SessionListCapabilities(),
+                        resume=SessionResumeCapabilities(),
+                    ),
                 ),
             )
 
@@ -1104,15 +1241,12 @@ async def run_acp_server(
             mcp_servers: Optional[list[Any]] = None,
             **kwargs: Any,
         ) -> NewSessionResponse:
-            del mcp_servers, kwargs
-            session_id = str(uuid.uuid4())
-            self._mode_by_session[session_id] = "LUTZ"
-            # Seed session model/reasoning from persisted defaults; validation happens after
-            self._model_by_session[session_id] = self._default_model_id or DEFAULT_MODEL_SELECTION
-            self._reasoning_by_session[session_id] = (
-                self._default_reasoning_level or DEFAULT_REASONING_LEVEL
-            )
-            self._cwd_by_session[session_id] = cwd
+            del mcp_servers
+            await bridge.ensure_ready()
+            requested_name = str(kwargs.get("title") or kwargs.get("name") or "ACP Session").strip()
+            session_name = requested_name or "ACP Session"
+            session_id = await bridge.executor.create_session(name=session_name)
+            self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
 
             # After refreshing catalog, ensure persisted defaults are valid for this catalog.
@@ -1183,9 +1317,16 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> Optional[LoadSessionResponse]:
             del mcp_servers, kwargs
-            if session_id not in self._mode_by_session:
+            await bridge.ensure_ready()
+            sessions_payload = await bridge.executor.list_sessions()
+            sessions = sessions_payload.get("sessions", [])
+            known_session_ids = {
+                session_id for entry in sessions if (session_id := _session_id_from_entry(entry))
+            }
+            if session_id not in known_session_ids:
                 return None
-            self._cwd_by_session[session_id] = cwd
+            await bridge.executor.switch_session(session_id)
+            self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
             model_state = self._model_state_for_session(session_id)
             return LoadSessionResponse(
@@ -1202,20 +1343,68 @@ async def run_acp_server(
                 _meta=self._variant_meta_for_session(session_id),
             )
 
+        async def resume_session(
+            self,
+            cwd: str,
+            session_id: str,
+            mcp_servers: Optional[list[Any]] = None,
+            **kwargs: Any,
+        ) -> ResumeSessionResponse:
+            resumed = await self.load_session(
+                cwd=cwd,
+                session_id=session_id,
+                mcp_servers=mcp_servers,
+                **kwargs,
+            )
+            if resumed is None:
+                raise ExecutorError(f"Session not found: {session_id}")
+            return ResumeSessionResponse(
+                modes=resumed.modes,
+                models=resumed.models,
+                config_options=resumed.config_options,
+                _meta=resumed.field_meta,
+            )
+
         async def list_sessions(
             self,
             cursor: Optional[str] = None,
             cwd: Optional[str] = None,
             **kwargs: Any,
         ) -> ListSessionsResponse:
-            del cursor, cwd, kwargs
-            sessions = [
-                SessionInfo(
-                    session_id=session_id,
-                    cwd=self._cwd_by_session.get(session_id, str(workspace_dir)),
+            del cursor, kwargs
+            await bridge.ensure_ready()
+            sessions_payload = await bridge.executor.list_sessions()
+            executor_sessions = sessions_payload.get("sessions", [])
+            sessions = []
+            for entry in executor_sessions:
+                session_id = _session_id_from_entry(entry)
+                if not session_id:
+                    continue
+                self._ensure_session_defaults(session_id)
+                title = None
+                if isinstance(entry, dict):
+                    title = entry.get("name") or entry.get("title") or entry.get("sessionName")
+                title = str(title).strip() if title is not None else None
+                updated_at = None
+                session_cwd = None
+                if isinstance(entry, dict):
+                    updated_at = _to_iso8601_utc(
+                        entry.get("modified") or entry.get("updatedAt") or entry.get("updated_at")
+                    )
+                    session_cwd = entry.get("cwd")
+                if isinstance(session_cwd, str) and session_cwd.strip():
+                    self._cwd_by_session[session_id] = session_cwd
+                effective_cwd = self._cwd_by_session.get(session_id, cwd or str(workspace_dir))
+                if cwd and effective_cwd != cwd:
+                    continue
+                sessions.append(
+                    SessionInfo(
+                        session_id=session_id,
+                        cwd=effective_cwd,
+                        title=title or None,
+                        updated_at=updated_at,
+                    )
                 )
-                for session_id in self._mode_by_session
-            ]
             return ListSessionsResponse(sessions=sessions, next_cursor=None)
 
         async def set_session_mode(
@@ -1386,7 +1575,13 @@ async def run_acp_server(
                         )
                     )
                 ),
+                start_tool_call=start_tool_call,
+                update_tool_call=update_tool_call,
+                tool_content=tool_content,
+                text_block=text_block,
                 use_short_description_context=(ide_profile == "intellij"),
+                emit_token_bar=(ide_profile != "intellij"),
+                tool_call_titles_only=(ide_profile == "intellij"),
             )
             return PromptResponse(stop_reason="end_turn")
 

@@ -2,7 +2,8 @@ import asyncio
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from rich.markdown import Markdown
+from rich.markdown import ListItem as RichMarkdownListItem
+from rich.markdown import Markdown, Segment, loop_first
 from rich.panel import Panel
 from rich.text import Text
 from textual import events
@@ -18,6 +19,31 @@ from brokk_code.widgets.token_bar import TokenBar
 # Arrow glyphs for UI display (ASCII-only source)
 UP_ARROW = chr(0x2191)  # ↑
 DOWN_ARROW = chr(0x2193)  # ↓
+
+
+class DotOrderedListItem(RichMarkdownListItem):
+    """Preserve the '.' in ordered list markers (e.g. '1. item')."""
+
+    def render_number(self, console, options, number: int, last_number: int):
+        number_width = len(str(last_number)) + 2
+        render_options = options.update(width=options.max_width - number_width)
+        lines = console.render_lines(self.elements, render_options, style=self.style)
+        number_style = console.get_style("markdown.item.number", default="none")
+
+        new_line = Segment("\n")
+        padding = Segment(" " * number_width, number_style)
+        numeral = Segment(f"{number}. ".rjust(number_width), number_style)
+        for first, line in loop_first(lines):
+            yield numeral if first else padding
+            yield from line
+            yield new_line
+
+
+class DotMarkdown(Markdown):
+    """Rich Markdown renderer with ordered list markers rendered as 'N. '."""
+
+    elements = dict(Markdown.elements)
+    elements["list_item_open"] = DotOrderedListItem
 
 
 class ModeSuggestions(ListView):
@@ -1010,7 +1036,7 @@ class ChatPanel(Vertical):
     def _render_tool_call_panel(self, name: str, yaml_body: str) -> Panel | Text:
         """Renders a tool call block using the same collapsible panel style as reasoning."""
         if self.show_verbose:
-            body = Markdown(f"```yaml\n{yaml_body}\n```")
+            body = DotMarkdown(f"```yaml\n{yaml_body}\n```")
             return Panel(
                 body,
                 title=self._collapsible_title(f"Tool Call: {name}", self.show_verbose),
@@ -1035,7 +1061,7 @@ class ChatPanel(Vertical):
             matched_tool_call = True
             before = content[position : match.start()]
             if before.strip():
-                log.write(Markdown(before))
+                log.write(DotMarkdown(before))
                 log.write("")
 
             tool_name = match.group(1)
@@ -1046,13 +1072,13 @@ class ChatPanel(Vertical):
 
         if not matched_tool_call:
             filtered_content = self._filter_tool_call_blocks(content)
-            log.write(Markdown(filtered_content))
+            log.write(DotMarkdown(filtered_content))
             log.write("")
             return
 
         after = content[position:]
         if after.strip():
-            log.write(Markdown(after))
+            log.write(DotMarkdown(after))
             log.write("")
 
     def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
@@ -1063,7 +1089,7 @@ class ChatPanel(Vertical):
             self._render_ai_content(log, content)
         elif kind == "REASONING":
             if self.show_verbose:
-                panel_content = Markdown(content, style="grey50")
+                panel_content = DotMarkdown(content, style="grey50")
                 panel = Panel(
                     panel_content,
                     title=self._collapsible_title("Thinking", self.show_verbose),
@@ -1102,7 +1128,7 @@ class ChatPanel(Vertical):
                 log.write(Text(f"{prefix}{content}", style=style))
         elif kind == "TOOL_RESULT":
             if self.show_verbose:
-                panel_content = Markdown(content)
+                panel_content = DotMarkdown(content)
                 panel = Panel(
                     panel_content,
                     title=self._collapsible_title("Command Output", self.show_verbose),
@@ -1116,7 +1142,7 @@ class ChatPanel(Vertical):
         elif kind == "WELCOME":
             icon = kwargs.get("icon", "")
             log.write(Text(icon, style="#D04040"))
-            log.write(Markdown(content))
+            log.write(DotMarkdown(content))
             log.write("")
         elif kind == "LEGACY_AUTHOR":
             author = kwargs.get("author", "System")

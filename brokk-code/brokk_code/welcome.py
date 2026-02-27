@@ -1,5 +1,7 @@
 from typing import Dict, List
 
+from brokk_code import __version__
+
 
 def get_braille_icon() -> str:
     """
@@ -33,7 +35,7 @@ def build_welcome_message(commands: List[Dict[str, str]]) -> str:
         A Markdown-formatted string for display in the ChatPanel.
     """
     description = (
-        "# Welcome to Brokk\n\n"
+        f"# Welcome to Brokk v{__version__}\n\n"
         "Brokk is a code intelligence agent designed for high-precision **context engineering**."
     )
 
