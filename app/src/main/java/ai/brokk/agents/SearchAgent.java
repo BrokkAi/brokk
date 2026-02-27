@@ -1430,8 +1430,7 @@ public class SearchAgent {
     }
 
     private boolean shouldSummarize(String toolName) {
-        return Set.of("getSymbolLocations", "searchSymbols", "findFilenames", "xpathQuery", "jq")
-                .contains(toolName);
+        return Set.of("getSymbolLocations", "searchSymbols").contains(toolName);
     }
 
     private String summarizeResult(

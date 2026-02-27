@@ -313,7 +313,7 @@ public class SearchTools {
                     List<String> patterns,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning,
-            @P("Include test files in results. Default: false.") boolean includeTests) {
+            @P("Include test files in results.") boolean includeTests) {
         // Sanitize patterns: LLM might add `()` to symbols, Joern regex usually doesn't want that unless intentional.
         patterns = stripParams(patterns);
         if (patterns.isEmpty()) {
@@ -975,12 +975,16 @@ public class SearchTools {
             - matchesPerFile is the per-file hit count (matching lines), not the number of printed lines (context lines do not count).
             """)
     public String searchFileContents(
-            @P("Java-style regex pattern to search for.") String pattern,
+            @P("Java-style regex patterns to search for.") List<String> patterns,
             @P("Glob pattern for file paths (e.g., '**/AGENTS.md', 'src/**/*.java').") String filepath,
             @P("Number of context lines to show around each match (0-50).") int contextLines,
-            @P("Maximum number of files to return results for. Capped at 500. Default: 50.") int maxFiles,
-            @P("Maximum number of matching lines (hits) per file. Capped at 500. Default: 10.") int matchesPerFile)
+            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
+            @P("Maximum number of matching lines (hits) per file. Capped at 500.") int matchesPerFile)
             throws InterruptedException {
+        if (patterns.isEmpty()) {
+            throw new IllegalArgumentException("Cannot search file contents: patterns list is empty");
+        }
+
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
                 .filter(ProjectFile.class::isInstance)
@@ -1017,13 +1021,12 @@ public class SearchTools {
                         matchesPerFile <= 0 ? SEARCH_FILE_CONTENTS_MATCHES_PER_FILE_DEFAULT : matchesPerFile,
                         SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
 
-        final Pattern compiledPattern;
+        final List<Pattern> compiledPatterns;
         try {
-            var compiledPatterns = compilePatterns(List.of(pattern));
+            compiledPatterns = compilePatterns(patterns);
             if (compiledPatterns.isEmpty()) {
                 return "No valid patterns provided";
             }
-            compiledPattern = compiledPatterns.getFirst();
         } catch (IllegalArgumentException e) {
             return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
@@ -1037,6 +1040,8 @@ public class SearchTools {
 
         boolean truncatedByMaxFiles = false;
         boolean truncatedByTotalMatches = false;
+
+        String patternsLabel = String.join(", ", patterns);
 
         try {
             outer:
@@ -1061,7 +1066,7 @@ public class SearchTools {
                         .mapToObj(idx -> {
                             var file = batch.get(idx);
                             var result = searchFileContentsInFile(
-                                    file, compiledPattern, clampedContext, effectiveMatchesPerFile);
+                                    file, compiledPatterns, clampedContext, effectiveMatchesPerFile);
                             if (result == null) {
                                 return new IndexedResult(idx, file, null, 0);
                             }
@@ -1093,7 +1098,7 @@ public class SearchTools {
                     int matchesToTake = remaining;
                     if (matchesToTake > 0) {
                         var recomputed =
-                                searchFileContentsInFile(res.file(), compiledPattern, clampedContext, matchesToTake);
+                                searchFileContentsInFile(res.file(), compiledPatterns, clampedContext, matchesToTake);
                         if (recomputed != null) {
                             fileBlocks.add(recomputed.output());
                             totalMatches += recomputed.matches();
@@ -1105,12 +1110,12 @@ public class SearchTools {
                 }
             }
         } catch (RuntimeException e) {
-            logger.error("Error searching file contents for '{}' in '{}'", pattern, filepath, e);
+            logger.error("Error searching file contents for '{}' in '{}'", patternsLabel, filepath, e);
             return "Error searching file contents: " + (e.getMessage() == null ? e.toString() : e.getMessage());
         }
 
         if (fileBlocks.isEmpty()) {
-            return "No matches found for pattern '" + pattern + "' in files matching '" + filepath + "'";
+            return "No matches found for pattern(s) '" + patternsLabel + "' in files matching '" + filepath + "'";
         }
 
         var suffixLines = new ArrayList<String>(2);
@@ -1140,24 +1145,26 @@ public class SearchTools {
         final int contextLines;
         final int maxMatchesToTake;
         final ArrayDeque<LineRef> prev;
+        final List<Matcher> matchers;
         final List<String> outLines = new ArrayList<>();
         int forwardRemaining = 0;
         int lastPrintedLine = 0;
         int matchesTaken = 0;
         boolean hasAnyOutput = false;
 
-        SearchState(String content, String filePath, int contextLines, int maxMatchesToTake) {
+        SearchState(String content, String filePath, int contextLines, int maxMatchesToTake, List<Matcher> matchers) {
             this.content = content;
             this.filePath = filePath;
             this.contextLines = contextLines;
             this.maxMatchesToTake = maxMatchesToTake;
             this.prev = new ArrayDeque<>();
+            this.matchers = matchers;
         }
     }
 
     @Nullable
     private static FileContentSearchResult searchFileContentsInFile(
-            ProjectFile file, Pattern pattern, int contextLines, int maxMatchesToTake) {
+            ProjectFile file, List<Pattern> patterns, int contextLines, int maxMatchesToTake) {
         var contentOpt = file.read();
         if (contentOpt.isEmpty()) {
             return null;
@@ -1168,9 +1175,10 @@ public class SearchTools {
             return null;
         }
 
+        List<Matcher> matchers = patterns.stream().map(p -> p.matcher(content)).toList();
+
         SearchState state =
-                new SearchState(content, file.toString().replace('\\', '/'), contextLines, maxMatchesToTake);
-        var matcher = pattern.matcher(content);
+                new SearchState(content, file.toString().replace('\\', '/'), contextLines, maxMatchesToTake, matchers);
 
         int length = content.length();
         int lineNo = 1;
@@ -1190,7 +1198,7 @@ public class SearchTools {
                 next++;
             }
 
-            processLine(state, matcher, lineNo, lineStart, lineEnd);
+            processLine(state, lineNo, lineStart, lineEnd);
 
             if (state.matchesTaken >= maxMatchesToTake && state.forwardRemaining == 0) {
                 if (next < length) {
@@ -1204,17 +1212,22 @@ public class SearchTools {
         }
 
         if (lineStart < length) {
-            processLine(state, matcher, lineNo, lineStart, length);
+            processLine(state, lineNo, lineStart, length);
         }
 
         return finalizeSearchResult(state);
     }
 
-    private static void processLine(SearchState state, Matcher matcher, int lineNo, int start, int end) {
+    private static void processLine(SearchState state, int lineNo, int start, int end) {
         boolean isMatch = false;
         if (state.matchesTaken < state.maxMatchesToTake) {
-            matcher.region(start, end);
-            isMatch = matcher.find();
+            for (var matcher : state.matchers) {
+                matcher.region(start, end);
+                if (matcher.find()) {
+                    isMatch = true;
+                    break;
+                }
+            }
             if (isMatch) {
                 state.matchesTaken++;
             }
@@ -1277,17 +1290,52 @@ public class SearchTools {
         return new FileContentSearchResult(String.join("\n", resultLines), state.matchesTaken);
     }
 
+    private record EffectiveLimits(int maxFiles, int matchesPerFile) {}
+
+    private static EffectiveLimits clampMaxFilesAndMatchesPerFile(int maxFiles, int matchesPerFile) {
+        int effectiveMaxFiles = max(
+                1,
+                min(
+                        maxFiles <= 0 ? SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT : maxFiles,
+                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+
+        int effectiveMatchesPerFile = max(
+                1,
+                min(
+                        matchesPerFile <= 0 ? SEARCH_FILE_CONTENTS_MATCHES_PER_FILE_DEFAULT : matchesPerFile,
+                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+
+        long product = (long) effectiveMaxFiles * (long) effectiveMatchesPerFile;
+        if (product > SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES) {
+            effectiveMatchesPerFile = max(1, SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES / effectiveMaxFiles);
+        }
+
+        return new EffectiveLimits(effectiveMaxFiles, effectiveMatchesPerFile);
+    }
+
     @Tool(
             """
             Executes an XPath query against XML files.
             The tool is namespace-agnostic: simple element names like 'foo' are automatically rewritten
             to match elements regardless of their namespace prefix (using local-name() matching).
             Returns the text content of matching nodes.
+
+            Notes:
+            - maxFiles and matchesPerFile are capped at 500 each.
+            - maxFiles * matchesPerFile is forced to be <= 500.
             """)
     public String xpathQuery(
             @P("File path or glob pattern (e.g., 'pom.xml', '**/config/*.xml').") String filepath,
-            @P("XPath expression to evaluate.") String xpath)
+            @P("XPath expressions to evaluate.") List<String> xpaths,
+            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
+            @P("Maximum number of matching nodes to return per file. Capped at 500.") int matchesPerFile)
             throws InterruptedException {
+        if (xpaths.isEmpty()) {
+            throw new IllegalArgumentException("Cannot xpathQuery: xpaths list is empty");
+        }
+
+        EffectiveLimits limits = clampMaxFilesAndMatchesPerFile(maxFiles, matchesPerFile);
+
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
                 .filter(ProjectFile.class::isInstance)
@@ -1300,67 +1348,138 @@ public class SearchTools {
             return "No XML files found matching: " + filepath;
         }
 
-        String effectiveXpath = xpath;
-        if (!xpath.contains("local-name()")) {
-            // Rewrite simple steps: foo -> *[local-name()='foo']
-            effectiveXpath = Pattern.compile("(?<=^|/)(?![@*])([a-zA-Z0-9_-]+)(?=$|/|\\[)")
-                    .matcher(xpath)
-                    .replaceAll("*[local-name()='$1']");
+        var nonBlankXpaths = xpaths.stream().filter(x -> !x.isBlank()).toList();
+        if (nonBlankXpaths.isEmpty()) {
+            throw new IllegalArgumentException("Cannot xpathQuery: xpaths list is empty");
         }
 
-        final String finalEffectiveXpath = effectiveXpath;
+        record XPathSpec(String originalXpath, String effectiveXpath) {}
+
+        List<XPathSpec> specs = nonBlankXpaths.stream()
+                .map(xpath -> {
+                    if (xpath.contains("local-name()")) {
+                        return new XPathSpec(xpath, xpath);
+                    }
+                    String effectiveXpath = Pattern.compile("(?<=^|/)(?![@*])([a-zA-Z0-9_-]+)(?=$|/|\\[)")
+                            .matcher(xpath)
+                            .replaceAll("*[local-name()='$1']");
+                    return new XPathSpec(xpath, effectiveXpath);
+                })
+                .toList();
+
+        int batchSize = 2 * FILE_SEARCH_LIMIT;
 
         List<String> fileResults = new ArrayList<>();
         List<String> errors = new ArrayList<>();
+        boolean truncatedByMaxFiles = false;
 
-        record XPathResult(@Nullable String output, @Nullable String error) {}
+        record IndexedXPathResult(int index, @Nullable String output, @Nullable String error) {}
 
-        final List<XPathResult> results;
-        try {
-            results = runInSearchToolsPool(() -> files.parallelStream()
-                    .map(file -> {
-                        try {
-                            var contentOpt = file.read();
-                            if (contentOpt.isEmpty()) return new XPathResult(null, null);
+        outer:
+        for (int start = 0; start < files.size(); start += batchSize) {
+            if (Thread.interrupted()) {
+                throw new InterruptedException("Interrupted between XPath query batches");
+            }
+            if (fileResults.size() >= limits.maxFiles()) {
+                truncatedByMaxFiles = true;
+                break;
+            }
 
-                            var docBuilder = TL_XML_DOC_BUILDER.get();
-                            docBuilder.reset();
+            var batch = files.subList(start, min(start + batchSize, files.size()));
 
-                            Document doc = docBuilder.parse(
-                                    new ByteArrayInputStream(contentOpt.get().getBytes(StandardCharsets.UTF_8)));
+            final List<IndexedXPathResult> batchResults;
+            try {
+                batchResults = runInSearchToolsPool(() -> IntStream.range(0, batch.size())
+                        .parallel()
+                        .mapToObj(idx -> {
+                            var file = batch.get(idx);
+                            try {
+                                var contentOpt = file.read();
+                                if (contentOpt.isEmpty()) return new IndexedXPathResult(idx, null, null);
 
-                            XPathExpression xpe = getOrCompileXPathExpression(finalEffectiveXpath);
-                            NodeList nodes = (NodeList) xpe.evaluate(doc, XPathConstants.NODESET);
-                            if (nodes.getLength() == 0) return new XPathResult(null, null);
+                                var docBuilder = TL_XML_DOC_BUILDER.get();
+                                docBuilder.reset();
 
-                            String header = "File: %s (%d matches)"
-                                    .formatted(file.toString().replace('\\', '/'), nodes.getLength());
-                            List<String> outLines = new ArrayList<>();
-                            outLines.add(header);
+                                Document doc = docBuilder.parse(new ByteArrayInputStream(
+                                        contentOpt.get().getBytes(StandardCharsets.UTF_8)));
 
-                            for (int i = 0; i < nodes.getLength(); i++) {
-                                String val = nodes.item(i).getTextContent().trim();
-                                if (!val.isEmpty()) {
-                                    outLines.add("  [%d]: %s".formatted(i + 1, val));
+                                int matchesTaken = 0;
+                                List<String> outLines = new ArrayList<>();
+
+                                for (var spec : specs) {
+                                    if (matchesTaken >= limits.matchesPerFile()) {
+                                        break;
+                                    }
+
+                                    XPathExpression xpe = getOrCompileXPathExpression(spec.effectiveXpath());
+                                    NodeList nodes = (NodeList) xpe.evaluate(doc, XPathConstants.NODESET);
+                                    if (nodes.getLength() == 0) {
+                                        continue;
+                                    }
+
+                                    int remaining = limits.matchesPerFile() - matchesTaken;
+                                    int toTake = min(nodes.getLength(), remaining);
+                                    matchesTaken += toTake;
+
+                                    String countLabel = nodes.getLength() > toTake
+                                            ? "first %d matches".formatted(toTake)
+                                            : "%d %s"
+                                                    .formatted(
+                                                            nodes.getLength(),
+                                                            nodes.getLength() == 1 ? "match" : "matches");
+                                    outLines.add("XPath: %s (%s)".formatted(spec.originalXpath(), countLabel));
+
+                                    for (int i = 0; i < toTake; i++) {
+                                        String val =
+                                                nodes.item(i).getTextContent().trim();
+                                        if (!val.isEmpty()) {
+                                            outLines.add("  [%d]: %s".formatted(i + 1, val));
+                                        }
+                                    }
                                 }
+
+                                if (outLines.isEmpty()) {
+                                    return new IndexedXPathResult(idx, null, null);
+                                }
+
+                                boolean hitLimit = matchesTaken >= limits.matchesPerFile();
+                                String matchCountLabel = hitLimit
+                                        ? "first %d matches".formatted(matchesTaken)
+                                        : "%d %s".formatted(matchesTaken, matchesTaken == 1 ? "match" : "matches");
+
+                                String header = "File: %s (%s)"
+                                        .formatted(file.toString().replace('\\', '/'), matchCountLabel);
+
+                                List<String> allLines = new ArrayList<>(outLines.size() + 1);
+                                allLines.add(header);
+                                allLines.addAll(outLines);
+
+                                return new IndexedXPathResult(idx, String.join("\n", allLines) + "\n", null);
+                            } catch (Exception e) {
+                                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                                return new IndexedXPathResult(idx, null, file + ": " + message);
                             }
+                        })
+                        .sorted(Comparator.comparingInt(IndexedXPathResult::index))
+                        .toList());
+            } catch (RuntimeException e) {
+                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                logger.error("Error executing XPath query", e);
+                return "XPath query failed: " + message;
+            }
 
-                            return new XPathResult(String.join("\n", outLines) + "\n", null);
-                        } catch (Exception e) {
-                            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                            return new XPathResult(null, file + ": " + message);
-                        }
-                    })
-                    .toList());
-        } catch (RuntimeException e) {
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            logger.error("Error executing XPath query", e);
-            return "XPath query failed: " + message;
-        }
-
-        for (var res : results) {
-            if (res.output() != null) fileResults.add(res.output());
-            if (res.error() != null) errors.add(res.error());
+            for (var res : batchResults) {
+                if (res.output() != null) {
+                    if (fileResults.size() >= limits.maxFiles()) {
+                        truncatedByMaxFiles = true;
+                        break outer;
+                    }
+                    fileResults.add(res.output());
+                }
+                if (res.error() != null) {
+                    errors.add(res.error());
+                }
+            }
         }
 
         if (fileResults.isEmpty()) {
@@ -1370,7 +1489,13 @@ public class SearchTools {
             }
             return "No results for XPath query.";
         }
-        return recordResearchTokens(String.join("\n", fileResults).trim());
+
+        String output = String.join("\n", fileResults).trim();
+        if (truncatedByMaxFiles) {
+            output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
+        }
+
+        return recordResearchTokens(output);
     }
 
     @Tool(
@@ -1378,10 +1503,16 @@ public class SearchTools {
             Executes a jq filter against JSON files using jackson-jq.
             Results are always returned as compact JSON strings.
             Multiple results are separated by newlines.
+
+            Notes:
+            - maxFiles and matchesPerFile are capped at 500 each.
+            - maxFiles * matchesPerFile is forced to be <= 500.
             """)
     public String jq(
             @P("File path or glob pattern (e.g., 'package.json', '**/data/*.json').") String filepath,
-            @P("jq filter to apply.") String filter)
+            @P("jq filter to apply.") String filter,
+            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
+            @P("Maximum number of output values to return per file. Capped at 500.") int matchesPerFile)
             throws InterruptedException {
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
@@ -1399,6 +1530,8 @@ public class SearchTools {
             throw new IllegalArgumentException("Cannot jq: filter is empty");
         }
 
+        EffectiveLimits limits = clampMaxFilesAndMatchesPerFile(maxFiles, matchesPerFile);
+
         final JsonQuery compiledQuery;
         try {
             Cache<String, JsonQuery> cache = jqQueries.get();
@@ -1415,52 +1548,87 @@ public class SearchTools {
             return "Invalid jq filter: " + e.getMessage();
         }
 
+        int batchSize = 2 * FILE_SEARCH_LIMIT;
+
         List<String> fileResults = new ArrayList<>();
         List<String> errors = new ArrayList<>();
+        boolean truncatedByMaxFiles = false;
 
-        record JqResult(@Nullable String output, @Nullable String error) {}
+        record IndexedJqResult(int index, @Nullable String output, @Nullable String error) {}
 
-        final List<JqResult> results;
-        try {
-            results = runInSearchToolsPool(() -> files.parallelStream()
-                    .map(file -> {
-                        try {
-                            var contentOpt = file.read();
-                            if (contentOpt.isEmpty()) return new JqResult(null, null);
+        outer:
+        for (int start = 0; start < files.size(); start += batchSize) {
+            if (Thread.interrupted()) {
+                throw new InterruptedException("Interrupted between jq filter batches");
+            }
+            if (fileResults.size() >= limits.maxFiles()) {
+                truncatedByMaxFiles = true;
+                break;
+            }
 
-                            var mapper = jqMappers.get();
-                            var rootScope = jqScopes.get();
+            var batch = files.subList(start, min(start + batchSize, files.size()));
 
-                            JsonNode node = mapper.readTree(contentOpt.get());
-                            List<JsonNode> out = new ArrayList<>();
-                            Output output = out::add;
+            final List<IndexedJqResult> batchResults;
+            try {
+                batchResults = runInSearchToolsPool(() -> IntStream.range(0, batch.size())
+                        .parallel()
+                        .mapToObj(idx -> {
+                            var file = batch.get(idx);
+                            try {
+                                var contentOpt = file.read();
+                                if (contentOpt.isEmpty()) return new IndexedJqResult(idx, null, null);
 
-                            compiledQuery.apply(Scope.newChildScope(rootScope), node, output);
+                                var mapper = jqMappers.get();
+                                var rootScope = jqScopes.get();
 
-                            if (out.isEmpty()) return new JqResult(null, null);
+                                JsonNode node = mapper.readTree(contentOpt.get());
+                                List<JsonNode> out = new ArrayList<>();
+                                Output output = out::add;
 
-                            List<String> outLines = new ArrayList<>();
-                            outLines.add("File: " + file.toString().replace('\\', '/'));
-                            for (JsonNode res : out) {
-                                outLines.add(mapper.writeValueAsString(res));
+                                compiledQuery.apply(Scope.newChildScope(rootScope), node, output);
+
+                                if (out.isEmpty()) return new IndexedJqResult(idx, null, null);
+
+                                int toTake = min(out.size(), limits.matchesPerFile());
+
+                                boolean hitLimit = out.size() > toTake;
+                                String matchCountLabel = hitLimit
+                                        ? "first %d matches".formatted(toTake)
+                                        : "%d %s".formatted(toTake, toTake == 1 ? "match" : "matches");
+
+                                List<String> outLines = new ArrayList<>(toTake + 1);
+                                outLines.add("File: %s (%s)"
+                                        .formatted(file.toString().replace('\\', '/'), matchCountLabel));
+                                for (int i = 0; i < toTake; i++) {
+                                    outLines.add(mapper.writeValueAsString(out.get(i)));
+                                }
+
+                                return new IndexedJqResult(idx, String.join("\n", outLines) + "\n", null);
+                            } catch (Exception e) {
+                                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                                return new IndexedJqResult(idx, null, file + ": " + message);
                             }
+                        })
+                        .sorted(Comparator.comparingInt(IndexedJqResult::index))
+                        .toList());
+            } catch (RuntimeException e) {
+                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                logger.error("Error executing jq filter", e);
+                return "jq filter failed: " + message;
+            }
 
-                            return new JqResult(String.join("\n", outLines) + "\n", null);
-                        } catch (Exception e) {
-                            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                            return new JqResult(null, file + ": " + message);
-                        }
-                    })
-                    .toList());
-        } catch (RuntimeException e) {
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            logger.error("Error executing jq filter", e);
-            return "jq filter failed: " + message;
-        }
-
-        for (var res : results) {
-            if (res.output() != null) fileResults.add(res.output());
-            if (res.error() != null) errors.add(res.error());
+            for (var res : batchResults) {
+                if (res.output() != null) {
+                    if (fileResults.size() >= limits.maxFiles()) {
+                        truncatedByMaxFiles = true;
+                        break outer;
+                    }
+                    fileResults.add(res.output());
+                }
+                if (res.error() != null) {
+                    errors.add(res.error());
+                }
+            }
         }
 
         if (fileResults.isEmpty()) {
@@ -1470,7 +1638,13 @@ public class SearchTools {
             }
             return "No results for jq filter.";
         }
-        return recordResearchTokens(String.join("\n", fileResults).trim());
+
+        String output = String.join("\n", fileResults).trim();
+        if (truncatedByMaxFiles) {
+            output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
+        }
+
+        return recordResearchTokens(output);
     }
 
     @Tool(

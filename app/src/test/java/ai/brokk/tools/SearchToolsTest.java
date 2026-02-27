@@ -474,7 +474,7 @@ public class SearchToolsTest {
         Files.writeString(txt, "line1\nline2 MATCH\nline3\nline4");
         mockProjectFiles.add(new ProjectFile(projectRoot, "grep_test.txt"));
 
-        String result = searchTools.searchFileContents("MATCH", "**/grep_test.txt", 1, 200, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "**/grep_test.txt", 1, 200, 200);
 
         assertTrue(result.contains("grep_test.txt [1 match]"));
         assertTrue(result.contains("1: line1"));
@@ -486,7 +486,7 @@ public class SearchToolsTest {
     @Test
     void testSearchFileContents_invalidRegexThrows() throws Exception {
         // "[[" is invalid regex, should return error message
-        String result = searchTools.searchFileContents("[[", "README.md", 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of("[["), "README.md", 0, 200, 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
@@ -497,9 +497,10 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "test.xml"));
 
         // Test local-name rewrite
-        String result = searchTools.xpathQuery("test.xml", "/root/child");
+        String result = searchTools.xpathQuery("test.xml", List.of("/root/child"), 1, 10);
 
         assertTrue(result.contains("File: test.xml"));
+        assertTrue(result.contains("XPath: /root/child"));
         assertTrue(result.contains("hello"));
     }
 
@@ -509,7 +510,7 @@ public class SearchToolsTest {
         Files.writeString(json, "{\"a\": [{\"id\": 1}, {\"id\": 2}]}");
         mockProjectFiles.add(new ProjectFile(projectRoot, "test.json"));
 
-        String result = searchTools.jq("test.json", ".a[] | .id");
+        String result = searchTools.jq("test.json", ".a[] | .id", 1, 10);
 
         assertTrue(result.contains("File: test.json"));
         assertTrue(result.contains("1"));
@@ -523,11 +524,11 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "bad.json"));
 
         // 1. Invalid Filter
-        String filterResult = searchTools.jq("bad.json", ".[[[");
+        String filterResult = searchTools.jq("bad.json", ".[[[", 1, 10);
         assertTrue(filterResult.contains("Invalid jq filter"), "Should report filter compilation error");
 
         // 2. Invalid Content
-        String contentResult = searchTools.jq("bad.json", ".");
+        String contentResult = searchTools.jq("bad.json", ".", 1, 10);
         assertTrue(contentResult.contains("errors in 1 of 1 files"), "Should report JSON parsing error");
     }
 
@@ -538,7 +539,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "root.txt"));
 
         // Verify that **/root.txt matches a file at the project root via the retry logic
-        String result = searchTools.searchFileContents("found", "**/root.txt", 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of("found"), "**/root.txt", 0, 200, 200);
         assertTrue(result.contains("root.txt"), "Should find file at root even with **/ prefix");
     }
 
@@ -602,7 +603,7 @@ public class SearchToolsTest {
         // Match 1 (idx 1) -> lines 0, 1, 2
         // Match 2 (idx 3) -> lines 2, 3, 4
         // De-duped output should show L1, L2, L3, L4, L5 exactly once.
-        String result = searchTools.searchFileContents("MATCH", "context_test.txt", 1, 200, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", 1, 200, 200);
 
         assertTrue(result.contains("1: L1"));
         assertTrue(result.contains("2: L2 MATCH"));
@@ -616,7 +617,7 @@ public class SearchToolsTest {
 
         // Verify clamping: contextLines=999 should be clamped to 50
         // Our file is small, so it should just show everything.
-        String resultsCapped = searchTools.searchFileContents("MATCH", "context_test.txt", 999, 200, 200);
+        String resultsCapped = searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", 999, 200, 200);
         assertTrue(resultsCapped.contains("7: L7"));
     }
 
@@ -629,7 +630,7 @@ public class SearchToolsTest {
         Files.writeString(txt, content);
         mockProjectFiles.add(new ProjectFile(projectRoot, "matches_per_file_test.txt"));
 
-        String result = searchTools.searchFileContents("MATCH", "matches_per_file_test.txt", 0, 200, 10);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "matches_per_file_test.txt", 0, 200, 10);
 
         assertTrue(result.contains("matches_per_file_test.txt [first 10 matches]"));
         assertTrue(result.contains("10: MATCH 10"));
@@ -655,7 +656,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "budget1.txt"));
         mockProjectFiles.add(new ProjectFile(projectRoot, "budget2.txt"));
 
-        String result = searchTools.searchFileContents("MATCH", "budget*.txt", 0, 999, 999);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "budget*.txt", 0, 999, 999);
 
         assertTrue(result.contains("budget1.txt"));
         assertTrue(result.contains("100: MATCH 100"));
@@ -673,7 +674,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "exact_limit.txt"));
 
         // Ask for exactly 3 matches.
-        String result = searchTools.searchFileContents("MATCH", "exact_limit.txt", 0, 10, 3);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "exact_limit.txt", 0, 10, 3);
 
         assertTrue(result.contains("exact_limit.txt [first 3 matches]"), "Should show hit limit in header");
         assertTrue(result.contains("3: MATCH 3"), "Should contain the last match");
@@ -722,7 +723,7 @@ public class SearchToolsTest {
         Files.writeString(txt, "L1\nL2 MATCH\nL3\n");
         mockProjectFiles.add(new ProjectFile(projectRoot, "trailing_newline.txt"));
 
-        String result = searchTools.searchFileContents("MATCH", "trailing_newline.txt", 1, 10, 10);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "trailing_newline.txt", 1, 10, 10);
 
         assertTrue(result.contains("1: L1"), "Should include context above");
         assertTrue(result.contains("2: L2 MATCH"), "Should include match");
@@ -737,7 +738,7 @@ public class SearchToolsTest {
         Files.writeString(txt, "MATCH " + longTail);
         mockProjectFiles.add(new ProjectFile(projectRoot, "long_line.txt"));
 
-        String result = searchTools.searchFileContents("MATCH", "long_line.txt", 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "long_line.txt", 0, 200, 200);
 
         assertTrue(result.contains("1: MATCH "), "Should include matching line");
         assertTrue(result.contains("[TRUNCATED]"), "Should truncate very long lines");
@@ -756,13 +757,48 @@ public class SearchToolsTest {
             """);
         mockProjectFiles.add(new ProjectFile(projectRoot, "security.xml"));
 
-        String result = searchTools.xpathQuery("security.xml", "/root");
+        String result = searchTools.xpathQuery("security.xml", List.of("/root"), 1, 10);
 
         // DocumentBuilder should reject the DTD
         assertTrue(result.contains("errors in 1 of 1 files"), "Should report error due to DTD disallowance");
         assertTrue(
                 result.contains("DOCTYPE") && result.contains("disallow-doctype-decl"),
                 "Should specifically mention DOCTYPE restriction, got: " + result);
+    }
+
+    @Test
+    void testXpathQuery_MaxFilesAndMatchesPerFileEnforced() throws Exception {
+        Path xml1 = projectRoot.resolve("xq1.xml");
+        Path xml2 = projectRoot.resolve("xq2.xml");
+
+        Files.writeString(xml1, "<root><item>a</item><item>b</item><item>c</item></root>");
+        Files.writeString(xml2, "<root><item>d</item><item>e</item><item>f</item></root>");
+
+        mockProjectFiles.add(new ProjectFile(projectRoot, "xq1.xml"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "xq2.xml"));
+
+        String result = searchTools.xpathQuery("xq*.xml", List.of("/root/item"), 1, 2);
+
+        assertTrue(result.contains("File: xq1.xml"), "Should include first matching file");
+        assertFalse(result.contains("File: xq2.xml"), "Should not include second file due to maxFiles=1");
+        assertTrue(result.contains("TRUNCATED: reached maxFiles=1"), "Should report maxFiles truncation");
+
+        assertTrue(result.contains("  [1]: a"), "Should include first match");
+        assertTrue(result.contains("  [2]: b"), "Should include second match");
+        assertFalse(result.contains("  [3]: c"), "Should not include third match due to matchesPerFile=2");
+    }
+
+    @Test
+    void testJq_ProductBudgetClampsMatchesPerFile() throws Exception {
+        Path json = projectRoot.resolve("budget.json");
+        Files.writeString(json, "{\"a\": [{\"id\": 1001}, {\"id\": 1002}]}");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "budget.json"));
+
+        // product budget: maxFiles=400 and matchesPerFile=2 => clamped matchesPerFile becomes 1
+        String result = searchTools.jq("budget.json", ".a[] | .id", 400, 2);
+
+        assertTrue(result.contains("1001"), "Should include first output");
+        assertFalse(result.contains("1002"), "Should be clamped to a single output by the product budget");
     }
 
     private static int countOccurrences(String text, String substring) {
