@@ -306,9 +306,8 @@ public class InlineTestProjectCreator {
                 project.setBuildLanguage(Languages.NONE);
             }
 
-            // Force an initial update so the analyzer is populated with code units
-            IAnalyzer analyzer = project.getAnalyzer();
-            project.analyzer = analyzer.update();
+            // Force an initial scan so the analyzer is populated with code units
+            project.getAnalyzer().update();
             return project;
         }
 
@@ -419,10 +418,14 @@ public class InlineTestProjectCreator {
 
                             if (activeLanguages.size() == 1) {
                                 // Important: use the detected language to create the analyzer
-                                analyzer = activeLanguages.getFirst().createAnalyzer(this);
+                                analyzer = activeLanguages
+                                        .getFirst()
+                                        .createAnalyzer(this)
+                                        .update();
                             } else {
                                 analyzer = AnalyzerCreator.createMultiAnalyzer(
-                                        this, activeLanguages.toArray(new Language[0]));
+                                                this, activeLanguages.toArray(new Language[0]))
+                                        .update();
                             }
                         }
                     }
