@@ -129,21 +129,21 @@ public final class Lines {
         return HeadTail.truncated(promptText, totalLines, topShown, bottomShown);
     }
 
-    public static String range(String content, int startLineInclusive, int endLineExclusive) {
-        if (startLineInclusive < 1) {
-            throw new IllegalArgumentException("startLineInclusive must be >= 1");
+    public static String range(String content, int oneBasedStartInclusive, int oneBasedEndExclusive) {
+        if (oneBasedStartInclusive < 1) {
+            throw new IllegalArgumentException("oneBasedStartInclusive must be >= 1");
         }
-        if (endLineExclusive < startLineInclusive) {
-            throw new IllegalArgumentException("endLineExclusive must be >= startLineInclusive");
+        if (oneBasedEndExclusive < oneBasedStartInclusive) {
+            throw new IllegalArgumentException("oneBasedEndExclusive must be >= oneBasedStartInclusive");
         }
-        if (startLineInclusive == endLineExclusive || content.isEmpty()) {
+        if (oneBasedStartInclusive == oneBasedEndExclusive || content.isEmpty()) {
             return "";
         }
 
         int length = content.length();
 
-        int startOffset = (startLineInclusive == 1) ? 0 : -1;
-        int endOffset = (endLineExclusive == 1) ? 0 : -1;
+        int startOffset = (oneBasedStartInclusive == 1) ? 0 : -1;
+        int endOffset = (oneBasedEndExclusive == 1) ? 0 : -1;
 
         int currentLine = 1;
         int lineStart = 0;
@@ -162,10 +162,10 @@ public final class Lines {
                 currentLine++;
                 lineStart = next;
 
-                if (startOffset < 0 && currentLine == startLineInclusive) {
+                if (startOffset < 0 && currentLine == oneBasedStartInclusive) {
                     startOffset = lineStart;
                 }
-                if (endOffset < 0 && currentLine == endLineExclusive) {
+                if (endOffset < 0 && currentLine == oneBasedEndExclusive) {
                     endOffset = lineStart;
                 }
 
