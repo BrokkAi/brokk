@@ -205,7 +205,8 @@ public final class Lines {
         if (len <= MAX_CHARS_PER_LINE) {
             return content.substring(startInclusive, endExclusive);
         }
-        return content.substring(startInclusive, startInclusive + MAX_CHARS_PER_LINE) + " [TRUNCATED]";
+        return content.substring(startInclusive, startInclusive + MAX_CHARS_PER_LINE) + " [TRUNCATED at "
+                + MAX_CHARS_PER_LINE + " chars]";
     }
 
     private static String capAllLines(String content) {

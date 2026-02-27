@@ -278,7 +278,7 @@ public class ContextAgentTest {
         var capped = ContextAgent.capUnanalyzedTextForPrompt(huge);
 
         assertFalse(capped.truncated(), "Line count is 1 so it should not be line-truncated by count.");
-        assertTrue(capped.promptText().contains("[BRK_TRUNCATED "), capped.promptText());
+        assertTrue(capped.promptText().contains("[TRUNCATED "), capped.promptText());
         assertFalse(capped.promptText().contains(huge), "Prompt must not contain the full huge payload.");
         assertTrue(capped.promptText().length() < 20_000, "Capped prompt should be far smaller than input.");
     }
@@ -297,7 +297,7 @@ public class ContextAgentTest {
 
         assertTrue(capped.truncated());
         assertTrue(capped.promptText().contains("----- OMITTED "), capped.promptText());
-        assertTrue(capped.promptText().contains("[BRK_TRUNCATED "), capped.promptText());
+        assertTrue(capped.promptText().contains("[TRUNCATED "), capped.promptText());
         assertFalse(capped.promptText().contains(hugeLine), "Prompt must not contain the full huge payload.");
     }
 }

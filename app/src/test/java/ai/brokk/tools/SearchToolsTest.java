@@ -756,7 +756,7 @@ public class SearchToolsTest {
         String result = searchTools.searchFileContents(List.of("MATCH"), "long_line.txt", 0, 200, 200);
 
         assertTrue(result.contains("1: MATCH "), "Should include matching line");
-        assertTrue(result.contains("[TRUNCATED]"), "Should truncate very long lines");
+        assertTrue(result.contains("[TRUNCATED"), "Should truncate very long lines");
     }
 
     @Test
