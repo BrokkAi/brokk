@@ -1481,7 +1481,8 @@ public class SearchTools {
     public String findFilenames(
             @P("Java-style regex patterns to match against filenames.") List<String> patterns,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
+                    String reasoning,
+            @P("Maximum number of filenames to return (capped at 200).") int limit) {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search filenames: patterns list is empty");
         }
@@ -1502,7 +1503,7 @@ public class SearchTools {
             throw new IllegalArgumentException("No valid patterns provided");
         }
 
-        var matchingFiles = contextManager.getProject().getAllFiles().stream()
+        var allMatches = contextManager.getProject().getAllFiles().stream()
                 .map(ProjectFile::toString) // Use relative path from ProjectFile
                 .filter(filePath -> {
                     // Normalise to forward slashes so regex like "frontend-mop/.*\\.svelte"
@@ -1518,10 +1519,21 @@ public class SearchTools {
                 .sorted()
                 .toList();
 
+        int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
+        boolean truncated = allMatches.size() > effectiveLimit;
+        var matchingFiles = allMatches.stream().limit(effectiveLimit).toList();
+
         if (matchingFiles.isEmpty()) {
             return "No filenames found matching patterns: " + String.join(", ", patterns);
         }
-        return recordResearchTokens("Matching filenames: " + String.join(", ", matchingFiles));
+
+        String prefix = "";
+        if (truncated) {
+            prefix = "### WARNING: Result limit reached (max " + effectiveLimit + " filenames). Showing first "
+                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
+        }
+
+        return recordResearchTokens(prefix + "Matching filenames: " + String.join(", ", matchingFiles));
     }
 
     @Tool(

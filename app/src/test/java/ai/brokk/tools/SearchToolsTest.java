@@ -194,8 +194,26 @@ public class SearchToolsTest {
     @Test
     void testfindFilenames_invalidRegexThrows() throws Exception {
         // SearchTools.compilePatterns throws on invalid regex for this tool
-        String result = searchTools.findFilenames(List.of("[["), "testing invalid regex error");
+        String result = searchTools.findFilenames(List.of("[["), "testing invalid regex error", 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
+    }
+
+    @Test
+    void testfindFilenames_limitEnforced() {
+        for (int i = 0; i < 10; i++) {
+            mockProjectFiles.add(new ProjectFile(projectRoot, "file" + i + ".txt"));
+        }
+
+        // Request limit of 5
+        String result = searchTools.findFilenames(List.of("file.*\\.txt"), "testing limit", 5);
+
+        assertTrue(result.contains("WARNING: Result limit reached"), "Should contain truncation warning");
+        assertTrue(result.contains("max 5 filenames"), "Warning should mention the limit");
+
+        // Count filenames in the comma-separated list
+        String listPart = result.substring(result.indexOf("Matching filenames: ") + "Matching filenames: ".length());
+        String[] files = listPart.split(", ");
+        assertEquals(5, files.length, "Should return exactly 5 filenames");
     }
 
     @Test
@@ -213,32 +231,32 @@ public class SearchToolsTest {
 
         // 3. Test cases
         // A. Full path with forward slashes
-        String resultNix = searchTools.findFilenames(List.of(relativePathNix), "test nix path");
+        String resultNix = searchTools.findFilenames(List.of(relativePathNix), "test nix path", 200);
         assertTrue(
                 resultNix.contains(relativePathNix) || resultNix.contains(relativePathWin),
                 "Should find file with forward-slash path");
 
         // B. File name only
-        String resultName = searchTools.findFilenames(List.of("MOP.svelte"), "test file name");
+        String resultName = searchTools.findFilenames(List.of("MOP.svelte"), "test file name", 200);
         assertTrue(
                 resultName.contains(relativePathNix) || resultName.contains(relativePathWin),
                 "Should find file with file name only");
 
         // C. Partial path
-        String resultPartial = searchTools.findFilenames(List.of("src/MOP"), "test partial path");
+        String resultPartial = searchTools.findFilenames(List.of("src/MOP"), "test partial path", 200);
         assertTrue(
                 resultPartial.contains(relativePathNix) || resultPartial.contains(relativePathWin),
                 "Should find file with partial path");
 
         // D. Full path with backslashes (Windows-style)
-        String resultWin = searchTools.findFilenames(List.of(relativePathWin), "test windows path");
+        String resultWin = searchTools.findFilenames(List.of(relativePathWin), "test windows path", 200);
         assertTrue(
                 resultWin.contains(relativePathNix) || resultWin.contains(relativePathWin),
                 "Should find file with back-slash path pattern");
 
         // E. Regex path pattern (frontend-mop/.*\.svelte)
         String regexPattern = "frontend-mop/.*\\.svelte";
-        String resultRegex = searchTools.findFilenames(List.of(regexPattern), "test regex path");
+        String resultRegex = searchTools.findFilenames(List.of(regexPattern), "test regex path", 200);
         assertTrue(
                 resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
                 "Should find file with regex pattern");
