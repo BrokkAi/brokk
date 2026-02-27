@@ -78,7 +78,6 @@ public class ContextAgent {
     private static final int UNANALYZED_MAX_LINES = 50;
     private static final int UNANALYZED_TOP_SHOWN = 25;
     private static final int UNANALYZED_BOTTOM_SHOWN = 25;
-    private static final int UNANALYZED_MAX_CHARS_PER_LINE = 4096;
 
     private enum GroupType {
         ANALYZED,
@@ -1046,12 +1045,7 @@ public class ContextAgent {
     }
 
     static Lines.HeadTail capUnanalyzedTextForPrompt(String content) {
-        return Lines.cap(
-                content,
-                UNANALYZED_MAX_LINES,
-                UNANALYZED_TOP_SHOWN,
-                UNANALYZED_BOTTOM_SHOWN,
-                UNANALYZED_MAX_CHARS_PER_LINE);
+        return Lines.cap(content, UNANALYZED_MAX_LINES, UNANALYZED_TOP_SHOWN, UNANALYZED_BOTTOM_SHOWN);
     }
 
     static String renderFileForPrompt(ProjectFile file, Lines.HeadTail content) {

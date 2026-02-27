@@ -76,6 +76,7 @@ public class SearchTools {
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
     private static final int FILE_SEARCH_LIMIT = 200;
+    private static final int SUBFILE_SEARCH_LIMIT = 100;
     private static final int CLASS_COUNT_LIMIT = 10;
 
     private static final int SEARCH_TOOLS_PARALLELISM =
@@ -963,7 +964,7 @@ public class SearchTools {
             @P("Java-style regex pattern to search for.") String pattern,
             @P("Glob pattern for file paths (e.g., '**/AGENTS.md', 'src/**/*.java').") String filepath,
             @P("Number of context lines to show around each match (0-5).") int contextLines,
-            @P("Maximum number of files to return results for (capped at 200).") int limit)
+            @P("Maximum number of files to return results for (capped at 100).") int limit)
             throws InterruptedException {
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
