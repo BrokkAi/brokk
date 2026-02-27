@@ -339,7 +339,8 @@ public class SessionManagerTest {
         var sessionManager = project.getSessionManager();
         SessionInfo initialSession = sessionManager.newSession("Original Name");
 
-        sessionManager.renameSession(initialSession.id(), "New Name");
+        boolean success = sessionManager.renameSession(initialSession.id(), "New Name");
+        assertTrue(success);
 
         List<SessionInfo> sessions = sessionManager.listSessions();
         SessionInfo renamedSession = sessions.stream()
@@ -354,6 +355,9 @@ public class SessionManagerTest {
         assertEventually(() -> assertTrue(Files.exists(tempDir.resolve(".brokk")
                 .resolve("sessions")
                 .resolve(initialSession.id().toString() + ".zip"))));
+
+        // Test renaming non-existent
+        assertFalse(sessionManager.renameSession(UUID.randomUUID(), "Fail"));
 
         project.close();
     }
