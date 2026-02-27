@@ -95,3 +95,25 @@ def test_session_select_modal_labels_use_table_layout():
     assert "Empty Session" in label2
     assert "2025" not in label2  # No date for 0
     assert "entry" not in label2  # No label for 0
+
+
+def test_session_select_modal_long_autoname_truncation():
+    """Verify that auto-generated long titles are truncated gracefully in the modal."""
+    from brokk_code.app import SessionSelectModal
+
+    long_title = "Implement a new login system with oauth support and more..."
+    session = {
+        "id": "s3",
+        "name": long_title,
+        "aiResponses": 5,
+        "modified": 1735732800000,
+    }
+
+    label = SessionSelectModal._format_session_row(session)
+
+    # The title width is 40.
+    # "Implement a new login system with oauth " is 39 chars.
+    expected_substring = long_title[:40]
+    assert expected_substring in label
+    # Ensure date starts at index 42 (title 40 + 2 spaces)
+    assert label.find("2025-01-01") == 42
