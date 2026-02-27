@@ -389,6 +389,37 @@ class ExecutorManager:
         except httpx.HTTPError as e:
             raise ExecutorError(f"Failed to create session: {e}")
 
+    async def list_sessions(self) -> Dict[str, Any]:
+        """Lists known sessions and the current active session ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/sessions")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/sessions")
+            raise  # Should not be reached
+
+    async def switch_session(self, session_id: str) -> Dict[str, Any]:
+        """Switches the active session by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not session_id or not session_id.strip():
+            raise ExecutorError("session_id must not be blank")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/sessions/switch", json={"sessionId": session_id}
+            )
+            resp.raise_for_status()
+            self.session_id = session_id
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/sessions/switch (status={status}): {e}") from e
+
     async def download_session_zip(self, session_id: str) -> bytes:
         """Downloads the ZIP archive for a specific session."""
         if not self._http_client:
