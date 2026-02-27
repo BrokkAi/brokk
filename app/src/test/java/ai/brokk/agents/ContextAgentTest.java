@@ -160,7 +160,7 @@ public class ContextAgentTest {
         assertTrue(rendered.contains("LINE_287"));
         assertTrue(rendered.contains("LINE_311"));
 
-        assertTrue(rendered.contains("----- BRK_OMITTED 262 LINES -----"));
+        assertTrue(rendered.contains("----- OMITTED 262 LINES -----"));
 
         assertFalse(rendered.contains("LINE_100"));
     }
@@ -182,7 +182,7 @@ public class ContextAgentTest {
 
         assertTrue(rendered.startsWith("<file path='src/un/analyzed/Small.txt'>\n"), rendered);
         assertFalse(rendered.contains("truncated=\"true\""));
-        assertFalse(rendered.contains("BRK_OMITTED"));
+        assertFalse(rendered.contains("OMITTED"));
         assertTrue(rendered.contains("LINE_000"));
         assertTrue(rendered.contains("LINE_049"));
     }
@@ -207,7 +207,7 @@ public class ContextAgentTest {
                         "<file path='src/un/analyzed/CrLf.txt' truncated=\"true\" total_lines=\"56\" top_shown=\"25\" bottom_shown=\"25\">"),
                 rendered);
 
-        assertTrue(rendered.contains("----- BRK_OMITTED 6 LINES -----"), rendered);
+        assertTrue(rendered.contains("----- OMITTED 6 LINES -----"), rendered);
 
         assertTrue(rendered.contains("LINE_000"));
         assertTrue(rendered.contains("LINE_024"));
@@ -238,7 +238,7 @@ public class ContextAgentTest {
                         "<file path='src/un/analyzed/CrOnly.txt' truncated=\"true\" total_lines=\"56\" top_shown=\"25\" bottom_shown=\"25\">"),
                 rendered);
 
-        assertTrue(rendered.contains("----- BRK_OMITTED 6 LINES -----"), rendered);
+        assertTrue(rendered.contains("----- OMITTED 6 LINES -----"), rendered);
 
         assertTrue(rendered.contains("LINE_000"));
         assertTrue(rendered.contains("LINE_024"));
@@ -259,7 +259,7 @@ public class ContextAgentTest {
         var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
         assertTrue(capped.truncated());
         assertEquals(51, capped.totalLines());
-        assertTrue(capped.promptText().contains("----- BRK_OMITTED 1 LINES -----"), capped.promptText());
+        assertTrue(capped.promptText().contains("----- OMITTED 1 LINES -----"), capped.promptText());
         assertTrue(capped.promptText().contains("LINE_000"));
         assertTrue(capped.promptText().contains("LINE_049"));
     }
@@ -296,7 +296,7 @@ public class ContextAgentTest {
         var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
 
         assertTrue(capped.truncated());
-        assertTrue(capped.promptText().contains("----- BRK_OMITTED "), capped.promptText());
+        assertTrue(capped.promptText().contains("----- OMITTED "), capped.promptText());
         assertTrue(capped.promptText().contains("[BRK_TRUNCATED "), capped.promptText());
         assertFalse(capped.promptText().contains(hugeLine), "Prompt must not contain the full huge payload.");
     }

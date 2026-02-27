@@ -891,7 +891,7 @@ public class ContextAgent {
                   - total_lines: the total number of lines in the original file.
                   - top_shown/bottom_shown: how many lines from the beginning/end of the file are included in the excerpt.
                   - Truncated file text includes an omission marker line like:
-                  ----- BRK_OMITTED N LINES -----
+                  ----- OMITTED N LINES -----
 
                 Use the available information to determine which items are most relevant to achieving the goal.
                 """;

@@ -116,7 +116,7 @@ public final class Lines {
             tail = String.join("\n", tailLines);
         }
 
-        String delimiter = "----- BRK_OMITTED " + omitted + " LINES -----";
+        String delimiter = "----- OMITTED " + omitted + " LINES -----";
 
         var parts = new ArrayList<String>(3);
         if (!head.isEmpty()) {
