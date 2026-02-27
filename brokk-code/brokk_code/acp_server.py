@@ -998,6 +998,7 @@ async def run_acp_server(
             update_agent_message,
             update_agent_message_text,
             update_agent_thought_text,
+            update_user_message_text,
             update_tool_call,
         )
         from acp.schema import (
@@ -1386,13 +1387,16 @@ async def run_acp_server(
             sessions_payload = await bridge.executor.list_sessions()
             sessions = sessions_payload.get("sessions", [])
             known_session_ids = {
-                session_id for entry in sessions if (session_id := _session_id_from_entry(entry))
+                parsed_session_id
+                for entry in sessions
+                if (parsed_session_id := _session_id_from_entry(entry))
             }
             if session_id not in known_session_ids:
                 return None
             await bridge.executor.switch_session(session_id)
             self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
+            await self._replay_conversation_history(session_id)
             model_state = self._model_state_for_session(session_id)
             return LoadSessionResponse(
                 modes=SessionModeState(
@@ -1407,6 +1411,55 @@ async def run_acp_server(
                 config_options=self._config_options_for_session(session_id),
                 _meta=self._variant_meta_for_session(session_id),
             )
+
+        async def _replay_conversation_history(self, session_id: str) -> None:
+            if self.client is None:
+                return
+            try:
+                payload = await bridge.executor.get_conversation()
+            except Exception:
+                logger.debug("Failed to fetch conversation history for session %s", session_id, exc_info=True)
+                return
+
+            entries = payload.get("entries", [])
+            if not isinstance(entries, list):
+                return
+
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                messages = entry.get("messages", [])
+                if not isinstance(messages, list):
+                    continue
+
+                for message in messages:
+                    if not isinstance(message, dict):
+                        continue
+                    role = str(message.get("role", "")).strip().lower()
+                    text = str(message.get("text", "")).strip()
+                    if not text:
+                        continue
+
+                    if role == "user":
+                        await self.client.session_update(
+                            session_id=session_id,
+                            update=update_user_message_text(text),
+                        )
+                        continue
+
+                    if role in {"assistant", "ai"}:
+                        await self.client.session_update(
+                            session_id=session_id,
+                            update=update_agent_message_text(text),
+                        )
+                        reasoning = message.get("reasoning")
+                        if isinstance(reasoning, str):
+                            reasoning_text = reasoning.strip()
+                            if reasoning_text:
+                                await self.client.session_update(
+                                    session_id=session_id,
+                                    update=update_agent_thought_text(reasoning_text),
+                                )
 
         async def resume_session(
             self,
@@ -1436,9 +1489,12 @@ async def run_acp_server(
             cwd: Optional[str] = None,
             **kwargs: Any,
         ) -> ListSessionsResponse:
+            import sys
+            print(f"DEBUG list_sessions called, cwd={cwd!r}", file=sys.stderr, flush=True)
             del cursor, kwargs
             await bridge.ensure_ready()
             sessions_payload = await bridge.executor.list_sessions()
+            print(f"DEBUG got {len(sessions_payload.get('sessions', []))} sessions from executor", file=sys.stderr, flush=True)
             executor_sessions = sessions_payload.get("sessions", [])
             sessions = []
             for entry in executor_sessions:
@@ -1479,6 +1535,9 @@ async def run_acp_server(
                         updated_at=updated_at,
                     )
                 )
+            import sys
+            for s in sessions:
+                print(f"list_sessions entry: id={s.session_id} title={s.title!r} cwd={s.cwd}", file=sys.stderr, flush=True)
             return ListSessionsResponse(sessions=sessions, next_cursor=None)
 
         async def set_session_mode(
