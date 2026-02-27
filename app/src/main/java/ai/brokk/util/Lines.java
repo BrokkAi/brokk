@@ -1,4 +1,4 @@
-package ai.brokk.agents;
+package ai.brokk.util;
 
 import static java.lang.Math.max;
 import static java.lang.Math.min;
@@ -6,13 +6,13 @@ import static java.lang.Math.min;
 import java.util.ArrayList;
 import java.util.List;
 
-final class UnanalyzedPromptCapping {
-    private UnanalyzedPromptCapping() {}
+public final class Lines {
+    private Lines() {}
 
-    static ContextAgent.PromptFileContent cap(
+    public static HeadTail cap(
             String content, int maxLines, int topShown, int bottomShown, int maxCharsPerLine) {
         if (content.isEmpty()) {
-            return ContextAgent.PromptFileContent.full(content);
+            return HeadTail.full(content);
         }
 
         int length = content.length();
@@ -92,7 +92,7 @@ final class UnanalyzedPromptCapping {
         }
 
         if (totalLines <= maxLines) {
-            return ContextAgent.PromptFileContent.full(capAllLines(content, maxCharsPerLine));
+            return HeadTail.full(capAllLines(content, maxCharsPerLine));
         }
 
         int top = min(topShown, totalLines);
@@ -127,7 +127,7 @@ final class UnanalyzedPromptCapping {
         }
 
         String promptText = String.join("\n\n", parts);
-        return ContextAgent.PromptFileContent.truncated(promptText, totalLines, topShown, bottomShown);
+        return HeadTail.truncated(promptText, totalLines, topShown, bottomShown);
     }
 
     private static String joinLines(
@@ -185,5 +185,15 @@ final class UnanalyzedPromptCapping {
 
         out.append(truncateLine(content, lineStart, length, maxCharsPerLine));
         return out.toString();
+    }
+
+    public record HeadTail(String promptText, boolean truncated, int totalLines, int topShown, int bottomShown) {
+        public static HeadTail full(String promptText) {
+            return new HeadTail(promptText, false, 0, 0, 0);
+        }
+
+        static HeadTail truncated(String promptText, int totalLines, int topShown, int bottomShown) {
+            return new HeadTail(promptText, true, totalLines, topShown, bottomShown);
+        }
     }
 }

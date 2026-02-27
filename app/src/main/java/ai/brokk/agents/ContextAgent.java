@@ -21,6 +21,7 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -82,16 +83,6 @@ public class ContextAgent {
     private enum GroupType {
         ANALYZED,
         UNANALYZED
-    }
-
-    record PromptFileContent(String promptText, boolean truncated, int totalLines, int topShown, int bottomShown) {
-        static PromptFileContent full(String promptText) {
-            return new PromptFileContent(promptText, false, 0, 0, 0);
-        }
-
-        static PromptFileContent truncated(String promptText, int totalLines, int topShown, int bottomShown) {
-            return new PromptFileContent(promptText, true, totalLines, topShown, bottomShown);
-        }
     }
 
     private final IContextManager cm;
@@ -438,7 +429,7 @@ public class ContextAgent {
         } else {
             var contentsMap = readFileContentsCappedForPrompt(groupFiles);
             initialTokens = Messages.getApproximateTokens(contentsMap.values().stream()
-                    .map(PromptFileContent::promptText)
+                    .map(Lines.HeadTail::promptText)
                     .toList());
         }
 
@@ -478,7 +469,7 @@ public class ContextAgent {
             } else {
                 var contentsMap = readFileContentsCappedForPrompt(workingFiles);
                 postExpansionTokens = Messages.getApproximateTokens(contentsMap.values().stream()
-                        .map(PromptFileContent::promptText)
+                        .map(Lines.HeadTail::promptText)
                         .toList());
             }
             logger.debug("{} group post-expansion token estimate: ~{}", type, postExpansionTokens);
@@ -520,10 +511,10 @@ public class ContextAgent {
 
         List<ProjectFile> current = new ArrayList<>(files);
         while (true) {
-            Map<ProjectFile, PromptFileContent> fileText = type == GroupType.ANALYZED
+            Map<ProjectFile, Lines.HeadTail> fileText = type == GroupType.ANALYZED
                     ? getCachedIdentifiers(current).entrySet().stream()
                             .collect(Collectors.toMap(
-                                    Map.Entry::getKey, e -> PromptFileContent.full(e.getValue()), (v1, v2) -> v1))
+                                    Map.Entry::getKey, e -> Lines.HeadTail.full(e.getValue()), (v1, v2) -> v1))
                     : readFileContentsCappedForPrompt(current);
 
             try {
@@ -877,7 +868,7 @@ public class ContextAgent {
     // --- Evaluate-for-relevance (single-group context window) ---
 
     private LlmRecommendation askLlmDeepRecommendContext(
-            Map<ProjectFile, PromptFileContent> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
+            Map<ProjectFile, Lines.HeadTail> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();
@@ -1042,7 +1033,7 @@ public class ContextAgent {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
-    private Map<ProjectFile, PromptFileContent> readFileContentsCappedForPrompt(Collection<ProjectFile> files) {
+    private Map<ProjectFile, Lines.HeadTail> readFileContentsCappedForPrompt(Collection<ProjectFile> files) {
         return files.stream()
                 .distinct()
                 .parallel()
@@ -1054,8 +1045,8 @@ public class ContextAgent {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
-    static PromptFileContent capUnanalyzedTextForPrompt(String content) {
-        return UnanalyzedPromptCapping.cap(
+    static Lines.HeadTail capUnanalyzedTextForPrompt(String content) {
+        return Lines.cap(
                 content,
                 UNANALYZED_MAX_LINES,
                 UNANALYZED_TOP_SHOWN,
@@ -1063,7 +1054,7 @@ public class ContextAgent {
                 UNANALYZED_MAX_CHARS_PER_LINE);
     }
 
-    static String renderFileForPrompt(ProjectFile file, PromptFileContent content) {
+    static String renderFileForPrompt(ProjectFile file, Lines.HeadTail content) {
         // Normalize to forward slashes for consistent LLM prompts across platforms.
         // Safe on Windows: Java's Path.of() accepts '/' on all OSes, so paths returned
         // by the LLM can be parsed back to ProjectFile via IContextManager.toFile().
