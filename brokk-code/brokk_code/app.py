@@ -373,6 +373,51 @@ class ModeSelectModal(ModalScreen[str]):
             self.dismiss(mode)
 
 
+class SessionSelectModal(ModalScreen[str]):
+    """A modal for selecting and switching between sessions."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, sessions: List[Dict[str, Any]], current_id: str) -> None:
+        super().__init__()
+        self.sessions = sessions
+        self.current_id = current_id
+        self._item_id_to_session_id: Dict[str, str] = {
+            f"session-{idx}": str(s.get("id", "")) for idx, s in enumerate(sessions)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="session-select-container"):
+            yield Static("Select Session", id="session-select-title")
+            with VerticalScroll(id="session-select-list-wrap"):
+                yield ListView(
+                    *[
+                        ListItem(
+                            Static(
+                                f"{'[x]' if str(s.get('id')) == self.current_id else '[ ]'} "
+                                f"{s.get('name') or s.get('id')}",
+                                markup=False,
+                            ),
+                            id=item_id,
+                        )
+                        for item_id, s in zip(self._item_id_to_session_id.keys(), self.sessions)
+                    ],
+                    id="session-select-list",
+                )
+
+    def on_mount(self) -> None:
+        self.query_one("#session-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        selected_id = self._item_id_to_session_id.get(message.item.id)
+        if selected_id:
+            self.dismiss(selected_id)
+
+
 class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
     """A combined modal for selecting both model and reasoning level side-by-side."""
 
@@ -1708,6 +1753,7 @@ class BrokkApp(App):
             {"command": "/history", "description": "Show recent prompt history"},
             {"command": "/history-clear", "description": "Clear prompt history"},
             {"command": "/task", "description": "Open/close the task list"},
+            {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
@@ -1881,6 +1927,8 @@ class BrokkApp(App):
                 )
                 return
             self.action_toggle_tasklist()
+        elif base == "/sessions":
+            self.run_worker(self._show_sessions())
         elif base == "/help":
             commands = self.get_slash_commands()
             # Calculate padding based on longest command
@@ -2256,6 +2304,63 @@ class BrokkApp(App):
         except Exception:
             # exit() may raise in some test harnesses; ignore to avoid double-shutdown.
             pass
+
+    async def _show_sessions(self) -> None:
+        chat = self._maybe_chat()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot list sessions.", level="ERROR"
+                )
+            return
+
+        try:
+            data = await self.executor.list_sessions()
+            sessions = data.get("sessions", [])
+            current_id = data.get("currentSessionId", "")
+
+            if not sessions:
+                if chat:
+                    chat.add_system_message("No sessions found.")
+                return
+
+            def on_selected(selected_id: str | None) -> None:
+                if selected_id and selected_id != current_id:
+                    self.run_worker(self._switch_to_session(selected_id))
+
+            self.push_screen(SessionSelectModal(sessions, current_id), on_selected)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to list sessions: {e}", level="ERROR")
+
+    async def _switch_to_session(self, session_id: str) -> None:
+        from brokk_code.session_persistence import save_last_session_id
+
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            chat.add_system_message(f"Switching to session {session_id}...")
+            await self.executor.switch_session(session_id)
+            save_last_session_id(self.executor.workspace_dir, session_id)
+
+            # Clear UI and history
+            chat._message_history.clear()
+            # Clear log container (the ScrollableContainer containing message widgets)
+            log = chat.query_one("#chat-log")
+            await log.query("*").remove()
+
+            # Replay
+            conversation_data = await self.executor.get_conversation()
+            self._replay_conversation_entries(conversation_data)
+
+            # Refresh
+            await self._refresh_context_panel()
+            chat.add_system_message(f"Successfully switched to session {session_id}.")
+        except Exception as e:
+            logger.exception("Failed to switch session")
+            chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""
