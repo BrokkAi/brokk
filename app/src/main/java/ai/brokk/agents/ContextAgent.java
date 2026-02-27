@@ -1045,6 +1045,9 @@ public class ContextAgent {
     }
 
     static String renderFileForPrompt(ProjectFile file, PromptFileContent content) {
+        // Normalize to forward slashes for consistent LLM prompts across platforms.
+        // Safe on Windows: Java's Path.of() accepts '/' on all OSes, so paths returned
+        // by the LLM can be parsed back to ProjectFile via IContextManager.toFile().
         String unixPath = file.toString().replace('\\', '/');
         if (!content.truncated()) {
             return "<file path='%s'>\n%s\n</file>".formatted(unixPath, content.promptText());
