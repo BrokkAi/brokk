@@ -9,6 +9,7 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
@@ -74,8 +75,8 @@ public class ProjectFilesPanel extends JPanel {
         setupSearchFieldAndAutocomplete();
 
         refreshIndicatorLabel = new JLabel("");
-        refreshIndicatorLabel.setForeground(Color.GRAY);
-        refreshIndicatorLabel.setFont(refreshIndicatorLabel.getFont().deriveFont(Font.PLAIN, 10f));
+        refreshIndicatorLabel.setForeground(ThemeColors.getColor(ThemeColors.BADGE_FOREGROUND));
+        refreshIndicatorLabel.setFont(refreshIndicatorLabel.getFont().deriveFont(Font.BOLD, 11f));
         refreshIndicatorLabel.setToolTipText("Last tree refresh duration and type");
 
         setupProjectTree();
@@ -171,11 +172,14 @@ public class ProjectFilesPanel extends JPanel {
         this.projectTree.setRefreshListener((durationMs, incremental) -> SwingUtilities.invokeLater(() -> {
             String type = incremental ? "inc" : "full";
             refreshIndicatorLabel.setText(durationMs + "ms " + type);
+            refreshIndicatorLabel.setForeground(ThemeColors.getColor(ThemeColors.FOCUS_RING));
 
             if (refreshFadeTimer != null) {
                 refreshFadeTimer.stop();
             }
-            refreshFadeTimer = new Timer(5000, evt -> refreshIndicatorLabel.setText(""));
+            refreshFadeTimer = new Timer(1000, evt -> {
+                refreshIndicatorLabel.setForeground(ThemeColors.getColor(ThemeColors.BADGE_FOREGROUND));
+            });
             refreshFadeTimer.setRepeats(false);
             refreshFadeTimer.start();
         }));
