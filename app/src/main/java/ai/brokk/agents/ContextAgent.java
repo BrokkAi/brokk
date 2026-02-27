@@ -1045,12 +1045,13 @@ public class ContextAgent {
     }
 
     static String renderFileForPrompt(ProjectFile file, PromptFileContent content) {
+        String unixPath = file.toString().replace('\\', '/');
         if (!content.truncated()) {
-            return "<file path='%s'>\n%s\n</file>".formatted(file.toString(), content.promptText());
+            return "<file path='%s'>\n%s\n</file>".formatted(unixPath, content.promptText());
         }
         return "<file path='%s' truncated=\"true\" total_lines=\"%d\" top_shown=\"%d\" bottom_shown=\"%d\">\n%s\n</file>"
                 .formatted(
-                        file.toString(),
+                        unixPath,
                         content.totalLines(),
                         content.topShown(),
                         content.bottomShown(),
