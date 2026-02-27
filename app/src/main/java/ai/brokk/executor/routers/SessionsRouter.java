@@ -95,6 +95,12 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
                 map.put("name", s.name());
                 map.put("created", s.created());
                 map.put("modified", s.modified());
+
+                var stats = sessionManager.countSessionStats(s.id());
+                map.put("aiResponses", stats.aiResponses());
+                map.put("totalTasks", stats.tasks().total());
+                map.put("incompleteTasks", stats.tasks().incomplete());
+
                 sessionList.add(map);
             }
 

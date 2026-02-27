@@ -4,6 +4,7 @@ import random
 import re
 import time
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -392,20 +393,35 @@ class SessionSelectModal(ModalScreen[str]):
         with Vertical(id="session-select-container"):
             yield Static("Select Session", id="session-select-title")
             with VerticalScroll(id="session-select-list-wrap"):
-                yield ListView(
-                    *[
-                        ListItem(
-                            Static(
-                                f"{'[x]' if str(s.get('id')) == self.current_id else '[ ]'} "
-                                f"{s.get('name') or s.get('id')}",
-                                markup=False,
-                            ),
-                            id=item_id,
-                        )
-                        for item_id, s in zip(self._item_id_to_session_id.keys(), self.sessions)
-                    ],
-                    id="session-select-list",
-                )
+                items = []
+                for item_id, s in zip(self._item_id_to_session_id.keys(), self.sessions):
+                    is_current = str(s.get("id")) == self.current_id
+                    marker = "[x]" if is_current else "[ ]"
+                    name = s.get("name") or s.get("id")
+
+                    # Task stats: (incomplete/total tasks)
+                    total_tasks = s.get("totalTasks", 0)
+                    task_info = ""
+                    if total_tasks > 0:
+                        incomplete = s.get("incompleteTasks", 0)
+                        task_info = f"{incomplete}/{total_tasks} tasks"
+
+                    # Modified time
+                    modified = s.get("modified", 0)
+                    time_info = ""
+                    if modified > 0:
+                        dt = datetime.fromtimestamp(modified / 1000)
+                        time_info = dt.strftime("%Y-%m-%d %H:%M")
+
+                    # Combine details
+                    details = ", ".join(filter(None, [task_info, time_info]))
+                    label = f"{marker} {name}"
+                    if details:
+                        label += f"  ({details})"
+
+                    items.append(ListItem(Static(label, markup=False), id=item_id))
+
+                yield ListView(*items, id="session-select-list")
 
     def on_mount(self) -> None:
         self.query_one("#session-select-list", ListView).focus()
