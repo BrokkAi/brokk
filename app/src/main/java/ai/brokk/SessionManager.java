@@ -238,7 +238,7 @@ public class SessionManager implements AutoCloseable {
         return UuidCreator.getTimeOrderedEpoch();
     }
 
-    public void renameSession(UUID sessionId, String newName) {
+    public boolean renameSession(UUID sessionId, String newName) {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
             var updatedInfo = new SessionInfo(
@@ -254,8 +254,10 @@ public class SessionManager implements AutoCloseable {
                             "Error writing updated manifest for renamed session {}: {}", sessionId, e.getMessage());
                 }
             });
+            return true;
         } else {
             logger.warn("Session ID {} not found in cache, cannot rename.", sessionId);
+            return false;
         }
     }
 
