@@ -452,8 +452,7 @@ public class BuildAgent {
 
                 The lists are DecoratedCollection instances, so you get first/last/index/value fields.
 
-                Since the lists are file- and class- oriented, for test environments like `go test` and `cargo test`
-                that are function-oriented, we fall back to running all tests.
+                For module- or package-oriented test runners like `go test` and `cargo test`, use the `{{packages}}` or `{{modules}}` variables to target specific components.
 
                 Examples:
 
