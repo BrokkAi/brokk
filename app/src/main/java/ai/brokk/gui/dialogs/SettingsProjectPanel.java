@@ -669,23 +669,49 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var project = chrome.getProject();
         var projectRoot = project.getRoot();
 
-        // Determine the languages to show: union of detected languages and currently enabled analyzers
-        var detected = findLanguagesInProject(project);
-        var configured = new ArrayList<>(project.getAnalyzerLanguages());
-        // Merge into a single ordered list (alphabetical by name)
-        var langSet = new HashSet<Language>();
-        langSet.addAll(detected);
-        langSet.addAll(configured);
-        var languagesToShow = new ArrayList<>(langSet);
-        languagesToShow.sort(Comparator.comparing(Language::name));
-
         // Ensure currentAnalyzerLanguagesForDialog has initial values if empty
         if (currentAnalyzerLanguagesForDialog.isEmpty()) {
             currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
         }
 
-        languagesTableModel = new LanguagesTableModel(languagesToShow);
+        languagesTableModel = new LanguagesTableModel(new ArrayList<>());
         var table = new JTable(languagesTableModel);
+
+        // Load languages asynchronously
+        ai.brokk.concurrent.LoggingFuture.supplyAsync(() -> {
+                    var detected = findLanguagesInProject(project);
+                    var configured = new ArrayList<>(project.getAnalyzerLanguages());
+                    var langSet = new HashSet<Language>();
+                    langSet.addAll(detected);
+                    langSet.addAll(configured);
+                    var result = new ArrayList<>(langSet);
+                    result.sort(Comparator.comparing(Language::name));
+                    return result;
+                })
+                .thenAccept(languagesToShow -> ai.brokk.gui.SwingUtil.runOnEdt(() -> {
+                    if (languagesTableModel != null) {
+                        languagesTableModel.setRows(languagesToShow);
+
+                        // Preselect the language with the most associated files so details show immediately.
+                        if (!languagesToShow.isEmpty()) {
+                            int maxModelIdx = 0;
+                            int maxCount = -1;
+                            for (int i = 0; i < languagesToShow.size(); i++) {
+                                int cnt = project.getAnalyzableFiles(languagesToShow.get(i))
+                                        .size();
+                                if (cnt > maxCount) {
+                                    maxCount = cnt;
+                                    maxModelIdx = i;
+                                }
+                            }
+                            int viewIdx = table.convertRowIndexToView(maxModelIdx);
+                            if (viewIdx >= 0) {
+                                table.getSelectionModel().setSelectionInterval(viewIdx, viewIdx);
+                                table.scrollRectToVisible(table.getCellRect(viewIdx, 0, true));
+                            }
+                        }
+                    }
+                }));
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setFillsViewportHeight(true);
         table.setRowHeight(24);
@@ -864,7 +890,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
             // Convert view index to model index when sorter is active
             int modelRow = table.convertRowIndexToModel(sel);
-            var lang = languagesToShow.get(modelRow);
+            var lang = languagesTableModel.rows.get(modelRow);
 
             // Create (or reuse) analyzer settings panel for this language
             AnalyzerSettingsPanel settingsPanel = analyzerSettingsCache.computeIfAbsent(
@@ -902,27 +928,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         centerPanel.add(rightPanel, BorderLayout.CENTER);
 
         panel.add(centerPanel, BorderLayout.CENTER);
-
-        // Preselect the language with the most associated files so details show immediately.
-        if (languagesTableModel.getRowCount() > 0) {
-            int maxModelIdx = 0;
-            int maxCount = -1;
-            for (int i = 0; i < languagesToShow.size(); i++) {
-                int cnt = project.getAnalyzableFiles(languagesToShow.get(i)).size();
-                if (cnt > maxCount) {
-                    maxCount = cnt;
-                    maxModelIdx = i;
-                }
-            }
-            int viewIdx = table.convertRowIndexToView(maxModelIdx);
-            if (viewIdx >= 0) {
-                SwingUtilities.invokeLater(() -> {
-                    table.getSelectionModel().setSelectionInterval(viewIdx, viewIdx);
-                    // Ensure selected row is visible
-                    table.scrollRectToVisible(table.getCellRect(viewIdx, 0, true));
-                });
-            }
-        }
 
         // Set border on the unified exclusions panel
         exclusionsPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
@@ -975,10 +980,15 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     private class LanguagesTableModel extends AbstractTableModel {
-        private final List<Language> rows;
+        private List<Language> rows;
 
         LanguagesTableModel(List<Language> rows) {
             this.rows = rows;
+        }
+
+        void setRows(List<Language> rows) {
+            this.rows = rows;
+            fireTableDataChanged();
         }
 
         @Override
