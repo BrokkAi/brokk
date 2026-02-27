@@ -535,16 +535,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public void setBuildLanguage(@Nullable Language language) {
-        if (language == null) {
-            workspaceProps.remove(PROP_BUILD_LANGUAGE);
-        } else {
-            workspaceProps.setProperty(PROP_BUILD_LANGUAGE, language.name());
-        }
-        saveWorkspaceProperties();
-    }
-
-    @Override
     public ShellConfig getShellConfig() {
         String executor = workspaceProps.getProperty(PROP_COMMAND_EXECUTOR);
         String argsStr = workspaceProps.getProperty(PROP_EXECUTOR_ARGS);

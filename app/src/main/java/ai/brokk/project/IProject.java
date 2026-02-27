@@ -374,10 +374,6 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default void setBuildLanguage(@Nullable Language language) {
-        throw new UnsupportedOperationException();
-    }
-
     // Command executor configuration: custom shell/interpreter for command execution
     default ShellConfig getShellConfig() {
         return ShellConfig.basic();
