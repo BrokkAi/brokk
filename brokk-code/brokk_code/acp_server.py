@@ -28,6 +28,7 @@ DEFAULT_VARIANT_VALUE = "default"
 MODEL_DISCOVERY_INITIAL_ATTEMPTS = 4
 MODEL_DISCOVERY_RECOVERY_ATTEMPTS = 2
 MODEL_DISCOVERY_INITIAL_BACKOFF_SECONDS = 0.2
+GENERIC_SESSION_TITLES = {"new thread", "untitled", "new chat", "chat"}
 
 
 # ACP persistence dataclass and helpers. Persisted in ~/.brokk/acp_settings.json
@@ -38,6 +39,14 @@ class AcpDefaults:
 
     def to_dict(self) -> dict[str, str]:
         return {"default_model": self.default_model, "default_reasoning": self.default_reasoning}
+
+
+@dataclass(frozen=True)
+class AcpOutputPolicy:
+    emit_structured_resources: bool = True
+    emit_token_bar: bool = True
+    use_short_description_context: bool = False
+    tool_call_titles_only: bool = False
 
 
 def _acp_settings_dir() -> Path:
@@ -465,7 +474,12 @@ def map_executor_event_to_session_update(
 
         if update_tool_call and tool_call_id:
             content = None
-            output_payload = data.get("output") or data.get("result") or data.get("message")
+            output_payload = (
+                data.get("resultText")
+                or data.get("output")
+                or data.get("result")
+                or data.get("message")
+            )
             if output_payload and text_block and tool_content:
                 content = [tool_content(text_block(str(output_payload)))]
 
@@ -476,6 +490,26 @@ def map_executor_event_to_session_update(
             )
 
         return update_agent_message_text(f"[TOOL {status_raw}]\n")
+
+    if event_type == "COMMAND_RESULT":
+        stage = str(data.get("stage") or "command").upper()
+        command = str(data.get("command") or "").strip()
+        success = bool(data.get("success", False))
+        skipped = bool(data.get("skipped", False))
+        output = str(data.get("output") or "").strip()
+        exception = data.get("exception")
+
+        status = "skipped" if skipped else ("success" if success else "failed")
+        cmd_part = f" `{command}`" if command else ""
+        text = f"\n**[{stage}]**{cmd_part} — {status}\n"
+
+        if output:
+            text += f"\n```\n{output}\n```\n"
+
+        if exception:
+            text += f"\n**Error**: {exception}\n"
+
+        return update_agent_message_text(text)
 
     return None
 
@@ -617,6 +651,28 @@ def _to_iso8601_utc(value: Any) -> Optional[str]:
     return None
 
 
+def _normalize_cwd(cwd: Optional[str]) -> Optional[str]:
+    if not isinstance(cwd, str):
+        return None
+    stripped = cwd.strip()
+    if not stripped:
+        return None
+    try:
+        return str(Path(stripped).resolve(strict=False))
+    except Exception:
+        return stripped
+
+
+def _session_name_from_kwargs(kwargs: dict[str, Any]) -> str:
+    requested_name = str(kwargs.get("title") or kwargs.get("name") or "").strip()
+    if not requested_name:
+        return "ACP Session"
+    normalized = requested_name.lower()
+    if normalized in GENERIC_SESSION_TITLES or normalized.startswith("new thread"):
+        return "ACP Session"
+    return requested_name
+
+
 def _session_id_from_entry(entry: Any) -> Optional[str]:
     if not isinstance(entry, dict):
         return None
@@ -629,6 +685,15 @@ def _session_id_from_entry(entry: Any) -> Optional[str]:
         return None
     sid = str(raw).strip()
     return sid or None
+
+
+def _display_session_title(raw_title: Optional[str], session_id: str) -> str:
+    title = str(raw_title or "").strip()
+    if title:
+        lowered = title.lower()
+        if lowered not in GENERIC_SESSION_TITLES and not lowered.startswith("new thread"):
+            return title
+    return f"Session {session_id[:8]}"
 
 
 def build_context_chip_blocks(
@@ -935,11 +1000,9 @@ async def run_acp_server(
             update_agent_thought_text,
             update_tool_call,
         )
-        from acp.agent import connection as acp_agent_connection
-        from acp.agent import router as acp_agent_router
-        from acp.meta import AGENT_METHODS
         from acp.schema import (
             AgentCapabilities,
+            ClientCapabilities,
             Implementation,
             ListSessionsResponse,
             ModelInfo,
@@ -953,10 +1016,8 @@ async def run_acp_server(
             SessionModelState,
             SessionModeState,
             SessionResumeCapabilities,
-            SetSessionConfigOptionRequest,
             SetSessionConfigOptionResponse,
         )
-        from acp.utils import normalize_result
     except ImportError as e:
         raise RuntimeError(
             "ACP mode requires the official ACP Python SDK. "
@@ -985,33 +1046,27 @@ async def run_acp_server(
     )
     bridge = BrokkAcpBridge(executor)
 
-    def _patch_acp_router_for_session_config_option() -> None:
-        if getattr(acp_agent_router, "_brokk_session_config_patch", False):
-            return
-        original_build_agent_router = acp_agent_router.build_agent_router
-
-        def patched_build_agent_router(agent: Any, use_unstable_protocol: bool = False) -> Any:
-            router = original_build_agent_router(agent, use_unstable_protocol=use_unstable_protocol)
-            router.route_request(
-                AGENT_METHODS["session_set_config_option"],
-                SetSessionConfigOptionRequest,
-                agent,
-                "set_session_config_option",
-                adapt_result=normalize_result,
-                unstable=True,
+    def _output_policy_for_client(
+        ide_profile_name: str,
+        client_capabilities: ClientCapabilities | None,
+    ) -> AcpOutputPolicy:
+        if ide_profile_name == "intellij":
+            return AcpOutputPolicy(
+                emit_structured_resources=False,
+                emit_token_bar=False,
+                use_short_description_context=True,
+                tool_call_titles_only=True,
             )
-            return router
-
-        acp_agent_router.build_agent_router = patched_build_agent_router
-        # AgentSideConnection captured a module-level symbol; patch it too.
-        acp_agent_connection.build_agent_router = patched_build_agent_router
-        acp_agent_router._brokk_session_config_patch = True
-
-    _patch_acp_router_for_session_config_option()
+        # Terminal-only clients can be less capable for rendering embedded resources.
+        if client_capabilities and bool(client_capabilities.terminal):
+            return AcpOutputPolicy(emit_structured_resources=False)
+        return AcpOutputPolicy()
 
     class BrokkAcpAgent(Agent):
         def __init__(self) -> None:
             self.client: Optional[Any] = None
+            self._client_capabilities: Optional[ClientCapabilities] = None
+            self._output_policy = _output_policy_for_client(ide_profile, None)
             self._mode_by_session: dict[str, str] = {}
             self._model_by_session: dict[str, str] = {}
             self._reasoning_by_session: dict[str, str] = {}
@@ -1208,7 +1263,7 @@ async def run_acp_server(
                     self._default_reasoning_level or DEFAULT_REASONING_LEVEL
                 )
             if cwd is not None:
-                self._cwd_by_session[session_id] = cwd
+                self._cwd_by_session[session_id] = _normalize_cwd(cwd) or cwd
             elif session_id not in self._cwd_by_session:
                 self._cwd_by_session[session_id] = str(workspace_dir)
 
@@ -1222,6 +1277,17 @@ async def run_acp_server(
             client_info: Any = None,
             **kwargs: Any,
         ) -> InitializeResponse:
+            del client_info, kwargs
+            normalized_client_capabilities = (
+                client_capabilities
+                if isinstance(client_capabilities, ClientCapabilities)
+                else ClientCapabilities.model_validate(client_capabilities or {})
+            )
+            self._client_capabilities = normalized_client_capabilities
+            self._output_policy = _output_policy_for_client(
+                ide_profile,
+                normalized_client_capabilities,
+            )
             return InitializeResponse(
                 protocol_version=protocol_version,
                 agent_info=Implementation(name="brokk", version=__version__),
@@ -1243,8 +1309,7 @@ async def run_acp_server(
         ) -> NewSessionResponse:
             del mcp_servers
             await bridge.ensure_ready()
-            requested_name = str(kwargs.get("title") or kwargs.get("name") or "ACP Session").strip()
-            session_name = requested_name or "ACP Session"
+            session_name = _session_name_from_kwargs(kwargs)
             session_id = await bridge.executor.create_session(name=session_name)
             self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
@@ -1384,7 +1449,10 @@ async def run_acp_server(
                 title = None
                 if isinstance(entry, dict):
                     title = entry.get("name") or entry.get("title") or entry.get("sessionName")
-                title = str(title).strip() if title is not None else None
+                title = _display_session_title(
+                    str(title) if title is not None else None,
+                    session_id,
+                )
                 updated_at = None
                 session_cwd = None
                 if isinstance(entry, dict):
@@ -1393,15 +1461,21 @@ async def run_acp_server(
                     )
                     session_cwd = entry.get("cwd")
                 if isinstance(session_cwd, str) and session_cwd.strip():
-                    self._cwd_by_session[session_id] = session_cwd
+                    self._cwd_by_session[session_id] = _normalize_cwd(session_cwd) or session_cwd
                 effective_cwd = self._cwd_by_session.get(session_id, cwd or str(workspace_dir))
-                if cwd and effective_cwd != cwd:
+                normalized_request_cwd = _normalize_cwd(cwd) if cwd else None
+                normalized_effective_cwd = _normalize_cwd(effective_cwd)
+                if (
+                    normalized_request_cwd
+                    and normalized_effective_cwd
+                    and normalized_effective_cwd != normalized_request_cwd
+                ):
                     continue
                 sessions.append(
                     SessionInfo(
                         session_id=session_id,
                         cwd=effective_cwd,
-                        title=title or None,
+                        title=title,
                         updated_at=updated_at,
                     )
                 )
@@ -1453,7 +1527,7 @@ async def run_acp_server(
                 self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
             return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
 
-        async def set_session_config_option(
+        async def set_config_option(
             self,
             config_id: str,
             session_id: str,
@@ -1562,7 +1636,7 @@ async def run_acp_server(
                 update_agent_thought_text=update_agent_thought_text,
                 build_context_snapshot_update=(
                     (lambda uri, mime_type, text: update_agent_message_text(text))
-                    if ide_profile == "intellij"
+                    if not self._output_policy.emit_structured_resources
                     else (
                         lambda uri, mime_type, text: update_agent_message(
                             resource_block(
@@ -1579,9 +1653,9 @@ async def run_acp_server(
                 update_tool_call=update_tool_call,
                 tool_content=tool_content,
                 text_block=text_block,
-                use_short_description_context=(ide_profile == "intellij"),
-                emit_token_bar=(ide_profile != "intellij"),
-                tool_call_titles_only=(ide_profile == "intellij"),
+                use_short_description_context=self._output_policy.use_short_description_context,
+                emit_token_bar=self._output_policy.emit_token_bar,
+                tool_call_titles_only=self._output_policy.tool_call_titles_only,
             )
             return PromptResponse(stop_reason="end_turn")
 

@@ -395,6 +395,86 @@ def test_map_executor_tool_output_structured() -> None:
     assert update["content"][0]["content"]["text"] == "done"
 
 
+def test_map_executor_tool_output_uses_result_text_field() -> None:
+    event = {
+        "type": "TOOL_OUTPUT",
+        "data": {"status": "SUCCESS", "id": "call-1", "resultText": "file contents here"},
+    }
+    update = map_executor_event_to_session_update(
+        event,
+        _text_block,
+        _thought_block,
+        _start_tool_call,
+        _update_tool_call,
+        _tool_content,
+        _text_block_helper,
+    )
+    assert update["sessionUpdate"] == "tool_call_update"
+    assert update["tool_call_id"] == "call-1"
+    assert update["status"] == "completed"
+    assert update["content"][0]["content"]["text"] == "file contents here"
+
+
+def test_map_executor_command_result_success() -> None:
+    event = {
+        "type": "COMMAND_RESULT",
+        "data": {
+            "stage": "tests",
+            "command": "pytest",
+            "success": True,
+            "skipped": False,
+            "output": "5 passed",
+        },
+    }
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update is not None
+    assert update["sessionUpdate"] == "agent_message_chunk"
+    text = update["text"]
+    assert "[TESTS]" in text
+    assert "`pytest`" in text
+    assert "success" in text
+    assert "5 passed" in text
+
+
+def test_map_executor_command_result_failure_with_exception() -> None:
+    event = {
+        "type": "COMMAND_RESULT",
+        "data": {
+            "stage": "lint",
+            "command": "ruff check .",
+            "success": False,
+            "skipped": False,
+            "output": "E501 line too long",
+            "exception": "TimeoutError",
+        },
+    }
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update is not None
+    text = update["text"]
+    assert "[LINT]" in text
+    assert "failed" in text
+    assert "E501 line too long" in text
+    assert "TimeoutError" in text
+
+
+def test_map_executor_command_result_skipped() -> None:
+    event = {
+        "type": "COMMAND_RESULT",
+        "data": {
+            "stage": "lint",
+            "command": "",
+            "success": False,
+            "skipped": True,
+            "output": "",
+        },
+    }
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update is not None
+    text = update["text"]
+    assert "skipped" in text
+    assert "failed" not in text
+
+
 def test_map_executor_tool_output_fallback() -> None:
     event = {"type": "TOOL_OUTPUT", "data": {"status": "ERROR"}}
     update = map_executor_event_to_session_update(event, _text_block)
