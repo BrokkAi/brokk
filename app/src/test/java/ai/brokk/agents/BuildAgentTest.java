@@ -1204,6 +1204,48 @@ class BuildAgentTest {
     }
 
     @Test
+    void testDetermineVerificationCommand_ChainsMultipleModules(@TempDir Path tempDir) throws Exception {
+        var project = ai.brokk.project.MainProject.forTests(tempDir);
+        var cm = new ai.brokk.testutil.TestContextManager(project);
+
+        // Define modules in a specific order
+        var details = new BuildAgent.BuildDetails(
+                "",
+                false,
+                "",
+                false,
+                "",
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(
+                        new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1", "JAVA"),
+                        new BuildAgent.ModuleBuildEntry("m2", "mod2", "lint2", "test2", "some2", "JAVA")));
+        project.setBuildDetails(details);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.WORKSPACE);
+
+        // Create files in both modules
+        var file1 = new ai.brokk.analyzer.ProjectFile(tempDir, "mod1/File1.java");
+        var file2 = new ai.brokk.analyzer.ProjectFile(tempDir, "mod2/File2.java");
+        Files.createDirectories(tempDir.resolve("mod1"));
+        Files.createDirectories(tempDir.resolve("mod2"));
+        Files.writeString(file1.absPath(), "class File1 {}");
+        Files.writeString(file2.absPath(), "class File2 {}");
+
+        // Add both files to context
+        var ctx = cm.liveContext()
+                .addFragments(new ai.brokk.context.ContextFragments.ProjectPathFragment(file1, cm))
+                .addFragments(new ai.brokk.context.ContextFragments.ProjectPathFragment(file2, cm));
+
+        // Invoke determination
+        String cmd = BuildAgent.determineVerificationCommand(ctx);
+
+        // Assert chained lint commands in order (since files are not test files)
+        assertEquals("lint1 && lint2", cmd);
+    }
+
+    @Test
     void testVerifyWithRetriesUsesCustomMaxRetries(@TempDir Path tempDir) throws Exception {
         var originalFactory = Environment.shellCommandRunnerFactory;
         try {
