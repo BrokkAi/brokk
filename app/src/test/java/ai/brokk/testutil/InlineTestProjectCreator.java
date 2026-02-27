@@ -302,8 +302,8 @@ public class InlineTestProjectCreator {
                 project.setBuildLanguage(Languages.NONE);
             }
 
-            // Force an initial scan so the analyzer is populated with code units
-            project.getAnalyzer().update();
+            // Trigger analyzer creation (which now also calls update() internally via AnalyzerCreator)
+            project.getAnalyzer();
             return project;
         }
 
@@ -395,32 +395,7 @@ public class InlineTestProjectCreator {
             if (analyzer == null) {
                 synchronized (this) {
                     if (analyzer == null) {
-                        Set<Language> languages = getAnalyzerLanguages();
-                        // Filter out NONE
-                        List<Language> activeLanguages = languages.stream()
-                                .filter(l -> l != Languages.NONE)
-                                .toList();
-
-                        if (activeLanguages.isEmpty()) {
-                            analyzer = Languages.NONE.createAnalyzer(this);
-                        } else {
-                            // Set the primary build language to the first detected one if not already set
-                            if (getBuildLanguage() == Languages.NONE) {
-                                setBuildLanguage(activeLanguages.getFirst());
-                            }
-
-                            if (activeLanguages.size() == 1) {
-                                // Important: use the detected language to create the analyzer
-                                analyzer = activeLanguages
-                                        .getFirst()
-                                        .createAnalyzer(this)
-                                        .update();
-                            } else {
-                                analyzer = AnalyzerCreator.createMultiAnalyzer(
-                                                this, activeLanguages.toArray(new Language[0]))
-                                        .update();
-                            }
-                        }
+                        analyzer = AnalyzerCreator.createFor(this);
                     }
                 }
             }
