@@ -899,11 +899,9 @@ public class ContextAgent {
                 Truncated file entries:
                 - A truncated file is indicated by: <file ... truncated="true" total_lines="..." top_shown="..." bottom_shown="...">.
                   - total_lines: the total number of lines in the original file.
-                  - top_shown: how many lines from the beginning of the file are included in the excerpt.
-                  - bottom_shown: how many lines from the end of the file are included in the excerpt.
-                - Truncated file text includes an omission marker line like:
+                  - top_shown/bottom_shown: how many lines from the beginning/end of the file are included in the excerpt.
+                  - Truncated file text includes an omission marker line like:
                   ----- BRK_OMITTED N LINES -----
-                  which means N lines from the middle of the file were omitted between the shown top/bottom sections.
 
                 Use the available information to determine which items are most relevant to achieving the goal.
                 """;
@@ -946,7 +944,7 @@ public class ContextAgent {
                 - Prefer `classesToSummarize` when you need navigational context (APIs, types, call sites) and are not confident the file will be edited.
                 - Prefer `testsToAdd` for tests/specs that clarify intended behavior or will likely need updating to verify the goal.
                 - Use `filesToAdd` for files you expect to edit or where exact implementation details are required.
-                - If a file entry is truncated/excerpted (truncated="true" and/or contains BRK_OMITTED) and you need details that might be in the omitted portion to decide or to implement the goal correctly, you SHOULD still recommend that file in `filesToAdd`.
+                - If a file entry is truncated/excerpted (truncated="true") and you need details that might be in the omitted portion to decide or to implement the goal correctly, you SHOULD still recommend that file in `filesToAdd`.
 
                 Then call the `recommendContext` tool with the appropriate entries:
 
