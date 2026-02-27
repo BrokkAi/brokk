@@ -154,7 +154,7 @@ public class InlineTestProjectCreator {
 
             try {
                 if (!Files.exists(cachePath)) {
-                    GitRepoFactory.cloneRepo(noToken, url, cachePath, depth);
+                    GitRepoFactory.cloneRepo(noToken, url, cachePath, depth, true);
                 }
 
                 // Clone from cache to target root.
@@ -163,7 +163,7 @@ public class InlineTestProjectCreator {
                 boolean isSha = ref.matches("^[0-9a-f]{7,40}$");
                 if (!isSha) {
                     try {
-                        GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth, ref);
+                        GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth, ref, true);
                     } catch (GitAPIException e) {
                         isSha = true; // Try SHA logic as fallback
                     }
@@ -171,7 +171,7 @@ public class InlineTestProjectCreator {
 
                 if (isSha) {
                     try (GitRepo ignored =
-                            GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth)) {
+                            GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth, true)) {
                         try (Git git = Git.open(root.toFile())) {
                             git.checkout().setName(ref).call();
                         }
