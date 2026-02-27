@@ -751,8 +751,12 @@ def main():
                 )
                 messages = [f"Configured IntelliJ ACP integration in {settings_path}"]
             elif args.target == "mcp":
-                claude_settings_path = configure_claude_code_mcp_settings(force=args.force)
-                codex_settings_path = configure_codex_mcp_settings(force=args.force)
+                claude_settings_path = configure_claude_code_mcp_settings(
+                    force=args.force, jbang_path=jbang_binary
+                )
+                codex_settings_path = configure_codex_mcp_settings(
+                    force=args.force, jbang_path=jbang_binary
+                )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
                     jbang_binary=jbang_binary,
@@ -921,14 +925,14 @@ def main():
 
     # Print resume hint on exit if the session has tasks
     from brokk_code.session_persistence import (
-        get_session_zip_path,
+        get_session_zip_resume_path,
         has_tasks,
         load_last_session_id,
     )
 
     last_id = load_last_session_id(workspace_path)
     if last_id:
-        zip_path = get_session_zip_path(workspace_path, last_id)
+        zip_path = get_session_zip_resume_path(workspace_path, last_id)
         if has_tasks(zip_path):
             print(f"brokk resume {last_id}")
 

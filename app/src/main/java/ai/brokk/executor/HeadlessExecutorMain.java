@@ -16,6 +16,7 @@ import ai.brokk.executor.routers.ContextRouter;
 import ai.brokk.executor.routers.FavoritesRouter;
 import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelsRouter;
+import ai.brokk.executor.routers.OpenAiAuthRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.project.MainProject;
@@ -288,6 +289,9 @@ public final class HeadlessExecutorMain {
 
         var favoritesRouter = new FavoritesRouter();
         this.server.registerAuthenticatedContext("/v1/favorites", favoritesRouter);
+
+        var openAiAuthRouter = new OpenAiAuthRouter();
+        this.server.registerAuthenticatedContext("/v1/openai/oauth", openAiAuthRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }

@@ -27,6 +27,77 @@ def get_session_zip_path(workspace_dir: Path, session_id: str) -> Path:
     return sessions_dir / f"{session_id}.zip"
 
 
+def get_session_zip_resume_path(workspace_dir: Path, session_id: str) -> Path:
+    """
+    Return the best path to use when resuming a session.
+
+    Prefer the workspace-local session ZIP. If it doesn't exist and the workspace is a
+    git worktree, fall back to the Java executor's master-root storage location.
+    """
+    local_zip_path = get_state_dir(workspace_dir) / "sessions" / f"{session_id}.zip"
+    if local_zip_path.exists():
+        return local_zip_path
+
+    master_root = _get_master_root_for_brokk_state(workspace_dir)
+    if master_root is not None and master_root != workspace_dir:
+        master_zip_path = master_root / ".brokk" / "sessions" / f"{session_id}.zip"
+        if master_zip_path.exists():
+            return master_zip_path
+
+    return local_zip_path
+
+
+def _get_master_root_for_brokk_state(workspace_dir: Path) -> Optional[Path]:
+    """
+    Mirror Java's masterRootPathForConfig behavior for git worktrees.
+
+    If `.git` is a file (worktree), resolve `gitdir`, then use `commondir` to locate the
+    shared `.git` directory and return its parent (the main repo root).
+    """
+    git_marker = workspace_dir / ".git"
+    if git_marker.is_dir():
+        return workspace_dir
+    if not git_marker.is_file():
+        return None
+
+    gitdir = _read_gitdir_pointer(git_marker)
+    if gitdir is None:
+        return None
+
+    commondir_file = gitdir / "commondir"
+    if commondir_file.exists():
+        try:
+            common_dir_text = commondir_file.read_text(encoding="utf-8").strip()
+            if common_dir_text:
+                common_git_dir = (gitdir / common_dir_text).resolve()
+                if common_git_dir.name == ".git" and common_git_dir.parent.exists():
+                    return common_git_dir.parent
+        except OSError as e:
+            logger.debug("Failed to resolve git worktree commondir for %s: %s", workspace_dir, e)
+
+    # Fallback for non-worktree repos represented by a .git file pointer.
+    if gitdir.name == ".git" and gitdir.parent.exists():
+        return gitdir.parent
+    return None
+
+
+def _read_gitdir_pointer(git_file: Path) -> Optional[Path]:
+    try:
+        line = git_file.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        logger.debug("Failed to read gitdir pointer %s: %s", git_file, e)
+        return None
+
+    prefix = "gitdir:"
+    if not line.lower().startswith(prefix):
+        return None
+
+    target = line[len(prefix) :].strip()
+    if not target:
+        return None
+    return (git_file.parent / target).resolve()
+
+
 def has_tasks(zip_path: Path) -> bool:
     """
     Checks if the session zip contains any history tasks in contexts.jsonl.

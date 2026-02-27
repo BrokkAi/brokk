@@ -240,11 +240,15 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     captured: dict[str, Any] = {}
     prefetched: dict[str, Any] = {}
 
-    def fake_configure_claude_code_mcp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_claude_code_mcp_settings(
+        *, force: bool = False, settings_path=None, jbang_path=None
+    ):
         captured["claude_force"] = force
         return tmp_path / "claude.json"
 
-    def fake_configure_codex_mcp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_codex_mcp_settings(
+        *, force: bool = False, settings_path=None, jbang_path=None
+    ):
         captured["codex_force"] = force
         return tmp_path / "codex.toml"
 

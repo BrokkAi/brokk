@@ -4,6 +4,7 @@ from pathlib import Path
 
 from brokk_code.session_persistence import (
     get_session_zip_path,
+    get_session_zip_resume_path,
     get_state_dir,
     has_tasks,
     load_last_session_id,
@@ -26,6 +27,27 @@ def test_session_zip_path_creation(tmp_path):
     assert zip_path.parent.parent.name == ".brokk"
     # Ensure directory was created
     assert zip_path.parent.exists()
+
+
+def test_session_zip_resume_path_falls_back_to_master_worktree_root(tmp_path):
+    workspace = tmp_path / "wt-repo"
+    workspace.mkdir()
+    (workspace / ".brokk" / "sessions").mkdir(parents=True)
+
+    main_repo = tmp_path / "main-repo"
+    common_git_dir = main_repo / ".git"
+    worktree_git_dir = common_git_dir / "worktrees" / "wt-repo"
+    worktree_git_dir.mkdir(parents=True)
+    (worktree_git_dir / "commondir").write_text("../..", encoding="utf-8")
+
+    (workspace / ".git").write_text(f"gitdir: {worktree_git_dir.as_posix()}", encoding="utf-8")
+
+    session_id = "session-123"
+    fallback_zip = main_repo / ".brokk" / "sessions" / f"{session_id}.zip"
+    fallback_zip.parent.mkdir(parents=True)
+    fallback_zip.write_bytes(b"zip")
+
+    assert get_session_zip_resume_path(workspace, session_id) == fallback_zip
 
 
 def test_last_session_id_roundtrip(tmp_path):
