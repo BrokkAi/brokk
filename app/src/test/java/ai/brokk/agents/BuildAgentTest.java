@@ -1177,6 +1177,24 @@ class BuildAgentTest {
     }
 
     @Test
+    void testModuleBuildEntrySerialization() throws Exception {
+        var entry = new BuildAgent.ModuleBuildEntry(
+                "core", "core", "mvn compile", "mvn test", "mvn test -Dtest={{classes}}", "Java");
+        var details = new BuildAgent.BuildDetails(
+                "mvn compile", "mvn test", "", Set.of(), Map.of(), null, "", List.of(entry));
+
+        String json = ai.brokk.util.Json.toJson(details);
+        // Ensure the field is present in the serialized output
+        assertTrue(
+                json.contains("\"language\":\"Java\"") || json.contains("\"language\" : \"Java\""),
+                "Serialized JSON should contain module language key. Actual JSON: " + json);
+
+        var deserialized = ai.brokk.util.Json.fromJson(json, BuildAgent.BuildDetails.class);
+        assertEquals(1, deserialized.modules().size());
+        assertEquals("Java", deserialized.modules().getFirst().language());
+    }
+
+    @Test
     void testVerifyWithRetriesUsesCustomMaxRetries(@TempDir Path tempDir) throws Exception {
         var originalFactory = Environment.shellCommandRunnerFactory;
         try {

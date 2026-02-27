@@ -503,6 +503,7 @@ public class BuildAgent {
                 The reportBuildDetails tool expects eight parameters: buildLintCommand, buildLintEnabled, testAllCommand, testAllEnabled, testSomeCommand, excludedDirectories, excludedFilePatterns, and modules.
 
                 If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, Node.js workspaces, etc.), you MUST identify each module and provide its details in the single flat `modules` list.
+                For each module, identify its primary programming language (e.g., "Java", "Python", "Go", "Rust", "JavaScript", "TypeScript", "C#").
                 **IMPORTANT**: For polyglot or multi-language repositories, include all modules from ALL detected languages and frameworks in this same list.
                 Root commands (the top-level parameters) should represent repo-level orchestration. If no repo-level orchestration is possible, leave root commands blank and disable them by setting `buildLintEnabled` and `testAllEnabled` to `false`.
                 Module-specific commands must be executable from the project root (e.g., using flags like `-pl`, `-w`, or `cd`).
@@ -514,39 +515,39 @@ public class BuildAgent {
                 **Maven (Nested Modules):**
                 ```json
                 "modules": [
-                  { "alias": "core", "relativePath": "core", "buildLintCommand": "mvn compile -pl core", "testAllCommand": "mvn test -pl core", "testSomeCommand": "mvn test -pl core -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" },
-                  { "alias": "api", "relativePath": "api", "buildLintCommand": "mvn compile -pl api", "testAllCommand": "mvn test -pl api", "testSomeCommand": "mvn test -pl api -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" }
+                  { "alias": "core", "relativePath": "core", "language": "Java", "buildLintCommand": "mvn compile -pl core", "testAllCommand": "mvn test -pl core", "testSomeCommand": "mvn test -pl core -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" },
+                  { "alias": "api", "relativePath": "api", "language": "Java", "buildLintCommand": "mvn compile -pl api", "testAllCommand": "mvn test -pl api", "testSomeCommand": "mvn test -pl api -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" }
                 ]
                 ```
 
                 **Gradle (Subprojects):**
                 ```json
                 "modules": [
-                  { "alias": "app", "relativePath": "app", "buildLintCommand": "./gradlew :app:classes", "testAllCommand": "./gradlew :app:test", "testSomeCommand": "./gradlew :app:test {{#classes}}--tests {{value}}{{/classes}}" },
-                  { "alias": "lib", "relativePath": "lib", "buildLintCommand": "./gradlew :lib:classes", "testAllCommand": "./gradlew :lib:test", "testSomeCommand": "./gradlew :lib:test {{#classes}}--tests {{value}}{{/classes}}" }
+                  { "alias": "app", "relativePath": "app", "language": "Java", "buildLintCommand": "./gradlew :app:classes", "testAllCommand": "./gradlew :app:test", "testSomeCommand": "./gradlew :app:test {{#classes}}--tests {{value}}{{/classes}}" },
+                  { "alias": "lib", "relativePath": "lib", "language": "Java", "buildLintCommand": "./gradlew :lib:classes", "testAllCommand": "./gradlew :lib:test", "testSomeCommand": "./gradlew :lib:test {{#classes}}--tests {{value}}{{/classes}}" }
                 ]
                 ```
 
                 **Python (Poetry Monorepo / Sub-packages):**
                 ```json
                 "modules": [
-                  { "alias": "service-a", "relativePath": "services/a", "buildLintCommand": "cd services/a && poetry run mypy .", "testAllCommand": "cd services/a && poetry run pytest", "testSomeCommand": "cd services/a && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                  { "alias": "service-a", "relativePath": "services/a", "language": "Python", "buildLintCommand": "cd services/a && poetry run mypy .", "testAllCommand": "cd services/a && poetry run pytest", "testSomeCommand": "cd services/a && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
                 ]
                 ```
 
                 **Node.js (Workspaces):**
                 ```json
                 "modules": [
-                  { "alias": "web", "relativePath": "packages/web", "buildLintCommand": "npm run build -w web", "testAllCommand": "npm test -w web", "testSomeCommand": "npm test -w web -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                  { "alias": "web", "relativePath": "packages/web", "language": "JavaScript", "buildLintCommand": "npm run build -w web", "testAllCommand": "npm test -w web", "testSomeCommand": "npm test -w web -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
                 ]
                 ```
 
                 **Mixed Language / Polyglot (Mono-repo):**
                 ```json
                 "modules": [
-                  { "alias": "java-backend", "relativePath": "backend", "buildLintCommand": "./gradlew :backend:classes", "testAllCommand": "./gradlew :backend:test", "testSomeCommand": "./gradlew :backend:test {{#classes}}--tests {{value}}{{/classes}}" },
-                  { "alias": "python-worker", "relativePath": "worker", "buildLintCommand": "cd worker && poetry run mypy .", "testAllCommand": "cd worker && poetry run pytest", "testSomeCommand": "cd worker && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" },
-                  { "alias": "frontend-app", "relativePath": "frontend", "buildLintCommand": "npm run build -w frontend", "testAllCommand": "npm test -w frontend", "testSomeCommand": "npm test -w frontend -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                  { "alias": "java-backend", "relativePath": "backend", "language": "Java", "buildLintCommand": "./gradlew :backend:classes", "testAllCommand": "./gradlew :backend:test", "testSomeCommand": "./gradlew :backend:test {{#classes}}--tests {{value}}{{/classes}}" },
+                  { "alias": "python-worker", "relativePath": "worker", "language": "Python", "buildLintCommand": "cd worker && poetry run mypy .", "testAllCommand": "cd worker && poetry run pytest", "testSomeCommand": "cd worker && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" },
+                  { "alias": "frontend-app", "relativePath": "frontend", "language": "TypeScript", "buildLintCommand": "npm run build -w frontend", "testAllCommand": "npm test -w frontend", "testSomeCommand": "npm test -w frontend -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
                 ]
                 ```
                 """
@@ -624,7 +625,7 @@ public class BuildAgent {
                             "List of file patterns to exclude. Use '*.ext' for extensions (e.g., '*.svg'), literal names for specific files (e.g., 'package-lock.json'). Do NOT use **/ prefix or duplicate directories.")
                     List<String> excludedFilePatterns,
             @P(
-                            "List of modules identified in the project. Each module should have: 'alias' (name), 'relativePath' (path from root), 'buildLintCommand', 'testAllCommand', and 'testSomeCommand'.")
+                            "List of modules identified in the project. Each module should have: 'alias' (name), 'relativePath' (path from root), 'language' (e.g. Java, Python), 'buildLintCommand', 'testAllCommand', and 'testSomeCommand'.")
                     List<ModuleBuildEntry> modules) {
         logger.debug("Raw excludedDirectories from LLM: {}", excludedDirectories);
         logger.debug("Raw excludedFilePatterns from LLM: {}", excludedFilePatterns);
@@ -822,13 +823,14 @@ public class BuildAgent {
      * Represents a submodule build configuration.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ModuleBuildEntry(
-            String alias,
-            String relativePath,
-            String buildLintCommand,
-            String testAllCommand,
-            String testSomeCommand,
-            @JsonSetter(nulls = Nulls.AS_EMPTY) String language) {
+            @JsonProperty("alias") String alias,
+            @JsonProperty("relativePath") String relativePath,
+            @JsonProperty("buildLintCommand") String buildLintCommand,
+            @JsonProperty("testAllCommand") String testAllCommand,
+            @JsonProperty("testSomeCommand") String testSomeCommand,
+            @JsonProperty("language") String language) {
         public ModuleBuildEntry(
                 String alias,
                 String relativePath,
@@ -842,20 +844,24 @@ public class BuildAgent {
     /** Holds semi-structured information about a project's build process */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildDetails(
-            String buildLintCommand,
-            boolean buildLintEnabled,
-            String testAllCommand,
-            boolean testAllEnabled,
-            @JsonInclude(JsonInclude.Include.NON_EMPTY) String testSomeCommand,
-            @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+            @JsonProperty("buildLintCommand") String buildLintCommand,
+            @JsonProperty("buildLintEnabled") boolean buildLintEnabled,
+            @JsonProperty("testAllCommand") String testAllCommand,
+            @JsonProperty("testAllEnabled") boolean testAllEnabled,
+            @JsonProperty("testSomeCommand") @JsonInclude(JsonInclude.Include.NON_EMPTY) String testSomeCommand,
+            @JsonProperty("exclusionPatterns")
+                    @JsonDeserialize(as = LinkedHashSet.class)
+                    @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
-            @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+            @JsonProperty("environmentVariables")
+                    @JsonDeserialize(as = LinkedHashMap.class)
+                    @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables,
-            @Nullable Integer maxBuildAttempts,
+            @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts,
             // blank = do nothing
-            @JsonInclude(JsonInclude.Include.NON_EMPTY) String afterTaskListCommand,
-            @JsonInclude(JsonInclude.Include.NON_EMPTY) @JsonSetter(nulls = Nulls.AS_EMPTY)
-                    List<ModuleBuildEntry> modules) {
+            @JsonProperty("afterTaskListCommand") @JsonInclude(JsonInclude.Include.NON_EMPTY)
+                    String afterTaskListCommand,
+            @JsonProperty("modules") @JsonSetter(nulls = Nulls.AS_EMPTY) List<ModuleBuildEntry> modules) {
 
         public BuildDetails(
                 String buildLintCommand,
@@ -980,7 +986,7 @@ public class BuildAgent {
                 }
             } else {
                 finalModules = modules.stream()
-                        .map(m -> m.language() == null
+                        .map(m -> (m.language() == null || m.language().isEmpty())
                                 ? new ModuleBuildEntry(
                                         m.alias(),
                                         m.relativePath(),
