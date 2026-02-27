@@ -47,6 +47,7 @@ public class ProjectFilesPanel extends JPanel {
     private JTextField searchField;
     private MaterialButton refreshButton;
     private JPanel buttonPanel;
+    private JLabel refreshIndicatorLabel;
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
     private AutoCompletion ac;
@@ -54,6 +55,7 @@ public class ProjectFilesPanel extends JPanel {
     private boolean dependenciesVisible = false;
     private final DeferredUpdateHelper deferredUpdateHelper;
     private @Nullable Timer searchDebounceTimer;
+    private @Nullable Timer refreshFadeTimer;
 
     public ProjectFilesPanel(Chrome chrome, ContextManager contextManager, DependenciesPanel dependenciesPanel) {
         super(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
@@ -70,6 +72,12 @@ public class ProjectFilesPanel extends JPanel {
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
         setupSearchFieldAndAutocomplete();
+
+        refreshIndicatorLabel = new JLabel("");
+        refreshIndicatorLabel.setForeground(Color.GRAY);
+        refreshIndicatorLabel.setFont(refreshIndicatorLabel.getFont().deriveFont(Font.PLAIN, 10f));
+        refreshIndicatorLabel.setToolTipText("Last tree refresh duration and type");
+
         setupProjectTree();
 
         // Search bar with refresh button and dependencies toggle
@@ -78,6 +86,8 @@ public class ProjectFilesPanel extends JPanel {
         searchBarPanel.add(layeredPane, BorderLayout.CENTER);
 
         buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+
+        buttonPanel.add(refreshIndicatorLabel);
 
         refreshButton = new MaterialButton();
         refreshButton.setIcon(Icons.REFRESH);
@@ -158,6 +168,17 @@ public class ProjectFilesPanel extends JPanel {
 
     private void setupProjectTree() {
         this.projectTree = new ProjectTree(project, contextManager, chrome);
+        this.projectTree.setRefreshListener((durationMs, incremental) -> SwingUtilities.invokeLater(() -> {
+            String type = incremental ? "inc" : "full";
+            refreshIndicatorLabel.setText(durationMs + "ms " + type);
+
+            if (refreshFadeTimer != null) {
+                refreshFadeTimer.stop();
+            }
+            refreshFadeTimer = new Timer(5000, evt -> refreshIndicatorLabel.setText(""));
+            refreshFadeTimer.setRepeats(false);
+            refreshFadeTimer.start();
+        }));
     }
 
     private void setupSearchFieldAndAutocomplete() {

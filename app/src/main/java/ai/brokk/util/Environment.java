@@ -506,19 +506,21 @@ public class Environment {
     }
 
     private static final Pattern WINDOWS_CMD_DOT_SLASH_PATTERN =
-            Pattern.compile("(?:(?<=^)|(?<=\\s)|(?<=&&)|(?<=\\|\\|)|(?<=\")|(?<='))\\./");
+            Pattern.compile("(?i)(^|\\s+|&&\\s*|\\|\\|\\s*|&\\s*|\\|\\s*|\"|')\\./");
 
     private static String normalizeDotSlashForWindowsCmd(String commandLine) {
-        return WINDOWS_CMD_DOT_SLASH_PATTERN
-                .matcher(commandLine)
-                .replaceAll(Matcher.quoteReplacement(".\\"));
+        Matcher m = WINDOWS_CMD_DOT_SLASH_PATTERN.matcher(commandLine);
+        var sb = new StringBuffer(commandLine.length());
+        while (m.find()) {
+            String prefix = m.group(1);
+            m.appendReplacement(sb, Matcher.quoteReplacement(prefix + ".\\"));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
-    private static final Pattern WINDOWS_GRADLEW_BAT_PREFIX_PATTERN =
-            Pattern.compile("^(\\s*)(?:\\./|\\.\\\\)?gradlew\\.bat(?=\\s|$)", Pattern.CASE_INSENSITIVE);
-
-    private static final Pattern WINDOWS_GRADLEW_PREFIX_PATTERN =
-            Pattern.compile("^(\\s*)(?:\\./|\\.\\\\)?gradlew(?=\\s|$)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern WINDOWS_GRADLEW_TOKEN_PATTERN = Pattern.compile(
+            "(?i)(^|\\s+|&&\\s*|\\|\\|\\s*|&\\s*|\\|\\s*)(?:\"|')?(?:\\./|\\.\\\\)?gradlew(?:\\.bat)?(?:\"|')?(?=\\s|$)");
 
     private static String normalizeCommandForWindowsShell(String command, Path root) {
         // cmd.exe treats forward slashes as option prefixes, so "./gradlew" becomes "." with "/gradlew" as an arg.
@@ -535,19 +537,19 @@ public class Environment {
                 .normalize()
                 .toString());
 
-        Matcher batMatcher = WINDOWS_GRADLEW_BAT_PREFIX_PATTERN.matcher(normalized);
-        if (batMatcher.find()) {
-            String leadingWhitespace = batMatcher.group(1);
-            return leadingWhitespace + wrapperBat + normalized.substring(batMatcher.end());
+        Matcher m = WINDOWS_GRADLEW_TOKEN_PATTERN.matcher(normalized);
+        if (!m.find()) {
+            return normalized;
         }
 
-        Matcher gradlewMatcher = WINDOWS_GRADLEW_PREFIX_PATTERN.matcher(normalized);
-        if (gradlewMatcher.find()) {
-            String leadingWhitespace = gradlewMatcher.group(1);
-            return leadingWhitespace + wrapperBat + normalized.substring(gradlewMatcher.end());
+        m.reset();
+        var sb = new StringBuffer(normalized.length());
+        while (m.find()) {
+            String prefix = m.group(1);
+            m.appendReplacement(sb, Matcher.quoteReplacement(prefix + wrapperBat));
         }
-
-        return normalized;
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     private static @Nullable Path findNearestGradleWrapperDir(Path startDir) {
@@ -566,19 +568,20 @@ public class Environment {
     }
 
     private static ProcessBuilder createProcessBuilder(Path root, String... command) {
-        if (isWindows() && command.length >= 3) {
+        if (command.length >= 3) {
             String exe = command[0].toLowerCase(Locale.ROOT);
-            if (exe.endsWith("cmd.exe") || exe.equals("cmd")) {
-                int cIndex = -1;
+            boolean isCmd = exe.endsWith("cmd.exe") || exe.equals("cmd");
+            if (isCmd) {
+                int switchIndex = -1;
                 for (int i = 1; i < command.length; i++) {
-                    if (command[i].equalsIgnoreCase("/c")) {
-                        cIndex = i;
+                    if (command[i].equalsIgnoreCase("/c") || command[i].equalsIgnoreCase("/k")) {
+                        switchIndex = i;
                         break;
                     }
                 }
-                if (cIndex != -1) {
-                    for (int i = cIndex + 1; i < command.length; i++) {
-                        command[i] = normalizeDotSlashForWindowsCmd(command[i]);
+                if (switchIndex != -1) {
+                    for (int i = switchIndex + 1; i < command.length; i++) {
+                        command[i] = normalizeCommandForWindowsShell(command[i], root);
                     }
                 }
             }

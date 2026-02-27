@@ -61,6 +61,11 @@ import org.jetbrains.annotations.Nullable;
  * features.
  */
 public class ProjectTree extends JTree implements AbstractWatchService.Listener {
+    @FunctionalInterface
+    public interface RefreshListener {
+        void onRefreshCompleted(long durationMs, boolean incremental);
+    }
+
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
     private static final ExecutorService IO_EXECUTOR = ExecutorsUtil.newFixedThreadExecutor("ProjectTree-IO-", 4);
@@ -77,6 +82,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
     @Nullable
     private Timer expansionSaveTimer;
+
+    @Nullable
+    private RefreshListener refreshListener;
 
     private final AtomicBoolean pendingFullRefresh = new AtomicBoolean(false);
     private final AtomicReference<@Nullable Set<Path>> pendingAffectedDirs = new AtomicReference<>(null);
@@ -109,6 +117,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 }
             }
         });
+    }
+
+    public void setRefreshListener(@Nullable RefreshListener listener) {
+        this.refreshListener = listener;
     }
 
     private void initializeTree() {
@@ -1089,9 +1101,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                     scrollPathToVisible(pathsToSelect.getFirst());
                                 }
                             }
-                            logger.info(
-                                    "ProjectTree full refresh completed in {}ms",
-                                    (System.nanoTime() - startNanos) / 1_000_000);
+                            long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
+                            logger.info("ProjectTree full refresh completed in {}ms", durationMs);
+                            notifyRefreshCompleted(durationMs, false);
                             logger.trace("ProjectTree refresh complete.");
                         });
                     });
@@ -1129,9 +1141,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     .toArray(CompletableFuture[]::new);
 
             CompletableFuture.allOf(reloadFutures)
-                    .thenRun(() -> logger.info(
-                            "ProjectTree incremental refresh completed in {}ms",
-                            (System.nanoTime() - startNanos) / 1_000_000))
+                    .thenRun(() -> {
+                        long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
+                        logger.info("ProjectTree incremental refresh completed in {}ms", durationMs);
+                        notifyRefreshCompleted(durationMs, true);
+                    })
                     .exceptionally(ex -> {
                         logger.error("ProjectTree incremental refresh failed, falling back to full refresh", ex);
                         SwingUtilities.invokeLater(this::performRefreshInternal);
@@ -1140,6 +1154,20 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         } catch (Exception ex) {
             logger.error("ProjectTree incremental refresh failed, falling back to full refresh", ex);
             performRefreshInternal();
+        }
+    }
+
+    private void notifyRefreshCompleted(long durationMs, boolean incremental) {
+        var listener = refreshListener;
+        if (listener == null) {
+            return;
+        }
+
+        Runnable notifyTask = () -> listener.onRefreshCompleted(durationMs, incremental);
+        if (SwingUtilities.isEventDispatchThread()) {
+            notifyTask.run();
+        } else {
+            SwingUtilities.invokeLater(notifyTask);
         }
     }
 
@@ -1864,20 +1892,21 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             }
 
             // This is the head of a chain - collapse children into display
-            var name = new StringBuilder(file.getName());
+            var parts = new ArrayList<String>();
+            parts.add(file.getName());
             var current = node;
 
             // Follow single-child directory chains
             while (current.getChildCount() == 1) {
                 var child = (DefaultMutableTreeNode) current.getFirstChild();
                 if (child.getUserObject() instanceof ProjectTreeNode childNode && childNode.isDirectory()) {
-                    name.append("/").append(childNode.getFile().getName());
+                    parts.add(childNode.getFile().getName());
                     current = child;
                 } else {
                     break;
                 }
             }
-            return name.toString();
+            return String.join("/", parts);
         }
 
         @Override
