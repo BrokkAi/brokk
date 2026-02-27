@@ -1405,7 +1405,7 @@ public class SearchTools {
     }
 
     /**
-     * Formats files in a directory as a comma-separated string.
+     * Formats files in a directory as a comma-separated string, including immediate subdirectories.
      * Public static to allow reuse by BuildAgent.
      */
     public static String formatFilesInDirectory(
@@ -1417,11 +1417,38 @@ public class SearchTools {
                 .map(ProjectFile::toString)
                 .collect(Collectors.joining(", "));
 
-        if (files.isEmpty()) {
+        var subDirs = allFiles.stream()
+                .parallel()
+                .filter(file -> {
+                    Path rel = file.getRelPath();
+                    if (normalizedDirectoryPath.toString().isEmpty()) {
+                        return rel.getNameCount() > 1;
+                    }
+                    return rel.startsWith(normalizedDirectoryPath)
+                            && !file.getParent().equals(normalizedDirectoryPath);
+                })
+                .map(file -> {
+                    Path rel = file.getRelPath();
+                    int index =
+                            normalizedDirectoryPath.toString().isEmpty() ? 0 : normalizedDirectoryPath.getNameCount();
+                    return rel.getName(index).toString() + "/";
+                })
+                .distinct()
+                .sorted()
+                .collect(Collectors.joining(", "));
+
+        if (files.isEmpty() && subDirs.isEmpty()) {
             return "No files found in directory: " + originalDirectoryPath;
         }
 
-        return "Files in " + originalDirectoryPath + ": " + files;
+        StringBuilder sb = new StringBuilder("Files in ")
+                .append(originalDirectoryPath)
+                .append(": ")
+                .append(files);
+        if (!subDirs.isEmpty()) {
+            sb.append("\nSubdirectories: ").append(subDirs);
+        }
+        return sb.toString();
     }
 
     // Only includes project files. Is this what we want?

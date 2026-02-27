@@ -599,6 +599,28 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testFormatFilesInDirectory_IncludesSubdirectories() {
+        Path root = Path.of("");
+        Set<ProjectFile> files = Set.of(
+                new ProjectFile(tempDir, "README.md"),
+                new ProjectFile(tempDir, "src/Main.java"),
+                new ProjectFile(tempDir, "src/util/Helper.java"),
+                new ProjectFile(tempDir, "tests/Test.java"));
+
+        String result = SearchTools.formatFilesInDirectory(files, root, ".");
+
+        // Should contain files in root
+        assertTrue(result.contains("README.md"), "Should list root files");
+        // Should contain immediate subdirectories
+        assertTrue(
+                result.contains("Subdirectories: src/, tests/"),
+                "Should list immediate subdirectories. Got: " + result);
+        // Should NOT list deeply nested files directly
+        assertFalse(result.contains("Main.java"), "Should not list nested files directly");
+        assertFalse(result.contains("Helper.java"), "Should not list deeply nested files");
+    }
+
+    @Test
     void testXpathQuery_SanitizationAndErrors() throws Exception {
         Path xml = projectRoot.resolve("security.xml");
         // Attempt XXE
