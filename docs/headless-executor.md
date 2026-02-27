@@ -357,6 +357,8 @@ Once running, the executor exposes the following endpoints:
 
 - **`GET /v1/context`** - Get live context summary
   - Optional query: `tokens=true|1` to include token estimates
+  - Response includes:
+    - `totalCost` (number): cumulative cost in USD for the current session, based on the sum of COST notifications for that session.
 
 - **`GET /v1/context/fragments/{fragmentId}`** - Get one context fragment's content
 
@@ -466,7 +468,9 @@ Once running, the executor exposes the following endpoints:
 Version 0.23.0.beta9 introduces refined controls for LLM reasoning and structured cost reporting.
 
 #### Cost Reporting
-The executor now emits structured `NOTIFICATION` events with a `level: "COST"` and a numeric `cost` field representing USD. Clients (like `brokk-code`) use these to track session and job totals.
+The executor emits structured `NOTIFICATION` events with a `level: "COST"` and a numeric `cost` field representing USD. These notifications include per-turn cost deltas.
+
+The executor also maintains a per-session cumulative `totalCost` and exposes it from `/v1/context` so clients can display lifetime session costs across restarts.
 
 #### Reasoning Levels
 Models supporting "Reasoning Effort" (like OpenAI o1/o3) can be controlled via `reasoningLevel`.

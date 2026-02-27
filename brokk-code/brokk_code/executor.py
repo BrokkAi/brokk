@@ -617,7 +617,7 @@ class ExecutorManager:
         ) from e
 
     async def get_context(self) -> Dict[str, Any]:
-        """Returns the current session context."""
+        """Returns the current session context, including tokens and totalCost."""
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
