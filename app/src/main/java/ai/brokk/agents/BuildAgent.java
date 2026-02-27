@@ -1187,6 +1187,14 @@ public class BuildAgent {
                     template = module.testAllCommand();
                 } else if (!module.buildLintCommand().isBlank()) {
                     template = module.buildLintCommand();
+                } else {
+                    // Final fallback to root-level commands if the module itself has no actionable commands
+                    if (details.testAllEnabled() && !details.testAllCommand().isBlank()) {
+                        template = details.testAllCommand();
+                    } else if (details.buildLintEnabled()
+                            && !details.buildLintCommand().isBlank()) {
+                        template = details.buildLintCommand();
+                    }
                 }
 
                 if (template.isBlank()) {
