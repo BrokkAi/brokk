@@ -399,12 +399,12 @@ class SessionSelectModal(ModalScreen[str]):
                     marker = "[x]" if is_current else "[ ]"
                     name = s.get("name") or s.get("id")
 
-                    # Task stats: (incomplete/total tasks)
-                    total_tasks = s.get("totalTasks", 0)
+                    # AI responses (interactions)
+                    ai_responses = s.get("aiResponses", 0)
                     task_info = ""
-                    if total_tasks > 0:
-                        incomplete = s.get("incompleteTasks", 0)
-                        task_info = f"{incomplete}/{total_tasks} tasks"
+                    if ai_responses > 0:
+                        suffix = "interaction" if ai_responses == 1 else "interactions"
+                        task_info = f"{ai_responses} {suffix}"
 
                     # Modified time
                     modified = s.get("modified", 0)

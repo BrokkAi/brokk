@@ -23,7 +23,10 @@ async def test_show_sessions_flow(tmp_path):
 
     # Mock list_sessions response
     sessions_data = {
-        "sessions": [{"id": "s1", "name": "Session 1"}, {"id": "s2", "name": "Session 2"}],
+        "sessions": [
+            {"id": "s1", "name": "Session 1", "aiResponses": 3},
+            {"id": "s2", "name": "Session 2", "aiResponses": 0},
+        ],
         "currentSessionId": "s1",
     }
     app.executor.list_sessions = AsyncMock(return_value=sessions_data)
