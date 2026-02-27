@@ -31,9 +31,6 @@ import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.Messages;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -42,7 +39,6 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -103,14 +99,12 @@ public class SearchAgent {
         }
     }
 
-    private static final int SUMMARIZE_THRESHOLD = 2_000;
     private static final int MAX_TOTAL_TURNS = 40;
 
     private final IContextManager cm;
     private final StreamingChatModel model;
     private final ContextManager.TaskScope scope;
     private final Llm llm;
-    private final Llm summarizer;
     private final IConsoleIO io;
     private final String goal;
     private final List<McpPrompts.McpTool> mcpTools;
@@ -193,9 +187,6 @@ public class SearchAgent {
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
 
-        var summarizeModel = cm.getService().getModel(ModelType.SCAN);
-        this.summarizer = cm.getLlm(summarizeModel, goal, TaskResult.Type.SUMMARIZE);
-
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
@@ -253,7 +244,8 @@ public class SearchAgent {
 
         var allFiles = project.getAllFiles();
         if (allFiles.stream().anyMatch(f -> f.extension().equals("xml"))) {
-            tools.add("xpathQuery");
+            tools.add("xmlSkim");
+            tools.add("xmlSelect");
         }
         if (allFiles.stream().anyMatch(f -> f.extension().equals("json"))) {
             tools.add("jq");
@@ -813,23 +805,7 @@ public class SearchAgent {
                         return new TurnOutcome.Final(agent.errorResult(details, context));
                     }
 
-                    ToolExecutionResult finalResult = toolResult;
-                    if (pendingTerminal == null) {
-                        var display = toolResult.resultText();
-                        boolean summarize = toolResult.status() == ToolExecutionResult.Status.SUCCESS
-                                && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
-                                && agent.shouldSummarize(req.name());
-
-                        if (summarize) {
-                            var reasoning = SearchAgent.getArgumentsMap(req)
-                                    .getOrDefault("reasoning", "")
-                                    .toString();
-                            display = agent.summarizeResult(agent.goal, req, display, reasoning);
-                            finalResult = ToolExecutionResult.create(req, toolResult.status(), display);
-                        }
-                    }
-
-                    sessionMessages.add(finalResult.toExecutionResultMessage());
+                    sessionMessages.add(toolResult.toExecutionResultMessage());
                     categoriesSeen.add(agent.categorizeTool(req.name()));
                 }
 
@@ -1427,74 +1403,6 @@ public class SearchAgent {
                     context, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, pendingTerminal.resultText()));
         }
         return createResult(context);
-    }
-
-    private boolean shouldSummarize(String toolName) {
-        return Set.of("getSymbolLocations", "searchSymbols").contains(toolName);
-    }
-
-    private String summarizeResult(
-            String query, ToolExecutionRequest request, String rawResult, @Nullable String reasoning)
-            throws InterruptedException {
-        var sys = new SystemMessage(
-                """
-                You are a code expert extracting ALL information relevant to the given goal
-                from the provided tool call result.
-
-                Your output will be given to the agent running the search, and replaces the raw result.
-                Thus, you must include every relevant class/method name and any
-                relevant code snippets that may be needed later. DO NOT speculate; only use the provided content.
-                """);
-
-        String contentToSummarize = rawResult;
-        boolean wasTruncated = false;
-
-        while (contentToSummarize.length() > 100) {
-            var user = new UserMessage(
-                    """
-                    <goal>
-                    %s
-                    </goal>
-                    <relevance_criteria>
-                    %s
-                    </relevance_criteria>
-                    <tool name="%s">
-                    %s
-                    </tool>
-                    """
-                            .formatted(query, reasoning == null ? "" : reasoning, request.name(), contentToSummarize));
-
-            Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
-
-            if (sr.error() instanceof dev.langchain4j.exception.ContextTooLargeException) {
-                contentToSummarize = contentToSummarize.substring(0, contentToSummarize.length() / 2);
-                wasTruncated = true;
-                continue;
-            }
-
-            if (sr.error() != null) {
-                return rawResult;
-            }
-
-            return """
-                [HARNESS NOTE: the tool output was very large and has been summarized with respect to the `reasoning` you gave in the tool call.]
-                %s
-                %s"""
-                    .formatted(
-                            wasTruncated ? "[HARNESS NOTE] Input was truncated due to context limits.\n" : "",
-                            sr.text());
-        }
-
-        return rawResult;
-    }
-
-    private static Map<String, Object> getArgumentsMap(ToolExecutionRequest request) {
-        try {
-            return new ObjectMapper().readValue(request.arguments(), new TypeReference<>() {});
-        } catch (JsonProcessingException e) {
-            logger.error("Error parsing request args for {}: {}", request.name(), e.getMessage());
-            return Map.of();
-        }
     }
 
     private TaskResult.TaskMeta taskMeta() {

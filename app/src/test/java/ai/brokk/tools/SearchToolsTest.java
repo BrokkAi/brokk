@@ -10,6 +10,8 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.testutil.FileUtil;
 import ai.brokk.testutil.TestProject;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Proxy;
@@ -170,7 +172,7 @@ public class SearchToolsTest {
 
     @Test
     void testSearchGitCommitMessages_invalidRegexFallback() {
-        String result = searchTools.searchGitCommitMessages("[[", "testing invalid regex fallback", 200);
+        String result = searchTools.searchGitCommitMessages("[[", 200);
 
         // We should get the commit we added that contains the substring "[["
         assertTrue(result.contains("Commit with [[ pattern"), "Commit message should appear in the result");
@@ -187,14 +189,14 @@ public class SearchToolsTest {
     @Test
     void testfindFilesContaining_invalidRegexThrows() throws Exception {
         // SearchTools.compilePatterns throws on invalid regex for this tool
-        String result = searchTools.findFilesContaining(List.of("[["), "testing invalid regex error", 200);
+        String result = searchTools.findFilesContaining(List.of("[["), 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
     @Test
     void testfindFilenames_invalidRegexThrows() throws Exception {
         // SearchTools.compilePatterns throws on invalid regex for this tool
-        String result = searchTools.findFilenames(List.of("[["), "testing invalid regex error", 200);
+        String result = searchTools.findFilenames(List.of("[["), 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
@@ -205,7 +207,7 @@ public class SearchToolsTest {
         }
 
         // Request limit of 5
-        String result = searchTools.findFilenames(List.of("file.*\\.txt"), "testing limit", 5);
+        String result = searchTools.findFilenames(List.of("file.*\\.txt"), 5);
 
         assertTrue(result.contains("WARNING: Result limit reached"), "Should contain truncation warning");
         assertTrue(result.contains("max 5 filenames"), "Warning should mention the limit");
@@ -231,32 +233,32 @@ public class SearchToolsTest {
 
         // 3. Test cases
         // A. Full path with forward slashes
-        String resultNix = searchTools.findFilenames(List.of(relativePathNix), "test nix path", 200);
+        String resultNix = searchTools.findFilenames(List.of(relativePathNix), 200);
         assertTrue(
                 resultNix.contains(relativePathNix) || resultNix.contains(relativePathWin),
                 "Should find file with forward-slash path");
 
         // B. File name only
-        String resultName = searchTools.findFilenames(List.of("MOP.svelte"), "test file name", 200);
+        String resultName = searchTools.findFilenames(List.of("MOP.svelte"), 200);
         assertTrue(
                 resultName.contains(relativePathNix) || resultName.contains(relativePathWin),
                 "Should find file with file name only");
 
         // C. Partial path
-        String resultPartial = searchTools.findFilenames(List.of("src/MOP"), "test partial path", 200);
+        String resultPartial = searchTools.findFilenames(List.of("src/MOP"), 200);
         assertTrue(
                 resultPartial.contains(relativePathNix) || resultPartial.contains(relativePathWin),
                 "Should find file with partial path");
 
         // D. Full path with backslashes (Windows-style)
-        String resultWin = searchTools.findFilenames(List.of(relativePathWin), "test windows path", 200);
+        String resultWin = searchTools.findFilenames(List.of(relativePathWin), 200);
         assertTrue(
                 resultWin.contains(relativePathNix) || resultWin.contains(relativePathWin),
                 "Should find file with back-slash path pattern");
 
         // E. Regex path pattern (frontend-mop/.*\.svelte)
         String regexPattern = "frontend-mop/.*\\.svelte";
-        String resultRegex = searchTools.findFilenames(List.of(regexPattern), "test regex path", 200);
+        String resultRegex = searchTools.findFilenames(List.of(regexPattern), 200);
         assertTrue(
                 resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
                 "Should find file with regex pattern");
@@ -278,7 +280,7 @@ public class SearchToolsTest {
         SearchTools tools = new SearchTools(ctxWithAnalyzer);
 
         // Test skimming the root directory of the test project
-        String result = tools.skimDirectory(".", "testing skimDirectory");
+        String result = tools.skimDirectory(".");
         assertFalse(result.isEmpty(), "Result should not be empty");
 
         // Verify it contains file entries in XML-ish format
@@ -322,7 +324,7 @@ public class SearchToolsTest {
                 // 2. Call skimDirectory on the dependency path
                 String pathString = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo")
                         .toString();
-                String result = tools.skimDirectory(pathString, "testing dependencies bypass gitignore");
+                String result = tools.skimDirectory(pathString);
 
                 // 3. Verify that the file IS returned (not filtered out by the .brokk gitignore simulation)
                 assertTrue(
@@ -410,7 +412,7 @@ public class SearchToolsTest {
         }
 
         // Request with limit of 3 (repo already has 2 commits from setUp + 5 = 7 total)
-        String result = searchTools.getGitLog("", 3, "test");
+        String result = searchTools.getGitLog("", 3);
         // Count the number of <entry> tags
         // Count occurrences of "<entry " to be precise
         int entries = countOccurrences(result, "<entry ");
@@ -419,7 +421,7 @@ public class SearchToolsTest {
 
     @Test
     void testGetGitLog_emptyPathReturnsRepoWideLog() {
-        String result = searchTools.getGitLog("", 100, "test");
+        String result = searchTools.getGitLog("", 100);
 
         // Should contain commits from setUp (Initial commit + "Commit with [[ pattern")
         assertTrue(result.contains("<git_log>"), "Should have git_log wrapper");
@@ -429,7 +431,7 @@ public class SearchToolsTest {
 
     @Test
     void testGetGitLog_invalidPathReturnsNoHistory() {
-        String result = searchTools.getGitLog("nonexistent/path/to/file.txt", 10, "test");
+        String result = searchTools.getGitLog("nonexistent/path/to/file.txt", 10);
         assertTrue(
                 result.contains("No history found"), "Should indicate no history for invalid path. Result:\n" + result);
     }
@@ -440,7 +442,7 @@ public class SearchToolsTest {
         Path newFile = projectRoot.resolve("untracked.txt");
         Files.writeString(newFile, "not committed");
 
-        String result = searchTools.getGitLog("untracked.txt", 10, "test");
+        String result = searchTools.getGitLog("untracked.txt", 10);
         assertTrue(
                 result.contains("No history found"),
                 "Should indicate no history for untracked file. Result:\n" + result);
@@ -450,7 +452,7 @@ public class SearchToolsTest {
     void testGetGitLog_limitCappedAt100() throws Exception {
         // Verify that requesting more than 100 doesn't exceed 100
         // We only have a few commits, so just verify no error and entries <= requested
-        String result = searchTools.getGitLog("", 200, "test");
+        String result = searchTools.getGitLog("", 200);
         int entries = countOccurrences(result, "<entry ");
         assertTrue(entries <= 100, "Entries should never exceed 100");
         assertTrue(entries > 0, "Should have at least one entry");
@@ -458,7 +460,7 @@ public class SearchToolsTest {
 
     @Test
     void testGetGitLog_specificFile() throws Exception {
-        String result = searchTools.getGitLog("README.md", 10, "test");
+        String result = searchTools.getGitLog("README.md", 10);
         assertTrue(result.contains("<git_log"), "Should have git_log wrapper");
         assertTrue(result.contains("Initial commit"), "Should contain the commit that added README.md");
         assertTrue(result.contains("Files: README.md"), "Should contain simple filename CDL");
@@ -491,20 +493,6 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testXpathQuery() throws Exception {
-        Path xml = projectRoot.resolve("test.xml");
-        Files.writeString(xml, "<root xmlns:ns='uri'><ns:child>hello</ns:child></root>");
-        mockProjectFiles.add(new ProjectFile(projectRoot, "test.xml"));
-
-        // Test local-name rewrite
-        String result = searchTools.xpathQuery("test.xml", List.of("/root/child"), 1, 10);
-
-        assertTrue(result.contains("File: test.xml"));
-        assertTrue(result.contains("XPath: /root/child"));
-        assertTrue(result.contains("hello"));
-    }
-
-    @Test
     void testJq() throws Exception {
         Path json = projectRoot.resolve("test.json");
         Files.writeString(json, "{\"a\": [{\"id\": 1}, {\"id\": 2}]}");
@@ -530,6 +518,33 @@ public class SearchToolsTest {
         // 2. Invalid Content
         String contentResult = searchTools.jq("bad.json", ".", 1, 10);
         assertTrue(contentResult.contains("errors in 1 of 1 files"), "Should report JSON parsing error");
+    }
+
+    @Test
+    void testJq_BfsSummarizationWhenResultTooLarge() throws Exception {
+        Path json = projectRoot.resolve("big.json");
+        String huge = "a".repeat(2000);
+        Files.writeString(
+                json,
+                """
+                {
+                  "obj": {
+                    "k1": "%s",
+                    "k2": 123,
+                    "k3": {"nested": [1, 2, 3]}
+                  }
+                }
+                """
+                        .stripIndent()
+                        .formatted(huge));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "big.json"));
+
+        String result = searchTools.jq("big.json", ".obj", 1, 10);
+
+        assertTrue(result.contains("[JSON_TOO_LARGE]"), "Should indicate JSON was too large. Result:\n" + result);
+        assertTrue(result.contains("$ type=object"), "Skim should include root object line. Result:\n" + result);
+        assertTrue(result.contains("$.k1 type=string len=2000"), "Skim should include string len. Result:\n" + result);
+        assertFalse(result.contains("a".repeat(200)), "Should not dump the huge string content. Result:\n" + result);
     }
 
     @Test
@@ -561,7 +576,7 @@ public class SearchToolsTest {
         }
 
         // When requesting log for new_name.txt, we should see the rename breadcrumb
-        String result = searchTools.getGitLog("new_name.txt", 10, "test");
+        String result = searchTools.getGitLog("new_name.txt", 10);
         assertTrue(result.contains("[RENAMED]"), "Should show rename marker in log");
         assertTrue(result.contains("old_name.txt -> new_name.txt"), "Should show path transition");
     }
@@ -587,7 +602,7 @@ public class SearchToolsTest {
         // is private and used by searchSymbols.
 
         // This test ensures it doesn't crash and handles the typical LLM mistake
-        String result = searchTools.searchSymbols(List.of("com.Foo.bar(int, String)"), "test", false);
+        String result = searchTools.searchSymbols(List.of("com.Foo.bar(int, String)"), false, 200);
         assertTrue(
                 result.contains("No definitions found"), "Should attempt search and find nothing (correctly stripped)");
     }
@@ -745,50 +760,6 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testXpathQuery_SanitizationAndErrors() throws Exception {
-        Path xml = projectRoot.resolve("security.xml");
-        // Attempt XXE
-        Files.writeString(
-                xml,
-                """
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE root [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
-            <root>&xxe;</root>
-            """);
-        mockProjectFiles.add(new ProjectFile(projectRoot, "security.xml"));
-
-        String result = searchTools.xpathQuery("security.xml", List.of("/root"), 1, 10);
-
-        // DocumentBuilder should reject the DTD
-        assertTrue(result.contains("errors in 1 of 1 files"), "Should report error due to DTD disallowance");
-        assertTrue(
-                result.contains("DOCTYPE") && result.contains("disallow-doctype-decl"),
-                "Should specifically mention DOCTYPE restriction, got: " + result);
-    }
-
-    @Test
-    void testXpathQuery_MaxFilesAndMatchesPerFileEnforced() throws Exception {
-        Path xml1 = projectRoot.resolve("xq1.xml");
-        Path xml2 = projectRoot.resolve("xq2.xml");
-
-        Files.writeString(xml1, "<root><item>a</item><item>b</item><item>c</item></root>");
-        Files.writeString(xml2, "<root><item>d</item><item>e</item><item>f</item></root>");
-
-        mockProjectFiles.add(new ProjectFile(projectRoot, "xq1.xml"));
-        mockProjectFiles.add(new ProjectFile(projectRoot, "xq2.xml"));
-
-        String result = searchTools.xpathQuery("xq*.xml", List.of("/root/item"), 1, 2);
-
-        assertTrue(result.contains("File: xq1.xml"), "Should include first matching file");
-        assertFalse(result.contains("File: xq2.xml"), "Should not include second file due to maxFiles=1");
-        assertTrue(result.contains("TRUNCATED: reached maxFiles=1"), "Should report maxFiles truncation");
-
-        assertTrue(result.contains("  [1]: a"), "Should include first match");
-        assertTrue(result.contains("  [2]: b"), "Should include second match");
-        assertFalse(result.contains("  [3]: c"), "Should not include third match due to matchesPerFile=2");
-    }
-
-    @Test
     void testJq_ProductBudgetClampsMatchesPerFile() throws Exception {
         Path json = projectRoot.resolve("budget.json");
         Files.writeString(json, "{\"a\": [{\"id\": 1001}, {\"id\": 1002}]}");
@@ -799,6 +770,97 @@ public class SearchToolsTest {
 
         assertTrue(result.contains("1001"), "Should include first output");
         assertFalse(result.contains("1002"), "Should be clamped to a single output by the product budget");
+    }
+
+    @Test
+    void testXmlSelect_NamespaceAgnostic_RewritesLocalNames() throws Exception {
+        Path xml = projectRoot.resolve("ns.xml");
+        Files.writeString(
+                xml,
+                """
+                <ns:root xmlns:ns="urn:test">
+                  <ns:item id="a">hello</ns:item>
+                  <ns:item id="b"><ns:sub>world</ns:sub></ns:item>
+                </ns:root>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "ns.xml"));
+
+        // Without local-name() rewriting, /root/item would not match prefixed elements.
+        String result = searchTools.xmlSelect("ns.xml", "/root/item", "TEXT", "", 10, 10);
+
+        assertTrue(result.contains("hello"), "Should extract text for first item. Result:\n" + result);
+        assertTrue(result.contains("world"), "Should extract descendant text for second item. Result:\n" + result);
+    }
+
+    @Test
+    void testXmlSelect_AttrsJsonl() throws Exception {
+        Path xml = projectRoot.resolve("attrs.xml");
+        Files.writeString(
+                xml,
+                """
+                <ns:root xmlns:ns="urn:test">
+                  <ns:item id="a" scope="test">hello</ns:item>
+                </ns:root>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "attrs.xml"));
+
+        String result = searchTools.xmlSelect("attrs.xml", "//item", "ATTRS", "", 10, 10);
+
+        ObjectMapper mapper = new ObjectMapper();
+        List<String> jsonLines = result.lines().filter(l -> l.startsWith("{")).toList();
+        assertFalse(jsonLines.isEmpty(), "Should contain JSONL lines. Result:\n" + result);
+
+        JsonNode node = mapper.readTree(jsonLines.getFirst());
+        assertEquals("item", node.get("name").asText());
+        assertEquals("a", node.get("attrs").get("id").asText());
+        assertEquals("test", node.get("attrs").get("scope").asText());
+        assertTrue(node.get("path").asText().contains("/root[1]/item[1]"));
+    }
+
+    @Test
+    void testXmlSelect_XmlFallsBackToSkimWhenTooLarge() throws Exception {
+        Path xml = projectRoot.resolve("long.xml");
+        String bigText = "a".repeat(2000);
+        Files.writeString(
+                xml,
+                """
+                <ns:root xmlns:ns="urn:test">
+                  <ns:big>%s</ns:big>
+                </ns:root>
+                """
+                        .stripIndent()
+                        .formatted(bigText));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "long.xml"));
+
+        String result = searchTools.xmlSelect("long.xml", "//big", "XML", "", 10, 10);
+
+        assertTrue(result.contains("[XML_TOO_LARGE]"), "Should indicate XML was too large. Result:\n" + result);
+        assertTrue(result.contains("textLen="), "Fallback skim should include textLen. Result:\n" + result);
+        assertFalse(result.contains("a".repeat(200)), "Should not dump the huge text content. Result:\n" + result);
+    }
+
+    @Test
+    void testXmlSkim_Basic() throws Exception {
+        Path xml = projectRoot.resolve("skim.xml");
+        Files.writeString(
+                xml,
+                """
+                <ns:root xmlns:ns="urn:test">
+                  <ns:item id="a">hello</ns:item>
+                  <ns:item id="b">world</ns:item>
+                </ns:root>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "skim.xml"));
+
+        String result = searchTools.xmlSkim("skim.xml", 10);
+
+        assertTrue(result.contains("<file path=\"skim.xml\">"), "Should include file wrapper. Result:\n" + result);
+        assertTrue(result.contains("children={item:2}"), "Should include child histogram. Result:\n" + result);
+        assertTrue(result.contains("textLen="), "Should include textLen. Result:\n" + result);
+        assertTrue(result.contains("attrs={id=\"a\"}"), "Should include attrs. Result:\n" + result);
     }
 
     private static int countOccurrences(String text, String substring) {

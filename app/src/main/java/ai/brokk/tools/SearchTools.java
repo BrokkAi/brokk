@@ -28,14 +28,18 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -46,6 +50,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -54,6 +59,11 @@ import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathExpression;
 import javax.xml.xpath.XPathFactory;
@@ -68,6 +78,9 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 /**
@@ -90,6 +103,15 @@ public class SearchTools {
 
     private static final int SEARCH_TOOLS_PARALLELISM =
             max(2, Runtime.getRuntime().availableProcessors());
+
+    private static final int XML_MAX_CHARS_PER_LINE = 1024;
+    private static final int XML_SKIM_TOTAL_BUDGET_CHARS = 10 * XML_MAX_CHARS_PER_LINE;
+    private static final int XML_ATTR_VALUE_MAX_CHARS = 256;
+
+    private static final int JSON_SKIM_TOTAL_BUDGET_CHARS = XML_MAX_CHARS_PER_LINE;
+    private static final int JSON_SKIM_MAX_CHILDREN_PER_CONTAINER = 50;
+    private static final int JSON_KEYS_PREVIEW_MAX = 10;
+    private static final int JSON_STRING_PREVIEW_MAX_CHARS = 64;
 
     // Intentionally scoped to the lifetime of the program. SearchTools is used for background tool execution and
     // is not shut down.
@@ -195,6 +217,460 @@ public class SearchTools {
         } catch (Exception e) {
             throw new RuntimeException("Failed to compile XPath expression: " + xpath, e);
         }
+    }
+
+    private static String capXmlAttrValue(String value) {
+        if (value.length() <= XML_ATTR_VALUE_MAX_CHARS) {
+            return value;
+        }
+        int toTake = max(0, XML_ATTR_VALUE_MAX_CHARS - "[TRUNCATED]".length());
+        return value.substring(0, toTake) + "[TRUNCATED]";
+    }
+
+    private static String localName(Node node) {
+        String ln = node.getLocalName();
+        if (ln != null && !ln.isBlank()) {
+            return ln;
+        }
+        String name = node.getNodeName();
+        int idx = name.indexOf(':');
+        return idx >= 0 ? name.substring(idx + 1) : name;
+    }
+
+    private static boolean isNameStart(char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+    }
+
+    private static boolean isNameChar(char c) {
+        return isNameStart(c) || (c >= '0' && c <= '9');
+    }
+
+    private static int prevNonWhitespaceIndex(String s, int fromExclusive) {
+        for (int i = fromExclusive; i >= 0; i--) {
+            if (!Character.isWhitespace(s.charAt(i))) return i;
+        }
+        return -1;
+    }
+
+    private static boolean isFunctionCallAhead(String xpath, int tokenEndExclusive) {
+        int i = tokenEndExclusive;
+        while (i < xpath.length() && Character.isWhitespace(xpath.charAt(i))) i++;
+        return i < xpath.length() && xpath.charAt(i) == '(';
+    }
+
+    private static String rewriteNamespaceAgnosticXPath(String xpath) {
+        if (xpath.isBlank()) return xpath;
+
+        StringBuilder out = new StringBuilder(xpath.length() + 32);
+        boolean inSingle = false;
+        boolean inDouble = false;
+
+        boolean attributeAxis = false;
+
+        int i = 0;
+        while (i < xpath.length()) {
+            char c = xpath.charAt(i);
+
+            if (c == '\'' && !inDouble) {
+                inSingle = !inSingle;
+                out.append(c);
+                i++;
+                continue;
+            }
+            if (c == '"' && !inSingle) {
+                inDouble = !inDouble;
+                out.append(c);
+                i++;
+                continue;
+            }
+
+            if (inSingle || inDouble) {
+                out.append(c);
+                i++;
+                continue;
+            }
+
+            if (i + 2 <= xpath.length() && xpath.startsWith("::", i)) {
+                out.append("::");
+                i += 2;
+                continue;
+            }
+
+            if (isNameStart(c)) {
+                int start = i;
+                int j = i + 1;
+                while (j < xpath.length() && isNameChar(xpath.charAt(j))) j++;
+                String token = xpath.substring(start, j);
+
+                boolean isAxisToken = j + 2 <= xpath.length() && xpath.startsWith("::", j);
+                if (isAxisToken) {
+                    attributeAxis = "attribute".equals(token);
+                    out.append(token).append("::");
+                    i = j + 2;
+                    continue;
+                }
+
+                int prevIdx = prevNonWhitespaceIndex(xpath, start - 1);
+                char prev = prevIdx >= 0 ? xpath.charAt(prevIdx) : '\0';
+                char prevPrev = prevIdx >= 1 ? xpath.charAt(prevIdx - 1) : '\0';
+
+                boolean precededByAt = prev == '@';
+                boolean precededByAxisSep = prev == ':' && prevPrev == ':';
+                boolean inNodeTestContext =
+                        start == 0 || prev == '/' || prev == '[' || prev == '(' || prev == ',' || precededByAxisSep;
+
+                boolean hasPrefix = token.indexOf(':') >= 0;
+
+                if (precededByAt || !inNodeTestContext || hasPrefix || isFunctionCallAhead(xpath, j) || attributeAxis) {
+                    out.append(token);
+                    i = j;
+                    attributeAxis = false;
+                    continue;
+                }
+
+                out.append("*[local-name()='").append(token).append("']");
+                i = j;
+                attributeAxis = false;
+                continue;
+            }
+
+            out.append(c);
+            i++;
+        }
+
+        return out.toString();
+    }
+
+    private static Document parseXmlDocument(ProjectFile file, String content) {
+        try {
+            DocumentBuilder builder = TL_XML_DOC_BUILDER.get();
+            Document doc = builder.parse(new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)));
+            doc.normalizeDocument();
+            return doc;
+        } catch (Exception e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            throw new IllegalArgumentException("Failed to parse XML in %s: %s".formatted(file, message), e);
+        }
+    }
+
+    private static boolean isSimpleJsonIdentifier(String key) {
+        if (key.isEmpty()) return false;
+        if (!isNameStart(key.charAt(0))) return false;
+        for (int i = 1; i < key.length(); i++) {
+            if (!isNameChar(key.charAt(i))) return false;
+        }
+        return true;
+    }
+
+    private static String escapeJsonString(String s, int maxChars) {
+        String capped =
+                s.length() <= maxChars ? s : s.substring(0, max(0, maxChars - "[TRUNCATED]".length())) + "[TRUNCATED]";
+        StringBuilder out = new StringBuilder(capped.length() + 16);
+        for (int i = 0; i < capped.length(); i++) {
+            char c = capped.charAt(i);
+            switch (c) {
+                case '\\' -> out.append("\\\\");
+                case '"' -> out.append("\\\"");
+                case '\b' -> out.append("\\b");
+                case '\f' -> out.append("\\f");
+                case '\n' -> out.append("\\n");
+                case '\r' -> out.append("\\r");
+                case '\t' -> out.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        out.append("\\u%04x".formatted((int) c));
+                    } else {
+                        out.append(c);
+                    }
+                }
+            }
+        }
+        return out.toString();
+    }
+
+    private static String jsonChildPath(String parent, String key) {
+        if (isSimpleJsonIdentifier(key)) {
+            return "%s.%s".formatted(parent, key);
+        }
+        return "%s[\"%s\"]".formatted(parent, escapeJsonString(key, JSON_STRING_PREVIEW_MAX_CHARS));
+    }
+
+    private static String jsonChildPath(String parent, int index) {
+        return "%s[%d]".formatted(parent, index);
+    }
+
+    private static String jsonTypeLabel(JsonNode node) {
+        if (node.isObject()) return "object";
+        if (node.isArray()) return "array";
+        if (node.isTextual()) return "string";
+        if (node.isNumber()) return "number";
+        if (node.isBoolean()) return "boolean";
+        if (node.isNull()) return "null";
+        if (node.isBinary()) return "binary";
+        return node.getNodeType().name().toLowerCase(Locale.ROOT);
+    }
+
+    private static String jsonSkimBfs(JsonNode root, int totalBudgetChars) {
+        record Item(String path, JsonNode node) {}
+
+        int budget = max(1, totalBudgetChars);
+        ArrayDeque<Item> q = new ArrayDeque<>();
+        q.add(new Item("$", root));
+
+        List<String> lines = new ArrayList<>();
+        int used = 0;
+        boolean truncated = false;
+
+        while (!q.isEmpty()) {
+            Item it = q.removeFirst();
+            JsonNode node = it.node();
+
+            String type = jsonTypeLabel(node);
+            String line;
+
+            if (node.isObject()) {
+                int fields = node.size();
+                List<String> keys = new ArrayList<>(min(fields, JSON_KEYS_PREVIEW_MAX));
+                int shown = 0;
+                for (var itFields = node.fieldNames(); itFields.hasNext() && shown < JSON_KEYS_PREVIEW_MAX; ) {
+                    keys.add(itFields.next());
+                    shown++;
+                }
+                String keysText = keys.isEmpty()
+                        ? "keys=[]"
+                        : "keys=[%s]"
+                                .formatted(keys.stream()
+                                        .map(k -> "\"" + escapeJsonString(k, JSON_STRING_PREVIEW_MAX_CHARS) + "\"")
+                                        .collect(Collectors.joining(", ")));
+
+                int omitted = max(0, fields - shown);
+                String omittedText = omitted > 0 ? " (+%d more)".formatted(omitted) : "";
+
+                line = "%s type=object fields=%d %s%s".formatted(it.path(), fields, keysText, omittedText);
+            } else if (node.isArray()) {
+                int len = node.size();
+                Map<String, Integer> hist = new HashMap<>();
+                int toSample = min(len, JSON_SKIM_MAX_CHILDREN_PER_CONTAINER);
+                for (int i = 0; i < toSample; i++) {
+                    hist.merge(jsonTypeLabel(node.get(i)), 1, Integer::sum);
+                }
+                String histText = hist.isEmpty()
+                        ? "elemTypes={}"
+                        : "elemTypes={%s}"
+                                .formatted(hist.entrySet().stream()
+                                        .sorted(Map.Entry.comparingByKey())
+                                        .map(e -> "%s:%d".formatted(e.getKey(), e.getValue()))
+                                        .collect(Collectors.joining(", ")));
+
+                String omittedText = len > toSample ? " (+%d more)".formatted(len - toSample) : "";
+                line = "%s type=array len=%d %s%s".formatted(it.path(), len, histText, omittedText);
+            } else if (node.isTextual()) {
+                String txt = node.asText("");
+                String preview = escapeJsonString(txt, JSON_STRING_PREVIEW_MAX_CHARS);
+                line = "%s type=string len=%d preview=\"%s\"".formatted(it.path(), txt.length(), preview);
+            } else if (node.isNumber()) {
+                line = "%s type=number value=%s".formatted(it.path(), node.asText());
+            } else if (node.isBoolean()) {
+                line = "%s type=boolean value=%s".formatted(it.path(), node.asText());
+            } else if (node.isNull()) {
+                line = "%s type=null".formatted(it.path());
+            } else {
+                String value = node.asText("");
+                line = "%s type=%s value=%s".formatted(it.path(), type, value);
+            }
+
+            line = truncateLine(line, 0, line.length());
+
+            if (used + line.length() + 1 > budget) {
+                truncated = true;
+                break;
+            }
+
+            lines.add(line);
+            used += line.length() + 1;
+
+            if (node.isObject()) {
+                int enqueued = 0;
+                for (var fields = node.fields(); fields.hasNext(); ) {
+                    if (enqueued >= JSON_SKIM_MAX_CHILDREN_PER_CONTAINER) break;
+                    var e = fields.next();
+                    q.add(new Item(jsonChildPath(it.path(), e.getKey()), e.getValue()));
+                    enqueued++;
+                }
+            } else if (node.isArray()) {
+                int toEnqueue = min(node.size(), JSON_SKIM_MAX_CHILDREN_PER_CONTAINER);
+                for (int i = 0; i < toEnqueue; i++) {
+                    q.add(new Item(jsonChildPath(it.path(), i), node.get(i)));
+                }
+            }
+        }
+
+        if (truncated) {
+            lines.add("TRUNCATED: reached output budget");
+        }
+
+        return String.join("\n", lines);
+    }
+
+    private static String toOuterXml(Node node) {
+        try {
+            TransformerFactory tf = TransformerFactory.newInstance();
+            tf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            Transformer t = tf.newTransformer();
+            t.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
+            t.setOutputProperty(OutputKeys.INDENT, "no");
+
+            StringWriter sw = new StringWriter();
+            t.transform(new DOMSource(node), new StreamResult(sw));
+            return sw.toString();
+        } catch (Exception e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            throw new RuntimeException("Failed to render outer XML: " + message, e);
+        }
+    }
+
+    private static int directTextLen(Node node) {
+        if (node.getNodeType() != Node.ELEMENT_NODE) return 0;
+
+        int total = 0;
+        Node child = node.getFirstChild();
+        while (child != null) {
+            short t = child.getNodeType();
+            if (t == Node.TEXT_NODE || t == Node.CDATA_SECTION_NODE) {
+                String text = child.getNodeValue();
+                if (text != null) {
+                    total += text.strip().length();
+                }
+            }
+            child = child.getNextSibling();
+        }
+        return total;
+    }
+
+    private static Map<String, Integer> elementChildHistogram(Node node) {
+        if (node.getNodeType() != Node.ELEMENT_NODE) return Map.of();
+
+        Map<String, Integer> counts = new HashMap<>();
+        Node child = node.getFirstChild();
+        while (child != null) {
+            if (child.getNodeType() == Node.ELEMENT_NODE) {
+                String ln = localName(child);
+                counts.merge(ln, 1, Integer::sum);
+            }
+            child = child.getNextSibling();
+        }
+        return Map.copyOf(counts);
+    }
+
+    private static String computeNodePath(Node node) {
+        List<Node> elems = new ArrayList<>();
+        Node cur = node;
+        while (cur != null) {
+            if (cur.getNodeType() == Node.ELEMENT_NODE) {
+                elems.add(cur);
+            }
+            cur = cur.getParentNode();
+        }
+        if (elems.isEmpty()) return "/";
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = elems.size() - 1; i >= 0; i--) {
+            Node e = elems.get(i);
+            String name = localName(e);
+
+            int idx = 1;
+            Node parent = e.getParentNode();
+            if (parent != null) {
+                Node sib = parent.getFirstChild();
+                while (sib != null) {
+                    if (sib.getNodeType() == Node.ELEMENT_NODE
+                            && sib != e
+                            && localName(sib).equals(name)) {
+                        idx++;
+                    }
+                    if (sib == e) {
+                        break;
+                    }
+                    sib = sib.getNextSibling();
+                }
+            }
+            sb.append('/').append(name).append('[').append(idx).append(']');
+        }
+        return sb.toString();
+    }
+
+    private static String xmlSkimBfs(Node root, int totalBudgetChars) {
+        int budget = max(1, totalBudgetChars);
+        ArrayDeque<Node> q = new ArrayDeque<>();
+        q.add(root);
+
+        List<String> lines = new ArrayList<>();
+        int used = 0;
+        boolean truncated = false;
+
+        while (!q.isEmpty()) {
+            Node n = q.removeFirst();
+            if (n.getNodeType() != Node.ELEMENT_NODE) {
+                continue;
+            }
+
+            String path = computeNodePath(n);
+
+            Map<String, Integer> hist = elementChildHistogram(n);
+            String histText = hist.isEmpty()
+                    ? "children={}"
+                    : "children={%s}"
+                            .formatted(hist.entrySet().stream()
+                                    .sorted(Map.Entry.comparingByKey())
+                                    .map(e -> "%s:%d".formatted(e.getKey(), e.getValue()))
+                                    .collect(Collectors.joining(", ")));
+
+            int textLen = directTextLen(n);
+
+            String attrsText = "";
+            if (n instanceof Element el) {
+                NamedNodeMap attrs = el.getAttributes();
+                if (attrs != null && attrs.getLength() > 0) {
+                    Map<String, String> attrMap = new LinkedHashMap<>();
+                    for (int i = 0; i < attrs.getLength(); i++) {
+                        Node a = attrs.item(i);
+                        if (a == null) continue;
+                        String aName = localName(a);
+                        String aVal = a.getNodeValue() == null ? "" : a.getNodeValue();
+                        attrMap.put(aName, capXmlAttrValue(aVal));
+                    }
+                    attrsText = " attrs={%s}"
+                            .formatted(attrMap.entrySet().stream()
+                                    .map(e -> "%s=\"%s\"".formatted(e.getKey(), e.getValue()))
+                                    .collect(Collectors.joining(", ")));
+                }
+            }
+
+            String line = "%s <%s> textLen=%d %s%s".formatted(path, localName(n), textLen, histText, attrsText);
+            line = truncateLine(line, 0, line.length());
+
+            if (used + line.length() + 1 > budget) {
+                truncated = true;
+                break;
+            }
+
+            lines.add(line);
+            used += line.length() + 1;
+
+            Node child = n.getFirstChild();
+            while (child != null) {
+                if (child.getNodeType() == Node.ELEMENT_NODE) {
+                    q.add(child);
+                }
+                child = child.getNextSibling();
+            }
+        }
+
+        if (truncated) {
+            lines.add("TRUNCATED: reached output budget");
+        }
+
+        return String.join("\n", lines);
     }
 
     public static List<Pattern> compilePatterns(List<String> patterns) {
@@ -311,17 +787,12 @@ public class SearchTools {
             @P(
                             "Case-insensitive regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
                     List<String> patterns,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning,
-            @P("Include test files in results.") boolean includeTests) {
+            @P("Include test files in results.") boolean includeTests,
+            @P("Maximum number of matching files to return (capped at 200).") int limit) {
         // Sanitize patterns: LLM might add `()` to symbols, Joern regex usually doesn't want that unless intentional.
         patterns = stripParams(patterns);
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search definitions: patterns list is empty");
-        }
-        if (reasoning.isBlank()) {
-            // Tolerate missing reasoning for now, maybe make mandatory later
-            logger.warn("Missing reasoning for searchSymbols call");
         }
 
         var analyzer = getAnalyzer();
@@ -343,15 +814,33 @@ public class SearchTools {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
 
+        int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
+
         // Group by file, then by kind within each file
         var fileGroups = allDefinitions.stream()
                 .collect(Collectors.groupingBy(
                         cu -> toUnixPath(cu.source().toString()),
                         Collectors.groupingBy(cu -> cu.kind().name())));
 
-        // Build output: sorted files, sorted kinds per file, sorted symbols per kind
+        // Build output: sorted files (limited), sorted kinds per file, sorted symbols per kind
         var result = new StringBuilder();
-        fileGroups.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(fileEntry -> {
+        var sortedFileEntries = fileGroups.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .toList();
+
+        boolean truncated = sortedFileEntries.size() > effectiveLimit;
+        var limitedFileEntries =
+                sortedFileEntries.stream().limit(effectiveLimit).toList();
+
+        if (truncated) {
+            result.append("### WARNING: Result limit reached (max ")
+                    .append(effectiveLimit)
+                    .append(" files). Showing first ")
+                    .append(effectiveLimit)
+                    .append(" files. Retrying the same tool call will return the same results.\n\n");
+        }
+
+        limitedFileEntries.forEach(fileEntry -> {
             var filePath = fileEntry.getKey();
             var kindGroups = fileEntry.getValue();
 
@@ -384,16 +873,11 @@ public class SearchTools {
     public String scanUsages(
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")
                     List<String> symbols,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning,
             @P("Include call sites in test files in results.") boolean includeTests) {
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
             throw new IllegalArgumentException("Cannot search usages: symbols list is empty");
-        }
-        if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for getUsages call");
         }
 
         List<String> results = new ArrayList<>();
@@ -505,8 +989,6 @@ public class SearchTools {
     @Tool(
             """
                     Returns the file paths (relative to the project root) where the specified symbols are defined.
-                    Use this to locate where interesting symbols live,
-                    then use getFileSummaries to get an overview of those files.
                     Accepts all symbol types: classes, methods, fields, and modules.
                     """)
     public String getSymbolLocations(
@@ -599,12 +1081,7 @@ public class SearchTools {
     public String getGitLog(
             @P("File or directory path relative to the project root. Use empty string for repository-wide log.")
                     String path,
-            @P("Maximum number of log entries to return (capped at 100).") int limit,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
-        if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for getGitLog call");
-        }
+            @P("Maximum number of log entries to return (capped at 100).") int limit) {
 
         var repo = contextManager.getRepo();
 
@@ -732,14 +1209,9 @@ public class SearchTools {
                     """)
     public String searchGitCommitMessages(
             @P("Java-style regex pattern to search for within commit messages.") String pattern,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning,
             @P("Maximum number of matching commits to return (capped at 200).") int limit) {
         if (pattern.isBlank()) {
             throw new IllegalArgumentException("Cannot search commit messages: pattern is empty");
-        }
-        if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for searchGitCommitMessages call");
         }
 
         var projectRoot = contextManager.getProject().getRoot();
@@ -827,15 +1299,10 @@ public class SearchTools {
             @P(
                             "Java-style regex patterns to search for within file contents. Unlike searchSymbols this does not automatically include any implicit anchors or case insensitivity.")
                     List<String> patterns,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning,
             @P("Maximum number of files to return (capped at 200).") int limit)
             throws InterruptedException {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search substrings: patterns list is empty");
-        }
-        if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for findFilesContaining call");
         }
 
         logger.debug("Searching file contents for patterns: {}", patterns);
@@ -964,6 +1431,56 @@ public class SearchTools {
         return new FindFilesContainingResult(matches, errors);
     }
 
+    private record BatchResult<T>(List<T> results, List<String> errors, boolean truncatedByMaxFiles) {}
+
+    private record IndexedResult<T>(int index, @Nullable T value, @Nullable String error) {}
+
+    private <T> BatchResult<T> batchProcessFiles(
+            List<ProjectFile> files, int maxFiles, BiFunction<ProjectFile, Integer, IndexedResult<T>> processor)
+            throws InterruptedException {
+
+        List<T> results = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        boolean truncated = false;
+
+        int batchSize = 2 * FILE_SEARCH_LIMIT;
+
+        outer:
+        for (int start = 0; start < files.size(); start += batchSize) {
+            if (Thread.interrupted()) {
+                throw new InterruptedException("Interrupted during batch processing");
+            }
+            if (results.size() >= maxFiles) {
+                truncated = true;
+                break;
+            }
+
+            var batch = files.subList(start, min(start + batchSize, files.size()));
+            final int batchOffset = start;
+
+            List<IndexedResult<T>> batchResults = runInSearchToolsPool(() -> IntStream.range(0, batch.size())
+                    .parallel()
+                    .mapToObj(idx -> processor.apply(batch.get(idx), batchOffset + idx))
+                    .sorted(Comparator.comparingInt(IndexedResult::index))
+                    .toList());
+
+            for (var res : batchResults) {
+                if (res.error() != null) {
+                    errors.add(res.error());
+                }
+                if (res.value() != null) {
+                    if (results.size() >= maxFiles) {
+                        truncated = true;
+                        break outer;
+                    }
+                    results.add(res.value());
+                }
+            }
+        }
+
+        return new BatchResult<>(results, errors, truncated);
+    }
+
     @Tool(
             """
             Searches for a regex pattern within file contents across files matching a glob pattern.
@@ -1031,87 +1548,46 @@ public class SearchTools {
             return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
 
-        int batchSize = 2 * FILE_SEARCH_LIMIT;
-
-        record IndexedResult(int index, ProjectFile file, @Nullable String output, int matches) {}
-
-        List<String> fileBlocks = new ArrayList<>();
-        int totalMatches = 0;
-
-        boolean truncatedByMaxFiles = false;
-        boolean truncatedByTotalMatches = false;
+        record FileHit(ProjectFile file, String output, int matches) {}
 
         String patternsLabel = String.join(", ", patterns);
-
+        BatchResult<FileHit> batchResult;
         try {
-            outer:
-            for (int start = 0; start < files.size(); start += batchSize) {
-                if (Thread.interrupted()) {
-                    throw new InterruptedException("Interrupted between file content search batches");
-                }
-
-                if (fileBlocks.size() >= effectiveMaxFiles) {
-                    truncatedByMaxFiles = true;
-                    break;
-                }
-                if (totalMatches >= SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES) {
-                    truncatedByTotalMatches = true;
-                    break;
-                }
-
-                var batch = files.subList(start, min(start + batchSize, files.size()));
-
-                List<IndexedResult> batchResults = runInSearchToolsPool(() -> IntStream.range(0, batch.size())
-                        .parallel()
-                        .mapToObj(idx -> {
-                            var file = batch.get(idx);
-                            var result = searchFileContentsInFile(
-                                    file, compiledPatterns, clampedContext, effectiveMatchesPerFile);
-                            if (result == null) {
-                                return new IndexedResult(idx, file, null, 0);
-                            }
-                            return new IndexedResult(idx, file, result.output(), result.matches());
-                        })
-                        .sorted(Comparator.comparingInt(IndexedResult::index))
-                        .toList());
-
-                for (var res : batchResults) {
-                    if (res.output() == null) {
-                        continue;
-                    }
-                    if (fileBlocks.size() >= effectiveMaxFiles) {
-                        truncatedByMaxFiles = true;
-                        break outer;
-                    }
-                    if (totalMatches >= SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES) {
-                        truncatedByTotalMatches = true;
-                        break outer;
-                    }
-
-                    int remaining = SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES - totalMatches;
-                    if (res.matches() <= remaining) {
-                        fileBlocks.add(res.output());
-                        totalMatches += res.matches();
-                        continue;
-                    }
-
-                    int matchesToTake = remaining;
-                    if (matchesToTake > 0) {
-                        var recomputed =
-                                searchFileContentsInFile(res.file(), compiledPatterns, clampedContext, matchesToTake);
-                        if (recomputed != null) {
-                            fileBlocks.add(recomputed.output());
-                            totalMatches += recomputed.matches();
-                        }
-                    }
-
-                    truncatedByTotalMatches = true;
-                    break outer;
-                }
-            }
+            batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
+                var res = searchFileContentsInFile(file, compiledPatterns, clampedContext, effectiveMatchesPerFile);
+                if (res == null) return new IndexedResult<>(idx, null, null);
+                return new IndexedResult<>(idx, new FileHit(file, res.output(), res.matches()), null);
+            });
         } catch (RuntimeException e) {
             logger.error("Error searching file contents for '{}' in '{}'", patternsLabel, filepath, e);
             return "Error searching file contents: " + (e.getMessage() == null ? e.toString() : e.getMessage());
+        }
+
+        List<String> fileBlocks = new ArrayList<>();
+        int totalMatches = 0;
+        boolean truncatedByTotalMatches = false;
+
+        for (var hit : batchResult.results()) {
+            if (totalMatches >= SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES) {
+                truncatedByTotalMatches = true;
+                break;
+            }
+
+            int remaining = SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES - totalMatches;
+            if (hit.matches() <= remaining) {
+                fileBlocks.add(hit.output());
+                totalMatches += hit.matches();
+            } else {
+                if (remaining > 0) {
+                    var recomputed = searchFileContentsInFile(hit.file(), compiledPatterns, clampedContext, remaining);
+                    if (recomputed != null) {
+                        fileBlocks.add(recomputed.output());
+                        totalMatches += recomputed.matches();
+                    }
+                }
+                truncatedByTotalMatches = true;
+                break;
+            }
         }
 
         if (fileBlocks.isEmpty()) {
@@ -1123,7 +1599,7 @@ public class SearchTools {
             suffixLines.add("TRUNCATED: reached global limit of %d total matches"
                     .formatted(SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES));
         }
-        if (truncatedByMaxFiles) {
+        if (batchResult.truncatedByMaxFiles()) {
             suffixLines.add("TRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles));
         }
 
@@ -1315,194 +1791,13 @@ public class SearchTools {
 
     @Tool(
             """
-            Executes an XPath query against XML files.
-            The tool is namespace-agnostic: simple element names like 'foo' are automatically rewritten
-            to match elements regardless of their namespace prefix (using local-name() matching).
-            Returns the text content of matching nodes.
-
-            Notes:
-            - maxFiles and matchesPerFile are capped at 500 each.
-            - maxFiles * matchesPerFile is forced to be <= 500.
-            """)
-    public String xpathQuery(
-            @P("File path or glob pattern (e.g., 'pom.xml', '**/config/*.xml').") String filepath,
-            @P("XPath expressions to evaluate.") List<String> xpaths,
-            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
-            @P("Maximum number of matching nodes to return per file. Capped at 500.") int matchesPerFile)
-            throws InterruptedException {
-        if (xpaths.isEmpty()) {
-            throw new IllegalArgumentException("Cannot xpathQuery: xpaths list is empty");
-        }
-
-        EffectiveLimits limits = clampMaxFilesAndMatchesPerFile(maxFiles, matchesPerFile);
-
-        var project = contextManager.getProject();
-        var files = Completions.expandPath(project, filepath).stream()
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .filter(pf -> pf.isText() && "xml".equalsIgnoreCase(pf.extension()))
-                .sorted()
-                .toList();
-
-        if (files.isEmpty()) {
-            return "No XML files found matching: " + filepath;
-        }
-
-        var nonBlankXpaths = xpaths.stream().filter(x -> !x.isBlank()).toList();
-        if (nonBlankXpaths.isEmpty()) {
-            throw new IllegalArgumentException("Cannot xpathQuery: xpaths list is empty");
-        }
-
-        record XPathSpec(String originalXpath, String effectiveXpath) {}
-
-        List<XPathSpec> specs = nonBlankXpaths.stream()
-                .map(xpath -> {
-                    if (xpath.contains("local-name()")) {
-                        return new XPathSpec(xpath, xpath);
-                    }
-                    String effectiveXpath = Pattern.compile("(?<=^|/)(?![@*])([a-zA-Z0-9_-]+)(?=$|/|\\[)")
-                            .matcher(xpath)
-                            .replaceAll("*[local-name()='$1']");
-                    return new XPathSpec(xpath, effectiveXpath);
-                })
-                .toList();
-
-        int batchSize = 2 * FILE_SEARCH_LIMIT;
-
-        List<String> fileResults = new ArrayList<>();
-        List<String> errors = new ArrayList<>();
-        boolean truncatedByMaxFiles = false;
-
-        record IndexedXPathResult(int index, @Nullable String output, @Nullable String error) {}
-
-        outer:
-        for (int start = 0; start < files.size(); start += batchSize) {
-            if (Thread.interrupted()) {
-                throw new InterruptedException("Interrupted between XPath query batches");
-            }
-            if (fileResults.size() >= limits.maxFiles()) {
-                truncatedByMaxFiles = true;
-                break;
-            }
-
-            var batch = files.subList(start, min(start + batchSize, files.size()));
-
-            final List<IndexedXPathResult> batchResults;
-            try {
-                batchResults = runInSearchToolsPool(() -> IntStream.range(0, batch.size())
-                        .parallel()
-                        .mapToObj(idx -> {
-                            var file = batch.get(idx);
-                            try {
-                                var contentOpt = file.read();
-                                if (contentOpt.isEmpty()) return new IndexedXPathResult(idx, null, null);
-
-                                var docBuilder = TL_XML_DOC_BUILDER.get();
-                                docBuilder.reset();
-
-                                Document doc = docBuilder.parse(new ByteArrayInputStream(
-                                        contentOpt.get().getBytes(StandardCharsets.UTF_8)));
-
-                                int matchesTaken = 0;
-                                List<String> outLines = new ArrayList<>();
-
-                                for (var spec : specs) {
-                                    if (matchesTaken >= limits.matchesPerFile()) {
-                                        break;
-                                    }
-
-                                    XPathExpression xpe = getOrCompileXPathExpression(spec.effectiveXpath());
-                                    NodeList nodes = (NodeList) xpe.evaluate(doc, XPathConstants.NODESET);
-                                    if (nodes.getLength() == 0) {
-                                        continue;
-                                    }
-
-                                    int remaining = limits.matchesPerFile() - matchesTaken;
-                                    int toTake = min(nodes.getLength(), remaining);
-                                    matchesTaken += toTake;
-
-                                    String countLabel = nodes.getLength() > toTake
-                                            ? "first %d matches".formatted(toTake)
-                                            : "%d %s"
-                                                    .formatted(
-                                                            nodes.getLength(),
-                                                            nodes.getLength() == 1 ? "match" : "matches");
-                                    outLines.add("XPath: %s (%s)".formatted(spec.originalXpath(), countLabel));
-
-                                    for (int i = 0; i < toTake; i++) {
-                                        String val =
-                                                nodes.item(i).getTextContent().trim();
-                                        if (!val.isEmpty()) {
-                                            outLines.add("  [%d]: %s".formatted(i + 1, val));
-                                        }
-                                    }
-                                }
-
-                                if (outLines.isEmpty()) {
-                                    return new IndexedXPathResult(idx, null, null);
-                                }
-
-                                boolean hitLimit = matchesTaken >= limits.matchesPerFile();
-                                String matchCountLabel = hitLimit
-                                        ? "first %d matches".formatted(matchesTaken)
-                                        : "%d %s".formatted(matchesTaken, matchesTaken == 1 ? "match" : "matches");
-
-                                String header = "File: %s (%s)"
-                                        .formatted(file.toString().replace('\\', '/'), matchCountLabel);
-
-                                List<String> allLines = new ArrayList<>(outLines.size() + 1);
-                                allLines.add(header);
-                                allLines.addAll(outLines);
-
-                                return new IndexedXPathResult(idx, String.join("\n", allLines) + "\n", null);
-                            } catch (Exception e) {
-                                String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                                return new IndexedXPathResult(idx, null, file + ": " + message);
-                            }
-                        })
-                        .sorted(Comparator.comparingInt(IndexedXPathResult::index))
-                        .toList());
-            } catch (RuntimeException e) {
-                String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                logger.error("Error executing XPath query", e);
-                return "XPath query failed: " + message;
-            }
-
-            for (var res : batchResults) {
-                if (res.output() != null) {
-                    if (fileResults.size() >= limits.maxFiles()) {
-                        truncatedByMaxFiles = true;
-                        break outer;
-                    }
-                    fileResults.add(res.output());
-                }
-                if (res.error() != null) {
-                    errors.add(res.error());
-                }
-            }
-        }
-
-        if (fileResults.isEmpty()) {
-            if (!errors.isEmpty()) {
-                return "XPath query produced errors in %d of %d files: %s"
-                        .formatted(errors.size(), files.size(), errors.getFirst());
-            }
-            return "No results for XPath query.";
-        }
-
-        String output = String.join("\n", fileResults).trim();
-        if (truncatedByMaxFiles) {
-            output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
-        }
-
-        return recordResearchTokens(output);
-    }
-
-    @Tool(
-            """
             Executes a jq filter against JSON files using jackson-jq.
-            Results are always returned as compact JSON strings.
-            Multiple results are separated by newlines.
+
+            Output:
+            - Most results are returned as compact JSON strings.
+            - If a result is a JSON object or array whose rendered JSON would exceed MAX_CHARS_PER_LINE,
+              the output falls back to a BFS structural skim of that result (capped to MAX_CHARS_PER_LINE),
+              similar to xmlSkim.
 
             Notes:
             - maxFiles and matchesPerFile are capped at 500 each.
@@ -1548,103 +1843,359 @@ public class SearchTools {
             return "Invalid jq filter: " + e.getMessage();
         }
 
-        int batchSize = 2 * FILE_SEARCH_LIMIT;
+        BatchResult<String> batchResult;
+        try {
+            batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
+                try {
+                    var contentOpt = file.read();
+                    if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-        List<String> fileResults = new ArrayList<>();
-        List<String> errors = new ArrayList<>();
-        boolean truncatedByMaxFiles = false;
+                    var mapper = jqMappers.get();
+                    var rootScope = jqScopes.get();
 
-        record IndexedJqResult(int index, @Nullable String output, @Nullable String error) {}
+                    JsonNode node = mapper.readTree(contentOpt.get());
+                    List<JsonNode> out = new ArrayList<>();
+                    Output outputWriter = out::add;
 
-        outer:
-        for (int start = 0; start < files.size(); start += batchSize) {
-            if (Thread.interrupted()) {
-                throw new InterruptedException("Interrupted between jq filter batches");
-            }
-            if (fileResults.size() >= limits.maxFiles()) {
-                truncatedByMaxFiles = true;
-                break;
-            }
+                    compiledQuery.apply(Scope.newChildScope(rootScope), node, outputWriter);
 
-            var batch = files.subList(start, min(start + batchSize, files.size()));
+                    if (out.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-            final List<IndexedJqResult> batchResults;
-            try {
-                batchResults = runInSearchToolsPool(() -> IntStream.range(0, batch.size())
-                        .parallel()
-                        .mapToObj(idx -> {
-                            var file = batch.get(idx);
-                            try {
-                                var contentOpt = file.read();
-                                if (contentOpt.isEmpty()) return new IndexedJqResult(idx, null, null);
+                    int toTake = min(out.size(), limits.matchesPerFile());
+                    boolean hitLimit = out.size() > toTake;
+                    String matchCountLabel = hitLimit
+                            ? "first %d matches".formatted(toTake)
+                            : "%d %s".formatted(toTake, toTake == 1 ? "match" : "matches");
 
-                                var mapper = jqMappers.get();
-                                var rootScope = jqScopes.get();
-
-                                JsonNode node = mapper.readTree(contentOpt.get());
-                                List<JsonNode> out = new ArrayList<>();
-                                Output output = out::add;
-
-                                compiledQuery.apply(Scope.newChildScope(rootScope), node, output);
-
-                                if (out.isEmpty()) return new IndexedJqResult(idx, null, null);
-
-                                int toTake = min(out.size(), limits.matchesPerFile());
-
-                                boolean hitLimit = out.size() > toTake;
-                                String matchCountLabel = hitLimit
-                                        ? "first %d matches".formatted(toTake)
-                                        : "%d %s".formatted(toTake, toTake == 1 ? "match" : "matches");
-
-                                List<String> outLines = new ArrayList<>(toTake + 1);
-                                outLines.add("File: %s (%s)"
-                                        .formatted(file.toString().replace('\\', '/'), matchCountLabel));
-                                for (int i = 0; i < toTake; i++) {
-                                    outLines.add(mapper.writeValueAsString(out.get(i)));
-                                }
-
-                                return new IndexedJqResult(idx, String.join("\n", outLines) + "\n", null);
-                            } catch (Exception e) {
-                                String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                                return new IndexedJqResult(idx, null, file + ": " + message);
-                            }
-                        })
-                        .sorted(Comparator.comparingInt(IndexedJqResult::index))
-                        .toList());
-            } catch (RuntimeException e) {
-                String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                logger.error("Error executing jq filter", e);
-                return "jq filter failed: " + message;
-            }
-
-            for (var res : batchResults) {
-                if (res.output() != null) {
-                    if (fileResults.size() >= limits.maxFiles()) {
-                        truncatedByMaxFiles = true;
-                        break outer;
+                    List<String> outLines = new ArrayList<>(toTake + 1);
+                    outLines.add("File: %s (%s)".formatted(file.toString().replace('\\', '/'), matchCountLabel));
+                    for (int i = 0; i < toTake; i++) {
+                        JsonNode n = out.get(i);
+                        String rendered = mapper.writeValueAsString(n);
+                        if (n.isContainerNode() && rendered.length() > XML_MAX_CHARS_PER_LINE) {
+                            outLines.add("[JSON_TOO_LARGE]");
+                            String skim = jsonSkimBfs(n, JSON_SKIM_TOTAL_BUDGET_CHARS);
+                            outLines.addAll(List.of(skim.split("\n", -1)));
+                        } else {
+                            outLines.add(truncateLine(rendered, 0, rendered.length()));
+                        }
                     }
-                    fileResults.add(res.output());
+                    return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
+                } catch (Exception e) {
+                    String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                    return new IndexedResult<>(idx, null, file + ": " + message);
                 }
-                if (res.error() != null) {
-                    errors.add(res.error());
-                }
-            }
+            });
+        } catch (RuntimeException e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            logger.error("Error executing jq filter", e);
+            return "jq filter failed: " + message;
         }
 
-        if (fileResults.isEmpty()) {
-            if (!errors.isEmpty()) {
+        if (batchResult.results().isEmpty()) {
+            if (!batchResult.errors().isEmpty()) {
                 return "jq filter produced errors in %d of %d files: %s"
-                        .formatted(errors.size(), files.size(), errors.getFirst());
+                        .formatted(
+                                batchResult.errors().size(),
+                                files.size(),
+                                batchResult.errors().getFirst());
             }
             return "No results for jq filter.";
         }
 
-        String output = String.join("\n", fileResults).trim();
-        if (truncatedByMaxFiles) {
+        String output = String.join("\n", batchResult.results()).trim();
+        if (batchResult.truncatedByMaxFiles()) {
             output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
         }
 
         return recordResearchTokens(output);
+    }
+
+    @Tool(
+            """
+            Skims XML files by walking the document breadth-first (BFS) and emitting compact structural summaries
+            until an output budget is reached.
+
+            Output is grouped by file:
+            <file path="path/to/file.xml">
+            /root[1] <root> textLen=0 children={item:2} attrs={id="x"}
+            /root[1]/item[1] <item> textLen=5 children={} attrs={id="a"}
+            </file>
+
+            Notes:
+            - Namespace-agnostic: element names are summarized using their local name (prefix is ignored).
+            - Output is capped to a per-file budget of 10 * MAX_CHARS_PER_LINE characters.
+            - Individual lines are capped to MAX_CHARS_PER_LINE.
+            """)
+    public String xmlSkim(
+            @P("File path or glob pattern (e.g., 'pom.xml', '**/*.xml').") String filepath,
+            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles)
+            throws InterruptedException {
+        var project = contextManager.getProject();
+        var files = Completions.expandPath(project, filepath).stream()
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .filter(ProjectFile::isText)
+                .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
+                .sorted()
+                .toList();
+
+        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
+            files = Completions.expandPath(project, filepath.substring(3)).stream()
+                    .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
+                    .filter(ProjectFile::isText)
+                    .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
+                    .sorted()
+                    .toList();
+        }
+
+        if (files.isEmpty()) {
+            return "No XML files found matching: " + filepath;
+        }
+
+        int effectiveMaxFiles = max(
+                1,
+                min(
+                        maxFiles <= 0 ? SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT : maxFiles,
+                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+
+        BatchResult<String> batchResult;
+        try {
+            batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
+                try {
+                    var contentOpt = file.read();
+                    if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
+
+                    Document doc = parseXmlDocument(file, contentOpt.get());
+                    Node root = doc.getDocumentElement();
+                    if (root == null) return new IndexedResult<>(idx, null, null);
+
+                    String skim = xmlSkimBfs(root, XML_SKIM_TOTAL_BUDGET_CHARS);
+                    String block = "<file path=\"%s\">\n%s\n</file>"
+                            .formatted(file.toString().replace('\\', '/'), skim);
+                    return new IndexedResult<>(idx, block, null);
+                } catch (Exception e) {
+                    String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                    return new IndexedResult<>(idx, null, file + ": " + message);
+                }
+            });
+        } catch (RuntimeException e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            logger.error("Error executing xmlSkim", e);
+            return "xmlSkim failed: " + message;
+        }
+
+        if (batchResult.results().isEmpty()) {
+            if (!batchResult.errors().isEmpty()) {
+                return "xmlSkim produced errors in %d of %d files: %s"
+                        .formatted(
+                                batchResult.errors().size(),
+                                files.size(),
+                                batchResult.errors().getFirst());
+            }
+            return "No results for xmlSkim.";
+        }
+
+        String output = String.join("\n\n", batchResult.results()).trim();
+        if (batchResult.truncatedByMaxFiles()) {
+            output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles);
+        }
+        if (!batchResult.errors().isEmpty()) {
+            output += "\n\nWARNINGS: errors occurred in %d files; first: %s"
+                    .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
+        }
+
+        return recordResearchTokens(output);
+    }
+
+    @Tool(
+            """
+            Selects nodes from XML files using an XPath selector, then extracts a specific view of each match.
+
+            Namespace handling:
+            - Namespace-agnostic: simple element names like 'foo' are automatically rewritten to match elements
+              regardless of namespace prefix using local-name() matching.
+
+            Output modes (output parameter):
+            - TEXT: plain text content (node.getTextContent().strip())
+            - NAME: element local name
+            - PATH: computed local-name() path with sibling indexes (e.g., /project[1]/dependencies[1]/dependency[2])
+            - ATTR: plain text single attribute value (requires attrName)
+            - ATTRS: JSONL; one JSON object per match with {path, name, attrs}
+            - XML: outer XML (outerXml). If the outer XML is longer than MAX_CHARS_PER_LINE, a BFS skim of that subtree
+              is returned instead (capped at MAX_CHARS_PER_LINE).
+
+            Notes:
+            - maxFiles and matchesPerFile are capped at 500 each.
+            - maxFiles * matchesPerFile is forced to be <= 500.
+            """)
+    public String xmlSelect(
+            @P("File path or glob pattern (e.g., 'pom.xml', '**/*.xml').") String filepath,
+            @P("XPath selector (namespace-agnostic rewrite is applied).") String xpath,
+            @P("Extraction mode: TEXT, NAME, PATH, ATTR, ATTRS, XML.") String output,
+            @P("Attribute name (required when output=ATTR; ignored otherwise).") String attrName,
+            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
+            @P("Maximum number of matches to return per file. Capped at 500.") int matchesPerFile)
+            throws InterruptedException {
+        var project = contextManager.getProject();
+        var files = Completions.expandPath(project, filepath).stream()
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .filter(ProjectFile::isText)
+                .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
+                .sorted()
+                .toList();
+
+        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
+            files = Completions.expandPath(project, filepath.substring(3)).stream()
+                    .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
+                    .filter(ProjectFile::isText)
+                    .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
+                    .sorted()
+                    .toList();
+        }
+
+        if (files.isEmpty()) {
+            return "No XML files found matching: " + filepath;
+        }
+
+        if (xpath.isBlank()) {
+            throw new IllegalArgumentException("Cannot xmlSelect: xpath is empty");
+        }
+
+        String mode = output.strip().toUpperCase(Locale.ROOT);
+        if ("ATTR".equals(mode) && attrName.isBlank()) {
+            throw new IllegalArgumentException("Cannot xmlSelect: attrName is required when output=ATTR");
+        }
+
+        EffectiveLimits limits = clampMaxFilesAndMatchesPerFile(maxFiles, matchesPerFile);
+
+        String rewritten = rewriteNamespaceAgnosticXPath(xpath);
+        final XPathExpression compiled;
+        try {
+            compiled = getOrCompileXPathExpression(rewritten);
+        } catch (RuntimeException e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            return "Invalid XPath: " + message;
+        }
+
+        BatchResult<String> batchResult;
+        try {
+            batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
+                try {
+                    var contentOpt = file.read();
+                    if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
+
+                    Document doc = parseXmlDocument(file, contentOpt.get());
+
+                    NodeList nodes = (NodeList) compiled.evaluate(doc, XPathConstants.NODESET);
+                    int total = nodes == null ? 0 : nodes.getLength();
+                    if (total == 0) return new IndexedResult<>(idx, null, null);
+
+                    int toTake = min(total, limits.matchesPerFile());
+                    boolean hitLimit = total > toTake;
+                    String matchCountLabel = hitLimit
+                            ? "first %d matches".formatted(toTake)
+                            : "%d %s".formatted(toTake, toTake == 1 ? "match" : "matches");
+
+                    List<String> outLines = new ArrayList<>(toTake + 1);
+                    outLines.add("File: %s (%s)".formatted(file.toString().replace('\\', '/'), matchCountLabel));
+
+                    var mapper = jqMappers.get();
+
+                    for (int i = 0; i < toTake; i++) {
+                        Node n = nodes.item(i);
+                        if (n == null) continue;
+
+                        String path = computeNodePath(n);
+                        String name = localName(n);
+
+                        switch (mode) {
+                            case "TEXT" -> {
+                                String text = n.getTextContent() == null
+                                        ? ""
+                                        : n.getTextContent().strip();
+                                String line = "%s: %s".formatted(path, text);
+                                outLines.add(truncateLine(line, 0, line.length()));
+                            }
+                            case "NAME" -> outLines.add("%s: %s".formatted(path, name));
+                            case "PATH" -> outLines.add(path);
+                            case "ATTR" -> {
+                                String value = "";
+                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof Element el) {
+                                    value = el.hasAttribute(attrName) ? el.getAttribute(attrName) : "";
+                                }
+                                String line = "%s @%s=\"%s\"".formatted(path, attrName, value);
+                                outLines.add(truncateLine(line, 0, line.length()));
+                            }
+                            case "ATTRS" -> {
+                                Map<String, String> attrs = Map.of();
+                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof Element el) {
+                                    NamedNodeMap nnm = el.getAttributes();
+                                    if (nnm != null && nnm.getLength() > 0) {
+                                        Map<String, String> m = new LinkedHashMap<>();
+                                        for (int a = 0; a < nnm.getLength(); a++) {
+                                            Node attr = nnm.item(a);
+                                            if (attr == null) continue;
+                                            String aName = localName(attr);
+                                            String aVal = attr.getNodeValue() == null ? "" : attr.getNodeValue();
+                                            m.put(aName, capXmlAttrValue(aVal));
+                                        }
+                                        attrs = Map.copyOf(m);
+                                    }
+                                }
+                                Map<String, Object> obj = Map.of("path", path, "name", name, "attrs", attrs);
+                                outLines.add(mapper.writeValueAsString(obj));
+                            }
+                            case "XML" -> {
+                                String outerStr = toOuterXml(n);
+                                if (outerStr.length() > XML_MAX_CHARS_PER_LINE) {
+                                    String skim = xmlSkimBfs(n, XML_MAX_CHARS_PER_LINE);
+                                    outLines.add("%s: [XML_TOO_LARGE]".formatted(path));
+                                    outLines.addAll(List.of(skim.split("\n", -1)));
+                                } else {
+                                    outLines.add("%s: %s".formatted(path, outerStr));
+                                }
+                            }
+                            default -> throw new IllegalArgumentException("Invalid output mode: " + mode);
+                        }
+                    }
+
+                    return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
+                } catch (Exception e) {
+                    String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                    return new IndexedResult<>(idx, null, file + ": " + message);
+                }
+            });
+        } catch (RuntimeException e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            logger.error("Error executing xmlSelect", e);
+            return "xmlSelect failed: " + message;
+        }
+
+        if (batchResult.results().isEmpty()) {
+            if (!batchResult.errors().isEmpty()) {
+                return "xmlSelect produced errors in %d of %d files: %s"
+                        .formatted(
+                                batchResult.errors().size(),
+                                files.size(),
+                                batchResult.errors().getFirst());
+            }
+            return "No results for xmlSelect.";
+        }
+
+        String outResult = String.join("\n", batchResult.results()).trim();
+        if (batchResult.truncatedByMaxFiles()) {
+            outResult += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
+        }
+        if (!batchResult.errors().isEmpty()) {
+            outResult += "\n\nWARNINGS: errors occurred in %d files; first: %s"
+                    .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
+        }
+
+        return recordResearchTokens(outResult);
     }
 
     @Tool(
@@ -1654,14 +2205,9 @@ public class SearchTools {
                     """)
     public String findFilenames(
             @P("Java-style regex patterns to match against filenames.") List<String> patterns,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning,
             @P("Maximum number of filenames to return (capped at 200).") int limit) {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search filenames: patterns list is empty");
-        }
-        if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for findFilenames call");
         }
 
         logger.debug("Searching filenames for patterns: {}", patterns);
@@ -1849,14 +2395,9 @@ public class SearchTools {
                     If the summary of all files is too large, it returns only the file and directory names.
                     """)
     public String skimDirectory(
-            @P("Directory path relative to the project root (e.g., '.', 'src/main/java').") String directoryPath,
-            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
-                    String reasoning) {
+            @P("Directory path relative to the project root (e.g., '.', 'src/main/java').") String directoryPath) {
         if (directoryPath.isBlank()) {
             throw new IllegalArgumentException("Directory path cannot be empty");
-        }
-        if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for skimDirectory call");
         }
 
         var project = contextManager.getProject();

@@ -283,7 +283,8 @@ public class SearchPrompts {
 
                 Memory model (reliability):
                   - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).
-                  - Chat history (including tool outputs) may be summarized or truncated; do NOT rely on it to retain details.
+                  - Chat history (including tool outputs) will not be visible to other agents; make sure you capture
+                    important details in the Workspace.
                   - If you might need something later, persist it into the Workspace:
                       - For structure/types/navigation: add class/file summaries.
                       - For behavior: add method sources; escalate to class source or full files only when needed.
@@ -352,8 +353,8 @@ public class SearchPrompts {
                 {{~/if}}
 
                 {{#if terminalTasks~}}
-                Invariant: Before any final action, add the minimum sufficient, decision-relevant context to remove guesswork.
-                An unchanged or empty Workspace is a failure unless the question is explicitly independent of this codebase.
+                Invariant: Before any final action, make reasonable efforts to first add the minimum sufficient, decision-relevant context
+                to the Workspace. If you cannot find relevant context, say so instead of guessing.
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
