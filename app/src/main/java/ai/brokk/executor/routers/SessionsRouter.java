@@ -57,6 +57,10 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
             handleRenameSession(exchange);
             return;
         }
+        if (method.equals("POST") && normalizedPath.equals("/v1/sessions/delete")) {
+            handleDeleteSession(exchange);
+            return;
+        }
         if (method.equals("PUT") && normalizedPath.equals("/v1/sessions")) {
             handlePutSession(exchange);
             return;
@@ -194,6 +198,43 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
         } catch (Exception e) {
             logger.error("Error handling POST /v1/sessions/rename for session {}", sessionId, e);
             var error = ErrorPayload.internalError("Failed to rename session", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    private void handleDeleteSession(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        DeleteSessionRequest request =
+                RouterUtil.parseJsonOr400(exchange, DeleteSessionRequest.class, "/v1/sessions/delete");
+        if (request == null) {
+            return;
+        }
+
+        if (request.sessionId().isBlank()) {
+            RouterUtil.sendValidationError(exchange, "sessionId is required");
+            return;
+        }
+
+        UUID sessionId;
+        try {
+            sessionId = UUID.fromString(request.sessionId());
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, "Invalid sessionId: " + request.sessionId());
+            return;
+        }
+
+        try {
+            sessionManager.deleteSession(sessionId);
+            logger.info("Deleted session {} via HTTP", sessionId);
+
+            var response = Map.of("status", "ok", "sessionId", sessionId.toString());
+            SimpleHttpServer.sendJsonResponse(exchange, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/sessions/delete for session {}", sessionId, e);
+            var error = ErrorPayload.internalError("Failed to delete session", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }
@@ -371,4 +412,6 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
     private record SwitchSessionRequest(String sessionId) {}
 
     private record RenameSessionRequest(String sessionId, String name) {}
+
+    private record DeleteSessionRequest(String sessionId) {}
 }
