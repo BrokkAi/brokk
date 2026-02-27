@@ -922,19 +922,19 @@ public class Llm {
                 int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
                 String tokenSummary = "%,d tokens / %d%% cached".formatted(totalTokens, cachedPct);
 
-                String message;
                 if (pricing.bands().isEmpty()) {
-                    message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
+                    String message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
+                    io.showNotification(IConsoleIO.NotificationRole.COST, message);
+                    logger.debug("LLM cost: {}", message);
                 } else {
                     double cost = pricing.getCostFor(uncached, cached, output);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);
-                    message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
+                    String message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
+                    io.showNotification(IConsoleIO.NotificationRole.COST, message, cost);
+                    logger.debug("LLM cost: {}", message);
                 }
-
-                io.showNotification(IConsoleIO.NotificationRole.COST, message);
-                logger.debug("LLM cost: {}", message);
             }
         }
     }

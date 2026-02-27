@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import javax.swing.JOptionPane;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -31,6 +32,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
     private final JobStore jobStore;
     private final String jobId;
+    private final @Nullable Consumer<Double> costListener;
 
     /**
      * Create a new HeadlessHttpConsole.
@@ -39,8 +41,13 @@ public class HeadlessHttpConsole extends MemoryConsole {
      * @param jobId The job ID to append events to
      */
     public HeadlessHttpConsole(JobStore jobStore, String jobId) {
+        this(jobStore, jobId, null);
+    }
+
+    public HeadlessHttpConsole(JobStore jobStore, String jobId, @Nullable Consumer<Double> costListener) {
         this.jobStore = jobStore;
         this.jobId = jobId;
+        this.costListener = costListener;
     }
 
     /**
@@ -91,6 +98,14 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
     @Override
     public void showNotification(NotificationRole role, String message, @Nullable Double cost) {
+        if (role == NotificationRole.COST && cost != null && costListener != null) {
+            try {
+                costListener.accept(cost);
+            } catch (Exception e) {
+                logger.warn("Cost listener threw exception", e);
+            }
+        }
+
         if (role == NotificationRole.COST && cost != null) {
             // Enriched payload for cost notifications: include structured numeric cost.
             var data = Map.of(

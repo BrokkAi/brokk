@@ -420,6 +420,42 @@ class ExecutorManager:
             status = getattr(getattr(e, "response", None), "status_code", "N/A")
             raise ExecutorError(f"Failed POST /v1/sessions/switch (status={status}): {e}") from e
 
+    async def rename_session(self, session_id: str, name: str) -> Dict[str, Any]:
+        """Renames a session by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not session_id or not session_id.strip():
+            raise ExecutorError("session_id must not be blank")
+        if not name or not name.strip():
+            raise ExecutorError("name must not be blank")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/sessions/rename", json={"sessionId": session_id, "name": name}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/sessions/rename")
+            raise  # Should not be reached
+
+    async def delete_session(self, session_id: str) -> Dict[str, Any]:
+        """Deletes a session by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not session_id or not session_id.strip():
+            raise ExecutorError("session_id must not be blank")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/sessions/delete", json={"sessionId": session_id}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/sessions/delete (status={status}): {e}") from e
+
     async def download_session_zip(self, session_id: str) -> bytes:
         """Downloads the ZIP archive for a specific session."""
         if not self._http_client:
@@ -617,7 +653,7 @@ class ExecutorManager:
         ) from e
 
     async def get_context(self) -> Dict[str, Any]:
-        """Returns the current session context."""
+        """Returns the current session context, including tokens and totalCost."""
         if not self._http_client:
             raise ExecutorError("Executor not started")
 

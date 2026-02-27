@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -249,3 +249,34 @@ def test_replay_conversation_entries_renders_messages(tmp_path):
     assert ("tool", "Command output") in fake_chat.calls
     assert any(call[:3] == ("render", "REASONING", "Thinking steps") for call in fake_chat.calls)
     assert ("ai", "Compressed summary") in fake_chat.calls
+
+
+@pytest.mark.asyncio
+async def test_resume_session_seeds_session_cost_from_context(tmp_path):
+    """Verify that resuming a session seeds the session cost from the executor context."""
+    workspace = tmp_path
+    last_id = "cost-session"
+    save_last_session_id(workspace, last_id)
+    zip_path = get_session_zip_path(workspace, last_id)
+    zip_path.write_bytes(b"zip-data")
+
+    stub = SessionStubExecutor()
+    stub.wait_ready = AsyncMock(return_value=True)
+    stub.get_context = AsyncMock(
+        return_value={
+            "branch": "main",
+            "totalCost": 4.321,
+        }
+    )
+
+    app = BrokkApp(executor=stub, workspace_dir=workspace, resume_session=True)
+
+    with patch("brokk_code.app.ChatPanel"):
+        await asyncio.wait_for(app._start_executor(), timeout=3.0)
+
+    # Trigger context refresh which seeds the cost
+    await app._refresh_context_panel()
+
+    assert app.session_total_cost == pytest.approx(4.321, rel=1e-6)
+    assert len(stub.import_calls) == 1
+    assert stub.import_calls[0][1] == last_id

@@ -4,8 +4,9 @@ import random
 import re
 import time
 import webbrowser
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
@@ -373,6 +374,153 @@ class ModeSelectModal(ModalScreen[str]):
             self.dismiss(mode)
 
 
+class SessionSelectModal(ModalScreen[str]):
+    """A modal for selecting and switching between sessions."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+        Binding("n", "new_session", "New", show=False),
+        Binding("r", "rename_session", "Rename", show=False),
+        Binding("d", "delete_session", "Delete", show=False),
+        Binding("x", "delete_session", "Delete", show=False),
+    ]
+
+    def __init__(
+        self,
+        sessions: List[Dict[str, Any]],
+        current_id: str,
+        on_rename: Optional[Callable[[str, str], Awaitable[bool]]] = None,
+    ) -> None:
+        super().__init__()
+        self.sessions = sessions
+        self.current_id = current_id
+        self._on_rename = on_rename
+        self._item_id_to_session_id: Dict[str, str] = {
+            f"session-{idx}": str(s.get("id", "")) for idx, s in enumerate(sessions)
+        }
+
+    @staticmethod
+    def _format_session_row(s: Dict[str, Any]) -> str:
+        title_width = 60
+        date_width = 16  # matches "YYYY-MM-DD HH:MM"
+
+        name = s.get("name") or s.get("id")
+        title = (str(name or "")).strip()
+        title = title[:title_width]
+
+        # Modified time
+        modified = s.get("modified", 0)
+        date_text = ""
+        if modified > 0:
+            dt = datetime.fromtimestamp(modified / 1000)
+            date_text = dt.strftime("%Y-%m-%d %H:%M")
+
+        # AI responses (entries)
+        ai_responses = s.get("aiResponses", 0)
+        entry_text = ""
+        if ai_responses > 0:
+            suffix = "entry" if ai_responses == 1 else "entries"
+            entry_text = f"{ai_responses} {suffix}"
+
+        return f"{title:<{title_width}}  {date_text:<{date_width}}  {entry_text}".rstrip()
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="session-select-container"):
+            yield Static("Select Session", id="session-select-title")
+            with VerticalScroll(id="session-select-list-wrap"):
+                items = []
+                for item_id, s in zip(self._item_id_to_session_id.keys(), self.sessions):
+                    label = self._format_session_row(s)
+                    items.append(ListItem(Static(label, markup=False), id=item_id))
+
+                yield ListView(*items, id="session-select-list")
+            yield Static(
+                "Enter: Switch  [bold]N[/]: New  [bold]R[/]: Rename "
+                + " [bold]D[/]: Delete  Esc: Cancel",
+                id="session-select-footer",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#session-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        selected_id = self._item_id_to_session_id.get(message.item.id)
+        if selected_id:
+            self.dismiss(selected_id)
+
+    def action_rename_session(self) -> None:
+        list_view = self.query_one("#session-select-list", ListView)
+        if list_view.highlighted_child and list_view.highlighted_child.id:
+            session_id = self._item_id_to_session_id.get(list_view.highlighted_child.id)
+            if not session_id:
+                return
+
+            initial_name = ""
+            for s in self.sessions:
+                if str(s.get("id")) == session_id:
+                    initial_name = s.get("name") or ""
+                    break
+
+            def on_rename_submitted(new_name: Optional[str]) -> None:
+                if not new_name or not new_name.strip() or self._on_rename is None:
+                    return
+                clean_name = new_name.strip()
+
+                async def do_rename() -> None:
+                    renamed = await self._on_rename(session_id, clean_name)
+                    if not renamed:
+                        return
+                    self._update_session_name(session_id, clean_name)
+
+                self.app.run_worker(do_rename())
+
+            self.app.push_screen(
+                TaskTitleModalScreen("Rename Session", initial=initial_name),
+                on_rename_submitted,
+            )
+
+    def action_new_session(self) -> None:
+        self.dismiss("new")
+
+    def action_delete_session(self) -> None:
+        list_view = self.query_one("#session-select-list", ListView)
+        if list_view.highlighted_child and list_view.highlighted_child.id:
+            session_id = self._item_id_to_session_id.get(list_view.highlighted_child.id)
+            if session_id:
+                self.dismiss(f"delete:{session_id}")
+
+    def _update_session_name(self, session_id: str, new_name: str) -> None:
+        for s in self.sessions:
+            if str(s.get("id")) == session_id:
+                s["name"] = new_name
+                break
+
+        item_id = next(
+            (item_id for item_id, sid in self._item_id_to_session_id.items() if sid == session_id),
+            None,
+        )
+        if not item_id:
+            return
+
+        list_view = self.query_one("#session-select-list", ListView)
+        item = next((child for child in list_view.children if child.id == item_id), None)
+        if not isinstance(item, ListItem):
+            return
+
+        try:
+            label_widget = item.query_one(Static)
+        except Exception:
+            return
+
+        session = next((s for s in self.sessions if str(s.get("id")) == session_id), None)
+        if not session:
+            return
+
+        label_widget.update(self._format_session_row(session))
+
+
 class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
     """A combined modal for selecting both model and reasoning level side-by-side."""
 
@@ -561,6 +709,8 @@ class BrokkApp(App):
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
+        self._renamed_sessions: set[str] = set()
+        self._rename_session_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
 
         # Accumulators for LLM usage costs (USD).
@@ -854,6 +1004,16 @@ class BrokkApp(App):
             try:
                 context_data = await self.executor.get_context()
                 self.current_branch = context_data.get("branch", "unknown")
+
+                # Seed or update session cost from executor's cumulative total
+                remote_total = context_data.get("totalCost")
+                if isinstance(remote_total, (int, float)):
+                    # We only seed from remote if our local tracker is 0 or if the remote
+                    # total is higher (e.g. following a resume).
+                    # Ongoing increments happen via _handle_event.
+                    self.session_total_cost = max(
+                        self.session_total_cost, round(float(remote_total), 6)
+                    )
 
                 # UI updates are best-effort if screen is not on stack
                 try:
@@ -1438,7 +1598,57 @@ class BrokkApp(App):
             logger.exception("OpenAI OAuth login failed")
             chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
 
+    def _derive_session_name(self, text: str) -> str:
+        """Derives a short session name from the first prompt text."""
+        # Strip leading mentions and common command-like prefixes
+        cleaned = re.sub(r"^(?:@\S+\s+|/ask\s+|/lutz\s+|/code\s+)+", "", text, flags=re.IGNORECASE)
+        # Take first line and truncate
+        first_line = cleaned.strip().split("\n")[0]
+        if len(first_line) > 60:
+            return first_line[:57].strip() + "..."
+        return first_line
+
+    async def _maybe_rename_session(self, first_prompt: str) -> None:
+        """Asynchronously renames the session if it's new/unnamed."""
+        session_id = self.executor.session_id
+        if not session_id:
+            return
+
+        async with self._rename_session_lock:
+            if session_id in self._renamed_sessions:
+                return
+
+            # Check if the session name is generic before renaming
+            try:
+                sessions_data = await self.executor.list_sessions()
+                current_id = sessions_data.get("currentSessionId")
+                sessions = sessions_data.get("sessions", [])
+
+                # Find current session and check if it's using the default name
+                current_session = next((s for s in sessions if s.get("id") == current_id), None)
+                if not current_session or current_session.get("name") != "TUI Session":
+                    # Already named or not found; mark as "renamed" to skip further checks
+                    self._renamed_sessions.add(session_id)
+                    return
+
+                new_name = self._derive_session_name(first_prompt)
+                if not new_name:
+                    return
+
+                await self.executor.rename_session(session_id, new_name)
+                self._renamed_sessions.add(session_id)
+
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message(f"Session renamed to: {new_name}")
+            except Exception as e:
+                logger.warning("Failed to auto-rename session: %s", e)
+
     async def _run_job(self, task_input: str) -> None:
+        # Attempt auto-rename on first prompt if session is default
+        if self._executor_ready and self.executor.session_id:
+            self.run_worker(self._maybe_rename_session(task_input))
+
         self.current_job_cost = 0.0
         self.job_in_progress = True
         chat = self._maybe_chat()
@@ -1550,7 +1760,6 @@ class BrokkApp(App):
             if is_cost and isinstance(cost, (int, float)):
                 increment = float(cost)
                 # Use rounding to avoid floating point precision artifacts
-                # (e.g. 0.1 + 0.05 = 0.15000000000000002)
                 # LLM costs often go to 4+ decimal places.
                 self.current_job_cost = round(self.current_job_cost + increment, 6)
                 self.session_total_cost = round(self.session_total_cost + increment, 6)
@@ -1708,6 +1917,7 @@ class BrokkApp(App):
             {"command": "/history", "description": "Show recent prompt history"},
             {"command": "/history-clear", "description": "Clear prompt history"},
             {"command": "/task", "description": "Open/close the task list"},
+            {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
@@ -1881,6 +2091,8 @@ class BrokkApp(App):
                 )
                 return
             self.action_toggle_tasklist()
+        elif base == "/sessions":
+            self.run_worker(self._show_sessions())
         elif base == "/help":
             commands = self.get_slash_commands()
             # Calculate padding based on longest command
@@ -2256,6 +2468,145 @@ class BrokkApp(App):
         except Exception:
             # exit() may raise in some test harnesses; ignore to avoid double-shutdown.
             pass
+
+    async def _show_sessions(self) -> None:
+        chat = self._maybe_chat()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot list sessions.", level="ERROR"
+                )
+            return
+
+        try:
+            data = await self.executor.list_sessions()
+            sessions = data.get("sessions", [])
+            current_id = data.get("currentSessionId", "")
+
+            if not sessions:
+                if chat:
+                    chat.add_system_message("No sessions found.")
+                return
+
+            def on_selected(selected_id: str | None) -> None:
+                if not selected_id:
+                    return
+                if selected_id == "new":
+                    self.run_worker(self._create_session_from_menu())
+                elif selected_id.startswith("rename:"):
+                    sid = selected_id.split(":", 1)[1]
+                    self.run_worker(self._rename_session_workflow(sid, sessions))
+                elif selected_id.startswith("delete:"):
+                    sid = selected_id.split(":", 1)[1]
+                    self.run_worker(self._delete_session_workflow(sid))
+                elif selected_id != current_id:
+                    self.run_worker(self._switch_to_session(selected_id))
+
+            async def on_rename(session_id: str, new_name: str) -> bool:
+                return await self._rename_session(session_id, new_name)
+
+            self.push_screen(SessionSelectModal(sessions, current_id, on_rename), on_selected)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to list sessions: {e}", level="ERROR")
+
+    async def _rename_session(self, session_id: str, new_name: str) -> bool:
+        chat = self._maybe_chat()
+        async with self._rename_session_lock:
+            try:
+                await self.executor.rename_session(session_id, new_name)
+                self._renamed_sessions.add(session_id)
+                if chat:
+                    chat.add_system_message(f"Session renamed to: {new_name}")
+                await self._refresh_context_panel()
+                return True
+            except Exception as e:
+                if chat:
+                    chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
+                return False
+
+    async def _create_session_from_menu(self) -> None:
+        from brokk_code.session_persistence import save_last_session_id
+
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            chat.add_system_message("Creating new session...")
+            session_id = await self.executor.create_session()
+            save_last_session_id(self.executor.workspace_dir, session_id)
+
+            chat._message_history.clear()
+            log = chat.query_one("#chat-log")
+            await log.query("*").remove()
+
+            await self._refresh_context_panel()
+            chat.add_system_message(f"Created and switched to session {session_id}.")
+        except Exception as e:
+            chat.add_system_message(f"Failed to create session: {e}", level="ERROR")
+
+    async def _rename_session_workflow(
+        self, session_id: str, sessions: List[Dict[str, Any]]
+    ) -> None:
+        initial_name = ""
+        for s in sessions:
+            if str(s.get("id")) == session_id:
+                initial_name = s.get("name") or ""
+                break
+
+        def on_rename_submitted(new_name: Optional[str]) -> None:
+            if not new_name or not new_name.strip():
+                return
+
+            async def do_rename():
+                await self._rename_session(session_id, new_name.strip())
+
+            self.run_worker(do_rename())
+
+        self.push_screen(
+            TaskTitleModalScreen("Rename Session", initial=initial_name), on_rename_submitted
+        )
+
+    async def _delete_session_workflow(self, session_id: str) -> None:
+        chat = self._maybe_chat()
+        try:
+            await self.executor.delete_session(session_id)
+            if chat:
+                chat.add_system_message(f"Deleted session {session_id}")
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to delete session: {e}", level="ERROR")
+
+    async def _switch_to_session(self, session_id: str) -> None:
+        from brokk_code.session_persistence import save_last_session_id
+
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            chat.add_system_message(f"Switching to session {session_id}...")
+            await self.executor.switch_session(session_id)
+            save_last_session_id(self.executor.workspace_dir, session_id)
+
+            # Clear UI and history
+            chat._message_history.clear()
+            # Clear log container (the ScrollableContainer containing message widgets)
+            log = chat.query_one("#chat-log")
+            await log.query("*").remove()
+
+            # Replay
+            conversation_data = await self.executor.get_conversation()
+            self._replay_conversation_entries(conversation_data)
+
+            # Refresh
+            await self._refresh_context_panel()
+            chat.add_system_message(f"Successfully switched to session {session_id}.")
+        except Exception as e:
+            logger.exception("Failed to switch session")
+            chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""
