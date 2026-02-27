@@ -323,9 +323,7 @@ public final class JobRunner {
         console = new HeadlessHttpConsole(store, jobId, delta -> {
             try {
                 var sessionId = cm.getCurrentSessionId();
-                if (sessionId != null) {
-                    cm.getProject().getSessionManager().addToTotalCost(sessionId, delta);
-                }
+                cm.getProject().getSessionManager().addToTotalCost(sessionId, delta);
             } catch (Exception e) {
                 logger.warn("Failed to record cost delta for job {}: {}", jobId, e.getMessage());
             }

@@ -153,14 +153,12 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
 
             double totalCost = 0.0;
             var sessionId = contextManager.getCurrentSessionId();
-            if (sessionId != null) {
-                var sessionManager = contextManager.getProject().getSessionManager();
-                var maybeSessionInfo = sessionManager.listSessions().stream()
-                        .filter(s -> s.id().equals(sessionId))
-                        .findFirst();
-                if (maybeSessionInfo.isPresent() && maybeSessionInfo.get().totalCost() != null) {
-                    totalCost = maybeSessionInfo.get().totalCost();
-                }
+            var sessionManager = contextManager.getProject().getSessionManager();
+            var maybeSessionInfo = sessionManager.listSessions().stream()
+                    .filter(s -> s.id().equals(sessionId))
+                    .findFirst();
+            if (maybeSessionInfo.isPresent() && maybeSessionInfo.get().totalCost() != null) {
+                totalCost = maybeSessionInfo.get().totalCost();
             }
 
             int maxTokens = 200_000;
