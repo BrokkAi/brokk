@@ -202,3 +202,34 @@ async def test_show_sessions_delete_flow(tmp_path):
             found_delete = True
             break
     assert found_delete
+
+
+@pytest.mark.asyncio
+async def test_show_sessions_new_flow(tmp_path):
+    """Verify _show_sessions routes new signal to create-session workflow."""
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app._executor_ready = True
+
+    sessions_data = {
+        "sessions": [{"id": "s1", "name": "S1"}],
+        "currentSessionId": "s1",
+    }
+    app.executor.list_sessions = AsyncMock(return_value=sessions_data)
+    app.push_screen = MagicMock()
+    app.run_worker = MagicMock()
+
+    await app._show_sessions()
+    callback = app.push_screen.call_args[0][1]
+
+    # Simulate new-session signal
+    callback("new")
+
+    # Verify create-session workflow helper was called via run_worker
+    found_new = False
+    for call in app.run_worker.call_args_list:
+        coro = call[0][0]
+        if "create_session_from_menu" in str(coro):
+            found_new = True
+            break
+    assert found_new
