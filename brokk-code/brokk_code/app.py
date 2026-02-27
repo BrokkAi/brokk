@@ -855,6 +855,16 @@ class BrokkApp(App):
                 context_data = await self.executor.get_context()
                 self.current_branch = context_data.get("branch", "unknown")
 
+                # Seed or update session cost from executor's cumulative total
+                remote_total = context_data.get("totalCost")
+                if isinstance(remote_total, (int, float)):
+                    # We only seed from remote if our local tracker is 0 or if the remote
+                    # total is higher (e.g. following a resume).
+                    # Ongoing increments happen via _handle_event.
+                    self.session_total_cost = max(
+                        self.session_total_cost, round(float(remote_total), 6)
+                    )
+
                 # UI updates are best-effort if screen is not on stack
                 try:
                     if isinstance(self.screen, ContextModalScreen):
@@ -1550,7 +1560,6 @@ class BrokkApp(App):
             if is_cost and isinstance(cost, (int, float)):
                 increment = float(cost)
                 # Use rounding to avoid floating point precision artifacts
-                # (e.g. 0.1 + 0.05 = 0.15000000000000002)
                 # LLM costs often go to 4+ decimal places.
                 self.current_job_cost = round(self.current_job_cost + increment, 6)
                 self.session_total_cost = round(self.session_total_cost + increment, 6)
