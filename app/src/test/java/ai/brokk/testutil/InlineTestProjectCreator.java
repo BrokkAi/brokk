@@ -35,6 +35,8 @@ public class InlineTestProjectCreator {
     private interface ProjectContentStrategy {
         void populate(Path root) throws IOException;
 
+        Set<Language> detectLanguages();
+
         List<String> getFilesForInitialCommit();
     }
 
@@ -43,6 +45,21 @@ public class InlineTestProjectCreator {
 
         public void addFileContents(String contents, String filename) {
             entries.add(new FileContents(filename, contents));
+        }
+
+        @Override
+        public Set<Language> detectLanguages() {
+            Set<Language> detected = new LinkedHashSet<>();
+            for (var entry : entries) {
+                String filename = Path.of(entry.relPath).getFileName().toString();
+                int dot = filename.lastIndexOf('.');
+                String ext = dot != -1 ? filename.substring(dot + 1) : "";
+                Language lang = Languages.fromExtension(ext);
+                if (lang != Languages.NONE) {
+                    detected.add(lang);
+                }
+            }
+            return detected;
         }
 
         @Override
@@ -69,6 +86,11 @@ public class InlineTestProjectCreator {
 
         public ZipContentStrategy(Path zipPath) {
             this.zipPath = zipPath;
+        }
+
+        @Override
+        public Set<Language> detectLanguages() {
+            return Set.of();
         }
 
         @Override
@@ -115,6 +137,11 @@ public class InlineTestProjectCreator {
 
         public void setDepth(int depth) {
             this.depth = depth;
+        }
+
+        @Override
+        public Set<Language> detectLanguages() {
+            return Set.of();
         }
 
         @Override
@@ -262,7 +289,8 @@ public class InlineTestProjectCreator {
             }
 
             // Ensure languages are set before getting analyzer
-            Set<Language> detected = scanLanguages(newTemporaryDirectory);
+            Set<Language> detected = new LinkedHashSet<>(strategy.detectLanguages());
+            detected.addAll(scanLanguages(newTemporaryDirectory));
             detected.remove(Languages.NONE);
 
             if (!detected.isEmpty()) {
@@ -298,13 +326,10 @@ public class InlineTestProjectCreator {
 
                             // Then by extension
                             int dot = filename.lastIndexOf('.');
-                            if (dot >= 0 && dot < filename.length() - 1) {
-                                String ext = filename.substring(dot + 1);
-                                for (Language lang : Languages.ALL_LANGUAGES) {
-                                    if (lang.getExtensions().contains(ext)) {
-                                        detected.add(lang);
-                                    }
-                                }
+                            String ext = (dot >= 0 && dot < filename.length() - 1) ? filename.substring(dot + 1) : "";
+                            Language lang = Languages.fromExtension(ext);
+                            if (lang != Languages.NONE) {
+                                detected.add(lang);
                             }
                         });
             }
