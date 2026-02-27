@@ -887,9 +887,24 @@ public class ContextAgent {
         var deepPromptTemplate =
                 """
                 You are an assistant that identifies relevant code context based on a goal and the existing relevant information.
-                You are given a goal, the current workspace contents (if any), and a list of files, each with either a summary of its classes or its full content.
+                You are given a goal, the current workspace contents (if any), and an <available_files> list.
 
-                Analyze the provided information and determine which items are most relevant to achieving the goal.
+                Interpreting <available_files>:
+                - Analyzed source files are represented as symbol/class summaries (APIs/skeletons), not full file text.
+                - Unanalyzed files may be represented as:
+                  - Full text (for small files), or
+                  - Truncated/excerpted text (for large files).
+
+                Truncated file entries:
+                - A truncated file is indicated by: <file ... truncated="true" total_lines="..." top_shown="..." bottom_shown="...">.
+                  - total_lines: the total number of lines in the original file.
+                  - top_shown: how many lines from the beginning of the file are included in the excerpt.
+                  - bottom_shown: how many lines from the end of the file are included in the excerpt.
+                - Truncated file text includes an omission marker line like:
+                  ----- BRK_OMITTED N LINES -----
+                  which means N lines from the middle of the file were omitted between the shown top/bottom sections.
+
+                Use the available information to determine which items are most relevant to achieving the goal.
                 """;
 
         var finalSystemMessage = new SystemMessage(deepPromptTemplate);
@@ -929,7 +944,8 @@ public class ContextAgent {
                 Selection rubric (important):
                 - Prefer `classesToSummarize` when you need navigational context (APIs, types, call sites) and are not confident the file will be edited.
                 - Prefer `testsToAdd` for tests/specs that clarify intended behavior or will likely need updating to verify the goal.
-                - Use `filesToAdd` only for files you expect to edit or where exact implementation details are required.
+                - Use `filesToAdd` for files you expect to edit or where exact implementation details are required.
+                - If a file entry is truncated/excerpted (truncated="true" and/or contains BRK_OMITTED) and you need details that might be in the omitted portion to decide or to implement the goal correctly, you SHOULD still recommend that file in `filesToAdd`.
 
                 Then call the `recommendContext` tool with the appropriate entries:
 
