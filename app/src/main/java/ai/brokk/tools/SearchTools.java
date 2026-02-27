@@ -1414,7 +1414,7 @@ public class SearchTools {
                 .parallel()
                 .filter(file -> file.getParent().equals(normalizedDirectoryPath))
                 .sorted()
-                .map(pf -> toUnixPath(pf.toString()))
+                .map(ProjectFile::toString)
                 .collect(Collectors.joining(", "));
 
         var subDirs = allFiles.stream()

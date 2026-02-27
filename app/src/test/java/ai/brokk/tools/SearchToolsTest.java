@@ -622,7 +622,7 @@ public class SearchToolsTest {
         // Test with a specific subdirectory
         Path srcPath = Path.of("src");
         String srcResult = SearchTools.formatFilesInDirectory(files, srcPath, "src");
-        assertTrue(srcResult.contains("src/Main.java"), "Should list files in src");
+        assertTrue(srcResult.contains(Path.of("src", "Main.java").toString()), "Should list files in src");
         assertTrue(srcResult.contains("Subdirectories: util/"), "Should list subdirectories in src");
         assertFalse(srcResult.contains("README.md"), "Should not list files outside src");
     }
