@@ -889,6 +889,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
 
             // Convert view index to model index when sorter is active
+            if (languagesTableModel == null) return;
             int modelRow = table.convertRowIndexToModel(sel);
             var lang = languagesTableModel.rows.get(modelRow);
 
