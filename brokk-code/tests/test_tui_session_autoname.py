@@ -1,6 +1,8 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
+
 from brokk_code.app import BrokkApp
 
 
