@@ -57,9 +57,9 @@ class BuildAgentTest {
                 null,
                 "",
                 List.of(
-                        new BuildAgent.ModuleBuildEntry("root", "", "mvn compile -root", "mvn test -root", ""),
-                        new BuildAgent.ModuleBuildEntry("a", "a", "mvn compile -a", "mvn test -a", ""),
-                        new BuildAgent.ModuleBuildEntry("ab", "a/b", "mvn compile -ab", "mvn test -ab", "")));
+                        new BuildAgent.ModuleBuildEntry("root", "", "mvn compile -root", "mvn test -root", "", "JAVA"),
+                        new BuildAgent.ModuleBuildEntry("a", "a", "mvn compile -a", "mvn test -a", "", "JAVA"),
+                        new BuildAgent.ModuleBuildEntry("ab", "a/b", "mvn compile -ab", "mvn test -ab", "", "JAVA")));
 
         // File is in a/b/c/File.java, which matches root (""), a ("a"), and ab ("a/b").
         // "a/b" is the longest match.
@@ -82,7 +82,8 @@ class BuildAgentTest {
                 Map.of(),
                 null,
                 "",
-                List.of(new BuildAgent.ModuleBuildEntry("mod", "mod", "mvn compile -pl mod", "mvn test -pl mod", "")));
+                List.of(new BuildAgent.ModuleBuildEntry(
+                        "mod", "mod", "mvn compile -pl mod", "mvn test -pl mod", "", "JAVA")));
 
         var testFile = new ai.brokk.analyzer.ProjectFile(tempDir, "mod/src/Test.java");
         String cmd = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(testFile));
@@ -900,8 +901,8 @@ class BuildAgentTest {
                 null,
                 "",
                 List.of(
-                        new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1"),
-                        new BuildAgent.ModuleBuildEntry("m2", "mod2", "lint2", "test2", "some2")));
+                        new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1", ""),
+                        new BuildAgent.ModuleBuildEntry("m2", "mod2", "lint2", "test2", "some2", "")));
         project.setBuildDetails(details);
 
         var cm = new TestContextManager(project);
@@ -926,8 +927,8 @@ class BuildAgentTest {
                 null,
                 "",
                 List.of(
-                        new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1"),
-                        new BuildAgent.ModuleBuildEntry("m2", "mod2", "lint2", "test2", "some2")));
+                        new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1", ""),
+                        new BuildAgent.ModuleBuildEntry("m2", "mod2", "lint2", "test2", "some2", "")));
         project.setBuildDetails(details);
 
         var cm = new TestContextManager(project);
@@ -957,7 +958,7 @@ class BuildAgentTest {
                 Map.of(),
                 null,
                 "",
-                List.of(new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1")));
+                List.of(new BuildAgent.ModuleBuildEntry("m1", "mod1", "lint1", "test1", "some1", "")));
         project.setBuildDetails(details);
 
         var cm = new TestContextManager(project);

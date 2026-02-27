@@ -1500,7 +1500,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void addModule() {
-        var entry = new BuildAgent.ModuleBuildEntry("", "", "", "", "");
+        var entry = new BuildAgent.ModuleBuildEntry("", "", "", "", "", "");
         var dialog = new ModuleEditDialog(parentDialog, entry);
         dialog.setVisible(true);
         if (dialog.isSaved()) {
@@ -1703,7 +1703,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                     pathField.getText().trim(),
                     buildCmdField.getText().trim(),
                     testAllField.getText().trim(),
-                    testSomeField.getText().trim());
+                    testSomeField.getText().trim(),
+                    ""); // Language field can be added to UI in a future task if needed
         }
     }
 }

@@ -827,7 +827,17 @@ public class BuildAgent {
             String relativePath,
             String buildLintCommand,
             String testAllCommand,
-            String testSomeCommand) {}
+            String testSomeCommand,
+            @JsonSetter(nulls = Nulls.AS_EMPTY) String language) {
+        public ModuleBuildEntry(
+                String alias,
+                String relativePath,
+                String buildLintCommand,
+                String testAllCommand,
+                String testSomeCommand) {
+            this(alias, relativePath, buildLintCommand, testAllCommand, testSomeCommand, "");
+        }
+    }
 
     /** Holds semi-structured information about a project's build process */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -965,10 +975,21 @@ public class BuildAgent {
                             "",
                             buildLintCommand != null ? buildLintCommand : "",
                             testAllCommand != null ? testAllCommand : "",
-                            testSomeCommand != null ? testSomeCommand : ""));
+                            testSomeCommand != null ? testSomeCommand : "",
+                            ""));
                 }
             } else {
-                finalModules = modules;
+                finalModules = modules.stream()
+                        .map(m -> m.language() == null
+                                ? new ModuleBuildEntry(
+                                        m.alias(),
+                                        m.relativePath(),
+                                        m.buildLintCommand(),
+                                        m.testAllCommand(),
+                                        m.testSomeCommand(),
+                                        "")
+                                : m)
+                        .toList();
             }
 
             return new BuildDetails(
