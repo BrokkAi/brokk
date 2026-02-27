@@ -1,6 +1,7 @@
 package ai.brokk.tools;
 
 import static ai.brokk.project.FileFilteringService.toUnixPath;
+import static ai.brokk.util.Lines.truncateLine;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
@@ -23,15 +24,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -44,8 +46,10 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -72,12 +76,17 @@ import org.w3c.dom.NodeList;
  */
 public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
-    private static final Pattern LINE_SPLIT = Pattern.compile("\\r?\\n");
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
     private static final int FILE_SEARCH_LIMIT = 200;
-    private static final int SUBFILE_SEARCH_LIMIT = 100;
     private static final int CLASS_COUNT_LIMIT = 10;
+
+    private static final int SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT = 50;
+    private static final int SEARCH_FILE_CONTENTS_MATCHES_PER_FILE_DEFAULT = 10;
+    private static final int SEARCH_FILE_CONTENTS_MAX_CONTEXT_LINES = 50;
+
+    private static final int SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES = 500;
+    private static final int SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE = 500;
 
     private static final int SEARCH_TOOLS_PARALLELISM =
             max(2, Runtime.getRuntime().availableProcessors());
@@ -959,12 +968,18 @@ public class SearchTools {
             """
             Searches for a regex pattern within file contents across files matching a glob pattern.
             Provides grep-like output with line numbers and optional context lines.
+
+            Notes:
+            - This tool enforces a global limit of 500 total matching lines across all returned files.
+            - If maxFiles * matchesPerFile is greater than 500, results may be truncated early.
+            - matchesPerFile is the per-file hit count (matching lines), not the number of printed lines (context lines do not count).
             """)
     public String searchFileContents(
             @P("Java-style regex pattern to search for.") String pattern,
             @P("Glob pattern for file paths (e.g., '**/AGENTS.md', 'src/**/*.java').") String filepath,
-            @P("Number of context lines to show around each match (0-5).") int contextLines,
-            @P("Maximum number of files to return results for (capped at 100).") int limit)
+            @P("Number of context lines to show around each match (0-50).") int contextLines,
+            @P("Maximum number of files to return results for. Capped at 500. Default: 50.") int maxFiles,
+            @P("Maximum number of matching lines (hits) per file. Capped at 500. Default: 10.") int matchesPerFile)
             throws InterruptedException {
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
@@ -988,121 +1003,278 @@ public class SearchTools {
             return "No text files found matching: " + filepath;
         }
 
-        int clampedContext = max(0, min(contextLines, 5));
-        int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
+        int clampedContext = max(0, min(contextLines, SEARCH_FILE_CONTENTS_MAX_CONTEXT_LINES));
 
-        final List<Pattern> compiledPatterns;
+        int effectiveMaxFiles = max(
+                1,
+                min(
+                        maxFiles <= 0 ? SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT : maxFiles,
+                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+
+        int effectiveMatchesPerFile = max(
+                1,
+                min(
+                        matchesPerFile <= 0 ? SEARCH_FILE_CONTENTS_MATCHES_PER_FILE_DEFAULT : matchesPerFile,
+                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+
+        final Pattern compiledPattern;
         try {
-            compiledPatterns = compilePatterns(List.of(pattern));
+            var compiledPatterns = compilePatterns(List.of(pattern));
+            if (compiledPatterns.isEmpty()) {
+                return "No valid patterns provided";
+            }
+            compiledPattern = compiledPatterns.getFirst();
         } catch (IllegalArgumentException e) {
             return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
 
-        if (compiledPatterns.isEmpty()) {
-            return "No valid patterns provided";
-        }
-
-        var lineSplitter = Splitter.on(LINE_SPLIT);
-
         int batchSize = 2 * FILE_SEARCH_LIMIT;
 
-        final List<String> fileResults;
-        final boolean truncated;
+        record IndexedResult(int index, ProjectFile file, @Nullable String output, int matches) {}
+
+        List<String> fileBlocks = new ArrayList<>();
+        int totalMatches = 0;
+
+        boolean truncatedByMaxFiles = false;
+        boolean truncatedByTotalMatches = false;
+
         try {
-            List<String> results = new ArrayList<>();
-            boolean hasOverflow = false;
-
-            // Collect up to effectiveLimit + 1 so we can distinguish "exactly limit" from "more than limit"
-            int collectLimit = effectiveLimit + 1;
-
+            outer:
             for (int start = 0; start < files.size(); start += batchSize) {
                 if (Thread.interrupted()) {
                     throw new InterruptedException("Interrupted between file content search batches");
                 }
-                var batch = files.subList(start, min(start + batchSize, files.size()));
 
-                record IndexedResult(int index, @Nullable String result) {}
-                List<@Nullable String> batchResults =
-                        runInSearchToolsPool(() -> java.util.stream.IntStream.range(0, batch.size())
-                                .parallel()
-                                .mapToObj(idx -> {
-                                    var file = batch.get(idx);
-                                    var contentOpt = file.read();
-                                    if (contentOpt.isEmpty()) return new IndexedResult(idx, null);
-
-                                    List<String> lines = lineSplitter.splitToList(contentOpt.get());
-                                    List<Integer> matchLines = new ArrayList<>();
-
-                                    for (int i = 0; i < lines.size(); i++) {
-                                        for (var p : compiledPatterns) {
-                                            if (p.matcher(lines.get(i)).find()) {
-                                                matchLines.add(i);
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if (matchLines.isEmpty()) return new IndexedResult(idx, null);
-
-                                    String filePath = file.toString().replace('\\', '/');
-                                    List<String> outLines = new ArrayList<>();
-                                    outLines.add(filePath);
-
-                                    Set<Integer> printed = new HashSet<>();
-                                    for (int matchIdx : matchLines) {
-                                        int blockStart = max(0, matchIdx - clampedContext);
-                                        int blockEnd = min(lines.size() - 1, matchIdx + clampedContext);
-
-                                        for (int i = blockStart; i <= blockEnd; i++) {
-                                            if (printed.add(i)) {
-                                                outLines.add("%d: %s".formatted(i + 1, lines.get(i)));
-                                            }
-                                        }
-                                    }
-
-                                    return new IndexedResult(idx, String.join("\n", outLines) + "\n");
-                                })
-                                .sorted(java.util.Comparator.comparingInt(IndexedResult::index))
-                                .map(IndexedResult::result)
-                                .toList());
-
-                for (var res : batchResults) {
-                    if (res == null) continue;
-
-                    results.add(res);
-                    if (results.size() >= collectLimit) {
-                        hasOverflow = true;
-                        break;
-                    }
-                }
-
-                if (hasOverflow) {
+                if (fileBlocks.size() >= effectiveMaxFiles) {
+                    truncatedByMaxFiles = true;
                     break;
                 }
-            }
+                if (totalMatches >= SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES) {
+                    truncatedByTotalMatches = true;
+                    break;
+                }
 
-            truncated = results.size() > effectiveLimit;
-            // Drop the sentinel extra result if present
-            if (truncated) {
-                results.remove(results.size() - 1);
+                var batch = files.subList(start, min(start + batchSize, files.size()));
+
+                List<IndexedResult> batchResults = runInSearchToolsPool(() -> IntStream.range(0, batch.size())
+                        .parallel()
+                        .mapToObj(idx -> {
+                            var file = batch.get(idx);
+                            var result = searchFileContentsInFile(
+                                    file, compiledPattern, clampedContext, effectiveMatchesPerFile);
+                            if (result == null) {
+                                return new IndexedResult(idx, file, null, 0);
+                            }
+                            return new IndexedResult(idx, file, result.output(), result.matches());
+                        })
+                        .sorted(Comparator.comparingInt(IndexedResult::index))
+                        .toList());
+
+                for (var res : batchResults) {
+                    if (res.output() == null) {
+                        continue;
+                    }
+                    if (fileBlocks.size() >= effectiveMaxFiles) {
+                        truncatedByMaxFiles = true;
+                        break outer;
+                    }
+                    if (totalMatches >= SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES) {
+                        truncatedByTotalMatches = true;
+                        break outer;
+                    }
+
+                    int remaining = SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES - totalMatches;
+                    if (res.matches() <= remaining) {
+                        fileBlocks.add(res.output());
+                        totalMatches += res.matches();
+                        continue;
+                    }
+
+                    int matchesToTake = remaining;
+                    if (matchesToTake > 0) {
+                        var recomputed =
+                                searchFileContentsInFile(res.file(), compiledPattern, clampedContext, matchesToTake);
+                        if (recomputed != null) {
+                            fileBlocks.add(recomputed.output());
+                            totalMatches += recomputed.matches();
+                        }
+                    }
+
+                    truncatedByTotalMatches = true;
+                    break outer;
+                }
             }
-            fileResults = results;
         } catch (RuntimeException e) {
             logger.error("Error searching file contents for '{}' in '{}'", pattern, filepath, e);
             return "Error searching file contents: " + (e.getMessage() == null ? e.toString() : e.getMessage());
         }
 
-        if (fileResults.isEmpty()) {
+        if (fileBlocks.isEmpty()) {
             return "No matches found for pattern '" + pattern + "' in files matching '" + filepath + "'";
         }
-        String output = String.join("\n", fileResults).trim();
-        if (truncated) {
-            output = "### WARNING: Result limit reached (max " + effectiveLimit + " files with context). Showing first "
-                    + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n"
-                    + output;
+
+        var suffixLines = new ArrayList<String>(2);
+        if (truncatedByTotalMatches) {
+            suffixLines.add("TRUNCATED: reached global limit of %d total matches"
+                    .formatted(SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES));
+        }
+        if (truncatedByMaxFiles) {
+            suffixLines.add("TRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles));
+        }
+
+        String output = String.join("\n\n", fileBlocks);
+        if (!suffixLines.isEmpty()) {
+            output += "\n\n" + String.join("\n", suffixLines);
         }
 
         return recordResearchTokens(output);
+    }
+
+    private record FileContentSearchResult(String output, int matches) {}
+
+    private record LineRef(int lineNo, int startInclusive, int endExclusive) {}
+
+    private static final class SearchState {
+        final String content;
+        final String filePath;
+        final int contextLines;
+        final int maxMatchesToTake;
+        final ArrayDeque<LineRef> prev;
+        final List<String> outLines = new ArrayList<>();
+        int forwardRemaining = 0;
+        int lastPrintedLine = 0;
+        int matchesTaken = 0;
+        boolean hasAnyOutput = false;
+
+        SearchState(String content, String filePath, int contextLines, int maxMatchesToTake) {
+            this.content = content;
+            this.filePath = filePath;
+            this.contextLines = contextLines;
+            this.maxMatchesToTake = maxMatchesToTake;
+            this.prev = new ArrayDeque<>();
+        }
+    }
+
+    @Nullable
+    private static FileContentSearchResult searchFileContentsInFile(
+            ProjectFile file, Pattern pattern, int contextLines, int maxMatchesToTake) {
+        var contentOpt = file.read();
+        if (contentOpt.isEmpty()) {
+            return null;
+        }
+
+        String content = contentOpt.get();
+        if (content.isEmpty()) {
+            return null;
+        }
+
+        SearchState state =
+                new SearchState(content, file.toString().replace('\\', '/'), contextLines, maxMatchesToTake);
+        var matcher = pattern.matcher(content);
+
+        int length = content.length();
+        int lineNo = 1;
+        int lineStart = 0;
+
+        int i = 0;
+        while (i < length) {
+            char c = content.charAt(i);
+            if (c != '\n' && c != '\r') {
+                i++;
+                continue;
+            }
+
+            int lineEnd = i;
+            int next = i + 1;
+            if (c == '\r' && next < length && content.charAt(next) == '\n') {
+                next++;
+            }
+
+            processLine(state, matcher, lineNo, lineStart, lineEnd);
+
+            if (state.matchesTaken >= maxMatchesToTake && state.forwardRemaining == 0) {
+                if (next < length) {
+                    return finalizeSearchResult(state);
+                }
+            }
+
+            lineNo++;
+            lineStart = next;
+            i = next;
+        }
+
+        if (lineStart < length) {
+            processLine(state, matcher, lineNo, lineStart, length);
+        }
+
+        return finalizeSearchResult(state);
+    }
+
+    private static void processLine(SearchState state, Matcher matcher, int lineNo, int start, int end) {
+        boolean isMatch = false;
+        if (state.matchesTaken < state.maxMatchesToTake) {
+            matcher.region(start, end);
+            isMatch = matcher.find();
+            if (isMatch) {
+                state.matchesTaken++;
+            }
+        }
+
+        if (isMatch) {
+            state.hasAnyOutput = true;
+
+            for (var ref : state.prev) {
+                if (ref.lineNo() > state.lastPrintedLine) {
+                    state.outLines.add("%d: %s"
+                            .formatted(
+                                    ref.lineNo(),
+                                    truncateLine(state.content, ref.startInclusive(), ref.endExclusive())));
+                    state.lastPrintedLine = ref.lineNo();
+                }
+            }
+
+            if (lineNo > state.lastPrintedLine) {
+                state.outLines.add("%d: %s".formatted(lineNo, truncateLine(state.content, start, end)));
+                state.lastPrintedLine = lineNo;
+            }
+
+            state.forwardRemaining = max(state.forwardRemaining, state.contextLines);
+        } else if (state.forwardRemaining > 0) {
+            state.hasAnyOutput = true;
+
+            if (lineNo > state.lastPrintedLine) {
+                state.outLines.add("%d: %s".formatted(lineNo, truncateLine(state.content, start, end)));
+                state.lastPrintedLine = lineNo;
+            }
+            state.forwardRemaining--;
+        }
+
+        if (state.contextLines > 0) {
+            state.prev.addLast(new LineRef(lineNo, start, end));
+            while (state.prev.size() > state.contextLines) {
+                state.prev.removeFirst();
+            }
+        }
+    }
+
+    @Nullable
+    private static FileContentSearchResult finalizeSearchResult(SearchState state) {
+        if (!state.hasAnyOutput) {
+            return null;
+        }
+
+        boolean hitLimit = state.matchesTaken >= state.maxMatchesToTake;
+        String matchCountLabel = hitLimit
+                ? "first %d matches".formatted(state.matchesTaken)
+                : "%d %s".formatted(state.matchesTaken, state.matchesTaken == 1 ? "match" : "matches");
+
+        String header = "%s [%s]".formatted(state.filePath, matchCountLabel);
+
+        List<String> resultLines = new ArrayList<>(state.outLines.size() + 1);
+        resultLines.add(header);
+        resultLines.addAll(state.outLines);
+
+        return new FileContentSearchResult(String.join("\n", resultLines), state.matchesTaken);
     }
 
     @Tool(

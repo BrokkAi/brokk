@@ -207,7 +207,7 @@ public final class Lines {
         return String.join("\n", lines);
     }
 
-    private static String truncateLine(String content, int startInclusive, int endExclusive) {
+    public static String truncateLine(String content, int startInclusive, int endExclusive) {
         int len = endExclusive - startInclusive;
         if (len <= MAX_CHARS_PER_LINE) {
             return content.substring(startInclusive, endExclusive);

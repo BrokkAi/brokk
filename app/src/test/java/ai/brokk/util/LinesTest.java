@@ -38,12 +38,10 @@ class LinesTest {
 
     @Test
     void rangeRejectsInvalidBounds() {
-        IllegalArgumentException lowStart =
-                assertThrows(IllegalArgumentException.class, () -> Lines.range("x", 0, 1));
+        IllegalArgumentException lowStart = assertThrows(IllegalArgumentException.class, () -> Lines.range("x", 0, 1));
         assertEquals("oneBasedStartInclusive must be >= 1", lowStart.getMessage());
 
-        IllegalArgumentException reversed =
-                assertThrows(IllegalArgumentException.class, () -> Lines.range("x", 2, 1));
+        IllegalArgumentException reversed = assertThrows(IllegalArgumentException.class, () -> Lines.range("x", 2, 1));
         assertEquals("oneBasedEndInclusive must be >= oneBasedStartInclusive", reversed.getMessage());
     }
 }

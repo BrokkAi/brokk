@@ -452,9 +452,9 @@ public class SearchToolsTest {
         Files.writeString(txt, "line1\nline2 MATCH\nline3\nline4");
         mockProjectFiles.add(new ProjectFile(projectRoot, "grep_test.txt"));
 
-        String result = searchTools.searchFileContents("MATCH", "**/grep_test.txt", 1, 200);
+        String result = searchTools.searchFileContents("MATCH", "**/grep_test.txt", 1, 200, 200);
 
-        assertTrue(result.contains("grep_test.txt"));
+        assertTrue(result.contains("grep_test.txt [1 match]"));
         assertTrue(result.contains("1: line1"));
         assertTrue(result.contains("2: line2 MATCH"));
         assertTrue(result.contains("3: line3"));
@@ -464,7 +464,7 @@ public class SearchToolsTest {
     @Test
     void testSearchFileContents_invalidRegexThrows() throws Exception {
         // "[[" is invalid regex, should return error message
-        String result = searchTools.searchFileContents("[[", "README.md", 0, 200);
+        String result = searchTools.searchFileContents("[[", "README.md", 0, 200, 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
@@ -516,7 +516,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "root.txt"));
 
         // Verify that **/root.txt matches a file at the project root via the retry logic
-        String result = searchTools.searchFileContents("found", "**/root.txt", 0, 200);
+        String result = searchTools.searchFileContents("found", "**/root.txt", 0, 200, 200);
         assertTrue(result.contains("root.txt"), "Should find file at root even with **/ prefix");
     }
 
@@ -580,7 +580,7 @@ public class SearchToolsTest {
         // Match 1 (idx 1) -> lines 0, 1, 2
         // Match 2 (idx 3) -> lines 2, 3, 4
         // De-duped output should show L1, L2, L3, L4, L5 exactly once.
-        String result = searchTools.searchFileContents("MATCH", "context_test.txt", 1, 200);
+        String result = searchTools.searchFileContents("MATCH", "context_test.txt", 1, 200, 200);
 
         assertTrue(result.contains("1: L1"));
         assertTrue(result.contains("2: L2 MATCH"));
@@ -594,8 +594,98 @@ public class SearchToolsTest {
 
         // Verify clamping: contextLines=999 should be clamped to 50
         // Our file is small, so it should just show everything.
-        String resultsCapped = searchTools.searchFileContents("MATCH", "context_test.txt", 999, 200);
+        String resultsCapped = searchTools.searchFileContents("MATCH", "context_test.txt", 999, 200, 200);
         assertTrue(resultsCapped.contains("7: L7"));
+    }
+
+    @Test
+    void testSearchFileContents_MatchesPerFileIsHitCount() throws Exception {
+        Path txt = projectRoot.resolve("matches_per_file_test.txt");
+        String content = java.util.stream.IntStream.rangeClosed(1, 20)
+                .mapToObj(i -> "MATCH " + i)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        Files.writeString(txt, content);
+        mockProjectFiles.add(new ProjectFile(projectRoot, "matches_per_file_test.txt"));
+
+        String result = searchTools.searchFileContents("MATCH", "matches_per_file_test.txt", 0, 200, 10);
+
+        assertTrue(result.contains("matches_per_file_test.txt [first 10 matches]"));
+        assertTrue(result.contains("10: MATCH 10"));
+        assertFalse(result.contains("11: MATCH 11"));
+    }
+
+    @Test
+    void testSearchFileContents_GlobalMatchBudget500() throws Exception {
+        Path f1 = projectRoot.resolve("budget1.txt");
+        Path f2 = projectRoot.resolve("budget2.txt");
+
+        Files.writeString(
+                f1,
+                java.util.stream.IntStream.rangeClosed(1, 100)
+                        .mapToObj(i -> "MATCH " + i)
+                        .collect(java.util.stream.Collectors.joining("\n")));
+        Files.writeString(
+                f2,
+                java.util.stream.IntStream.rangeClosed(1, 600)
+                        .mapToObj(i -> "MATCH " + i)
+                        .collect(java.util.stream.Collectors.joining("\n")));
+
+        mockProjectFiles.add(new ProjectFile(projectRoot, "budget1.txt"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "budget2.txt"));
+
+        String result = searchTools.searchFileContents("MATCH", "budget*.txt", 0, 999, 999);
+
+        assertTrue(result.contains("budget1.txt"));
+        assertTrue(result.contains("100: MATCH 100"));
+
+        assertTrue(result.contains("budget2.txt"));
+        assertTrue(result.contains("400: MATCH 400"));
+        assertFalse(result.contains("401: MATCH 401"));
+    }
+
+    @Test
+    void testSearchFileContents_NoSpuriousTruncationOnExactMatchLimit() throws Exception {
+        Path txt = projectRoot.resolve("exact_limit.txt");
+        // Exactly 3 lines, all matching.
+        Files.writeString(txt, "MATCH 1\nMATCH 2\nMATCH 3");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "exact_limit.txt"));
+
+        // Ask for exactly 3 matches.
+        String result = searchTools.searchFileContents("MATCH", "exact_limit.txt", 0, 10, 3);
+
+        assertTrue(result.contains("exact_limit.txt [first 3 matches]"), "Should show hit limit in header");
+        assertTrue(result.contains("3: MATCH 3"), "Should contain the last match");
+        assertFalse(
+                result.contains("TRUNCATED: reached matchesPerFile"),
+                "Should NOT contain the old-style truncation message line");
+    }
+
+    @Test
+    void testSearchFileContents_NoSpuriousTrailingEmptyLine() throws Exception {
+        Path txt = projectRoot.resolve("trailing_newline.txt");
+        // File ends with a newline. With 1 context line, we should NOT see a "4: " line.
+        Files.writeString(txt, "L1\nL2 MATCH\nL3\n");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "trailing_newline.txt"));
+
+        String result = searchTools.searchFileContents("MATCH", "trailing_newline.txt", 1, 10, 10);
+
+        assertTrue(result.contains("1: L1"), "Should include context above");
+        assertTrue(result.contains("2: L2 MATCH"), "Should include match");
+        assertTrue(result.contains("3: L3"), "Should include context below");
+        assertFalse(result.contains("4: "), "Should NOT include a spurious 4th line due to trailing newline");
+    }
+
+    @Test
+    void testSearchFileContents_TruncatesLongLines() throws Exception {
+        Path txt = projectRoot.resolve("long_line.txt");
+        String longTail = "a".repeat(5000);
+        Files.writeString(txt, "MATCH " + longTail);
+        mockProjectFiles.add(new ProjectFile(projectRoot, "long_line.txt"));
+
+        String result = searchTools.searchFileContents("MATCH", "long_line.txt", 0, 200, 200);
+
+        assertTrue(result.contains("1: MATCH "), "Should include matching line");
+        assertTrue(result.contains("BRK_TRUNCATED"), "Should truncate very long lines");
     }
 
     @Test
