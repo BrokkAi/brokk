@@ -848,6 +848,20 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
+    public Language getBuildLanguage() {
+        // Return the most common language among analyzed files as a fallback for the "primary" language
+        return getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .max(Comparator.comparingInt(l -> getAnalyzableFiles(l).size()))
+                .orElse(Languages.NONE);
+    }
+
+    @Override
+    public void setBuildLanguage(Language language) {
+        logger.warn("setBuildLanguage is deprecated and no longer persists. Use setAnalyzerLanguages instead.");
+    }
+
+    @Override
     public void setAnalyzerLanguages(Set<Language> languages) {
         if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Languages.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
