@@ -320,7 +320,16 @@ public final class JobRunner {
 
         activeJobId = jobId;
         cancelled.set(false);
-        console = new HeadlessHttpConsole(store, jobId);
+        console = new HeadlessHttpConsole(store, jobId, delta -> {
+            try {
+                var sessionId = cm.getCurrentSessionId();
+                if (sessionId != null) {
+                    cm.getProject().getSessionManager().addToTotalCost(sessionId, delta);
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to record cost delta for job {}: {}", jobId, e.getMessage());
+            }
+        });
         final var previousIo = cm.getIo();
         cm.setIo(console);
         logger.info("Job {} attaching streaming console", jobId);

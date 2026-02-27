@@ -195,6 +195,32 @@ class ContextRouterTest {
         assertTrue(body.get("fragments") instanceof List, "fragments should be a List");
         assertTrue(body.get("usedTokens") instanceof Number, "usedTokens should be a Number");
         assertTrue(body.get("maxTokens") instanceof Number, "maxTokens should be a Number");
+
+        assertTrue(body.containsKey("totalCost"), "Should contain totalCost key");
+        assertTrue(body.get("totalCost") instanceof Number, "totalCost should be a Number");
+        assertEquals(0.0, ((Number) body.get("totalCost")).doubleValue(), 1e-9);
+    }
+
+    @Test
+    void handleGetContext_includesSessionTotalCost() throws Exception {
+        // Arrange: create a real session and record some cost
+        var sessionManager = contextManager.getProject().getSessionManager();
+        var info = sessionManager.newSession("Cost Session");
+        contextManager.updateActiveSession(info.id());
+
+        sessionManager.addToTotalCost(info.id(), 1.25);
+        sessionManager.addToTotalCost(info.id(), 0.75);
+
+        // Act
+        var exchange = TestHttpExchange.request("GET", "/v1/context?tokens=false");
+        contextRouter.handle(exchange);
+
+        // Assert
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertTrue(body.containsKey("totalCost"));
+        double totalCost = ((Number) body.get("totalCost")).doubleValue();
+        assertEquals(2.0, totalCost, 1e-9);
     }
 
     @Test
