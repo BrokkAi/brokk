@@ -3,6 +3,8 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.IConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.JvmBasedAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -1193,12 +1195,29 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void updateJdkControlsVisibility() {
-        boolean hasJavaModule = modulesList.stream().anyMatch(m -> "Java".equalsIgnoreCase(m.language()));
-        boolean hasJavaFiles = findLanguagesInProject().stream().anyMatch(l -> l == Languages.JAVA);
+        boolean hasJvmModule = modulesList.stream()
+                .map(m -> Languages.ALL_LANGUAGES.stream()
+                        .filter(l -> l.name().equalsIgnoreCase(m.language()))
+                        .findFirst()
+                        .orElse(Languages.NONE))
+                .anyMatch(this::isJvmLanguage);
 
-        boolean isJavaVisible = hasJavaModule || hasJavaFiles;
-        setJavaHomeCheckbox.setVisible(isJavaVisible);
-        jdkSelector.setVisible(isJavaVisible);
+        boolean hasJvmFiles = findLanguagesInProject().stream().anyMatch(this::isJvmLanguage);
+
+        boolean isJvmVisible = hasJvmModule || hasJvmFiles;
+        setJavaHomeCheckbox.setVisible(isJvmVisible);
+        jdkSelector.setVisible(isJvmVisible);
+    }
+
+    private boolean isJvmLanguage(Language language) {
+        if (language == Languages.NONE) return false;
+        try {
+            IAnalyzer analyzer = language.createAnalyzer(project);
+            return analyzer instanceof JvmBasedAnalyzer;
+        } catch (Exception e) {
+            logger.debug("Could not instantiate analyzer for {} to check JvmBased capability", language.name(), e);
+            return false;
+        }
     }
 
     private Map<String, String> computeEnvFromUi() {
@@ -1209,16 +1228,25 @@ public class SettingsProjectBuildPanel extends JPanel {
             env.putAll(BuildAgent.defaultEnvForLanguage(module.language(), project));
         }
 
-        // Explicit UI overrides for Java
+        // Explicit UI overrides for Java/JVM
         if (setJavaHomeCheckbox.isSelected()) {
             String sel = jdkSelector.getSelectedJdkPath();
             if (sel != null && !sel.isBlank()) {
                 env.put("JAVA_HOME", JdkSelector.normalizeJdkPath(sel));
             }
-        } else if (modulesList.stream().anyMatch(m -> "Java".equalsIgnoreCase(m.language()))) {
-            // If Java is present but not overridden in UI, ensure we don't accidentally inherit
-            // unwanted JAVA_HOME values during verification if the sentinel is preferred.
-            env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
+        } else {
+            boolean hasJvmModule = modulesList.stream()
+                    .map(m -> Languages.ALL_LANGUAGES.stream()
+                            .filter(l -> l.name().equalsIgnoreCase(m.language()))
+                            .findFirst()
+                            .orElse(Languages.NONE))
+                    .anyMatch(this::isJvmLanguage);
+
+            if (hasJvmModule) {
+                // If JVM is present but not overridden in UI, ensure we don't accidentally inherit
+                // unwanted JAVA_HOME values during verification if the sentinel is preferred.
+                env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
+            }
         }
 
         return env;
