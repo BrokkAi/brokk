@@ -31,6 +31,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.BorderFactory;
@@ -119,7 +120,6 @@ public class SettingsProjectBuildPanel extends JPanel {
     private MaterialButton inferBuildDetailsButton = new MaterialButton("Infer Build Details");
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
     private JdkSelector jdkSelector = new JdkSelector();
-    private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
 
     // Modules UI
     private final List<BuildAgent.ModuleBuildEntry> modulesList = new ArrayList<>();
@@ -240,19 +240,6 @@ public class SettingsProjectBuildPanel extends JPanel {
         langGbc.fill = GridBagConstraints.HORIZONTAL;
         int langRow = 0;
 
-        // Primary language
-        langGbc.gridx = 0;
-        langGbc.gridy = langRow;
-        langGbc.weightx = 0.0;
-        langGbc.anchor = GridBagConstraints.WEST;
-        langGbc.fill = GridBagConstraints.NONE;
-        languagePanel.add(new JLabel("Primary language:"), langGbc);
-        langGbc.gridx = 1;
-        langGbc.gridy = langRow++;
-        langGbc.weightx = 1.0;
-        langGbc.fill = GridBagConstraints.HORIZONTAL;
-        languagePanel.add(primaryLanguageComboBox, langGbc);
-
         // JDK selection controls
         langGbc.gridx = 0;
         langGbc.gridy = langRow;
@@ -268,14 +255,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         langGbc.fill = GridBagConstraints.HORIZONTAL;
         languagePanel.add(jdkSelector, langGbc);
 
-        primaryLanguageComboBox.addActionListener(e -> {
-            var sel = (Language) primaryLanguageComboBox.getSelectedItem();
-            updateJdkControlsVisibility(sel);
-            if (sel == Languages.JAVA) {
-                populateJdkControlsFromProject();
-            }
-        });
-        updateJdkControlsVisibility(project.computedBuildLanguage());
+        updateJdkControlsVisibility();
         setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
 
         gbc.gridy = row++;
@@ -581,13 +561,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         contentPanel.add(Box.createVerticalGlue(), gbc);
 
         // Populate initial values
-        populatePrimaryLanguageComboBox();
-        var selectedLang = project.computedBuildLanguage();
-        primaryLanguageComboBox.setSelectedItem(selectedLang);
-        updateJdkControlsVisibility(selectedLang);
-        if (selectedLang == Languages.JAVA) {
-            populateJdkControlsFromProject();
-        }
+        updateJdkControlsVisibility();
 
         // Load build panel settings (project may or may not have details yet)
         if (project.hasBuildDetails()) {
@@ -988,13 +962,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         selectTimeoutInCombo(testTimeoutComboBox, testTimeout);
 
         populateJdkControlsFromProject();
-
-        var selectedLang = project.computedBuildLanguage();
-        primaryLanguageComboBox.setSelectedItem(selectedLang);
-        updateJdkControlsVisibility(selectedLang);
-        if (selectedLang == Languages.JAVA) {
-            populateJdkControlsFromProject();
-        }
+        updateJdkControlsVisibility();
 
         // Load executor configuration
         ShellConfig shellConfig = project.getShellConfig();
@@ -1035,15 +1003,14 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         var newAfterTaskList = afterTaskListCommandField.getText();
 
-        // Primary language
-        var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
-
         // Build environment variables map
         var envVars = new HashMap<>(baseDetails.environmentVariables());
         // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
-        if (selectedPrimaryLang == Languages.PYTHON) {
+
+        boolean hasPython = modulesList.stream().anyMatch(m -> "Python".equalsIgnoreCase(m.language()));
+        if (hasPython) {
             envVars.put("VIRTUAL_ENV", ".venv");
         }
 
@@ -1093,22 +1060,15 @@ public class SettingsProjectBuildPanel extends JPanel {
             logger.debug("Applied Test Command Timeout: {} seconds", testTimeout);
         }
 
-        // JDK Controls (only for Java)
-        if (selectedPrimaryLang == Languages.JAVA) {
-            if (setJavaHomeCheckbox.isSelected()) {
-                String rawPath = jdkSelector.getSelectedJdkPath();
-                if (!validateAndApplyJdkOverride(rawPath)) {
-                    return false;
-                }
-            } else {
-                project.setJdk(null);
-                logger.debug("Removed JDK Home override");
+        // JDK Controls
+        if (setJavaHomeCheckbox.isSelected()) {
+            String rawPath = jdkSelector.getSelectedJdkPath();
+            if (!validateAndApplyJdkOverride(rawPath)) {
+                return false;
             }
-        }
-
-        if (selectedPrimaryLang != null && selectedPrimaryLang != project.computedBuildLanguage()) {
-            project.setBuildLanguage(selectedPrimaryLang);
-            logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
+        } else {
+            project.setJdk(null);
+            logger.debug("Removed JDK Home override");
         }
 
         // Apply executor configuration
@@ -1236,16 +1196,19 @@ public class SettingsProjectBuildPanel extends JPanel {
         jdkSelector.loadJdksAsync(effectiveJdk);
     }
 
-    private void updateJdkControlsVisibility(@Nullable Language selected) {
-        boolean isJava = selected == Languages.JAVA;
-        setJavaHomeCheckbox.setVisible(isJava);
-        jdkSelector.setVisible(isJava);
+    private void updateJdkControlsVisibility() {
+        boolean hasJavaModule = modulesList.stream().anyMatch(m -> "Java".equalsIgnoreCase(m.language()));
+        boolean hasJavaFiles = findLanguagesInProject().stream().anyMatch(l -> l == Languages.JAVA);
+
+        boolean isJavaVisible = hasJavaModule || hasJavaFiles;
+        setJavaHomeCheckbox.setVisible(isJavaVisible);
+        jdkSelector.setVisible(isJavaVisible);
     }
 
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
-        var selected = (Language) primaryLanguageComboBox.getSelectedItem();
-        if (selected == Languages.JAVA) {
+        boolean hasJava = modulesList.stream().anyMatch(m -> "Java".equalsIgnoreCase(m.language()));
+        if (hasJava) {
             if (setJavaHomeCheckbox.isSelected()) {
                 String sel = jdkSelector.getSelectedJdkPath();
                 if (sel != null && !sel.isBlank()) {
@@ -1257,21 +1220,11 @@ public class SettingsProjectBuildPanel extends JPanel {
                 env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
             }
         }
-        if (selected == Languages.PYTHON) {
+        boolean hasPython = modulesList.stream().anyMatch(m -> "Python".equalsIgnoreCase(m.language()));
+        if (hasPython) {
             env.put("VIRTUAL_ENV", ".venv");
         }
         return env;
-    }
-
-    private void populatePrimaryLanguageComboBox() {
-        var detected = findLanguagesInProject();
-        var configured = project.computedBuildLanguage();
-        if (!detected.contains(configured)) {
-            detected.add(configured);
-        }
-        // Sort by display name
-        detected.sort(Comparator.comparing(Language::name));
-        primaryLanguageComboBox.setModel(new DefaultComboBoxModel<>(detected.toArray(Language[]::new)));
     }
 
     private List<Language> findLanguagesInProject() {
@@ -1541,7 +1494,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private class ModulesTableModel extends AbstractTableModel {
-        private final String[] columns = {"Alias", "Path"};
+        private final String[] columns = {"Alias", "Language", "Path"};
 
         @Override
         public int getRowCount() {
@@ -1568,7 +1521,8 @@ public class SettingsProjectBuildPanel extends JPanel {
             var m = modulesList.get(row);
             return switch (col) {
                 case 0 -> m.alias();
-                case 1 -> m.relativePath();
+                case 1 -> m.language();
+                case 2 -> m.relativePath();
                 default -> "";
             };
         }
@@ -1577,6 +1531,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     private class ModuleEditDialog extends BaseThemedDialog {
         private final JTextField aliasField = new JTextField();
         private final JTextField pathField = new JTextField();
+        private final JComboBox<String> languageComboBox = new JComboBox<>();
         private final JTextField buildCmdField = new JTextField();
         private final JTextField testAllField = new JTextField();
         private final JTextField testSomeField = new JTextField();
@@ -1584,12 +1539,23 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         public ModuleEditDialog(Window owner, BuildAgent.ModuleBuildEntry entry) {
             super(owner, "Edit Module");
-            setSize(500, 320);
+            setSize(500, 360);
             setLocationRelativeTo(owner);
             setModal(true);
 
             aliasField.setText(entry.alias());
             pathField.setText(entry.relativePath());
+
+            // Setup language combo with common languages + current value
+            var langs = Languages.ALL_LANGUAGES.stream()
+                    .map(Language::name)
+                    .filter(n -> !n.equalsIgnoreCase("None"))
+                    .sorted()
+                    .collect(Collectors.toCollection(ArrayList::new));
+            languageComboBox.setModel(new DefaultComboBoxModel<>(langs.toArray(new String[0])));
+            languageComboBox.setEditable(true);
+            languageComboBox.setSelectedItem(entry.language().isEmpty() ? "Java" : entry.language());
+
             buildCmdField.setText(entry.buildLintCommand());
             testAllField.setText(entry.testAllCommand());
             testSomeField.setText(entry.testSomeCommand());
@@ -1602,6 +1568,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
             int row = 0;
             addField(p, "Alias:", aliasField, gbc, row++);
+            addField(p, "Language:", languageComboBox, gbc, row++);
             addField(p, "Relative Path:", pathField, gbc, row++);
             addField(p, "Build/Lint Command:", buildCmdField, gbc, row++);
             addField(p, "Test All Command:", testAllField, gbc, row++);
@@ -1683,7 +1650,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             });
         }
 
-        private void addField(JPanel p, String label, JTextField field, GridBagConstraints gbc, int row) {
+        private void addField(JPanel p, String label, JComponent field, GridBagConstraints gbc, int row) {
             gbc.gridx = 0;
             gbc.gridy = row;
             gbc.weightx = 0.0;
@@ -1698,13 +1665,16 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         public BuildAgent.ModuleBuildEntry getResult() {
+            Object selected = languageComboBox.getSelectedItem();
+            String lang = selected == null ? "" : selected.toString().trim();
+
             return new BuildAgent.ModuleBuildEntry(
                     aliasField.getText().trim(),
                     pathField.getText().trim(),
                     buildCmdField.getText().trim(),
                     testAllField.getText().trim(),
                     testSomeField.getText().trim(),
-                    ""); // Language field can be added to UI in a future task if needed
+                    lang);
         }
     }
 }
