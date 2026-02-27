@@ -35,8 +35,6 @@ public class InlineTestProjectCreator {
     private interface ProjectContentStrategy {
         void populate(Path root) throws IOException;
 
-        Set<Language> detectLanguages();
-
         List<String> getFilesForInitialCommit();
     }
 
@@ -54,25 +52,6 @@ public class InlineTestProjectCreator {
                 Files.createDirectories(absPath.getParent());
                 Files.writeString(absPath, entry.contents, StandardOpenOption.CREATE_NEW);
             }
-        }
-
-        @Override
-        public Set<Language> detectLanguages() {
-            Set<Language> detected = new LinkedHashSet<>();
-            for (var entry : entries) {
-                var filename = Path.of(entry.relPath).getFileName().toString();
-                int dot = filename.lastIndexOf('.');
-                if (dot <= 0 || dot == filename.length() - 1) {
-                    continue;
-                }
-                var ext = filename.substring(dot + 1);
-                for (var lang : Languages.ALL_LANGUAGES) {
-                    if (lang.getExtensions().contains(ext)) {
-                        detected.add(lang);
-                    }
-                }
-            }
-            return detected;
         }
 
         @Override
@@ -113,11 +92,6 @@ public class InlineTestProjectCreator {
                     zis.closeEntry();
                 }
             }
-        }
-
-        @Override
-        public Set<Language> detectLanguages() {
-            return Set.of();
         }
 
         @Override
@@ -188,11 +162,6 @@ public class InlineTestProjectCreator {
             } catch (GitAPIException e) {
                 throw new IOException("Failed to clone repository: " + url + " at ref: " + ref, e);
             }
-        }
-
-        @Override
-        public Set<Language> detectLanguages() {
-            return Set.of();
         }
 
         @Override
@@ -293,8 +262,7 @@ public class InlineTestProjectCreator {
             }
 
             // Ensure languages are set before getting analyzer
-            Set<Language> detected = new LinkedHashSet<>(strategy.detectLanguages());
-            detected.addAll(scanLanguages(newTemporaryDirectory));
+            Set<Language> detected = scanLanguages(newTemporaryDirectory);
             detected.remove(Languages.NONE);
 
             if (!detected.isEmpty()) {
