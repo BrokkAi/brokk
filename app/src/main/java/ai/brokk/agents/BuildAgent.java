@@ -984,17 +984,7 @@ public class BuildAgent {
                             ""));
                 }
             } else {
-                finalModules = modules.stream()
-                        .map(m -> (m.language() == null || m.language().isEmpty())
-                                ? new ModuleBuildEntry(
-                                        m.alias(),
-                                        m.relativePath(),
-                                        m.buildLintCommand(),
-                                        m.testAllCommand(),
-                                        m.testSomeCommand(),
-                                        "")
-                                : m)
-                        .toList();
+                finalModules = modules;
             }
 
             return new BuildDetails(

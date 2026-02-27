@@ -857,7 +857,7 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void setBuildLanguage(Language language) {
+    public void setBuildLanguage(@Nullable Language language) {
         logger.warn("setBuildLanguage is deprecated and no longer persists. Use setAnalyzerLanguages instead.");
     }
 
