@@ -405,14 +405,14 @@ class SessionSelectModal(ModalScreen[str]):
             dt = datetime.fromtimestamp(modified / 1000)
             date_text = dt.strftime("%Y-%m-%d %H:%M")
 
-        # AI responses (conversations)
+        # AI responses (entries)
         ai_responses = s.get("aiResponses", 0)
-        convo_text = ""
+        entry_text = ""
         if ai_responses > 0:
-            suffix = "conversation" if ai_responses == 1 else "conversations"
-            convo_text = f"{ai_responses} {suffix}"
+            suffix = "entry" if ai_responses == 1 else "entries"
+            entry_text = f"{ai_responses} {suffix}"
 
-        return f"{title:<{title_width}}  {date_text:<{date_width}}  {convo_text}".rstrip()
+        return f"{title:<{title_width}}  {date_text:<{date_width}}  {entry_text}".rstrip()
 
     def compose(self) -> ComposeResult:
         with Vertical(id="session-select-container"):

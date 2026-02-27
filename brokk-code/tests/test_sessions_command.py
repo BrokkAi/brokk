@@ -80,18 +80,18 @@ def test_session_select_modal_labels_use_table_layout():
     # Should not have [x] or [ ]
     assert not label1.startswith("[")
 
-    # Should contain title, date, and "conversations"
+    # Should contain title, date, and "entries"
     assert "My Project Session" in label1
     assert "2025-01-01" in label1
-    assert "3 conversations" in label1
+    assert "3 entries" in label1
 
     # Check approximate alignment (title width 40 + 2 spaces)
     # The date should start at index 42
     assert label1.find("2025-01-01") == 42
-    # The conversations should start after the date (42 + 16 + 2 = 60)
-    assert label1.find("3 conversations") == 60
+    # The entries should start after the date (42 + 16 + 2 = 60)
+    assert label1.find("3 entries") == 60
 
     label2 = SessionSelectModal._format_session_row(sessions[1])
     assert "Empty Session" in label2
     assert "2025" not in label2  # No date for 0
-    assert "conversation" not in label2  # No label for 0
+    assert "entry" not in label2  # No label for 0
