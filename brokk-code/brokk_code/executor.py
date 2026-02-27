@@ -436,8 +436,8 @@ class ExecutorManager:
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as e:
-            status = getattr(getattr(e, "response", None), "status_code", "N/A")
-            raise ExecutorError(f"Failed POST /v1/sessions/rename (status={status}): {e}") from e
+            await self._handle_http_error(e, "/v1/sessions/rename")
+            raise  # Should not be reached
 
     async def download_session_zip(self, session_id: str) -> bytes:
         """Downloads the ZIP archive for a specific session."""
