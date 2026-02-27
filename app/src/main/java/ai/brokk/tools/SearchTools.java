@@ -1421,7 +1421,7 @@ public class SearchTools {
                 .parallel()
                 .filter(file -> {
                     Path rel = file.getRelPath();
-                    if (normalizedDirectoryPath.toString().isEmpty()) {
+                    if (normalizedDirectoryPath.toString().isEmpty() || normalizedDirectoryPath.equals(Path.of("."))) {
                         return rel.getNameCount() > 1;
                     }
                     return rel.startsWith(normalizedDirectoryPath)
@@ -1429,8 +1429,10 @@ public class SearchTools {
                 })
                 .map(file -> {
                     Path rel = file.getRelPath();
-                    int index =
-                            normalizedDirectoryPath.toString().isEmpty() ? 0 : normalizedDirectoryPath.getNameCount();
+                    int index = (normalizedDirectoryPath.toString().isEmpty()
+                                    || normalizedDirectoryPath.equals(Path.of(".")))
+                            ? 0
+                            : normalizedDirectoryPath.getNameCount();
                     return rel.getName(index).toString() + "/";
                 })
                 .distinct()

@@ -618,6 +618,13 @@ public class SearchToolsTest {
         // Should NOT list deeply nested files directly
         assertFalse(result.contains("Main.java"), "Should not list nested files directly");
         assertFalse(result.contains("Helper.java"), "Should not list deeply nested files");
+
+        // Test with a specific subdirectory
+        Path srcPath = Path.of("src");
+        String srcResult = SearchTools.formatFilesInDirectory(files, srcPath, "src");
+        assertTrue(srcResult.contains("src/Main.java"), "Should list files in src");
+        assertTrue(srcResult.contains("Subdirectories: util/"), "Should list subdirectories in src");
+        assertFalse(srcResult.contains("README.md"), "Should not list files outside src");
     }
 
     @Test
