@@ -379,6 +379,9 @@ class SessionSelectModal(ModalScreen[str]):
 
     BINDINGS = [
         Binding("escape", "dismiss", "Cancel", show=False),
+        Binding("r", "rename_session", "Rename", show=False),
+        Binding("d", "delete_session", "Delete", show=False),
+        Binding("x", "delete_session", "Delete", show=False),
     ]
 
     def __init__(self, sessions: List[Dict[str, Any]], current_id: str) -> None:
@@ -391,7 +394,7 @@ class SessionSelectModal(ModalScreen[str]):
 
     @staticmethod
     def _format_session_row(s: Dict[str, Any]) -> str:
-        title_width = 40
+        title_width = 60
         date_width = 16  # matches "YYYY-MM-DD HH:MM"
 
         name = s.get("name") or s.get("id")
@@ -424,6 +427,10 @@ class SessionSelectModal(ModalScreen[str]):
                     items.append(ListItem(Static(label, markup=False), id=item_id))
 
                 yield ListView(*items, id="session-select-list")
+            yield Static(
+                "Enter: Switch  [bold]R[/]: Rename  [bold]D[/]: Delete  Esc: Cancel",
+                id="session-select-footer",
+            )
 
     def on_mount(self) -> None:
         self.query_one("#session-select-list", ListView).focus()
@@ -434,6 +441,20 @@ class SessionSelectModal(ModalScreen[str]):
         selected_id = self._item_id_to_session_id.get(message.item.id)
         if selected_id:
             self.dismiss(selected_id)
+
+    def action_rename_session(self) -> None:
+        list_view = self.query_one("#session-select-list", ListView)
+        if list_view.highlighted_child and list_view.highlighted_child.id:
+            session_id = self._item_id_to_session_id.get(list_view.highlighted_child.id)
+            if session_id:
+                self.dismiss(f"rename:{session_id}")
+
+    def action_delete_session(self) -> None:
+        list_view = self.query_one("#session-select-list", ListView)
+        if list_view.highlighted_child and list_view.highlighted_child.id:
+            session_id = self._item_id_to_session_id.get(list_view.highlighted_child.id)
+            if session_id:
+                self.dismiss(f"delete:{session_id}")
 
 
 class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
@@ -2390,13 +2411,62 @@ class BrokkApp(App):
                 return
 
             def on_selected(selected_id: str | None) -> None:
-                if selected_id and selected_id != current_id:
+                if not selected_id:
+                    return
+                if selected_id.startswith("rename:"):
+                    sid = selected_id.split(":", 1)[1]
+                    self.run_worker(self._rename_session_workflow(sid, sessions))
+                elif selected_id.startswith("delete:"):
+                    sid = selected_id.split(":", 1)[1]
+                    self.run_worker(self._delete_session_workflow(sid))
+                elif selected_id != current_id:
                     self.run_worker(self._switch_to_session(selected_id))
 
             self.push_screen(SessionSelectModal(sessions, current_id), on_selected)
         except Exception as e:
             if chat:
                 chat.add_system_message(f"Failed to list sessions: {e}", level="ERROR")
+
+    async def _rename_session_workflow(
+        self, session_id: str, sessions: List[Dict[str, Any]]
+    ) -> None:
+        chat = self._maybe_chat()
+        initial_name = ""
+        for s in sessions:
+            if str(s.get("id")) == session_id:
+                initial_name = s.get("name") or ""
+                break
+
+        def on_rename_submitted(new_name: Optional[str]) -> None:
+            if not new_name or not new_name.strip():
+                return
+
+            async def do_rename():
+                try:
+                    await self.executor.rename_session(session_id, new_name.strip())
+                    if chat:
+                        chat.add_system_message(f"Session renamed to: {new_name}")
+                    await self._refresh_context_panel()
+                except Exception as e:
+                    if chat:
+                        chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
+
+            self.run_worker(do_rename())
+
+        self.push_screen(
+            TaskTitleModalScreen("Rename Session", initial=initial_name), on_rename_submitted
+        )
+
+    async def _delete_session_workflow(self, session_id: str) -> None:
+        chat = self._maybe_chat()
+        try:
+            await self.executor.delete_session(session_id)
+            if chat:
+                chat.add_system_message(f"Deleted session {session_id}")
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to delete session: {e}", level="ERROR")
 
     async def _switch_to_session(self, session_id: str) -> None:
         from brokk_code.session_persistence import save_last_session_id

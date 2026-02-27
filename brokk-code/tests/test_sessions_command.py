@@ -85,11 +85,11 @@ def test_session_select_modal_labels_use_table_layout():
     assert "2025-01-01" in label1
     assert "3 entries" in label1
 
-    # Check approximate alignment (title width 40 + 2 spaces)
-    # The date should start at index 42
-    assert label1.find("2025-01-01") == 42
-    # The entries should start after the date (42 + 16 + 2 = 60)
-    assert label1.find("3 entries") == 60
+    # Check approximate alignment (title width 60 + 2 spaces)
+    # The date should start at index 62
+    assert label1.find("2025-01-01") == 62
+    # The entries should start after the date (62 + 16 + 2 = 80)
+    assert label1.find("3 entries") == 80
 
     label2 = SessionSelectModal._format_session_row(sessions[1])
     assert "Empty Session" in label2
@@ -111,12 +111,11 @@ def test_session_select_modal_long_autoname_truncation():
 
     label = SessionSelectModal._format_session_row(session)
 
-    # The title width is 40.
-    # "Implement a new login system with oauth " is 39 chars.
-    expected_substring = long_title[:40]
+    # The title width is 60.
+    expected_substring = long_title[:60]
     assert expected_substring in label
-    # Ensure date starts at index 42 (title 40 + 2 spaces)
-    assert label.find("2025-01-01") == 42
+    # Ensure date starts at index 62 (title 60 + 2 spaces)
+    assert label.find("2025-01-01") == 62
 
 
 @pytest.mark.asyncio
@@ -140,3 +139,66 @@ async def test_executor_delete_session(tmp_path):
     executor._http_client.post.assert_called_once_with(
         "/v1/sessions/delete", json={"sessionId": "test-id"}
     )
+
+
+@pytest.mark.asyncio
+async def test_show_sessions_rename_flow(tmp_path):
+    """Verify _show_sessions routes rename signal to rename workflow."""
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app._executor_ready = True
+
+    sessions_data = {
+        "sessions": [{"id": "s1", "name": "S1"}],
+        "currentSessionId": "s1",
+    }
+    app.executor.list_sessions = AsyncMock(return_value=sessions_data)
+    app.push_screen = MagicMock()
+    app.run_worker = MagicMock()
+
+    await app._show_sessions()
+    callback = app.push_screen.call_args[0][1]
+
+    # Simulate rename signal
+    callback("rename:s1")
+
+    # Verify rename workflow helper was called via run_worker
+    # It should be the first call (or only call) to run_worker after the callback
+    found_rename = False
+    for call in app.run_worker.call_args_list:
+        coro = call[0][0]
+        if "rename_session_workflow" in str(coro):
+            found_rename = True
+            break
+    assert found_rename
+
+
+@pytest.mark.asyncio
+async def test_show_sessions_delete_flow(tmp_path):
+    """Verify _show_sessions routes delete signal to delete workflow."""
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app._executor_ready = True
+
+    sessions_data = {
+        "sessions": [{"id": "s1", "name": "S1"}],
+        "currentSessionId": "s1",
+    }
+    app.executor.list_sessions = AsyncMock(return_value=sessions_data)
+    app.push_screen = MagicMock()
+    app.run_worker = MagicMock()
+
+    await app._show_sessions()
+    callback = app.push_screen.call_args[0][1]
+
+    # Simulate delete signal
+    callback("delete:s1")
+
+    # Verify delete workflow helper was called via run_worker
+    found_delete = False
+    for call in app.run_worker.call_args_list:
+        coro = call[0][0]
+        if "delete_session_workflow" in str(coro):
+            found_delete = True
+            break
+    assert found_delete
