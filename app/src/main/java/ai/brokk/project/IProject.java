@@ -347,6 +347,11 @@ public interface IProject extends AutoCloseable {
 
     default void setCodeAgentTestScope(CodeAgentTestScope selectedScope) {}
 
+    /**
+     * Sets the set of analyzer languages for the project.
+     *
+     * @param languages The set of languages to configure.
+     */
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
     /**
@@ -359,7 +364,11 @@ public interface IProject extends AutoCloseable {
      */
     default void invalidateAutoDetectedLanguages() {}
 
-    // Primary build language configuration
+    /**
+     * Gets the primary build language for the project.
+     *
+     * @return The primary Language.
+     */
     @Blocking
     default Language getBuildLanguage() {
         throw new UnsupportedOperationException();

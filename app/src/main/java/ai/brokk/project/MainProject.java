@@ -139,9 +139,9 @@ public final class MainProject extends AbstractProject {
 
     public static final String DEFAULT_COMMIT_MESSAGE_FORMAT =
             """
-                                                               The commit message should be structured as follows: <type>: <description>
-                                                               Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
-                                                               """;
+            The commit message should be structured as follows: <type>: <description>
+            Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
+            """;
 
     @Nullable
     private static volatile Boolean isDataShareAllowedCache = null;
