@@ -9,8 +9,7 @@ import java.util.List;
 public final class Lines {
     private Lines() {}
 
-    public static HeadTail cap(
-            String content, int maxLines, int topShown, int bottomShown, int maxCharsPerLine) {
+    public static HeadTail cap(String content, int maxLines, int topShown, int bottomShown, int maxCharsPerLine) {
         if (content.isEmpty()) {
             return HeadTail.full(content);
         }
@@ -128,6 +127,64 @@ public final class Lines {
 
         String promptText = String.join("\n\n", parts);
         return HeadTail.truncated(promptText, totalLines, topShown, bottomShown);
+    }
+
+    public static String range(String content, int startLineInclusive, int endLineExclusive) {
+        if (startLineInclusive < 1) {
+            throw new IllegalArgumentException("startLineInclusive must be >= 1");
+        }
+        if (endLineExclusive < startLineInclusive) {
+            throw new IllegalArgumentException("endLineExclusive must be >= startLineInclusive");
+        }
+        if (startLineInclusive == endLineExclusive || content.isEmpty()) {
+            return "";
+        }
+
+        int length = content.length();
+
+        int startOffset = (startLineInclusive == 1) ? 0 : -1;
+        int endOffset = (endLineExclusive == 1) ? 0 : -1;
+
+        int currentLine = 1;
+        int lineStart = 0;
+
+        int i = 0;
+        while (i < length && (startOffset < 0 || endOffset < 0)) {
+            char c = content.charAt(i);
+            if (c == '\n' || c == '\r') {
+                int next = i + 1;
+
+                // Treat CRLF as a single line break.
+                if (c == '\r' && next < length && content.charAt(next) == '\n') {
+                    next++;
+                }
+
+                currentLine++;
+                lineStart = next;
+
+                if (startOffset < 0 && currentLine == startLineInclusive) {
+                    startOffset = lineStart;
+                }
+                if (endOffset < 0 && currentLine == endLineExclusive) {
+                    endOffset = lineStart;
+                }
+
+                i = next;
+                continue;
+            }
+            i++;
+        }
+
+        if (startOffset < 0) {
+            return "";
+        }
+        if (endOffset < 0) {
+            endOffset = length;
+        }
+        if (endOffset <= startOffset) {
+            return "";
+        }
+        return content.substring(startOffset, endOffset);
     }
 
     private static String joinLines(
