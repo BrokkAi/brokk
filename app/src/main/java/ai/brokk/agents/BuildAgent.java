@@ -501,7 +501,7 @@ public class BuildAgent {
                 This project's primary language is %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects six parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, excludedFilePatterns, and modules.
+                The reportBuildDetails tool expects eight parameters: buildLintCommand, buildLintEnabled, testAllCommand, testAllEnabled, testSomeCommand, excludedDirectories, excludedFilePatterns, and modules.
 
                 If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, Node.js workspaces, etc.), you MUST identify each module and provide its details in the single flat `modules` list.
                 **IMPORTANT**: For polyglot or multi-language repositories, include all modules from ALL detected languages and frameworks in this same list.
@@ -596,7 +596,9 @@ public class BuildAgent {
             List<String> excludedFilePatterns) {
         return reportBuildDetails(
                 buildLintCommand,
+                true,
                 testAllCommand,
+                true,
                 testSomeCommand,
                 excludedDirectories,
                 excludedFilePatterns,
@@ -608,9 +610,11 @@ public class BuildAgent {
             @P(
                             "Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String buildLintCommand,
+            @P("Whether to enable the build/lint command") boolean buildLintEnabled,
             @P(
                             "Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String testAllCommand,
+            @P("Whether to enable the test all command") boolean testAllEnabled,
             @P(
                             "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, {{modules}}, or {{packages}}. {{modules}} and {{packages}} provide dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
@@ -676,9 +680,9 @@ public class BuildAgent {
         logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
                 buildLintCommand,
-                true,
+                buildLintEnabled,
                 testAllCommand,
-                true,
+                testAllEnabled,
                 testSomeCommand,
                 deduplicatedPatterns,
                 defaultEnvForProject(),
