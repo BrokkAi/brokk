@@ -435,12 +435,14 @@ public class BuildAgent {
                 - Only documentation files (*.md, *.txt, LICENSE, README, etc.) with no build configuration
                 - The project structure is unclear or unsupported
 
-                Then call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
+                However, if `listTrackedFiles` reveals subdirectories that might contain code or modules (e.g. `backend/`, `frontend/`, `services/`), you MUST explore them using `listTrackedFiles` or `listFiles` before aborting.
+
+                Otherwise, call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
                 Examples of when to abort:
                 - `listTrackedFiles(".")` returns "No tracked files found"
-                - `listTrackedFiles(".")` returns files but none are recognized build configuration files
-                - Root directory contains only documentation files (*.md, *.txt, LICENSE, etc.) and no source code or build files
-                - After checking root directory, no recognized build system or project structure is found
+                - `listTrackedFiles(".")` returns files but none are recognized build configuration files, and no promising subdirectories exist
+                - Root directory contains only documentation files (*.md, *.txt, LICENSE, etc.) and no source code, build files, or promising subdirectories
+                - After checking root and promising subdirectories, no recognized build system or project structure is found
 
                 Note: `listTrackedFiles` shows all git-tracked files (unfiltered), while `listFiles` respects exclusion patterns.
                 Use `listTrackedFiles` to discover build configurations, then `listFiles` or other tools to explore filtered content.
