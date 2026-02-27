@@ -830,6 +830,23 @@ public class BuildAgent {
             @JsonProperty("testAllCommand") String testAllCommand,
             @JsonProperty("testSomeCommand") String testSomeCommand,
             @JsonProperty("language") String language) {
+
+        @JsonCreator
+        public ModuleBuildEntry(
+                @JsonProperty("alias") String alias,
+                @JsonProperty("relativePath") String relativePath,
+                @JsonProperty("buildLintCommand") String buildLintCommand,
+                @JsonProperty("testAllCommand") String testAllCommand,
+                @JsonProperty("testSomeCommand") String testSomeCommand,
+                @JsonProperty("language") String language) {
+            this.alias = alias;
+            this.relativePath = relativePath == null ? "" : relativePath.replace('\\', '/');
+            this.buildLintCommand = buildLintCommand;
+            this.testAllCommand = testAllCommand;
+            this.testSomeCommand = testSomeCommand;
+            this.language = language != null ? language : "";
+        }
+
         public ModuleBuildEntry(
                 String alias,
                 String relativePath,
@@ -1011,7 +1028,7 @@ public class BuildAgent {
         String relPath = toUnixPath(file.getRelPath());
         return modules.stream()
                 .filter(m -> {
-                    String modulePath = m.relativePath().replace('\\', '/');
+                    String modulePath = m.relativePath();
                     if (modulePath.equals(".") || modulePath.isEmpty()) {
                         return true;
                     }
