@@ -941,7 +941,7 @@ public class BuildAgent {
         }
 
         public static final BuildDetails EMPTY =
-                new BuildDetails("", true, "", true, "", Set.of(), Map.of(), null, "", List.of());
+                new BuildDetails("", false, "", false, "", Set.of(), Map.of(), null, "", List.of());
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.

@@ -1195,6 +1195,15 @@ class BuildAgentTest {
     }
 
     @Test
+    void testEmptyBuildDetails_HasDisabledCommands() {
+        assertFalse(
+                BuildAgent.BuildDetails.EMPTY.buildLintEnabled(),
+                "buildLintEnabled should be false by default in EMPTY");
+        assertFalse(
+                BuildAgent.BuildDetails.EMPTY.testAllEnabled(), "testAllEnabled should be false by default in EMPTY");
+    }
+
+    @Test
     void testVerifyWithRetriesUsesCustomMaxRetries(@TempDir Path tempDir) throws Exception {
         var originalFactory = Environment.shellCommandRunnerFactory;
         try {
