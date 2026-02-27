@@ -12,7 +12,6 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -1212,7 +1211,11 @@ public class BuildAgent {
             }
         }
 
-        return commands.isEmpty() ? details.buildLintCommand() : String.join(" && ", commands);
+        if (commands.isEmpty()) {
+            return details.buildLintCommand();
+        }
+
+        return String.join(" && ", commands);
     }
 
     private static String interpolateModuleTestCommand(
@@ -1635,7 +1638,17 @@ public class BuildAgent {
                 LlmOutputMeta.newMessage().withTerminal(true));
 
         try {
-            var envVars = details.environmentVariables();
+            var envVars = new HashMap<>(details.environmentVariables());
+            // If we can attribute this command to a module, add module-specific defaults
+            ModuleBuildEntry targetModule = details.modules().stream()
+                    .filter(m -> verificationCommand.contains(m.buildLintCommand())
+                            || verificationCommand.contains(m.testAllCommand()))
+                    .findFirst()
+                    .orElse(null);
+            if (targetModule != null) {
+                envVars.putAll(defaultEnvForLanguage(targetModule.language(), cm.getProject()));
+            }
+
             var execCfg = cm.getProject().getShellConfig();
 
             Duration timeout = resolveTimeout(cm.getProject().getRunCommandTimeoutSeconds());
@@ -1687,7 +1700,16 @@ public class BuildAgent {
                     LlmOutputMeta.terminal());
         }
 
-        var envVars = details.environmentVariables();
+        var envVars = new HashMap<>(details.environmentVariables());
+        // For retries, we use the testCommand to determine language if possible
+        ModuleBuildEntry targetModule = details.modules().stream()
+                .filter(m -> testCommand.contains(m.testAllCommand()) || testCommand.contains(m.testSomeCommand()))
+                .findFirst()
+                .orElse(null);
+        if (targetModule != null) {
+            envVars.putAll(defaultEnvForLanguage(targetModule.language(), cm.getProject()));
+        }
+
         var result = BuildVerifier.verifyWithRetries(
                 cm.getProject(),
                 lintCommand,
@@ -1719,7 +1741,17 @@ public class BuildAgent {
 
         try {
             var details = override != null ? override : cm.getProject().awaitBuildDetails();
-            var envVars = details.environmentVariables();
+            var envVars = new HashMap<>(details.environmentVariables());
+            ModuleBuildEntry targetModule = details.modules().stream()
+                    .filter(m -> command.contains(m.buildLintCommand())
+                            || command.contains(m.testAllCommand())
+                            || command.contains(m.testSomeCommand()))
+                    .findFirst()
+                    .orElse(null);
+            if (targetModule != null) {
+                envVars.putAll(defaultEnvForLanguage(targetModule.language(), cm.getProject()));
+            }
+
             var execCfg = cm.getProject().getShellConfig();
 
             Duration timeout = resolveTimeout(cm.getProject().getTestCommandTimeoutSeconds());
@@ -1754,15 +1786,25 @@ public class BuildAgent {
         }
     }
     /**
-     * Provide default environment variables for the project when the agent reports details:
-     * - For Python projects: VIRTUAL_ENV=.venv
-     * - Otherwise: no defaults
+     * Provide default environment variables for the project when the agent reports details.
      */
     private Map<String, String> defaultEnvForProject() {
-        var lang = project.getBuildLanguage();
-        if (lang == Languages.PYTHON) {
-            return Map.of("VIRTUAL_ENV", ".venv");
-        }
         return Map.of();
+    }
+
+    /**
+     * Computes default environment variables for a specific language.
+     */
+    public static Map<String, String> defaultEnvForLanguage(String language, IProject project) {
+        Map<String, String> env = new HashMap<>();
+        if ("Python".equalsIgnoreCase(language)) {
+            env.put("VIRTUAL_ENV", ".venv");
+        } else if ("Java".equalsIgnoreCase(language)) {
+            String jdk = project.getJdk();
+            if (jdk != null && !jdk.isBlank() && !ai.brokk.util.EnvironmentJava.JAVA_HOME_SENTINEL.equals(jdk)) {
+                env.put("JAVA_HOME", jdk);
+            }
+        }
+        return env;
     }
 }

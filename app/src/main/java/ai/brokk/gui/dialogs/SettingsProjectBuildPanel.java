@@ -1005,14 +1005,10 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         // Build environment variables map
         var envVars = new HashMap<>(baseDetails.environmentVariables());
-        // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties
+        // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties.
+        // VIRTUAL_ENV and other language defaults are injected at runtime.
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
-
-        boolean hasPython = modulesList.stream().anyMatch(m -> "Python".equalsIgnoreCase(m.language()));
-        if (hasPython) {
-            envVars.put("VIRTUAL_ENV", ".venv");
-        }
 
         // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
         var newDetails = new BuildAgent.BuildDetails(
@@ -1207,23 +1203,24 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
-        boolean hasJava = modulesList.stream().anyMatch(m -> "Java".equalsIgnoreCase(m.language()));
-        if (hasJava) {
-            if (setJavaHomeCheckbox.isSelected()) {
-                String sel = jdkSelector.getSelectedJdkPath();
-                if (sel != null && !sel.isBlank()) {
-                    env.put("JAVA_HOME", JdkSelector.normalizeJdkPath(sel));
-                }
-            } else {
-                // If checkbox is NOT selected, we explicitly pass the sentinel to prevent
-                // BuildVerifier from falling back to project.getJdk()
-                env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
+
+        // Add default environment variables for each module's language
+        for (var module : modulesList) {
+            env.putAll(BuildAgent.defaultEnvForLanguage(module.language(), project));
+        }
+
+        // Explicit UI overrides for Java
+        if (setJavaHomeCheckbox.isSelected()) {
+            String sel = jdkSelector.getSelectedJdkPath();
+            if (sel != null && !sel.isBlank()) {
+                env.put("JAVA_HOME", JdkSelector.normalizeJdkPath(sel));
             }
+        } else if (modulesList.stream().anyMatch(m -> "Java".equalsIgnoreCase(m.language()))) {
+            // If Java is present but not overridden in UI, ensure we don't accidentally inherit
+            // unwanted JAVA_HOME values during verification if the sentinel is preferred.
+            env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
         }
-        boolean hasPython = modulesList.stream().anyMatch(m -> "Python".equalsIgnoreCase(m.language()));
-        if (hasPython) {
-            env.put("VIRTUAL_ENV", ".venv");
-        }
+
         return env;
     }
 
