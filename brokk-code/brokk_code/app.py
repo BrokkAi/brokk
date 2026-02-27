@@ -435,7 +435,8 @@ class SessionSelectModal(ModalScreen[str]):
 
                 yield ListView(*items, id="session-select-list")
             yield Static(
-                "Enter: Switch  [bold]N[/]: New  [bold]R[/]: Rename  [bold]D[/]: Delete  Esc: Cancel",
+                "Enter: Switch  [bold]N[/]: New  [bold]R[/]: Rename "
+                + " [bold]D[/]: Delete  Esc: Cancel",
                 id="session-select-footer",
             )
 

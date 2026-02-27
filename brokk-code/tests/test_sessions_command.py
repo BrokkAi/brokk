@@ -121,9 +121,10 @@ def test_session_select_modal_long_autoname_truncation():
 @pytest.mark.asyncio
 async def test_executor_delete_session(tmp_path):
     """Verify ExecutorManager.delete_session sends the correct request."""
-    from brokk_code.executor import ExecutorManager
+
     import httpx
-    import json
+
+    from brokk_code.executor import ExecutorManager
 
     executor = ExecutorManager(workspace_dir=tmp_path)
     executor._http_client = MagicMock(spec=httpx.AsyncClient)
