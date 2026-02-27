@@ -18,7 +18,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -129,6 +131,7 @@ public class InlineTestProjectCreator {
     private static class GitCloneStrategy implements ProjectContentStrategy {
         private static final Path CACHE_ROOT =
                 Path.of("build", "test-cache", "git").toAbsolutePath();
+        private static final Map<Path, Object> CACHE_LOCKS = new ConcurrentHashMap<>();
 
         private final String url;
         private final String ref;
@@ -163,8 +166,10 @@ public class InlineTestProjectCreator {
             java.util.function.Supplier<String> noToken = () -> "";
 
             try {
-                if (!Files.exists(cachePath)) {
-                    GitRepoFactory.cloneRepo(noToken, url, cachePath, depth, true);
+                synchronized (CACHE_LOCKS.computeIfAbsent(cachePath, k -> new Object())) {
+                    if (!Files.exists(cachePath)) {
+                        GitRepoFactory.cloneRepo(noToken, url, cachePath, depth, true);
+                    }
                 }
 
                 // Clone from cache to target root.
