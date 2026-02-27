@@ -65,6 +65,23 @@ public class AnalyzerCreator {
                 .update();
     }
 
+    /**
+     * Creates an appropriate analyzer for the given project based on the specific languages.
+     *
+     * @param project the project to create an analyzer for.
+     * @param languages the languages to include in the analyzer.
+     * @return an IAnalyzer for the specified languages.
+     */
+    public static IAnalyzer createFor(IProject project, Language... languages) {
+        if (languages.length == 0) {
+            return createFor(project);
+        }
+        if (languages.length == 1) {
+            return languages[0].createAnalyzer(project);
+        }
+        return createMultiAnalyzer(project, languages);
+    }
+
     public static MultiAnalyzer createMultiAnalyzer(IProject project, Language... languages) {
         Map<Language, IAnalyzer> delegates = new HashMap<>();
         for (Language language : languages) {
