@@ -52,3 +52,46 @@ async def test_show_sessions_flow(tmp_path):
 
     # Verify switch worker was triggered
     app.run_worker.assert_called_once()
+
+
+def test_session_select_modal_labels_use_table_layout():
+    """Verify SessionSelectModal formatting logic for table-like layout."""
+    from brokk_code.app import SessionSelectModal
+
+    # 1735732800000 is 2025-01-01 12:00:00 UTC (approx)
+    sessions = [
+        {
+            "id": "s1",
+            "name": "My Project Session",
+            "aiResponses": 3,
+            "modified": 1735732800000,
+        },
+        {
+            "id": "s2",
+            "name": "Empty Session",
+            "aiResponses": 0,
+            "modified": 0,
+        },
+    ]
+
+    # Test the internal formatter directly
+    label1 = SessionSelectModal._format_session_row(sessions[0])
+
+    # Should not have [x] or [ ]
+    assert not label1.startswith("[")
+
+    # Should contain title, date, and "conversations"
+    assert "My Project Session" in label1
+    assert "2025-01-01" in label1
+    assert "3 conversations" in label1
+
+    # Check approximate alignment (title width 40 + 2 spaces)
+    # The date should start at index 42
+    assert label1.find("2025-01-01") == 42
+    # The conversations should start after the date (42 + 16 + 2 = 60)
+    assert label1.find("3 conversations") == 60
+
+    label2 = SessionSelectModal._format_session_row(sessions[1])
+    assert "Empty Session" in label2
+    assert "2025" not in label2  # No date for 0
+    assert "conversation" not in label2  # No label for 0

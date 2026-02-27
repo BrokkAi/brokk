@@ -389,36 +389,38 @@ class SessionSelectModal(ModalScreen[str]):
             f"session-{idx}": str(s.get("id", "")) for idx, s in enumerate(sessions)
         }
 
+    @staticmethod
+    def _format_session_row(s: Dict[str, Any]) -> str:
+        title_width = 40
+        date_width = 16  # matches "YYYY-MM-DD HH:MM"
+
+        name = s.get("name") or s.get("id")
+        title = (str(name or "")).strip()
+        title = title[:title_width]
+
+        # Modified time
+        modified = s.get("modified", 0)
+        date_text = ""
+        if modified > 0:
+            dt = datetime.fromtimestamp(modified / 1000)
+            date_text = dt.strftime("%Y-%m-%d %H:%M")
+
+        # AI responses (conversations)
+        ai_responses = s.get("aiResponses", 0)
+        convo_text = ""
+        if ai_responses > 0:
+            suffix = "conversation" if ai_responses == 1 else "conversations"
+            convo_text = f"{ai_responses} {suffix}"
+
+        return f"{title:<{title_width}}  {date_text:<{date_width}}  {convo_text}".rstrip()
+
     def compose(self) -> ComposeResult:
         with Vertical(id="session-select-container"):
             yield Static("Select Session", id="session-select-title")
             with VerticalScroll(id="session-select-list-wrap"):
                 items = []
                 for item_id, s in zip(self._item_id_to_session_id.keys(), self.sessions):
-                    is_current = str(s.get("id")) == self.current_id
-                    marker = "[x]" if is_current else "[ ]"
-                    name = s.get("name") or s.get("id")
-
-                    # AI responses (interactions)
-                    ai_responses = s.get("aiResponses", 0)
-                    task_info = ""
-                    if ai_responses > 0:
-                        suffix = "interaction" if ai_responses == 1 else "interactions"
-                        task_info = f"{ai_responses} {suffix}"
-
-                    # Modified time
-                    modified = s.get("modified", 0)
-                    time_info = ""
-                    if modified > 0:
-                        dt = datetime.fromtimestamp(modified / 1000)
-                        time_info = dt.strftime("%Y-%m-%d %H:%M")
-
-                    # Combine details
-                    details = ", ".join(filter(None, [task_info, time_info]))
-                    label = f"{marker} {name}"
-                    if details:
-                        label += f"  ({details})"
-
+                    label = self._format_session_row(s)
                     items.append(ListItem(Static(label, markup=False), id=item_id))
 
                 yield ListView(*items, id="session-select-list")
