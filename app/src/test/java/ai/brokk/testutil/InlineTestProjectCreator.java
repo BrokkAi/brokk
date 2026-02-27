@@ -38,6 +38,10 @@ public class InlineTestProjectCreator {
         Set<Language> detectLanguages();
 
         List<String> getFilesForInitialCommit();
+
+        default boolean isAlreadyGit() {
+            return false;
+        }
     }
 
     private static class InlineContentStrategy implements ProjectContentStrategy {
@@ -137,6 +141,11 @@ public class InlineTestProjectCreator {
 
         public void setDepth(int depth) {
             this.depth = depth;
+        }
+
+        @Override
+        public boolean isAlreadyGit() {
+            return true;
         }
 
         @Override
@@ -250,8 +259,8 @@ public class InlineTestProjectCreator {
             EphemeralTestProject project;
             if (this instanceof TestGitProjectBuilder gitBuilder) {
                 try {
-                    boolean alreadyRepo = GitRepoFactory.hasGitRepo(newTemporaryDirectory);
-                    if (!alreadyRepo) {
+                    boolean alreadyGit = strategy.isAlreadyGit();
+                    if (!alreadyGit) {
                         GitRepoFactory.initRepo(newTemporaryDirectory);
                     }
 
@@ -268,7 +277,7 @@ public class InlineTestProjectCreator {
                                         .setSign(false)
                                         .call();
                             }
-                        } else if (!alreadyRepo) {
+                        } else if (!alreadyGit) {
                             for (var relPath : strategy.getFilesForInitialCommit()) {
                                 git.add().addFilepattern(relPath).call();
                             }
