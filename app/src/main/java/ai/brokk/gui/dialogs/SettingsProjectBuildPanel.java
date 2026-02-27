@@ -120,6 +120,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private JProgressBar buildProgressBar = new JProgressBar();
     private MaterialButton inferBuildDetailsButton = new MaterialButton("Infer Build Details");
+    private final JPanel languagePanel = new JPanel(new GridBagLayout());
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
     private JdkSelector jdkSelector = new JdkSelector();
 
@@ -235,7 +236,6 @@ public class SettingsProjectBuildPanel extends JPanel {
         gbc.insets = new Insets(5, 0, 5, 0);
 
         // --- 1. Language Configuration Panel ---
-        var languagePanel = new JPanel(new GridBagLayout());
         languagePanel.setBorder(BorderFactory.createTitledBorder("Language Configuration"));
         var langGbc = new GridBagConstraints();
         langGbc.insets = new Insets(2, 2, 2, 2);
@@ -1205,8 +1205,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         boolean hasJvmFiles = findLanguagesInProject().stream().anyMatch(this::isJvmLanguage);
 
         boolean isJvmVisible = hasJvmModule || hasJvmFiles;
-        setJavaHomeCheckbox.setVisible(isJvmVisible);
-        jdkSelector.setVisible(isJvmVisible);
+        languagePanel.setVisible(isJvmVisible);
     }
 
     private boolean isJvmLanguage(Language language) {
