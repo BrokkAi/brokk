@@ -9,7 +9,8 @@ import java.util.List;
 final class UnanalyzedPromptCapping {
     private UnanalyzedPromptCapping() {}
 
-    static ContextAgent.PromptFileContent cap(String content, int maxLines, int topShown, int bottomShown) {
+    static ContextAgent.PromptFileContent cap(
+            String content, int maxLines, int topShown, int bottomShown, int maxCharsPerLine) {
         if (content.isEmpty()) {
             return ContextAgent.PromptFileContent.full(content);
         }
@@ -91,14 +92,14 @@ final class UnanalyzedPromptCapping {
         }
 
         if (totalLines <= maxLines) {
-            return ContextAgent.PromptFileContent.full(content);
+            return ContextAgent.PromptFileContent.full(capAllLines(content, maxCharsPerLine));
         }
 
         int top = min(topShown, totalLines);
         int bottom = min(bottomShown, max(0, totalLines - top));
         int omitted = max(0, totalLines - top - bottom);
 
-        String head = joinLines(content, headStarts, headEnds, 0, top);
+        String head = joinLines(content, headStarts, headEnds, 0, top, maxCharsPerLine);
 
         String tail = "";
         if (bottom > 0) {
@@ -109,7 +110,7 @@ final class UnanalyzedPromptCapping {
             var tailLines = new ArrayList<String>(bottom);
             for (int n = skip; n < orderedSize; n++) {
                 int ringIndex = (orderedStart + n) % orderedSize;
-                tailLines.add(content.substring(tailStarts[ringIndex], tailEnds[ringIndex]));
+                tailLines.add(truncateLine(content, tailStarts[ringIndex], tailEnds[ringIndex], maxCharsPerLine));
             }
             tail = String.join("\n", tailLines);
         }
@@ -129,18 +130,60 @@ final class UnanalyzedPromptCapping {
         return ContextAgent.PromptFileContent.truncated(promptText, totalLines, topShown, bottomShown);
     }
 
-    private static String joinLines(String content, int[] starts, int[] ends, int startIndex, int count) {
+    private static String joinLines(
+            String content, int[] starts, int[] ends, int startIndex, int count, int maxCharsPerLine) {
         if (count <= 0) {
             return "";
         }
         if (count == 1) {
-            return content.substring(starts[startIndex], ends[startIndex]);
+            return truncateLine(content, starts[startIndex], ends[startIndex], maxCharsPerLine);
         }
         List<String> lines = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             int idx = startIndex + i;
-            lines.add(content.substring(starts[idx], ends[idx]));
+            lines.add(truncateLine(content, starts[idx], ends[idx], maxCharsPerLine));
         }
         return String.join("\n", lines);
+    }
+
+    private static String truncateLine(String content, int startInclusive, int endExclusive, int maxCharsPerLine) {
+        int len = endExclusive - startInclusive;
+        if (len <= maxCharsPerLine) {
+            return content.substring(startInclusive, endExclusive);
+        }
+        int omitted = len - maxCharsPerLine;
+        return content.substring(startInclusive, startInclusive + maxCharsPerLine)
+                + " [BRK_TRUNCATED "
+                + omitted
+                + " CHARS]";
+    }
+
+    private static String capAllLines(String content, int maxCharsPerLine) {
+        int length = content.length();
+        StringBuilder out = new StringBuilder(min(length, maxCharsPerLine * 2));
+
+        int lineStart = 0;
+        int i = 0;
+        while (i < length) {
+            char c = content.charAt(i);
+            if (c == '\n' || c == '\r') {
+                int lineEnd = i;
+                out.append(truncateLine(content, lineStart, lineEnd, maxCharsPerLine));
+
+                // Treat CRLF as a single line break.
+                if (c == '\r' && (i + 1) < length && content.charAt(i + 1) == '\n') {
+                    i++;
+                }
+
+                out.append('\n');
+                i++;
+                lineStart = i;
+                continue;
+            }
+            i++;
+        }
+
+        out.append(truncateLine(content, lineStart, length, maxCharsPerLine));
+        return out.toString();
     }
 }

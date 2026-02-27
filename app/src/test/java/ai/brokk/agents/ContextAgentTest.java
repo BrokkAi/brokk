@@ -270,4 +270,34 @@ public class ContextAgentTest {
         assertFalse(capped.truncated());
         assertEquals("", capped.promptText());
     }
+
+    @Test
+    void unanalyzedPrompt_oneHugeLine_isCappedAndMarked() {
+        String huge = "A".repeat(200_000);
+
+        var capped = ContextAgent.capUnanalyzedTextForPrompt(huge);
+
+        assertFalse(capped.truncated(), "Line count is 1 so it should not be line-truncated by count.");
+        assertTrue(capped.promptText().contains("[BRK_TRUNCATED "), capped.promptText());
+        assertFalse(capped.promptText().contains(huge), "Prompt must not contain the full huge payload.");
+        assertTrue(capped.promptText().length() < 20_000, "Capped prompt should be far smaller than input.");
+    }
+
+    @Test
+    void unanalyzedPrompt_hugeLineInHead_worksWithOmittedLinesDelimiter() {
+        String hugeLine = "B".repeat(200_000);
+
+        String content = java.util.stream.IntStream.range(0, 100)
+                .mapToObj(i -> "LINE_%03d".formatted(i))
+                .collect(java.util.stream.Collectors.joining("\n"));
+
+        content = hugeLine + "\n" + content;
+
+        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+
+        assertTrue(capped.truncated());
+        assertTrue(capped.promptText().contains("----- BRK_OMITTED "), capped.promptText());
+        assertTrue(capped.promptText().contains("[BRK_TRUNCATED "), capped.promptText());
+        assertFalse(capped.promptText().contains(hugeLine), "Prompt must not contain the full huge payload.");
+    }
 }
