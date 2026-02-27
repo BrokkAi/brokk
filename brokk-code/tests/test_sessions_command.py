@@ -117,3 +117,26 @@ def test_session_select_modal_long_autoname_truncation():
     assert expected_substring in label
     # Ensure date starts at index 42 (title 40 + 2 spaces)
     assert label.find("2025-01-01") == 42
+
+
+@pytest.mark.asyncio
+async def test_executor_delete_session(tmp_path):
+    """Verify ExecutorManager.delete_session sends the correct request."""
+    from brokk_code.executor import ExecutorManager
+    import httpx
+    import json
+
+    executor = ExecutorManager(workspace_dir=tmp_path)
+    executor._http_client = MagicMock(spec=httpx.AsyncClient)
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"status": "ok", "sessionId": "test-id"}
+    executor._http_client.post = AsyncMock(return_value=mock_response)
+
+    result = await executor.delete_session("test-id")
+
+    assert result["status"] == "ok"
+    executor._http_client.post.assert_called_once_with(
+        "/v1/sessions/delete", json={"sessionId": "test-id"}
+    )
