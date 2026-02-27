@@ -19,6 +19,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,6 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -96,7 +98,7 @@ public class SearchTools {
 
     private static final int SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT = 50;
     private static final int SEARCH_FILE_CONTENTS_MATCHES_PER_FILE_DEFAULT = 10;
-    private static final int SEARCH_FILE_CONTENTS_MAX_CONTEXT_LINES = 50;
+    private static final int SEARCH_FILE_CONTENTS_MAX_CONTEXT_LINES = 5;
 
     private static final int SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES = 500;
     private static final int SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE = 500;
@@ -104,11 +106,10 @@ public class SearchTools {
     private static final int SEARCH_TOOLS_PARALLELISM =
             max(2, Runtime.getRuntime().availableProcessors());
 
-    private static final int XML_MAX_CHARS_PER_LINE = 1024;
-    private static final int XML_SKIM_TOTAL_BUDGET_CHARS = 10 * XML_MAX_CHARS_PER_LINE;
+    private static final int XML_MAX_CHARS_PER_NODE = Lines.MAX_CHARS_PER_LINE;
+    private static final int XML_SKIM_TOTAL_BUDGET_CHARS = 10 * XML_MAX_CHARS_PER_NODE;
     private static final int XML_ATTR_VALUE_MAX_CHARS = 256;
 
-    private static final int JSON_SKIM_TOTAL_BUDGET_CHARS = XML_MAX_CHARS_PER_LINE;
     private static final int JSON_SKIM_MAX_CHILDREN_PER_CONTAINER = 50;
     private static final int JSON_KEYS_PREVIEW_MAX = 10;
     private static final int JSON_STRING_PREVIEW_MAX_CHARS = 64;
@@ -694,6 +695,43 @@ public class SearchTools {
 
                 Pattern newlyCompiled = Pattern.compile(pat);
                 cache.put(pat, newlyCompiled);
+                compiled.add(newlyCompiled);
+            } catch (RuntimeException e) {
+                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                errors.add("'%s': %s".formatted(pat, message));
+            }
+        }
+
+        if (!errors.isEmpty()) {
+            throw new IllegalArgumentException("Invalid regex pattern(s): " + String.join("; ", errors));
+        }
+
+        return List.copyOf(compiled);
+    }
+
+    private static List<Pattern> compilePatternsWithFlags(List<String> patterns, int flags) {
+        List<String> nonBlank = patterns.stream().filter(p -> !p.isBlank()).toList();
+        if (nonBlank.isEmpty()) {
+            return List.of();
+        }
+
+        Cache<String, Pattern> cache = searchPatterns.get();
+
+        List<Pattern> compiled = new ArrayList<>(nonBlank.size());
+        List<String> errors = new ArrayList<>();
+
+        for (String pat : nonBlank) {
+            try {
+                String cacheKey = pat + "::flags=" + flags;
+
+                Pattern cached = cache.getIfPresent(cacheKey);
+                if (cached != null) {
+                    compiled.add(cached);
+                    continue;
+                }
+
+                Pattern newlyCompiled = Pattern.compile(pat, flags);
+                cache.put(cacheKey, newlyCompiled);
                 compiled.add(newlyCompiled);
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -1494,7 +1532,10 @@ public class SearchTools {
     public String searchFileContents(
             @P("Java-style regex patterns to search for.") List<String> patterns,
             @P("Glob pattern for file paths (e.g., '**/AGENTS.md', 'src/**/*.java').") String filepath,
-            @P("Number of context lines to show around each match (0-50).") int contextLines,
+            @P("Case-insensitive matching (equivalent to Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).")
+                    boolean caseInsensitive,
+            @P("Enable multiline mode (equivalent to Pattern.MULTILINE, affecting ^ and $).") boolean multiline,
+            @P("Number of context lines to show around each match (0-5).") int contextLines,
             @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
             @P("Maximum number of matching lines (hits) per file. Capped at 500.") int matchesPerFile)
             throws InterruptedException {
@@ -1538,9 +1579,17 @@ public class SearchTools {
                         matchesPerFile <= 0 ? SEARCH_FILE_CONTENTS_MATCHES_PER_FILE_DEFAULT : matchesPerFile,
                         SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
 
+        int flags = 0;
+        if (caseInsensitive) {
+            flags |= Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
+        }
+        if (multiline) {
+            flags |= Pattern.MULTILINE;
+        }
+
         final List<Pattern> compiledPatterns;
         try {
-            compiledPatterns = compilePatterns(patterns);
+            compiledPatterns = compilePatternsWithFlags(patterns, flags);
             if (compiledPatterns.isEmpty()) {
                 return "No valid patterns provided";
             }
@@ -1615,50 +1664,14 @@ public class SearchTools {
 
     private record LineRef(int lineNo, int startInclusive, int endExclusive) {}
 
-    private static final class SearchState {
-        final String content;
-        final String filePath;
-        final int contextLines;
-        final int maxMatchesToTake;
-        final ArrayDeque<LineRef> prev;
-        final List<Matcher> matchers;
-        final List<String> outLines = new ArrayList<>();
-        int forwardRemaining = 0;
-        int lastPrintedLine = 0;
-        int matchesTaken = 0;
-        boolean hasAnyOutput = false;
-
-        SearchState(String content, String filePath, int contextLines, int maxMatchesToTake, List<Matcher> matchers) {
-            this.content = content;
-            this.filePath = filePath;
-            this.contextLines = contextLines;
-            this.maxMatchesToTake = maxMatchesToTake;
-            this.prev = new ArrayDeque<>();
-            this.matchers = matchers;
-        }
-    }
-
-    @Nullable
-    private static FileContentSearchResult searchFileContentsInFile(
-            ProjectFile file, List<Pattern> patterns, int contextLines, int maxMatchesToTake) {
-        var contentOpt = file.read();
-        if (contentOpt.isEmpty()) {
-            return null;
-        }
-
-        String content = contentOpt.get();
-        if (content.isEmpty()) {
-            return null;
-        }
-
-        List<Matcher> matchers = patterns.stream().map(p -> p.matcher(content)).toList();
-
-        SearchState state =
-                new SearchState(content, file.toString().replace('\\', '/'), contextLines, maxMatchesToTake, matchers);
+    private static List<LineRef> computeLineRefs(String content) {
+        if (content.isEmpty()) return List.of();
 
         int length = content.length();
         int lineNo = 1;
         int lineStart = 0;
+
+        List<LineRef> refs = new ArrayList<>();
 
         int i = 0;
         while (i < length) {
@@ -1674,13 +1687,7 @@ public class SearchTools {
                 next++;
             }
 
-            processLine(state, lineNo, lineStart, lineEnd);
-
-            if (state.matchesTaken >= maxMatchesToTake && state.forwardRemaining == 0) {
-                if (next < length) {
-                    return finalizeSearchResult(state);
-                }
-            }
+            refs.add(new LineRef(lineNo, lineStart, lineEnd));
 
             lineNo++;
             lineStart = next;
@@ -1688,82 +1695,101 @@ public class SearchTools {
         }
 
         if (lineStart < length) {
-            processLine(state, lineNo, lineStart, length);
+            refs.add(new LineRef(lineNo, lineStart, length));
         }
 
-        return finalizeSearchResult(state);
+        return List.copyOf(refs);
     }
 
-    private static void processLine(SearchState state, int lineNo, int start, int end) {
-        boolean isMatch = false;
-        if (state.matchesTaken < state.maxMatchesToTake) {
-            for (var matcher : state.matchers) {
-                matcher.region(start, end);
-                if (matcher.find()) {
-                    isMatch = true;
-                    break;
-                }
-            }
-            if (isMatch) {
-                state.matchesTaken++;
-            }
+    private static int lineNoForOffset(int[] lineStartOffsets, int matchStartOffset) {
+        int idx = Arrays.binarySearch(lineStartOffsets, matchStartOffset);
+        if (idx >= 0) {
+            return idx + 1;
         }
-
-        if (isMatch) {
-            state.hasAnyOutput = true;
-
-            for (var ref : state.prev) {
-                if (ref.lineNo() > state.lastPrintedLine) {
-                    state.outLines.add("%d: %s"
-                            .formatted(
-                                    ref.lineNo(),
-                                    truncateLine(state.content, ref.startInclusive(), ref.endExclusive())));
-                    state.lastPrintedLine = ref.lineNo();
-                }
-            }
-
-            if (lineNo > state.lastPrintedLine) {
-                state.outLines.add("%d: %s".formatted(lineNo, truncateLine(state.content, start, end)));
-                state.lastPrintedLine = lineNo;
-            }
-
-            state.forwardRemaining = max(state.forwardRemaining, state.contextLines);
-        } else if (state.forwardRemaining > 0) {
-            state.hasAnyOutput = true;
-
-            if (lineNo > state.lastPrintedLine) {
-                state.outLines.add("%d: %s".formatted(lineNo, truncateLine(state.content, start, end)));
-                state.lastPrintedLine = lineNo;
-            }
-            state.forwardRemaining--;
-        }
-
-        if (state.contextLines > 0) {
-            state.prev.addLast(new LineRef(lineNo, start, end));
-            while (state.prev.size() > state.contextLines) {
-                state.prev.removeFirst();
-            }
-        }
+        int insertionPoint = -idx - 1;
+        return insertionPoint;
     }
 
     @Nullable
-    private static FileContentSearchResult finalizeSearchResult(SearchState state) {
-        if (!state.hasAnyOutput) {
+    private static FileContentSearchResult searchFileContentsInFile(
+            ProjectFile file, List<Pattern> patterns, int contextLines, int maxMatchesToTake) {
+        var contentOpt = file.read();
+        if (contentOpt.isEmpty()) {
             return null;
         }
 
-        boolean hitLimit = state.matchesTaken >= state.maxMatchesToTake;
+        String content = contentOpt.get();
+        if (content.isEmpty()) {
+            return null;
+        }
+
+        List<LineRef> lineRefs = computeLineRefs(content);
+        if (lineRefs.isEmpty()) {
+            return null;
+        }
+
+        int[] lineStartOffsets =
+                lineRefs.stream().mapToInt(LineRef::startInclusive).toArray();
+        int lineCount = lineRefs.size();
+
+        Map<Integer, Integer> firstMatchOffsetByLine = new HashMap<>();
+        // Buffer the search slightly beyond maxMatchesToTake to account for context overlap and sorting
+        int searchThreshold = maxMatchesToTake + contextLines + 1;
+
+        for (Pattern pattern : patterns) {
+            Matcher matcher = pattern.matcher(content);
+            while (matcher.find()) {
+                int matchStart = matcher.start();
+                int ln = lineNoForOffset(lineStartOffsets, matchStart);
+                if (ln < 1 || ln > lineCount) continue;
+                firstMatchOffsetByLine.merge(ln, matchStart, Math::min);
+
+                if (firstMatchOffsetByLine.size() >= searchThreshold) {
+                    break;
+                }
+            }
+        }
+
+        if (firstMatchOffsetByLine.isEmpty()) {
+            return null;
+        }
+
+        List<Integer> hitLines = firstMatchOffsetByLine.keySet().stream()
+                .sorted()
+                .limit(maxMatchesToTake)
+                .toList();
+
+        int matchesTaken = hitLines.size();
+
+        boolean[] toPrint = new boolean[lineCount + 1]; // 1-based indexing for convenience
+        for (int hit : hitLines) {
+            int from = max(1, hit - contextLines);
+            int to = min(lineCount, hit + contextLines);
+            for (int ln = from; ln <= to; ln++) {
+                toPrint[ln] = true;
+            }
+        }
+
+        List<String> outLines = new ArrayList<>();
+        for (LineRef ref : lineRefs) {
+            if (!toPrint[ref.lineNo()]) continue;
+            outLines.add(
+                    "%d: %s".formatted(ref.lineNo(), truncateLine(content, ref.startInclusive(), ref.endExclusive())));
+        }
+
+        boolean hitLimit = matchesTaken >= maxMatchesToTake;
         String matchCountLabel = hitLimit
-                ? "first %d matches".formatted(state.matchesTaken)
-                : "%d %s".formatted(state.matchesTaken, state.matchesTaken == 1 ? "match" : "matches");
+                ? "first %d matches".formatted(matchesTaken)
+                : "%d %s".formatted(matchesTaken, matchesTaken == 1 ? "match" : "matches");
 
-        String header = "%s [%s]".formatted(state.filePath, matchCountLabel);
+        String filePath = file.toString().replace('\\', '/');
+        String header = "%s [%s]".formatted(filePath, matchCountLabel);
 
-        List<String> resultLines = new ArrayList<>(state.outLines.size() + 1);
+        List<String> resultLines = new ArrayList<>(outLines.size() + 1);
         resultLines.add(header);
-        resultLines.addAll(state.outLines);
+        resultLines.addAll(outLines);
 
-        return new FileContentSearchResult(String.join("\n", resultLines), state.matchesTaken);
+        return new FileContentSearchResult(String.join("\n", resultLines), matchesTaken);
     }
 
     private record EffectiveLimits(int maxFiles, int matchesPerFile) {}
@@ -1872,9 +1898,9 @@ public class SearchTools {
                     for (int i = 0; i < toTake; i++) {
                         JsonNode n = out.get(i);
                         String rendered = mapper.writeValueAsString(n);
-                        if (n.isContainerNode() && rendered.length() > XML_MAX_CHARS_PER_LINE) {
+                        if (n.isContainerNode() && rendered.length() > XML_MAX_CHARS_PER_NODE) {
                             outLines.add("[JSON_TOO_LARGE]");
-                            String skim = jsonSkimBfs(n, JSON_SKIM_TOTAL_BUDGET_CHARS);
+                            String skim = jsonSkimBfs(n, XML_MAX_CHARS_PER_NODE);
                             outLines.addAll(List.of(skim.split("\n", -1)));
                         } else {
                             outLines.add(truncateLine(rendered, 0, rendered.length()));
@@ -2151,12 +2177,14 @@ public class SearchTools {
                             }
                             case "XML" -> {
                                 String outerStr = toOuterXml(n);
-                                if (outerStr.length() > XML_MAX_CHARS_PER_LINE) {
-                                    String skim = xmlSkimBfs(n, XML_MAX_CHARS_PER_LINE);
+                                if (n.getNodeType() == Node.ELEMENT_NODE
+                                        && outerStr.length() > XML_MAX_CHARS_PER_NODE) {
                                     outLines.add("%s: [XML_TOO_LARGE]".formatted(path));
+                                    String skim = xmlSkimBfs(n, XML_MAX_CHARS_PER_NODE);
                                     outLines.addAll(List.of(skim.split("\n", -1)));
                                 } else {
-                                    outLines.add("%s: %s".formatted(path, outerStr));
+                                    String line = "%s: %s".formatted(path, outerStr);
+                                    outLines.add(truncateLine(line, 0, line.length()));
                                 }
                             }
                             default -> throw new IllegalArgumentException("Invalid output mode: " + mode);
@@ -2201,6 +2229,7 @@ public class SearchTools {
     @Tool(
             """
                     Returns filenames (relative to the project root) that match the given Java regular expression patterns.
+                    Matching is always case-insensitive.
                     Use this to find configuration files, test data, or source files when you know part of their name.
                     """)
     public String findFilenames(
@@ -2214,7 +2243,7 @@ public class SearchTools {
 
         final List<Pattern> compiledPatterns;
         try {
-            compiledPatterns = compilePatterns(patterns);
+            compiledPatterns = compilePatternsWithFlags(patterns, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
         } catch (IllegalArgumentException e) {
             return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }

@@ -262,6 +262,12 @@ public class SearchToolsTest {
         assertTrue(
                 resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
                 "Should find file with regex pattern");
+
+        // F. Case-insensitive check
+        String resultUpper = searchTools.findFilenames(List.of("MOP.SVELTE"), 200);
+        assertTrue(
+                resultUpper.contains(relativePathNix) || resultUpper.contains(relativePathWin),
+                "Should find file with case-insensitive match");
     }
 
     @Test
@@ -476,7 +482,7 @@ public class SearchToolsTest {
         Files.writeString(txt, "line1\nline2 MATCH\nline3\nline4");
         mockProjectFiles.add(new ProjectFile(projectRoot, "grep_test.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "**/grep_test.txt", 1, 200, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "**/grep_test.txt", false, false, 1, 200, 200);
 
         assertTrue(result.contains("grep_test.txt [1 match]"));
         assertTrue(result.contains("1: line1"));
@@ -488,7 +494,7 @@ public class SearchToolsTest {
     @Test
     void testSearchFileContents_invalidRegexThrows() throws Exception {
         // "[[" is invalid regex, should return error message
-        String result = searchTools.searchFileContents(List.of("[["), "README.md", 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of("[["), "README.md", false, false, 0, 200, 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
@@ -523,7 +529,7 @@ public class SearchToolsTest {
     @Test
     void testJq_BfsSummarizationWhenResultTooLarge() throws Exception {
         Path json = projectRoot.resolve("big.json");
-        String huge = "a".repeat(2000);
+        String huge = "a".repeat(2100);
         Files.writeString(
                 json,
                 """
@@ -543,7 +549,7 @@ public class SearchToolsTest {
 
         assertTrue(result.contains("[JSON_TOO_LARGE]"), "Should indicate JSON was too large. Result:\n" + result);
         assertTrue(result.contains("$ type=object"), "Skim should include root object line. Result:\n" + result);
-        assertTrue(result.contains("$.k1 type=string len=2000"), "Skim should include string len. Result:\n" + result);
+        assertTrue(result.contains("$.k1 type=string len=2100"), "Skim should include string len. Result:\n" + result);
         assertFalse(result.contains("a".repeat(200)), "Should not dump the huge string content. Result:\n" + result);
     }
 
@@ -554,8 +560,39 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "root.txt"));
 
         // Verify that **/root.txt matches a file at the project root via the retry logic
-        String result = searchTools.searchFileContents(List.of("found"), "**/root.txt", 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of("found"), "**/root.txt", false, false, 0, 200, 200);
         assertTrue(result.contains("root.txt"), "Should find file at root even with **/ prefix");
+    }
+
+    @Test
+    void testSearchFileContents_CaseInsensitiveFlag() throws Exception {
+        Path txt = projectRoot.resolve("case_insensitive.txt");
+        Files.writeString(txt, "Line1\nLine2 MATCH\nLine3");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "case_insensitive.txt"));
+
+        String withoutFlag =
+                searchTools.searchFileContents(List.of("match"), "case_insensitive.txt", false, false, 0, 200, 200);
+        assertTrue(withoutFlag.contains("No matches found"), "Should not match without case-insensitive flag");
+
+        String withFlag =
+                searchTools.searchFileContents(List.of("match"), "case_insensitive.txt", true, false, 0, 200, 200);
+        assertTrue(withFlag.contains("case_insensitive.txt [1 match]"), "Should match with case-insensitive flag");
+        assertTrue(withFlag.contains("2: Line2 MATCH"), "Should show matching line");
+    }
+
+    @Test
+    void testSearchFileContents_MultilineFlag_Anchors() throws Exception {
+        Path txt = projectRoot.resolve("multiline.txt");
+        Files.writeString(txt, "line1\nline2\nline3");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "multiline.txt"));
+
+        String withoutFlag =
+                searchTools.searchFileContents(List.of("^line2$"), "multiline.txt", false, false, 0, 200, 200);
+        assertTrue(withoutFlag.contains("No matches found"), "Should not match ^/$ without multiline flag");
+
+        String withFlag = searchTools.searchFileContents(List.of("^line2$"), "multiline.txt", false, true, 0, 200, 200);
+        assertTrue(withFlag.contains("multiline.txt [1 match]"), "Should match with multiline flag");
+        assertTrue(withFlag.contains("2: line2"), "Should show the anchored match line");
     }
 
     @Test
@@ -618,7 +655,7 @@ public class SearchToolsTest {
         // Match 1 (idx 1) -> lines 0, 1, 2
         // Match 2 (idx 3) -> lines 2, 3, 4
         // De-duped output should show L1, L2, L3, L4, L5 exactly once.
-        String result = searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", 1, 200, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", false, false, 1, 200, 200);
 
         assertTrue(result.contains("1: L1"));
         assertTrue(result.contains("2: L2 MATCH"));
@@ -632,7 +669,8 @@ public class SearchToolsTest {
 
         // Verify clamping: contextLines=999 should be clamped to 50
         // Our file is small, so it should just show everything.
-        String resultsCapped = searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", 999, 200, 200);
+        String resultsCapped =
+                searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", false, false, 999, 200, 200);
         assertTrue(resultsCapped.contains("7: L7"));
     }
 
@@ -645,7 +683,8 @@ public class SearchToolsTest {
         Files.writeString(txt, content);
         mockProjectFiles.add(new ProjectFile(projectRoot, "matches_per_file_test.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "matches_per_file_test.txt", 0, 200, 10);
+        String result =
+                searchTools.searchFileContents(List.of("MATCH"), "matches_per_file_test.txt", false, false, 0, 200, 10);
 
         assertTrue(result.contains("matches_per_file_test.txt [first 10 matches]"));
         assertTrue(result.contains("10: MATCH 10"));
@@ -671,7 +710,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "budget1.txt"));
         mockProjectFiles.add(new ProjectFile(projectRoot, "budget2.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "budget*.txt", 0, 999, 999);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "budget*.txt", false, false, 0, 999, 999);
 
         assertTrue(result.contains("budget1.txt"));
         assertTrue(result.contains("100: MATCH 100"));
@@ -689,7 +728,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "exact_limit.txt"));
 
         // Ask for exactly 3 matches.
-        String result = searchTools.searchFileContents(List.of("MATCH"), "exact_limit.txt", 0, 10, 3);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "exact_limit.txt", false, false, 0, 10, 3);
 
         assertTrue(result.contains("exact_limit.txt [first 3 matches]"), "Should show hit limit in header");
         assertTrue(result.contains("3: MATCH 3"), "Should contain the last match");
@@ -738,7 +777,8 @@ public class SearchToolsTest {
         Files.writeString(txt, "L1\nL2 MATCH\nL3\n");
         mockProjectFiles.add(new ProjectFile(projectRoot, "trailing_newline.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "trailing_newline.txt", 1, 10, 10);
+        String result =
+                searchTools.searchFileContents(List.of("MATCH"), "trailing_newline.txt", false, false, 1, 10, 10);
 
         assertTrue(result.contains("1: L1"), "Should include context above");
         assertTrue(result.contains("2: L2 MATCH"), "Should include match");
@@ -753,7 +793,7 @@ public class SearchToolsTest {
         Files.writeString(txt, "MATCH " + longTail);
         mockProjectFiles.add(new ProjectFile(projectRoot, "long_line.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "long_line.txt", 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "long_line.txt", false, false, 0, 200, 200);
 
         assertTrue(result.contains("1: MATCH "), "Should include matching line");
         assertTrue(result.contains("[TRUNCATED"), "Should truncate very long lines");
@@ -822,7 +862,7 @@ public class SearchToolsTest {
     @Test
     void testXmlSelect_XmlFallsBackToSkimWhenTooLarge() throws Exception {
         Path xml = projectRoot.resolve("long.xml");
-        String bigText = "a".repeat(2000);
+        String bigText = "a".repeat(2100);
         Files.writeString(
                 xml,
                 """

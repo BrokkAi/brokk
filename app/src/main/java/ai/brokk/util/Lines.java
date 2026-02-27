@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class Lines {
-    private static final int MAX_CHARS_PER_LINE = 1024;
+    public static final int MAX_CHARS_PER_LINE = 2048; // Claude Code is 2000
 
     private Lines() {}
 
