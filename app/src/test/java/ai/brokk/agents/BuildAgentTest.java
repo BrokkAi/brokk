@@ -10,6 +10,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestAnalyzer;
@@ -45,7 +46,7 @@ class BuildAgentTest {
 
     @Test
     void testResolveModule_selectsLongestMatchingPrefix(@TempDir Path tempDir) throws Exception {
-        var project = ai.brokk.project.MainProject.forTests(tempDir);
+        var project = MainProject.forTests(tempDir);
         var cm = new ai.brokk.testutil.TestContextManager(project);
 
         var details = new BuildAgent.BuildDetails(
@@ -71,7 +72,7 @@ class BuildAgentTest {
 
     @Test
     void testGetBuildLintSomeCommand_fallsBackToTestAll(@TempDir Path tempDir) throws Exception {
-        var project = ai.brokk.project.MainProject.forTests(tempDir);
+        var project = MainProject.forTests(tempDir);
         var cm = new ai.brokk.testutil.TestContextManager(project);
 
         var details = new BuildAgent.BuildDetails(
@@ -1205,8 +1206,8 @@ class BuildAgentTest {
 
     @Test
     void testDetermineVerificationCommand_ChainsMultipleModules(@TempDir Path tempDir) throws Exception {
-        var project = ai.brokk.project.MainProject.forTests(tempDir);
-        var cm = new ai.brokk.testutil.TestContextManager(project);
+        var project = MainProject.forTests(tempDir);
+        var cm = new TestContextManager(project);
 
         // Define modules in a specific order
         var details = new BuildAgent.BuildDetails(
@@ -1226,8 +1227,8 @@ class BuildAgentTest {
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.WORKSPACE);
 
         // Create files in both modules
-        var file1 = new ai.brokk.analyzer.ProjectFile(tempDir, "mod1/File1.java");
-        var file2 = new ai.brokk.analyzer.ProjectFile(tempDir, "mod2/File2.java");
+        var file1 = new ProjectFile(tempDir, "mod1/File1.java");
+        var file2 = new ProjectFile(tempDir, "mod2/File2.java");
         Files.createDirectories(tempDir.resolve("mod1"));
         Files.createDirectories(tempDir.resolve("mod2"));
         Files.writeString(file1.absPath(), "class File1 {}");
@@ -1235,8 +1236,8 @@ class BuildAgentTest {
 
         // Add both files to context
         var ctx = cm.liveContext()
-                .addFragments(new ai.brokk.context.ContextFragments.ProjectPathFragment(file1, cm))
-                .addFragments(new ai.brokk.context.ContextFragments.ProjectPathFragment(file2, cm));
+                .addFragments(new ContextFragments.ProjectPathFragment(file1, cm))
+                .addFragments(new ContextFragments.ProjectPathFragment(file2, cm));
 
         // Invoke determination
         String cmd = BuildAgent.determineVerificationCommand(ctx);

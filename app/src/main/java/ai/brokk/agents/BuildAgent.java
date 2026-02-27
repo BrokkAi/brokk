@@ -840,11 +840,11 @@ public class BuildAgent {
                 @JsonProperty("testSomeCommand") String testSomeCommand,
                 @JsonProperty("language") String language) {
             this.alias = alias;
-            this.relativePath = relativePath == null ? "" : relativePath.replace('\\', '/');
+            this.relativePath = relativePath.replace('\\', '/');
             this.buildLintCommand = buildLintCommand;
             this.testAllCommand = testAllCommand;
             this.testSomeCommand = testSomeCommand;
-            this.language = language != null ? language : "";
+            this.language = language;
         }
 
         public ModuleBuildEntry(
