@@ -164,20 +164,19 @@ public class InlineTestProjectCreator {
                 if (!isSha) {
                     try {
                         GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth, ref, true);
+                        return;
                     } catch (GitAPIException e) {
-                        isSha = true; // Try SHA logic as fallback
+                        // Fallback to clone default + checkout (needed for SHAs or if branch-specific clone failed)
                     }
                 }
 
-                if (isSha) {
-                    try (GitRepo ignored =
-                            GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth, true)) {
-                        try (Git git = Git.open(root.toFile())) {
-                            git.checkout().setName(ref).call();
-                        }
-                    } catch (GitAPIException e) {
-                        throw new IOException("Failed to checkout commit SHA: " + ref, e);
+                try (GitRepo ignored =
+                        GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth, null, true)) {
+                    try (Git git = Git.open(root.toFile())) {
+                        git.checkout().setName(ref).call();
                     }
+                } catch (GitAPIException e) {
+                    throw new IOException("Failed to clone or checkout ref: " + ref, e);
                 }
 
                 if (Boolean.getBoolean("brokk.test.debug.git")) {
@@ -294,12 +293,17 @@ public class InlineTestProjectCreator {
             }
 
             // Ensure languages are set before getting analyzer
-            Set<Language> detected = strategy.detectLanguages();
-            if (detected.isEmpty()) {
-                detected = scanLanguages(newTemporaryDirectory);
-            }
+            Set<Language> detected = new LinkedHashSet<>(strategy.detectLanguages());
+            detected.addAll(scanLanguages(newTemporaryDirectory));
+            detected.remove(Languages.NONE);
+
             if (!detected.isEmpty()) {
                 project.setAnalyzerLanguages(detected);
+                // Set the first detected language as the primary build language
+                project.setBuildLanguage(detected.iterator().next());
+            } else {
+                project.setAnalyzerLanguages(Set.of(Languages.NONE));
+                project.setBuildLanguage(Languages.NONE);
             }
 
             // Force an initial update so the analyzer is populated with code units
@@ -311,28 +315,32 @@ public class InlineTestProjectCreator {
         private Set<Language> scanLanguages(Path root) throws IOException {
             Set<Language> detected = new LinkedHashSet<>();
             try (Stream<Path> stream = Files.walk(root)) {
-                stream.filter(Files::isRegularFile).forEach(path -> {
-                    String filename = path.getFileName().toString();
+                stream.filter(path -> Stream.of(root.relativize(path))
+                                .noneMatch(p -> p.toString().equals(".git")
+                                        || p.toString().contains(".git/")))
+                        .filter(Files::isRegularFile)
+                        .forEach(path -> {
+                            String filename = path.getFileName().toString();
 
-                    // Detect by specific project files first
-                    if (filename.equals("pyproject.toml") || filename.equals("requirements.txt")) {
-                        detected.add(Languages.PYTHON);
-                    } else if (filename.equals("Cargo.toml")) {
-                        detected.add(Languages.RUST);
-                    }
+                            // Detect by specific project files first
+                            if (filename.equals("pyproject.toml") || filename.equals("requirements.txt")) {
+                                detected.add(Languages.PYTHON);
+                            } else if (filename.equals("Cargo.toml")) {
+                                detected.add(Languages.RUST);
+                            }
 
-                    // Then by extension
-                    int dot = filename.lastIndexOf('.');
-                    if (dot >= 0 && dot < filename.length() - 1) {
-                        String ext = filename.substring(dot + 1);
-                        Language lang = Languages.fromExtension(ext);
-                        if (lang != Languages.NONE) {
-                            detected.add(lang);
-                        }
-                    }
-                });
+                            // Then by extension
+                            int dot = filename.lastIndexOf('.');
+                            if (dot >= 0 && dot < filename.length() - 1) {
+                                String ext = filename.substring(dot + 1);
+                                for (Language lang : Languages.ALL_LANGUAGES) {
+                                    if (lang.getExtensions().contains(ext)) {
+                                        detected.add(lang);
+                                    }
+                                }
+                            }
+                        });
             }
-            detected.remove(Languages.NONE);
             return detected;
         }
     }
