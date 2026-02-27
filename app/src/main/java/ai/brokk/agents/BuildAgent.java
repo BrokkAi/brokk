@@ -507,7 +507,7 @@ public class BuildAgent {
                 Root commands (the top-level parameters) should represent repo-level orchestration. If no repo-level orchestration is possible, leave root commands blank and disable them by setting `buildLintEnabled` and `testAllEnabled` to `false`.
                 Module-specific commands must be executable from the project root (e.g., using flags like `-pl`, `-w`, or `cd`).
 
-                For monolithic repositories or single-module projects, you may report a single module with `relativePath: "."` and provide the relevant `testSomeCommand` in that module entry.
+                For monolithic repositories or single-module projects, you MUST report a single module with `relativePath: "."` and provide the relevant `testSomeCommand` in that module entry.
 
                 **Modules JSON Examples:**
 
@@ -1178,7 +1178,11 @@ public class BuildAgent {
                                 resolveModule(f, details.modules()),
                                 // Placeholder entry for root if no module matches
                                 new ModuleBuildEntry(
-                                        "root", "", details.buildLintCommand(), details.testAllCommand(), "")),
+                                        "root",
+                                        "",
+                                        details.buildLintCommand(),
+                                        details.testAllCommand(),
+                                        details.testSomeCommand())),
                         LinkedHashMap::new,
                         Collectors.toList()));
 
