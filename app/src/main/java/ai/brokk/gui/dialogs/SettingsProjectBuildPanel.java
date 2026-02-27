@@ -563,34 +563,21 @@ public class SettingsProjectBuildPanel extends JPanel {
         contentPanel.add(Box.createVerticalGlue(), gbc);
 
         // Populate initial values
-        updateJdkControlsVisibility();
+        scheduleJdkControlsUpdate();
 
-        // Load build panel settings (project may or may not have details yet)
-        if (project.hasBuildDetails()) {
-            try {
-                loadBuildPanelSettings();
-            } catch (Exception e) {
-                logger.warn(
-                        "Could not load build details for settings panel, using EMPTY. Error: {}", e.getMessage(), e);
-            }
-        } else {
-            // When initial details are not ready, they'll be applied when project.getBuildDetailsFuture completes
-            detailsFuture.whenCompleteAsync(
-                    (detailsResult, ex) -> {
-                        SwingUtilities.invokeLater(() -> {
-                            try {
-                                if (detailsResult != null
-                                        && !Objects.equals(detailsResult, BuildAgent.BuildDetails.EMPTY)) {
-                                    // No LLM patterns when loading from storage - don't highlight
-                                    updateBuildDetailsFieldsFromAgent(detailsResult, null);
-                                }
-                            } catch (Exception e) {
-                                logger.warn("Error while applying build details from future: {}", e.getMessage(), e);
+        // Load build panel settings asynchronously
+        project.getBuildDetailsFuture()
+                .thenAcceptAsync(
+                        details -> {
+                            if (details != null) {
+                                loadBuildPanelSettingsFromDetails(details);
                             }
-                        });
-                    },
-                    ForkJoinPool.commonPool());
-        }
+                        },
+                        SwingUtilities::invokeLater)
+                .exceptionally(ex -> {
+                    logger.warn("Error while loading build details: {}", ex.getMessage(), ex);
+                    return null;
+                });
     }
 
     private void setButtonToInferenceInProgress(boolean showCancelButton) {
@@ -928,14 +915,12 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     public void loadBuildPanelSettings() {
-        BuildAgent.BuildDetails details;
-        try {
-            details = project.awaitBuildDetails();
-        } catch (Exception e) {
-            logger.warn("Could not load build details for settings panel, using EMPTY. Error: {}", e.getMessage(), e);
-            details = BuildAgent.BuildDetails.EMPTY; // Fallback to EMPTY
-            chrome.toolError("Error loading build details: " + e.getMessage() + ". Using defaults.");
-        }
+        project.getBuildDetailsFuture()
+                .thenAcceptAsync(this::loadBuildPanelSettingsFromDetails, SwingUtilities::invokeLater);
+    }
+
+    private void loadBuildPanelSettingsFromDetails(BuildAgent.BuildDetails details) {
+        assert SwingUtilities.isEventDispatchThread();
 
         buildCleanCommandCheck.setSelected(details.buildLintEnabled());
         buildCleanCommandField.setText(details.buildLintCommand());
@@ -964,7 +949,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         selectTimeoutInCombo(testTimeoutComboBox, testTimeout);
 
         populateJdkControlsFromProject();
-        updateJdkControlsVisibility();
+        scheduleJdkControlsUpdate();
 
         // Load executor configuration
         ShellConfig shellConfig = project.getShellConfig();
@@ -1194,18 +1179,26 @@ public class SettingsProjectBuildPanel extends JPanel {
         jdkSelector.loadJdksAsync(effectiveJdk);
     }
 
+    private void scheduleJdkControlsUpdate() {
+        ai.brokk.concurrent.LoggingFuture.supplyAsync(() -> {
+                    boolean hasJvmModule = modulesList.stream()
+                            .map(m -> Languages.ALL_LANGUAGES.stream()
+                                    .filter(l -> l.name().equalsIgnoreCase(m.language()))
+                                    .findFirst()
+                                    .orElse(Languages.NONE))
+                            .anyMatch(this::isJvmLanguage);
+
+                    if (hasJvmModule) {
+                        return true;
+                    }
+
+                    return findLanguagesInProject().stream().anyMatch(this::isJvmLanguage);
+                })
+                .thenAccept(isJvmVisible -> SwingUtil.runOnEdt(() -> languagePanel.setVisible(isJvmVisible)));
+    }
+
     private void updateJdkControlsVisibility() {
-        boolean hasJvmModule = modulesList.stream()
-                .map(m -> Languages.ALL_LANGUAGES.stream()
-                        .filter(l -> l.name().equalsIgnoreCase(m.language()))
-                        .findFirst()
-                        .orElse(Languages.NONE))
-                .anyMatch(this::isJvmLanguage);
-
-        boolean hasJvmFiles = findLanguagesInProject().stream().anyMatch(this::isJvmLanguage);
-
-        boolean isJvmVisible = hasJvmModule || hasJvmFiles;
-        languagePanel.setVisible(isJvmVisible);
+        scheduleJdkControlsUpdate();
     }
 
     private boolean isJvmLanguage(Language language) {
