@@ -378,11 +378,13 @@ class BuildAgentTest {
         // This simulates what happens when BuildAgent runs again
         agent.reportBuildDetails(
                 "mvn compile",
+                true,
                 "mvn test",
+                true,
                 "mvn test -Dtest={{#classes}}{{value}}{{/classes}}",
                 List.of("target"), // LLM suggests target directory
-                List.of("*.gif") // LLM suggests gif pattern
-                );
+                List.of("*.gif"), // LLM suggests gif pattern
+                List.of());
 
         // Verify existing patterns are preserved AND new patterns are added
         var reportedDetails = agent.getReportedDetails();
@@ -466,10 +468,13 @@ class BuildAgentTest {
 
         agent.reportBuildDetails(
                 "npm run build",
+                true,
                 "npm test",
+                true,
                 "npm test {{#files}}{{value}}{{/files}}",
                 List.of("node_modules", "build"),
-                List.of("*.map"));
+                List.of("*.map"),
+                List.of());
 
         var details = agent.getReportedDetails();
         assert details != null;
@@ -484,6 +489,21 @@ class BuildAgentTest {
         assertTrue(llmPatterns.contains("build"), "Kept pattern should be in LLM tracking");
 
         project.close();
+    }
+
+    @Test
+    void testReportBuildDetails_DisablesGlobalCommands(@TempDir Path tempDir) throws Exception {
+        var testProject = new TestProject(tempDir);
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
+
+        agent.reportBuildDetails("mvn compile", false, "mvn test", false, "", List.of(), List.of(), List.of());
+
+        var details = agent.getReportedDetails();
+        assertNotNull(details);
+        assertFalse(details.buildLintEnabled(), "Build lint should be disabled");
+        assertFalse(details.testAllEnabled(), "Test all should be disabled");
+        assertEquals("mvn compile", details.buildLintCommand());
+        assertEquals("mvn test", details.testAllCommand());
     }
 
     @Test
