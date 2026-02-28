@@ -167,6 +167,19 @@ public class SearchTools {
                     .maximumSize(4L * Runtime.getRuntime().availableProcessors())
                     .build());
 
+    private static final class RegexMatchOverflowException extends RuntimeException {
+        private final String pattern;
+
+        private RegexMatchOverflowException(String pattern, StackOverflowError cause) {
+            super("Regex '%s' caused StackOverflowError during matching".formatted(pattern), cause);
+            this.pattern = pattern;
+        }
+
+        private String pattern() {
+            return pattern;
+        }
+    }
+
     private final IContextManager contextManager; // Needed for file operations
     private final AtomicLong researchTokens = new AtomicLong(0);
 
@@ -696,6 +709,8 @@ public class SearchTools {
                 Pattern newlyCompiled = Pattern.compile(pat);
                 cache.put(pat, newlyCompiled);
                 compiled.add(newlyCompiled);
+            } catch (StackOverflowError e) {
+                errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 errors.add("'%s': %s".formatted(pat, message));
@@ -733,6 +748,8 @@ public class SearchTools {
                 Pattern newlyCompiled = Pattern.compile(pat, flags);
                 cache.put(cacheKey, newlyCompiled);
                 compiled.add(newlyCompiled);
+            } catch (StackOverflowError e) {
+                errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
             } catch (RuntimeException e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage();
                 errors.add("'%s': %s".formatted(pat, message));
@@ -1429,8 +1446,15 @@ public class SearchTools {
                                 }
 
                                 String fileContents = fileContentsOpt.get();
-                                boolean matched = patterns.stream()
-                                        .anyMatch(p -> p.matcher(fileContents).find());
+                                boolean matched;
+                                try {
+                                    matched = patterns.stream().anyMatch(p -> findWithOverflowGuard(p, fileContents));
+                                } catch (RegexMatchOverflowException e) {
+                                    String message =
+                                            "regex '%s' caused StackOverflowError".formatted(e.pattern());
+                                    logger.warn("Regex stack overflow while searching file {}", file, e);
+                                    return new FilePatternSearchResult(null, file + ": " + message);
+                                }
 
                                 return matched
                                         ? new FilePatternSearchResult(file, null)
@@ -1603,15 +1627,23 @@ public class SearchTools {
         BatchResult<FileHit> batchResult;
         try {
             batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
-                var res = searchFileContentsInFile(file, compiledPatterns, clampedContext, effectiveMatchesPerFile);
-                if (res == null) return new IndexedResult<>(idx, null, null);
-                return new IndexedResult<>(idx, new FileHit(file, res.output(), res.matches()), null);
+                try {
+                    var res = searchFileContentsInFile(file, compiledPatterns, clampedContext, effectiveMatchesPerFile);
+                    if (res == null) return new IndexedResult<>(idx, null, null);
+                    return new IndexedResult<>(idx, new FileHit(file, res.output(), res.matches()), null);
+                } catch (RegexMatchOverflowException e) {
+                    String message =
+                            "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
+                    logger.warn("Regex stack overflow while searching file contents in {}", file, e);
+                    return new IndexedResult<>(idx, null, message);
+                }
             });
         } catch (RuntimeException e) {
             logger.error("Error searching file contents for '{}' in '{}'", patternsLabel, filepath, e);
             return "Error searching file contents: " + (e.getMessage() == null ? e.toString() : e.getMessage());
         }
 
+        List<String> processingErrors = new ArrayList<>(batchResult.errors());
         List<String> fileBlocks = new ArrayList<>();
         int totalMatches = 0;
         boolean truncatedByTotalMatches = false;
@@ -1628,10 +1660,17 @@ public class SearchTools {
                 totalMatches += hit.matches();
             } else {
                 if (remaining > 0) {
-                    var recomputed = searchFileContentsInFile(hit.file(), compiledPatterns, clampedContext, remaining);
-                    if (recomputed != null) {
-                        fileBlocks.add(recomputed.output());
-                        totalMatches += recomputed.matches();
+                    try {
+                        var recomputed = searchFileContentsInFile(hit.file(), compiledPatterns, clampedContext, remaining);
+                        if (recomputed != null) {
+                            fileBlocks.add(recomputed.output());
+                            totalMatches += recomputed.matches();
+                        }
+                    } catch (RegexMatchOverflowException e) {
+                        String message = "%s: regex '%s' caused StackOverflowError"
+                                .formatted(hit.file(), e.pattern());
+                        processingErrors.add(message);
+                        logger.warn("Regex stack overflow while recomputing content search for {}", hit.file(), e);
                     }
                 }
                 truncatedByTotalMatches = true;
@@ -1640,16 +1679,24 @@ public class SearchTools {
         }
 
         if (fileBlocks.isEmpty()) {
+            if (!processingErrors.isEmpty()) {
+                return "No matches found for pattern(s) '%s' in files matching '%s' (errors occurred in %d files; first: %s)"
+                        .formatted(patternsLabel, filepath, processingErrors.size(), processingErrors.getFirst());
+            }
             return "No matches found for pattern(s) '" + patternsLabel + "' in files matching '" + filepath + "'";
         }
 
-        var suffixLines = new ArrayList<String>(2);
+        var suffixLines = new ArrayList<String>(3);
         if (truncatedByTotalMatches) {
             suffixLines.add("TRUNCATED: reached global limit of %d total matches"
                     .formatted(SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES));
         }
         if (batchResult.truncatedByMaxFiles()) {
             suffixLines.add("TRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles));
+        }
+        if (!processingErrors.isEmpty()) {
+            suffixLines.add("WARNINGS: errors occurred in %d files; first: %s"
+                    .formatted(processingErrors.size(), processingErrors.getFirst()));
         }
 
         String output = String.join("\n\n", fileBlocks);
@@ -1737,16 +1784,20 @@ public class SearchTools {
         int searchThreshold = maxMatchesToTake + contextLines + 1;
 
         for (Pattern pattern : patterns) {
-            Matcher matcher = pattern.matcher(content);
-            while (matcher.find()) {
-                int matchStart = matcher.start();
-                int ln = lineNoForOffset(lineStartOffsets, matchStart);
-                if (ln < 1 || ln > lineCount) continue;
-                firstMatchOffsetByLine.merge(ln, matchStart, Math::min);
+            try {
+                Matcher matcher = pattern.matcher(content);
+                while (matcher.find()) {
+                    int matchStart = matcher.start();
+                    int ln = lineNoForOffset(lineStartOffsets, matchStart);
+                    if (ln < 1 || ln > lineCount) continue;
+                    firstMatchOffsetByLine.merge(ln, matchStart, Math::min);
 
-                if (firstMatchOffsetByLine.size() >= searchThreshold) {
-                    break;
+                    if (firstMatchOffsetByLine.size() >= searchThreshold) {
+                        break;
+                    }
                 }
+            } catch (StackOverflowError e) {
+                throw new RegexMatchOverflowException(pattern.pattern(), e);
             }
         }
 
@@ -2252,21 +2303,27 @@ public class SearchTools {
             throw new IllegalArgumentException("No valid patterns provided");
         }
 
-        var allMatches = contextManager.getProject().getAllFiles().stream()
-                .map(ProjectFile::toString) // Use relative path from ProjectFile
-                .filter(filePath -> {
-                    // Normalise to forward slashes so regex like "frontend-mop/.*\\.svelte"
-                    // work on Windows paths containing back-slashes.
-                    String unixPath = toUnixPath(filePath);
-                    for (Pattern pattern : compiledPatterns) {
-                        if (pattern.matcher(unixPath).find()) {
-                            return true;
+        final List<String> allMatches;
+        try {
+            allMatches = contextManager.getProject().getAllFiles().stream()
+                    .map(ProjectFile::toString) // Use relative path from ProjectFile
+                    .filter(filePath -> {
+                        // Normalise to forward slashes so regex like "frontend-mop/.*\\.svelte"
+                        // work on Windows paths containing back-slashes.
+                        String unixPath = toUnixPath(filePath);
+                        for (Pattern pattern : compiledPatterns) {
+                            if (findWithOverflowGuard(pattern, unixPath)) {
+                                return true;
+                            }
                         }
-                    }
-                    return false;
-                })
-                .sorted()
-                .toList();
+                        return false;
+                    })
+                    .sorted()
+                    .toList();
+        } catch (RegexMatchOverflowException e) {
+            logger.warn("Regex stack overflow while searching filenames with pattern {}", e.pattern(), e);
+            return "Regex pattern '%s' caused StackOverflowError during filename search".formatted(e.pattern());
+        }
 
         int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
         boolean truncated = allMatches.size() > effectiveLimit;
@@ -2283,6 +2340,14 @@ public class SearchTools {
         }
 
         return recordResearchTokens(prefix + "Matching filenames: " + String.join(", ", matchingFiles));
+    }
+
+    private static boolean findWithOverflowGuard(Pattern pattern, String input) {
+        try {
+            return pattern.matcher(input).find();
+        } catch (StackOverflowError e) {
+            throw new RegexMatchOverflowException(pattern.pattern(), e);
+        }
     }
 
     @Tool(

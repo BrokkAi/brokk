@@ -92,6 +92,18 @@ public class SearchToolsTest {
         }
     }
 
+    private static String nestedOptionalPattern(int depth) {
+        StringBuilder builder = new StringBuilder(depth * 2 + 1);
+        for (int i = 0; i < depth; i++) {
+            builder.append('(');
+        }
+        builder.append("a");
+        for (int i = 0; i < depth; i++) {
+            builder.append(")?");
+        }
+        return builder.toString();
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         projectRoot = tempDir.resolve("testRepo");
@@ -194,10 +206,30 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testfindFilesContaining_overlyComplexRegexDoesNotCrash() throws InterruptedException {
+        String result = searchTools.findFilesContaining(List.of(nestedOptionalPattern(1500)), 200);
+        assertTrue(
+                result.contains("Invalid regex pattern")
+                        && (result.contains("pattern is too complex")
+                                || result.contains("Stack overflow during pattern compilation")),
+                "Should report that an overly complex pattern cannot be processed");
+    }
+
+    @Test
     void testfindFilenames_invalidRegexThrows() throws Exception {
         // SearchTools.compilePatterns throws on invalid regex for this tool
         String result = searchTools.findFilenames(List.of("[["), 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
+    }
+
+    @Test
+    void testfindFilenames_overlyComplexRegexDoesNotCrash() {
+        String result = searchTools.findFilenames(List.of(nestedOptionalPattern(1500)), 200);
+        assertTrue(
+                result.contains("Invalid regex pattern")
+                        && (result.contains("pattern is too complex")
+                                || result.contains("Stack overflow during pattern compilation")),
+                "Should report that an overly complex pattern cannot be processed");
     }
 
     @Test
@@ -496,6 +528,17 @@ public class SearchToolsTest {
         // "[[" is invalid regex, should return error message
         String result = searchTools.searchFileContents(List.of("[["), "README.md", false, false, 0, 200, 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
+    }
+
+    @Test
+    void testSearchFileContents_overlyComplexRegexDoesNotCrash() throws InterruptedException {
+        String result = searchTools.searchFileContents(
+                List.of(nestedOptionalPattern(1500)), "README.md", false, false, 0, 200, 200);
+        assertTrue(
+                result.contains("Invalid regex pattern")
+                        && (result.contains("pattern is too complex")
+                                || result.contains("Stack overflow during pattern compilation")),
+                "Should report that an overly complex pattern cannot be processed");
     }
 
     @Test
