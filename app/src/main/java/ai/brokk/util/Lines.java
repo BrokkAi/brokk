@@ -7,9 +7,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class Lines {
+    public static final int MAX_CHARS_PER_LINE = 2048; // Claude Code is 2000
+
     private Lines() {}
 
-    public static HeadTail cap(String content, int maxLines, int topShown, int bottomShown, int maxCharsPerLine) {
+    public static HeadTail cap(String content, int maxLines, int topShown, int bottomShown) {
         if (content.isEmpty()) {
             return HeadTail.full(content);
         }
@@ -91,14 +93,14 @@ public final class Lines {
         }
 
         if (totalLines <= maxLines) {
-            return HeadTail.full(capAllLines(content, maxCharsPerLine));
+            return HeadTail.full(capAllLines(content));
         }
 
         int top = min(topShown, totalLines);
         int bottom = min(bottomShown, max(0, totalLines - top));
         int omitted = max(0, totalLines - top - bottom);
 
-        String head = joinLines(content, headStarts, headEnds, 0, top, maxCharsPerLine);
+        String head = joinLines(content, headStarts, headEnds, 0, top);
 
         String tail = "";
         if (bottom > 0) {
@@ -109,12 +111,12 @@ public final class Lines {
             var tailLines = new ArrayList<String>(bottom);
             for (int n = skip; n < orderedSize; n++) {
                 int ringIndex = (orderedStart + n) % orderedSize;
-                tailLines.add(truncateLine(content, tailStarts[ringIndex], tailEnds[ringIndex], maxCharsPerLine));
+                tailLines.add(truncateLine(content, tailStarts[ringIndex], tailEnds[ringIndex]));
             }
             tail = String.join("\n", tailLines);
         }
 
-        String delimiter = "----- BRK_OMITTED " + omitted + " LINES -----";
+        String delimiter = "----- OMITTED " + omitted + " LINES -----";
 
         var parts = new ArrayList<String>(3);
         if (!head.isEmpty()) {
@@ -129,95 +131,87 @@ public final class Lines {
         return HeadTail.truncated(promptText, totalLines, topShown, bottomShown);
     }
 
-    public static String range(String content, int oneBasedStartInclusive, int oneBasedEndExclusive) {
+    public record RangeResult(String text, int lineCount) {}
+
+    public static RangeResult range(String content, int oneBasedStartInclusive, int oneBasedEndInclusive) {
         if (oneBasedStartInclusive < 1) {
             throw new IllegalArgumentException("oneBasedStartInclusive must be >= 1");
         }
-        if (oneBasedEndExclusive < oneBasedStartInclusive) {
-            throw new IllegalArgumentException("oneBasedEndExclusive must be >= oneBasedStartInclusive");
+        if (oneBasedEndInclusive < oneBasedStartInclusive) {
+            throw new IllegalArgumentException("oneBasedEndInclusive must be >= oneBasedStartInclusive");
         }
-        if (oneBasedStartInclusive == oneBasedEndExclusive || content.isEmpty()) {
-            return "";
+        if (content.isEmpty()) {
+            return new RangeResult("", 0);
         }
 
         int length = content.length();
-
-        int startOffset = (oneBasedStartInclusive == 1) ? 0 : -1;
-        int endOffset = (oneBasedEndExclusive == 1) ? 0 : -1;
-
         int currentLine = 1;
         int lineStart = 0;
+        List<String> outputLines = new ArrayList<>();
 
         int i = 0;
-        while (i < length && (startOffset < 0 || endOffset < 0)) {
+        while (i < length && currentLine <= oneBasedEndInclusive) {
             char c = content.charAt(i);
             if (c == '\n' || c == '\r') {
+                int lineEnd = i;
                 int next = i + 1;
-
-                // Treat CRLF as a single line break.
                 if (c == '\r' && next < length && content.charAt(next) == '\n') {
                     next++;
                 }
 
+                if (currentLine >= oneBasedStartInclusive) {
+                    String line = truncateLine(content, lineStart, lineEnd);
+                    outputLines.add(currentLine + ": " + line);
+                }
+
                 currentLine++;
                 lineStart = next;
-
-                if (startOffset < 0 && currentLine == oneBasedStartInclusive) {
-                    startOffset = lineStart;
-                }
-                if (endOffset < 0 && currentLine == oneBasedEndExclusive) {
-                    endOffset = lineStart;
-                }
-
                 i = next;
-                continue;
+            } else {
+                i++;
             }
-            i++;
         }
 
-        if (startOffset < 0) {
-            return "";
+        // Handle last line if it doesn't end with a newline
+        if (lineStart < length && currentLine >= oneBasedStartInclusive && currentLine <= oneBasedEndInclusive) {
+            String line = truncateLine(content, lineStart, length);
+            outputLines.add(currentLine + ": " + line);
         }
-        if (endOffset < 0) {
-            endOffset = length;
+
+        if (outputLines.isEmpty()) {
+            return new RangeResult("", 0);
         }
-        if (endOffset <= startOffset) {
-            return "";
-        }
-        return content.substring(startOffset, endOffset);
+
+        return new RangeResult(String.join("\n", outputLines) + "\n", outputLines.size());
     }
 
-    private static String joinLines(
-            String content, int[] starts, int[] ends, int startIndex, int count, int maxCharsPerLine) {
+    private static String joinLines(String content, int[] starts, int[] ends, int startIndex, int count) {
         if (count <= 0) {
             return "";
         }
         if (count == 1) {
-            return truncateLine(content, starts[startIndex], ends[startIndex], maxCharsPerLine);
+            return truncateLine(content, starts[startIndex], ends[startIndex]);
         }
         List<String> lines = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             int idx = startIndex + i;
-            lines.add(truncateLine(content, starts[idx], ends[idx], maxCharsPerLine));
+            lines.add(truncateLine(content, starts[idx], ends[idx]));
         }
         return String.join("\n", lines);
     }
 
-    private static String truncateLine(String content, int startInclusive, int endExclusive, int maxCharsPerLine) {
+    public static String truncateLine(String content, int startInclusive, int endExclusive) {
         int len = endExclusive - startInclusive;
-        if (len <= maxCharsPerLine) {
+        if (len <= MAX_CHARS_PER_LINE) {
             return content.substring(startInclusive, endExclusive);
         }
-        int omitted = len - maxCharsPerLine;
-        return content.substring(startInclusive, startInclusive + maxCharsPerLine)
-                + " [BRK_TRUNCATED "
-                + omitted
-                + " CHARS]";
+        return content.substring(startInclusive, startInclusive + MAX_CHARS_PER_LINE) + " [TRUNCATED at "
+                + MAX_CHARS_PER_LINE + " chars]";
     }
 
-    private static String capAllLines(String content, int maxCharsPerLine) {
+    private static String capAllLines(String content) {
         int length = content.length();
-        StringBuilder out = new StringBuilder(min(length, maxCharsPerLine * 2));
+        StringBuilder out = new StringBuilder(min(length, MAX_CHARS_PER_LINE * 2));
 
         int lineStart = 0;
         int i = 0;
@@ -225,7 +219,7 @@ public final class Lines {
             char c = content.charAt(i);
             if (c == '\n' || c == '\r') {
                 int lineEnd = i;
-                out.append(truncateLine(content, lineStart, lineEnd, maxCharsPerLine));
+                out.append(truncateLine(content, lineStart, lineEnd));
 
                 // Treat CRLF as a single line break.
                 if (c == '\r' && (i + 1) < length && content.charAt(i + 1) == '\n') {
@@ -240,7 +234,7 @@ public final class Lines {
             i++;
         }
 
-        out.append(truncateLine(content, lineStart, length, maxCharsPerLine));
+        out.append(truncateLine(content, lineStart, length));
         return out.toString();
     }
 
