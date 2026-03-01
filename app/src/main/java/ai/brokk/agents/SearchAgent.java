@@ -134,6 +134,11 @@ public class SearchAgent {
     private final Set<ContextFragment> originalPinnedFragments;
     private final List<ContextFragment> droppedFragments = new ArrayList<>();
     private double researchTokensEma = 0.0;
+    private boolean overflowNormalReplayPendingResult;
+    private @Nullable String pendingOverflowRecoveryNote;
+
+    private static final long OVERFLOW_GROWTH_REPLAY_THRESHOLD = 20_000L;
+    private static final int MAX_OVERFLOW_NOTE_FRAGMENT_DETAILS = 25;
 
     private int consecutiveStagnantTurns = 0;
 
@@ -333,11 +338,17 @@ public class SearchAgent {
                 }
                 case TurnOutcome.Overflow overflow -> {
                     assert pendingTerminal == null;
+                    Context overflowContext = currentState.context();
+                    Context checkpointContext = checkpointState.context();
+                    OverflowGrowth overflowGrowth = computeOverflowGrowth(checkpointContext, overflowContext);
+
                     if (currentState.equals(checkpointState)) {
+                        String explanation = overflowNormalReplayPendingResult
+                                ? "Context limit exceeded even after checkpoint replay retry."
+                                : "Context limit exceeded and cannot be recovered by checkpoint restore or pruning.";
                         return errorResult(
                                 new TaskResult.StopDetails(
-                                        TaskResult.StopReason.LLM_CONTEXT_SIZE,
-                                        "Context limit exceeded and cannot be recovered by checkpoint restore or pruning."),
+                                        TaskResult.StopReason.LLM_CONTEXT_SIZE, explanation),
                                 currentState.context());
                     }
 
@@ -345,7 +356,16 @@ public class SearchAgent {
                             "Context limit exceeded. Restoring last successful checkpoint and entering recovery mode.");
 
                     currentState = checkpointState;
-                    if (!isPruningWorthwhile(currentState.context())) {
+                    boolean pruningWorthwhileAtCheckpoint = isPruningWorthwhile(currentState.context());
+                    if (!pruningWorthwhileAtCheckpoint
+                            && overflowGrowth.netGrowthTokens() > OVERFLOW_GROWTH_REPLAY_THRESHOLD
+                            && !overflowNormalReplayPendingResult) {
+                        pendingOverflowRecoveryNote = buildOverflowRecoveryHarnessNote(overflowGrowth);
+                        overflowNormalReplayPendingResult = true;
+                        dropMode = DropMode.NORMAL;
+                        continue;
+                    }
+                    if (!pruningWorthwhileAtCheckpoint) {
                         return errorResult(
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.LLM_CONTEXT_SIZE,
@@ -360,11 +380,13 @@ public class SearchAgent {
                         continue;
                     }
 
+                    overflowNormalReplayPendingResult = false;
                     dropMode = DropMode.DROP_ONLY;
                     turn++;
                 }
                 case TurnOutcome.AutoScan autoScan -> {
                     assert dropMode != DropMode.DROP_ONLY;
+                    overflowNormalReplayPendingResult = false;
                     performAutoScan();
                     turn++;
                 }
@@ -381,6 +403,7 @@ public class SearchAgent {
                     // (almost certainly futily) retrying drop-only
                     checkpointState = dropMode == DropMode.DROP_ONLY ? nextState : stateAtTurnStart;
                     dropMode = calculateDropMode(c.contextAfterTurn());
+                    overflowNormalReplayPendingResult = false;
                     turn++;
                 }
                 case TurnOutcome.ForceFinalTurn fft -> {
@@ -394,6 +417,7 @@ public class SearchAgent {
 
                     checkpointState = stateAtTurnStart;
                     dropMode = calculateDropMode(fft.contextAfterTurn());
+                    overflowNormalReplayPendingResult = false;
 
                     turn = MAX_TOTAL_TURNS - 1;
                 }
@@ -404,6 +428,7 @@ public class SearchAgent {
                             stateAtTurnStart.lastTurnContext(),
                             stateAtTurnStart.presentedRelatedFiles());
                     pendingTerminal = pt.pendingTerminal();
+                    overflowNormalReplayPendingResult = false;
                     dropMode = DropMode.DROP_ONLY;
                     turn++;
                 }
@@ -932,6 +957,12 @@ public class SearchAgent {
                     effectiveDropMode,
                     turnsLeftAfterThisTurn);
 
+            if (agent.pendingOverflowRecoveryNote != null) {
+                messages = new ArrayList<>(messages);
+                messages.add(new UserMessage(agent.pendingOverflowRecoveryNote));
+                agent.pendingOverflowRecoveryNote = null;
+            }
+
             @Nullable UserMessage extraUserMessage = null;
 
             List<String> allowedOrdinaryTools;
@@ -1186,6 +1217,57 @@ public class SearchAgent {
 
     boolean hasDroppableFragments(Context context) {
         return context.allFragments().anyMatch(f -> !isPinnedBySystem(f));
+    }
+
+    record OverflowGrowth(long netGrowthTokens, List<AddedFragmentTokens> addedFragments) {}
+
+    record AddedFragmentTokens(String label, long tokens) {}
+
+    OverflowGrowth computeOverflowGrowth(Context checkpointContext, Context overflowContext) {
+        long netGrowthTokens = contextTokenCount(overflowContext) - contextTokenCount(checkpointContext);
+        List<AddedFragmentTokens> added = ContextDelta.between(checkpointContext, overflowContext).join().addedFragments().stream()
+                .map(f -> new AddedFragmentTokens(fragmentLabel(f), Messages.getApproximateTokens(f.text().join())))
+                .sorted(Comparator.comparingLong(AddedFragmentTokens::tokens).reversed())
+                .toList();
+        return new OverflowGrowth(netGrowthTokens, added);
+    }
+
+    String buildOverflowRecoveryHarnessNote(OverflowGrowth growth) {
+        String details = growth.addedFragments().stream()
+                .limit(MAX_OVERFLOW_NOTE_FRAGMENT_DETAILS)
+                .map(f -> f.label() + " (" + f.tokens() + " tokens)")
+                .collect(Collectors.joining(", "));
+
+        int remaining = growth.addedFragments().size() - Math.min(growth.addedFragments().size(), MAX_OVERFLOW_NOTE_FRAGMENT_DETAILS);
+        if (remaining > 0) {
+            details = details + ", ... and " + remaining + " more";
+        }
+        if (details.isBlank()) {
+            details = "(no fragment details available)";
+        }
+
+        return "[HARNESS NOTE: Recovering from context overflow after checkpoint restore. Context grew by "
+                + growth.netGrowthTokens()
+                + " tokens since checkpoint. Added fragments: "
+                + details
+                + "]";
+    }
+
+    private long contextTokenCount(Context context) {
+        return context.allFragments()
+                .mapToLong(f -> Messages.getApproximateTokens(f.text().join()))
+                .sum();
+    }
+
+    private String fragmentLabel(ContextFragment fragment) {
+        var sourceFiles = fragment.sourceFiles().renderNowOr(Set.of());
+        if (!sourceFiles.isEmpty()) {
+            return sourceFiles.stream()
+                    .map(pf -> pf.getRelPath().toString())
+                    .sorted()
+                    .collect(Collectors.joining(", "));
+        }
+        return fragment.description().renderNowOr("fragment " + fragment.id());
     }
 
     /**

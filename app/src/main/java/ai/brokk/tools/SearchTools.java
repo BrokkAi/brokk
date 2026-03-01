@@ -1450,8 +1450,7 @@ public class SearchTools {
                                 try {
                                     matched = patterns.stream().anyMatch(p -> findWithOverflowGuard(p, fileContents));
                                 } catch (RegexMatchOverflowException e) {
-                                    String message =
-                                            "regex '%s' caused StackOverflowError".formatted(e.pattern());
+                                    String message = "regex '%s' caused StackOverflowError".formatted(e.pattern());
                                     logger.warn("Regex stack overflow while searching file {}", file, e);
                                     return new FilePatternSearchResult(null, file + ": " + message);
                                 }
@@ -1632,8 +1631,7 @@ public class SearchTools {
                     if (res == null) return new IndexedResult<>(idx, null, null);
                     return new IndexedResult<>(idx, new FileHit(file, res.output(), res.matches()), null);
                 } catch (RegexMatchOverflowException e) {
-                    String message =
-                            "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
+                    String message = "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
                     logger.warn("Regex stack overflow while searching file contents in {}", file, e);
                     return new IndexedResult<>(idx, null, message);
                 }
@@ -1661,14 +1659,14 @@ public class SearchTools {
             } else {
                 if (remaining > 0) {
                     try {
-                        var recomputed = searchFileContentsInFile(hit.file(), compiledPatterns, clampedContext, remaining);
+                        var recomputed =
+                                searchFileContentsInFile(hit.file(), compiledPatterns, clampedContext, remaining);
                         if (recomputed != null) {
                             fileBlocks.add(recomputed.output());
                             totalMatches += recomputed.matches();
                         }
                     } catch (RegexMatchOverflowException e) {
-                        String message = "%s: regex '%s' caused StackOverflowError"
-                                .formatted(hit.file(), e.pattern());
+                        String message = "%s: regex '%s' caused StackOverflowError".formatted(hit.file(), e.pattern());
                         processingErrors.add(message);
                         logger.warn("Regex stack overflow while recomputing content search for {}", hit.file(), e);
                     }
