@@ -90,6 +90,7 @@ public class ToolRegistry {
             Map.entry("searchGitCommitMessages", "Searching git commits"),
             Map.entry("listFiles", "Listing files"),
             Map.entry("addFilesToWorkspace", "Adding files to workspace"),
+            Map.entry("addLineRangeToWorkspace", "Adding line range to workspace"),
             Map.entry("addClassesToWorkspace", "Adding classes to workspace"),
             Map.entry("addUrlContentsToWorkspace", "Adding URL contents to workspace"),
             Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),

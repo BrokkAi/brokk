@@ -50,8 +50,7 @@ class SearchAgentTest {
         Context context = agent.currentState
                 .context()
                 .addFragments(
-                        new ai.brokk.context.ContextFragments.StringFragment(
-                                cm, "some content", "desc", "text/plain"));
+                        new ai.brokk.context.ContextFragments.StringFragment(cm, "some content", "desc", "text/plain"));
 
         assertTrue(
                 agent.hasDroppableFragments(context),
@@ -67,6 +66,18 @@ class SearchAgentTest {
 
         SearchAgent agent = newAgent(cm, new OfflineStreamingModel());
         assertEquals(SearchAgent.ToolCategory.WORKSPACE_HYGIENE, agent.categorizeTool("dropWorkspaceFragments"));
+    }
+
+    @Test
+    void calculateAllowedToolNames_includesLineRangeWorkspaceTool_notLegacyReadLineRange() {
+        TestConsoleIO io = new TestConsoleIO();
+        TestContextManager cm = new TestContextManager(tempDir, io);
+
+        SearchAgent agent = newAgent(cm, new OfflineStreamingModel());
+        List<String> allowed = agent.calculateAllowedToolNames(cm.liveContext(), SearchAgent.DropMode.NORMAL);
+
+        assertTrue(allowed.contains("addLineRangeToWorkspace"));
+        assertFalse(allowed.contains("readLineRange"));
     }
 
     @Test
@@ -127,7 +138,8 @@ class SearchAgentTest {
         // bigF2: lostTokens (bigF3) = 20000. freedTokens (0.9 * bigF2) = 9000.
         // (0.625 * 20000) = 12500.
         // 12500 > 9000 AND (20000 - 9000) > 10000. SHOULD PIN.
-        Context current = new Context(cm).addFragments(List.of(f1, bigF2, bigF3)).withPinned(f1, true);
+        Context current =
+                new Context(cm).addFragments(List.of(f1, bigF2, bigF3)).withPinned(f1, true);
 
         Context pinned2 = agent.applyPinning(current, lastTurn);
         assertTrue(pinned2.isPinned(f1));
@@ -167,7 +179,12 @@ class SearchAgentTest {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
         Context empty = new Context(cm);
         SearchAgent agent = new SearchAgent(
-                empty, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), SearchAgent.ScanConfig.disabled());
+                empty,
+                "goal",
+                new OfflineStreamingModel(),
+                null,
+                new NoOpConsoleIO(),
+                SearchAgent.ScanConfig.disabled());
 
         // Case 1: No last turn
         assertTrue(agent.calculateConvergenceScore(empty, null) == 0.0);
@@ -187,8 +204,8 @@ class SearchAgentTest {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
         var agent = newAgent(cm);
 
-        Context checkpoint = cm.liveContext().addFragments(
-                new ContextFragments.StringFragment(cm, "base", "base-fragment", "text/plain"));
+        Context checkpoint = cm.liveContext()
+                .addFragments(new ContextFragments.StringFragment(cm, "base", "base-fragment", "text/plain"));
 
         Context overflow = checkpoint.addFragments(List.of(
                 new ContextFragments.StringFragment(cm, "a".repeat(24000), "large-fragment", "text/plain"),
@@ -199,7 +216,8 @@ class SearchAgentTest {
         assertTrue(growth.netGrowthTokens() > 0, "Expected positive token growth from checkpoint to overflow");
         assertEquals(2, growth.addedFragments().size(), "Expected two added fragments in delta");
         assertTrue(
-                growth.addedFragments().get(0).tokens() >= growth.addedFragments().get(1).tokens(),
+                growth.addedFragments().get(0).tokens()
+                        >= growth.addedFragments().get(1).tokens(),
                 "Added fragments should be sorted by descending token count");
     }
 
@@ -220,8 +238,7 @@ class SearchAgentTest {
         assertTrue(note.contains("Context grew by"), "Note should contain token growth statement");
         assertTrue(note.contains("tokens since checkpoint"), "Note should include checkpoint wording");
         assertTrue(
-                note.contains("frag-one") || note.contains("frag-two"),
-                "Note should contain fragment detail labels");
+                note.contains("frag-one") || note.contains("frag-two"), "Note should contain fragment detail labels");
     }
 
     @Test

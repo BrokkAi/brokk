@@ -241,7 +241,7 @@ public class SearchAgent {
         tools.add("findFilesContaining");
         tools.add("findFilenames");
         tools.add("searchFileContents");
-        tools.add("readLineRange");
+        tools.add("addLineRangeToWorkspace");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
         if (project.hasGit()) {
@@ -347,8 +347,7 @@ public class SearchAgent {
                                 ? "Context limit exceeded even after checkpoint replay retry."
                                 : "Context limit exceeded and cannot be recovered by checkpoint restore or pruning.";
                         return errorResult(
-                                new TaskResult.StopDetails(
-                                        TaskResult.StopReason.LLM_CONTEXT_SIZE, explanation),
+                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_CONTEXT_SIZE, explanation),
                                 currentState.context());
                     }
 
@@ -571,7 +570,7 @@ public class SearchAgent {
     private int priority(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "addFilesToWorkspace" -> 4;
+            case "addFilesToWorkspace", "addLineRangeToWorkspace" -> 4;
             case "addClassesToWorkspace", "addFileSummariesToWorkspace" -> 5;
             case "addMethodsToWorkspace", "addClassSummariesToWorkspace" -> 6;
             case "searchSymbols",
@@ -1225,10 +1224,14 @@ public class SearchAgent {
 
     OverflowGrowth computeOverflowGrowth(Context checkpointContext, Context overflowContext) {
         long netGrowthTokens = contextTokenCount(overflowContext) - contextTokenCount(checkpointContext);
-        List<AddedFragmentTokens> added = ContextDelta.between(checkpointContext, overflowContext).join().addedFragments().stream()
-                .map(f -> new AddedFragmentTokens(fragmentLabel(f), Messages.getApproximateTokens(f.text().join())))
-                .sorted(Comparator.comparingLong(AddedFragmentTokens::tokens).reversed())
-                .toList();
+        List<AddedFragmentTokens> added =
+                ContextDelta.between(checkpointContext, overflowContext).join().addedFragments().stream()
+                        .map(f -> new AddedFragmentTokens(
+                                fragmentLabel(f),
+                                Messages.getApproximateTokens(f.text().join())))
+                        .sorted(Comparator.comparingLong(AddedFragmentTokens::tokens)
+                                .reversed())
+                        .toList();
         return new OverflowGrowth(netGrowthTokens, added);
     }
 
@@ -1238,7 +1241,8 @@ public class SearchAgent {
                 .map(f -> f.label() + " (" + f.tokens() + " tokens)")
                 .collect(Collectors.joining(", "));
 
-        int remaining = growth.addedFragments().size() - Math.min(growth.addedFragments().size(), MAX_OVERFLOW_NOTE_FRAGMENT_DETAILS);
+        int remaining = growth.addedFragments().size()
+                - Math.min(growth.addedFragments().size(), MAX_OVERFLOW_NOTE_FRAGMENT_DETAILS);
         if (remaining > 0) {
             details = details + ", ... and " + remaining + " more";
         }

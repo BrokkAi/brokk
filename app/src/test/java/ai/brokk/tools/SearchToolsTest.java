@@ -781,39 +781,6 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testReadLineRange() throws Exception {
-        Path txt = projectRoot.resolve("range_test.txt");
-        Files.writeString(txt, "L1\nL2\nL3\nL4\nL5");
-        mockProjectFiles.add(new ProjectFile(projectRoot, "range_test.txt"));
-
-        // Basic range
-        String result = searchTools.readLineRange("range_test.txt", 2, 4);
-        assertTrue(result.contains("File: range_test.txt (lines 2-4)"));
-        assertTrue(result.contains("2: L2"));
-        assertTrue(result.contains("3: L3"));
-        assertTrue(result.contains("4: L4"));
-        assertFalse(result.contains("1: L1"));
-        assertFalse(result.contains("5: L5"));
-
-        // Cap at 200
-        String capped = searchTools.readLineRange("range_test.txt", 1, 500);
-        // The file only has 5 lines, so it should report 1-5 even if 500 requested
-        assertTrue(capped.contains("(lines 1-5)"), "Should show actual end line 5, got: " + capped);
-    }
-
-    @Test
-    void testReadLineRange_ClampsToActualFileEnd() throws Exception {
-        Path txt = projectRoot.resolve("clamp_test.txt");
-        Files.writeString(txt, "1\n2\n3");
-        mockProjectFiles.add(new ProjectFile(projectRoot, "clamp_test.txt"));
-
-        // Request 1-200 for a 3-line file
-        String result = searchTools.readLineRange("clamp_test.txt", 1, 200);
-        assertTrue(result.contains("File: clamp_test.txt (lines 1-3)"), "Header should reflect actual lines returned");
-        assertTrue(result.contains("3: 3"), "Should contain line 3");
-    }
-
-    @Test
     void testSearchFileContents_NoSpuriousTrailingEmptyLine() throws Exception {
         Path txt = projectRoot.resolve("trailing_newline.txt");
         // File ends with a newline. With 1 context line, we should NOT see a "4: " line.
