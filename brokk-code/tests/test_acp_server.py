@@ -403,8 +403,7 @@ def test_map_executor_tool_output_structured() -> None:
 def test_map_executor_tool_output_fallback() -> None:
     event = {"type": "TOOL_OUTPUT", "data": {"status": "ERROR"}}
     update = map_executor_event_to_session_update(event, _text_block)
-    assert update["sessionUpdate"] == "agent_message_chunk"
-    assert "[TOOL ERROR]" in update["text"]
+    assert update is None
 
 
 def test_conversation_payload_to_session_updates_replays_user_assistant_and_reasoning() -> None:

@@ -499,7 +499,7 @@ def map_executor_event_to_session_update(
                 content=content,
             )
 
-        return update_agent_message_text(f"[TOOL {status_raw}]\n")
+        return None
 
     return None
 
