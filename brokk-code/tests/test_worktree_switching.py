@@ -166,3 +166,50 @@ async def test_rich_log_cleared_on_switch():
     # Verify log was cleared
     mock_chat.query_one.assert_any_call("#chat-log", RichLog)
     mock_log.clear.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_switch_to_worktree_failure_not_cached():
+    app = BrokkApp(workspace_dir=Path("/repo/main"))
+    app._maybe_chat = MagicMock()
+    mock_chat = app._maybe_chat.return_value
+    app._refresh_context_panel = AsyncMock()
+
+    target = Path("/repo/fail")
+    resolved_target = Path("/repo/fail")
+    resolved_main = Path("/repo/main")
+
+    # 1. First attempt: Fail during startup
+    mock_fail_exec = MagicMock(spec=ExecutorManager)
+    mock_fail_exec.start = AsyncMock(side_effect=Exception("Crash on start"))
+
+    with patch.object(Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]):
+        with patch.object(app, "_make_executor", return_value=mock_fail_exec) as mock_make:
+            await app._switch_to_worktree(target)
+
+            # Assert error message shown
+            mock_chat.add_system_message.assert_called_with(
+                "Failed to switch worktree: Crash on start", level="ERROR"
+            )
+
+            # Assert NOT in pool
+            assert resolved_target not in app._worktree_executors
+            assert mock_make.call_count == 1
+
+    # 2. Second attempt: Success
+    mock_chat.add_system_message.reset_mock()
+    mock_success_exec = MagicMock(spec=ExecutorManager)
+    mock_success_exec.workspace_dir = target
+    mock_success_exec.start = AsyncMock()
+    mock_success_exec.create_session = AsyncMock()
+    mock_success_exec.wait_ready = AsyncMock(return_value=True)
+    mock_success_exec.get_conversation = AsyncMock(return_value={"entries": []})
+
+    with patch.object(Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]):
+        with patch.object(app, "_make_executor", return_value=mock_success_exec) as mock_make:
+            await app._switch_to_worktree(target)
+
+            # Assert it was made AGAIN (not pulled from cache)
+            assert mock_make.call_count == 1
+            assert app.executor == mock_success_exec
+            assert app._worktree_executors[resolved_target] == mock_success_exec
