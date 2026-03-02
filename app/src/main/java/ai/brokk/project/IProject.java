@@ -2,7 +2,6 @@ package ai.brokk.project;
 
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.IAnalyzerWrapper;
-import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
 import ai.brokk.SessionRegistry;
@@ -11,8 +10,9 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
-import ai.brokk.mcp.McpConfig;
+import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.util.Environment;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.ShellConfig;
 import java.awt.Rectangle;
@@ -439,6 +439,12 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default boolean isGitConfigDeclined() {
+        return false;
+    }
+
+    default void setGitConfigDeclined(boolean declined) {}
+
     /**
      * Whether this project should automatically attempt to update dependencies that were imported
      * from local directories on disk. Implementations may persist this at the project level.
@@ -525,10 +531,6 @@ public interface IProject extends AutoCloseable {
         return false;
     }
 
-    default IConsoleIO getConsoleIO() {
-        throw new UnsupportedOperationException();
-    }
-
     default void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
         throw new UnsupportedOperationException();
     }
@@ -567,6 +569,22 @@ public interface IProject extends AutoCloseable {
             return Languages.NONE;
         }
         return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
+    }
+
+    /**
+     * Obtains the user-defined run command timeout if set, or the default value otherwise.
+     * @return the default timeout for how long a shell command may run for.
+     */
+    default long getRunCommandTimeoutSeconds() {
+        return Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+    }
+
+    /**
+     * Obtains the user-defined test command timeout if set, or the default value otherwise.
+     * @return the default timeout for how long a test command may run for.
+     */
+    default long getTestCommandTimeoutSeconds() {
+        return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
     }
 
     enum CodeAgentTestScope {

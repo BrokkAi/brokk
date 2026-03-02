@@ -8,7 +8,7 @@ import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
-import ai.brokk.util.BuildOutputPreprocessor;
+import ai.brokk.util.BuildOutputProcessor;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -249,7 +249,7 @@ public class LlmTest {
                 """;
 
         // Call the preprocessor which uses the LLM to extract errors
-        String result = BuildOutputPreprocessor.processForLlm(buildOutput, cm);
+        String result = BuildOutputProcessor.processForLlm(buildOutput, cm);
 
         System.out.println("=== Extracted errors ===");
         System.out.println(result);
@@ -265,14 +265,6 @@ public class LlmTest {
         assertTrue(
                 result.contains("RedundantNullCheck") || result.contains("Null check"),
                 "Should include the RedundantNullCheck warning - related to the NullAway error");
-    }
-
-    /**
-     * Helper to create a StreamingResult with text content for testing parseJsonToToolRequests
-     */
-    private Llm.StreamingResult createStreamingResult(String text) {
-        var nsr = new Llm.NullSafeResponse(text, null, List.of(), null);
-        return new Llm.StreamingResult(nsr, null);
     }
 
     @Test

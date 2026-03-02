@@ -56,7 +56,7 @@ public class UsageFragmentTest {
 
             assertEquals(ContextFragments.UsageMode.FULL, frag.mode(), "should infer FULL mode from frozen snapshot");
 
-            var files = frag.files().join();
+            var files = frag.referencedFiles().join();
             var sources = frag.sources().join();
 
             assertFalse(files.isEmpty(), "files should be parsed from frozen text");
@@ -109,7 +109,7 @@ public class UsageFragmentTest {
 
             assertEquals(ContextFragments.UsageMode.FULL, frag.mode(), "should infer FULL mode from frozen snapshot");
 
-            var files = frag.files().join();
+            var files = frag.referencedFiles().join();
             var sources = frag.sources().join();
 
             assertTrue(
@@ -176,7 +176,7 @@ public class UsageFragmentTest {
             assertEquals(
                     ContextFragments.UsageMode.SAMPLE, frag.mode(), "should infer SAMPLE mode from frozen snapshot");
 
-            var files = frag.files().join();
+            var files = frag.referencedFiles().join();
             var sources = frag.sources().join();
 
             assertTrue(

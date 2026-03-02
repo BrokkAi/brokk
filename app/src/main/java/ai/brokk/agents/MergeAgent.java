@@ -7,7 +7,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
-import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AdaptiveExecutor;
@@ -17,8 +16,10 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModifiedFile;
 import ai.brokk.tools.GitTools;
-import dev.langchain4j.data.message.AiMessage;
+import ai.brokk.util.BuildTools;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -39,7 +40,6 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /* Added imports for referenced helpers/agents. These are typically in the same package;
@@ -54,6 +54,7 @@ importing is harmless and makes intent explicit. */
  */
 public class MergeAgent {
     private static final Logger logger = LogManager.getLogger(MergeAgent.class);
+    private final Context snapshot;
 
     public enum MergeMode {
         MERGE,
@@ -107,6 +108,8 @@ public class MergeAgent {
         this.conflicts = conflict.files();
         this.scope = scope;
         this.mergeInstructions = mergeInstructions.isBlank() ? DEFAULT_MERGE_INSTRUCTIONS : mergeInstructions;
+        this.snapshot = new Context(cm).addFragments(cm.toPathFragments(allConflictFilesInWorkspace()));
+
         logger.debug(
                 "MergeAgent initialized for otherCommitId: {}, baseCommitId: {}, mode: {}",
                 otherCommitId,
@@ -138,7 +141,7 @@ public class MergeAgent {
                 resolveNonTextConflicts(this.conflict);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                return interruptedResult("Merge cancelled by user.");
+                return interruptedResult();
             }
 
             // Re-inspect repo state; non-text ops may change the set of conflicts
@@ -187,7 +190,7 @@ public class MergeAgent {
 
         if (Thread.currentThread().isInterrupted()) {
             logger.debug("MergeAgent.execute() interrupted during annotation/staging phase.");
-            return interruptedResult("Merge cancelled by user.");
+            return interruptedResult();
         }
 
         // Kick off background explanations for our/their relevant commits discovered via blame.
@@ -217,7 +220,7 @@ public class MergeAgent {
 
             if (Thread.currentThread().isInterrupted()) {
                 logger.debug("MergeAgent.execute() interrupted during single file foreground merge.");
-                return interruptedResult("Merge cancelled by user.");
+                return interruptedResult();
             }
         } else if (hasConflictLines.size() > 1) {
             // Prepare BlitzForge configuration and listener
@@ -250,7 +253,7 @@ public class MergeAgent {
                     blitzResult.stopDetails().reason());
 
             if (blitzResult.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                return interruptedResult("Merge cancelled by user.");
+                return interruptedResult();
             }
         } else {
             logger.debug(
@@ -266,7 +269,7 @@ public class MergeAgent {
             }
         } catch (InterruptedException e) {
             logger.debug("MergeAgent.execute() interrupted while waiting for 'ours' commit explanations.");
-            return interruptedResult("Merge cancelled by user.");
+            return interruptedResult();
         } catch (ExecutionException e) {
             logger.warn("Failed to compute OUR commit explanations: {}", e.getMessage(), e);
         }
@@ -279,7 +282,7 @@ public class MergeAgent {
             }
         } catch (InterruptedException e) {
             logger.debug("MergeAgent.execute() interrupted while waiting for 'theirs' commit explanations.");
-            return interruptedResult("Merge cancelled by user.");
+            return interruptedResult();
         } catch (ExecutionException e) {
             logger.warn("Failed to compute THEIR commit explanations: {}", e.getMessage(), e);
         }
@@ -294,14 +297,14 @@ public class MergeAgent {
         logger.debug("Running verification step.");
         String buildFailureText;
         try {
-            buildFailureText = BuildAgent.runVerification(buildContext).getBuildError();
+            buildFailureText = BuildTools.runVerification(buildContext).getBuildError();
         } catch (InterruptedException e1) {
             Thread.currentThread().interrupt();
             buildFailureText = ""; // unused
         }
         if (Thread.currentThread().isInterrupted()) {
             logger.debug("MergeAgent.execute() interrupted during verification.");
-            return interruptedResult("Merge cancelled by user.");
+            return interruptedResult();
         }
 
         if (buildFailureText.isBlank() && codeAgentFailures.isEmpty()) {
@@ -310,14 +313,10 @@ public class MergeAgent {
             logger.debug(msg);
             cm.getIo().llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
-            var ctx = new Context(cm).addFragments(cm.toPathFragments(changedFiles));
-            return new TaskResult(
-                    cm,
-                    "Merge",
-                    cm.getIo().getLlmRawMessages(),
-                    ctx,
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                    taskMeta());
+            var ctx = new Context(cm)
+                    .addFragments(cm.toPathFragments(changedFiles))
+                    .addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.MERGE, planningModel, "Merge");
+            return new TaskResult(ctx, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
         }
 
         // We tried auto-editing files that are mentioned in the build failure, the trouble is that you
@@ -359,10 +358,6 @@ public class MergeAgent {
                 "ArchitectAgent execution completed. Returning annotations with stop reason: {}",
                 architectResult.stopDetails().reason());
         return architectResult;
-    }
-
-    private @NotNull TaskResult.TaskMeta taskMeta() {
-        return new TaskResult.TaskMeta(TaskResult.Type.MERGE, Service.ModelConfig.from(planningModel, cm.getService()));
     }
 
     private AnnotationResult annotate() {
@@ -719,34 +714,11 @@ public class MergeAgent {
     }
 
     @Blocking
-    private TaskResult interruptedResult(String message) {
-        // Build resulting context that contains all conflict files
-        var top = cm.liveContext();
-        var conflictFiles = allConflictFilesInWorkspace();
-        // Give fragments time to compute if necessary
-        try {
-            top.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
-        } catch (InterruptedException e) {
-            logger.warn("Interrupted while waiting for contexts to be computed", e);
-        }
-        var existingEditableFiles = top.allFragments()
-                .filter(f -> f.getType().isPath())
-                .filter(cf -> cf.getType().isEditable())
-                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
-                .collect(Collectors.toSet());
-        var fragmentsToAdd = conflictFiles.stream()
-                .filter(pf -> !existingEditableFiles.contains(pf))
-                .map(pf -> new ContextFragments.ProjectPathFragment(pf, cm))
-                .toList();
-        Context resultingCtx = fragmentsToAdd.isEmpty() ? top : top.addFragments(fragmentsToAdd);
-
-        return new TaskResult(
-                cm,
-                "Merge",
-                List.of(new AiMessage(message)),
-                resultingCtx,
-                new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                taskMeta());
+    private TaskResult interruptedResult() {
+        ContextHistory.applySnapshotToWorkspace(snapshot, cm.getIo());
+        var uiMessages = List.of(new UserMessage(mergeInstructions), Messages.customSystem("Merge cancelled by user"));
+        var resultingCtx = cm.liveContext().addHistoryEntry(uiMessages, TaskResult.Type.MERGE, planningModel, "Merge");
+        return new TaskResult(resultingCtx, new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
     }
 
     /** Controls how (and whether) non-text conflicts are resolved automatically. */

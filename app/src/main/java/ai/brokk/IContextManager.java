@@ -223,7 +223,7 @@ public interface IContextManager {
         return liveContext()
                 .allFragments()
                 .filter(f -> f.getType().isPath())
-                .flatMap(cf -> cf.files().join().stream())
+                .flatMap(cf -> cf.referencedFiles().join().stream())
                 .collect(Collectors.toSet());
     }
 
@@ -390,6 +390,11 @@ public interface IContextManager {
     @Blocking
     default Context compressHistory(Context ctx) throws InterruptedException {
         return ctx;
+    }
+
+    @Blocking
+    default String compressHistory(String history) throws InterruptedException {
+        return history;
     }
 
     @Blocking

@@ -9,8 +9,8 @@ from brokk_code.executor import ExecutorManager
 
 
 class StubExecutor(ExecutorManager):
-    def __init__(self, auto_release: bool = False):
-        super().__init__(workspace_dir=Path("."))
+    def __init__(self, workspace_dir: Path, auto_release: bool = False):
+        super().__init__(workspace_dir=workspace_dir)
         self.calls: List[Dict[str, Any]] = []
         self.submit_count = 0
         # Event to control when the stream finishes
@@ -67,12 +67,12 @@ async def type_text(pilot: Any, text: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_multiline_paste_and_submit():
+async def test_multiline_paste_and_submit(tmp_path):
     """
     Verify that multiline text (like a paste) is submitted with newlines intact.
     """
-    stub = StubExecutor(auto_release=True)
-    app = BrokkApp(executor=stub)
+    stub = StubExecutor(workspace_dir=tmp_path, auto_release=True)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
 
     async with app.run_test() as pilot:
         chat_input = app.query_one("#chat-input")
@@ -80,18 +80,23 @@ async def test_multiline_paste_and_submit():
 
         # 1. Test Shift+Enter behavior
         await type_text(pilot, "line1")
+        # Textual pilot uses "shift+enter" string
         await pilot.press("shift+enter")
         await type_text(pilot, "line2")
 
         # Verify UI state before submit
         assert chat_input.text == "line1\nline2"
 
+        # Plain enter should submit
         await pilot.press("enter")
         await pilot.pause()
 
         # 2. Test "Paste" behavior (direct text setting)
         multiline_paste = "first line\nsecond line\nthird line"
         chat_input.text = multiline_paste
+        # Verify text area handles newline content correctly
+        assert chat_input.text == multiline_paste
+
         await pilot.press("enter")
         await pilot.pause()
 
@@ -103,12 +108,76 @@ async def test_multiline_paste_and_submit():
 
 
 @pytest.mark.asyncio
-async def test_large_paste_submits_as_job():
+async def test_shift_enter_inserts_newline(tmp_path):
+    """
+    Explicitly verify that Shift+Enter inserts a newline and does NOT submit.
+    """
+    stub = StubExecutor(workspace_dir=tmp_path, auto_release=True)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        await pilot.click("#chat-input")
+
+        await type_text(pilot, "hello")
+        await pilot.press("shift+enter")
+        await type_text(pilot, "world")
+
+        # Text should have newline
+        assert chat_input.text == "hello\nworld"
+
+        # Submit count should still be 0
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 0
+
+        # Now submit with Enter
+        await pilot.press("enter")
+        await pilot.pause()
+
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 1
+        assert submits[0]["input"] == "hello\nworld"
+
+
+@pytest.mark.asyncio
+async def test_ctrl_j_inserts_newline(tmp_path):
+    """
+    Verify that Ctrl+J inserts a newline instead of submitting.
+    """
+    stub = StubExecutor(workspace_dir=tmp_path, auto_release=True)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+
+    async with app.run_test() as pilot:
+        chat_input = app.query_one("#chat-input")
+        await pilot.click("#chat-input")
+
+        await type_text(pilot, "hello")
+        # In Textual, ctrl+j is often aliased or handled specifically;
+        # this verifies our binding in ChatInput works as expected.
+        await pilot.press("ctrl+j")
+        await type_text(pilot, "world")
+        await pilot.pause()
+
+        # Verify no submission occurred
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 0
+        assert chat_input.text == "hello\nworld"
+
+        # Now verify it CAN submit with enter after ctrl+j newline
+        await pilot.press("enter")
+        await pilot.pause()
+        submits = [c for c in stub.calls if c["type"] == "submit"]
+        assert len(submits) == 1
+        assert submits[0]["input"] == "hello\nworld"
+
+
+@pytest.mark.asyncio
+async def test_large_paste_submits_as_job(tmp_path):
     """
     Verify that large inputs submit normally as jobs.
     """
-    stub = StubExecutor(auto_release=True)
-    app = BrokkApp(executor=stub)
+    stub = StubExecutor(workspace_dir=tmp_path, auto_release=True)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
 
     async with app.run_test() as pilot:
         chat_input = app.query_one("#chat-input")

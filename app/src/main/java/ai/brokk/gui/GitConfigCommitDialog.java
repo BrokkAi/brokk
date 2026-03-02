@@ -77,7 +77,11 @@ public class GitConfigCommitDialog extends JDialog {
         SwingUtil.applyPrimaryButtonStyle(commitButton);
 
         noButton = new MaterialButton("No");
-        noButton.addActionListener(e -> dispose());
+        noButton.addActionListener(e -> {
+            project.setGitConfigDeclined(true);
+            logger.info("User declined git configuration. Decision stored.");
+            dispose();
+        });
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(noButton);

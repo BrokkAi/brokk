@@ -83,6 +83,17 @@ val errorproneCompile by configurations.creating {
     isCanBeConsumed = false
 }
 
+// Force Jackson version alignment to prevent MCP SDK from pulling in unreleased versions
+configurations.all {
+    resolutionStrategy {
+        force("com.fasterxml.jackson.core:jackson-databind:2.18.3")
+        force("com.fasterxml.jackson.core:jackson-core:2.18.3")
+        force("com.fasterxml.jackson.core:jackson-annotations:2.18.3")
+        force("com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.18.3")
+        force("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3")
+    }
+}
+
 dependencies {
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
@@ -99,6 +110,7 @@ dependencies {
     implementation(libs.java.diff.utils)
     implementation(libs.jackson.databind)
     implementation(libs.jackson.smile)
+    implementation(libs.jackson.jq)
     implementation(libs.lz4)
     implementation(libs.jspecify)
     implementation(libs.picocli)
@@ -459,23 +471,16 @@ tasks.register("analyze") {
     dependsOn("compileJavaErrorProne", "spotlessCheck")
 }
 
-// Make check task run ErrorProne compilation and Python linting for CI validation
+// Make check task run ErrorProne compilation, Python linting, and all tests for CI validation
 tasks.named("check") {
     dependsOn("compileJavaErrorProne")
-    // Wire Python verification into lifecycle tasks
     val skipPythonTasks = project.rootProject.hasProperty("skipPython")
     if (!skipPythonTasks) {
         dependsOn(rootProject.tasks.named("brokkCodeRuffCheck"))
+        dependsOn(rootProject.tasks.named("pytest"))
     }
 }
 
-// Wire Python tests into the main app test task
-tasks.named<Test>("test") {
-    val skipPythonTasks = project.rootProject.hasProperty("skipPython")
-    if (!skipPythonTasks) {
-        dependsOn(rootProject.tasks.named("brokkCodePytest"))
-    }
-}
 
 
 tasks.withType<Test> {
@@ -682,7 +687,7 @@ tasks.register<JavaExec>("runPageRankBenchmark") {
 
 tasks.register<JavaExec>("runUsageBenchEval") {
     group = "application"
-    description = "Runs the UsageBenchEval tool for FuzzyUsageFinder evaluation"
+    description = "Runs the UsageBenchEval tool for UsageFinder evaluation"
     mainClass.set("ai.brokk.tools.UsageBenchEval")
     classpath = sourceSets.test.get().runtimeClasspath
     jvmArgumentProviders.add(object : CommandLineArgumentProvider {

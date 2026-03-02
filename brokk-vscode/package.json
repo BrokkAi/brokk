@@ -1,0 +1,132 @@
+{
+  "name": "vscode-brokk",
+  "displayName": "Brokk",
+  "description": "Context management and AI chat for Brokk",
+  "version": "0.0.7",
+  "publisher": "brokk",
+  "icon": "icon.png",
+  "homepage": "https://brokk.ai",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.106.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:brokk-panel"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "brokk-sidebar",
+          "title": "Brokk",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "brokk-sidebar": [
+        {
+          "type": "webview",
+          "id": "brokk-panel",
+          "name": "Brokk"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Brokk",
+      "properties": {
+        "brokk.executorPort": {
+          "type": "number",
+          "default": 0,
+          "description": "Port of an already-running executor (0 = auto-spawn)"
+        },
+        "brokk.authToken": {
+          "type": "string",
+          "default": "",
+          "description": "Auth token for an already-running executor"
+        },
+        "brokk.launchMode": {
+          "type": "string",
+          "default": "jbang",
+          "enum": [
+            "auto",
+            "jbang",
+            "local",
+            "external"
+          ],
+          "enumDescriptions": [
+            "Auto-detect: use external if port/token are set, otherwise detect local vs jbang",
+            "Launch via jbang (requires jbang installed)",
+            "Launch from a local JAR (development mode)",
+            "Connect to an already-running executor"
+          ],
+          "description": "How to start the Brokk executor"
+        },
+        "brokk.localJarPath": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit path to the Brokk shadow JAR (local mode only)"
+        },
+        "brokk.brokkRepoRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Brokk repo root for JAR discovery (local mode only)"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "brokk.startExecutor",
+        "title": "Brokk: Start Executor"
+      },
+      {
+        "command": "brokk.stopExecutor",
+        "title": "Brokk: Stop Executor"
+      },
+      {
+        "command": "brokk.addFile",
+        "title": "Add to Brokk Context"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "brokk.addFile",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.130",
+    "@types/vscode": "^1.106.0",
+    "esbuild": "^0.19.0",
+    "micromark-util-types": "^2.0.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "diff": "^7.0.0",
+    "highlight.js": "^11.11.0",
+    "lang-map": "^0.4.0",
+    "lowlight": "^3.3.0",
+    "micromark-util-character": "^2.1.1",
+    "micromark-util-symbol": "^2.0.1",
+    "rehype-highlight": "^7.0.2",
+    "rehype-stringify": "^10.0.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.0.0",
+    "unified": "^11.0.0",
+    "unist-util-visit": "^5.0.0"
+  }
+}

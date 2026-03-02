@@ -56,10 +56,16 @@ public class SessionManager implements AutoCloseable {
 
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SessionInfo(UUID id, String name, long created, long modified, @Nullable String version) {
+    public record SessionInfo(
+            UUID id, String name, long created, long modified, @Nullable String version, @Nullable Double totalCost) {
 
         public SessionInfo(UUID id, String name, long created, long modified) {
-            this(id, name, created, modified, SESSIONS_FORMAT_VERSION);
+            this(id, name, created, modified, SESSIONS_FORMAT_VERSION, null);
+        }
+
+        /** Constructor for legacy test support with explicit version and null cost. */
+        public SessionInfo(UUID id, String name, long created, long modified, @Nullable String version) {
+            this(id, name, created, modified, version, null);
         }
 
         @JsonIgnore
@@ -212,7 +218,7 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo newSession(String name) {
         var sessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime);
+        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime, SESSIONS_FORMAT_VERSION, null);
         sessionsCache.put(sessionId, newSessionInfo);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -238,11 +244,16 @@ public class SessionManager implements AutoCloseable {
         return UuidCreator.getTimeOrderedEpoch();
     }
 
-    public void renameSession(UUID sessionId, String newName) {
+    public boolean renameSession(UUID sessionId, String newName) {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
             var updatedInfo = new SessionInfo(
-                    oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis(), oldInfo.version());
+                    oldInfo.id(),
+                    newName,
+                    oldInfo.created(),
+                    System.currentTimeMillis(),
+                    oldInfo.version(),
+                    oldInfo.totalCost());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -254,9 +265,39 @@ public class SessionManager implements AutoCloseable {
                             "Error writing updated manifest for renamed session {}: {}", sessionId, e.getMessage());
                 }
             });
+            return true;
         } else {
             logger.warn("Session ID {} not found in cache, cannot rename.", sessionId);
+            return false;
         }
+    }
+
+    public void addToTotalCost(UUID sessionId, double delta) {
+        if (delta <= 0.0) {
+            return; // ignore non-positive or zero deltas
+        }
+        SessionInfo current = sessionsCache.get(sessionId);
+        if (current == null) {
+            // If the session is not known, log and bail; cost tracking is best-effort and
+            // we expect sessions to be created via newSession/loadHistory before use.
+            logger.warn("addToTotalCost called for unknown session {}", sessionId);
+            return;
+        }
+        double base = current.totalCost() != null ? current.totalCost() : 0.0;
+        double next = base + delta;
+        SessionInfo updated = new SessionInfo(
+                current.id(), current.name(), current.created(), System.currentTimeMillis(), current.version(), next);
+        sessionsCache.put(sessionId, updated);
+        // Persist to manifest.json asynchronously, serialized per session
+        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            try {
+                Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                writeSessionInfoToZip(sessionHistoryPath, updated);
+            } catch (IOException e) {
+                logger.error("Error updating manifest for session {} totalCost: {}", sessionId, e.getMessage());
+            }
+            return null;
+        });
     }
 
     public void deleteSession(UUID sessionId) {
@@ -398,7 +439,8 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
         var newSessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
+        var newSessionInfo =
+                new SessionInfo(newSessionId, newSessionName, currentTime, currentTime, SESSIONS_FORMAT_VERSION, null);
 
         var copyFuture = sessionExecutorByKey.submit(originalSessionId.toString(), () -> {
             try {
@@ -518,7 +560,8 @@ public class SessionManager implements AutoCloseable {
                         currentInfo.name(),
                         currentInfo.created(),
                         System.currentTimeMillis(),
-                        currentInfo.version());
+                        currentInfo.version(),
+                        currentInfo.totalCost());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session

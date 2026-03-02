@@ -13,14 +13,17 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -84,6 +87,162 @@ public class CodeAgent {
     /** maximum consecutive build failures before giving up */
     final int MAX_BUILD_FAILURES;
 
+    public enum DiffPresentation {
+        NONE,
+        WORKSPACE_FRAGMENT,
+        INLINE
+    }
+
+    @Blocking
+    public static String cumulativeDiffForChanges(Context from, Context to) {
+        var delta = ContextDelta.between(from, to).join();
+        return cumulativeDiffForFragments(from, to, delta.getChangedFragments());
+    }
+
+    @Blocking
+    public static String cumulativeDiffForFragments(Context from, Context to, Set<ContextFragment> changedFragments) {
+        if (changedFragments.isEmpty()) {
+            return "";
+        }
+
+        return changedFragments.stream()
+                .map(newFrag -> {
+                    var fragInTo = to.allFragments()
+                            .filter(newFrag::hasSameSource)
+                            .findFirst()
+                            .orElse(null);
+                    if (fragInTo == null) {
+                        return null;
+                    }
+                    var oldFrag = from.allFragments()
+                            .filter(fragInTo::hasSameSource)
+                            .findFirst()
+                            .orElse(null);
+                    return DiffService.diff(oldFrag, fragInTo).join();
+                })
+                .filter(Objects::nonNull)
+                .map(DiffService.FragmentDiff::diff)
+                .collect(Collectors.joining("\n\n"));
+    }
+
+    public static String formatPostFailureResponse(
+            TaskResult.StopReason reason,
+            String explanation,
+            DiffPresentation diffPresentation,
+            @Nullable String inlineDiffText) {
+
+        String base =
+                switch (reason) {
+                    case READ_ONLY_EDIT ->
+                        """
+                            **Constraint Violation: Read-Only File**
+
+                            The Code Agent thought that your instructions implied that it should modify a file marked read-only in the Workspace:
+                            %s
+
+                            To proceed, do one of the following:
+                            1. Add the file for editing with addFilesToWorkspace([...]).
+                            2. Clarify how to accomplish the task without modifying this file.
+                            """
+                                .formatted(explanation);
+                    case PARSE_ERROR ->
+                        """
+                            **Parse Error: Invalid Response Format**
+
+                            The Code Agent couldn't parse the response after multiple attempts:
+                            %s
+
+                            Possible solutions:
+                            1. Slim down the Workspace to essentials so that Code Agent can focus more easily on following its instructions.
+                            2. Give CodeAgent a smaller pieces of the task, possibly with deferBuild set.
+                            """
+                                .formatted(explanation);
+                    case APPLY_ERROR ->
+                        """
+                            **Apply Error: Edit Blocks Failed**
+
+                            The Code Agent couldn't apply edits after multiple attempts:
+                            %s
+
+                            Possible solutions:
+                            1. Slim down the Workspace to essentials so that Code Agent can focus more easily on following its instructions.
+                            2. Give CodeAgent a smaller pieces of the task, possibly with deferBuild set.
+                            """
+                                .formatted(explanation);
+                    case BUILD_ERROR ->
+                        """
+                            **Build Error: Failed to Compile/Test**
+
+                            %s
+
+                            The Code Agent applied changes but could not make them pass verification.
+
+                            If the verification is failing because of environmental issues that you cannot solve,
+                            e.g. permissions issues or system-level dependencies, you should abort with an explanation
+                            of the problem.
+                            """
+                                .formatted(explanation);
+                    case IO_ERROR ->
+                        """
+                            **IO Error: File System Issue**
+
+                            An error occurred while reading or writing files:
+                            %s
+
+                            This may be a transient issue. You can retry.
+                            """
+                                .formatted(explanation);
+                    default ->
+                        """
+                            **Code Agent Failed**
+
+                            Reason: %s
+                            Details: %s
+                            """
+                                .formatted(reason, explanation);
+                };
+
+        String postscript =
+                switch (diffPresentation) {
+                    case NONE -> "";
+                    case WORKSPACE_FRAGMENT ->
+                        """
+                        **Code Agent changes (unified diff)**
+
+                        A unified diff of the Code Agent's changes is available in the Workspace under 'Last Code Agent Changes'.
+
+                        If this is going in the wrong direction entirely, call `undoLastChanges` to revert and start over.
+                        """
+                                .stripIndent()
+                                .stripTrailing();
+                    case INLINE -> {
+                        String diff = Objects.toString(inlineDiffText, "").strip();
+                        if (diff.isBlank()) {
+                            yield "";
+                        }
+                        yield """
+                        **Code Agent changes (unified diff)**
+
+                        ```diff
+                        %s
+                        ```
+
+                        If this is going in the wrong direction entirely, revert the changes and start over.
+                        """
+                                .formatted(diff)
+                                .stripIndent()
+                                .stripTrailing();
+                    }
+                };
+
+        if (postscript.isBlank()) {
+            return base.stripTrailing();
+        }
+        return base.stripTrailing() + "\n\n" + postscript;
+    }
+
+    private final boolean allowPromotion;
+
     final IContextManager contextManager;
     private final StreamingChatModel model;
     private final IConsoleIO io;
@@ -111,6 +270,8 @@ public class CodeAgent {
         }
         this.MAX_BUILD_FAILURES = Math.max(1, attempts);
 
+        this.allowPromotion = !"false".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_PROMOTION"));
+
         // placeholder to make Null Away happy; initialized in runTaskInternal
         this.context = new Context(contextManager);
     }
@@ -124,7 +285,7 @@ public class CodeAgent {
         var ctx = new Context(contextManager)
                 .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
         // TODO runTaskInternal allows creating new files, should we prevent that?
-        return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
+        return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD), List.of());
     }
 
     /**
@@ -132,21 +293,29 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult execute(String userInput, Set<Option> options) {
-        return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
+        return execute(userInput, options, List.of());
+    }
+
+    public TaskResult execute(String userInput, Set<Option> options, List<ProjectFile> testFilesOverride) {
+        return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options, testFilesOverride);
     }
 
     /**
-     * Executes the coding task against the given context, suppressing the conversation history
-     * for the duration of the task.
+     * Executes the coding task against the given context, suppressing the conversation history.
      */
     @Blocking
     TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
+        return executeWithoutHistory(context, userInput, options, List.of());
+    }
+
+    @Blocking
+    TaskResult executeWithoutHistory(
+            Context context, String userInput, Set<Option> options, List<ProjectFile> testFilesOverride) {
         if (context.getTaskHistory().isEmpty()) {
             // special case no-history to avoid changing Context identity unnecessarily
-            return runTaskInternal(context, List.of(), userInput, options);
+            return runTaskInternal(context, List.of(), userInput, options, testFilesOverride);
         } else {
-            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
-                    .withHistory(context.getTaskHistory());
+            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options, testFilesOverride);
         }
     }
 
@@ -156,7 +325,11 @@ public class CodeAgent {
      */
     @Blocking
     TaskResult runTaskInternal(
-            Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+            Context initialContext,
+            List<ChatMessage> prologue,
+            String userInput,
+            Set<Option> options,
+            List<ProjectFile> testFilesOverride) {
         if (userInput.isBlank()) {
             throw new IllegalStateException();
         }
@@ -205,7 +378,8 @@ public class CodeAgent {
                 originalFileContents,
                 Collections.emptyMap(),
                 !initialContext.getBuildError().isBlank(),
-                false);
+                false,
+                testFilesOverride);
 
         // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
         // to date before we paused it, but empirically that is not the case as of this writing.
@@ -214,7 +388,7 @@ public class CodeAgent {
                     .getAnalyzerWrapper()
                     .updateFiles(context.allFragments()
                             .filter(f -> f.getType().isPath())
-                            .flatMap(cf -> cf.files().join().stream())
+                            .flatMap(cf -> cf.sourceFiles().join().stream())
                             .collect(Collectors.toSet()))
                     .get();
         } catch (InterruptedException e) {
@@ -233,7 +407,7 @@ public class CodeAgent {
             }
 
             // Select the appropriate model for this turn
-            if (es.useArchitectModel()) {
+            if (allowPromotion && es.useArchitectModel()) {
                 var architectConfig = contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
                 coder.setModel(architectConfig);
             } else {
@@ -311,7 +485,7 @@ public class CodeAgent {
 
             // Incorporate any newly created files into the live context immediately
             var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
-                    .flatMap(f -> f.files().join().stream())
+                    .flatMap(f -> f.sourceFiles().join().stream())
                     .collect(Collectors.toSet());
             var newlyCreated = es.changedFiles().stream()
                     .filter(pf -> !filesInContext.contains(pf))
@@ -461,10 +635,9 @@ public class CodeAgent {
         }
 
         // create the Result for history
-        String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
-                ? userInput
-                : userInput + " [" + stopDetails.reason().name() + "]";
-        var tr = new TaskResult(contextManager, finalActionDescription, cs.taskMessages, context, stopDetails, meta);
+        context = context.addHistoryEntry(
+                io.getLlmRawMessages(), cs.taskMessages, TaskResult.Type.CODE, model, userInput);
+        var tr = new TaskResult(context, stopDetails);
         logger.debug("Task result: {}", tr);
         return tr;
     }
@@ -559,7 +732,6 @@ public class CodeAgent {
 
         // Build the prompt messages
         var messages = QuickEditPrompts.instance.collectMessages(fileContents, relatedCode, styleGuide);
-        int messageHistoryStart = messages.size();
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
 
@@ -620,16 +792,19 @@ public class CodeAgent {
                             + diagnosticMessages));
             report("Quick Edit: Syntax errors detected, retrying...");
         }
-
-        var quickMeta = new TaskResult.TaskMeta(
-                TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
-        return new TaskResult(
-                contextManager,
-                "Quick Edit: " + file.getFileName(),
-                messages.subList(messageHistoryStart, messages.size()),
-                context,
-                stopDetails,
-                quickMeta);
+        context = context.copyAndRefresh(Set.of(file))
+                .addHistoryEntry(
+                        List.of(
+                                new UserMessage(instructions),
+                                new AiMessage(
+                                        stopDetails.reason() == TaskResult.StopReason.SUCCESS
+                                                ? "Quick Edit applied"
+                                                : stopDetails.explanation())),
+                        messages,
+                        TaskResult.Type.CODE,
+                        model,
+                        instructions);
+        return new TaskResult(context, stopDetails);
     }
 
     /**
@@ -730,7 +905,7 @@ public class CodeAgent {
 
         String buildError;
         try {
-            context = BuildAgent.runVerification(context);
+            context = BuildTools.runVerification(context, null, es.testFilesOverride());
             buildError = context.getBuildError();
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
@@ -774,31 +949,42 @@ public class CodeAgent {
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
             var filesInContext = context.allFragments()
                     .filter(f -> f.getType().isPath())
-                    .flatMap(f -> f.files().join().stream())
+                    .flatMap(f -> f.sourceFiles().join().stream())
                     .collect(Collectors.toSet());
 
             var notInContext = Sets.difference(mentionedFiles, filesInContext);
-            if (!notInContext.isEmpty()) {
-                var quickModel = contextManager.getService().quickestModel();
-                var llm = contextManager.getLlm(quickModel, "Check if asking for files", TaskResult.Type.CLASSIFY);
-
+            var watchdogEnabled = !"false".equalsIgnoreCase(System.getenv("BRK_CODE_WATCHDOG"));
+            if (!notInContext.isEmpty() && watchdogEnabled) {
+                var classifier = contextManager.getLlm(
+                        contextManager.getService().getScanModel(),
+                        "Check if asking for files",
+                        TaskResult.Type.CLASSIFY);
                 var filterDescription =
                         "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";
+
                 boolean isAskingForFiles;
                 try {
-                    isAskingForFiles = RelevanceClassifier.isRelevant(llm, filterDescription, lastAiText);
+                    var lastMsg = cs.taskMessages().getLast();
+                    assert lastMsg instanceof AiMessage;
+                    var textOpt = CodePrompts.redactEditBlocks((AiMessage) lastMsg, false)
+                            .map(AiMessage::text);
+                    isAskingForFiles = textOpt.isPresent()
+                            && RelevanceClassifier.isRelevant(classifier, filterDescription, textOpt.get());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
                 }
 
                 if (isAskingForFiles) {
+                    if (metrics != null) {
+                        metrics.internalStopReason = TaskResult.StopReason.LLM_ABORTED;
+                    }
                     var fileNames =
                             notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
-                    reportComplete(TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files");
-                    return new Step.Fatal(new TaskResult.StopDetails(
-                            TaskResult.StopReason.LLM_ABORTED,
-                            "Agent requested additional files not in context: " + fileNames));
+                    reportComplete(
+                            TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + fileNames);
+                    return new Step.Fatal(
+                            new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Build is failing"));
                 }
             }
 
@@ -932,8 +1118,13 @@ public class CodeAgent {
 
                     // Retrieve the base index for the blocks parsed in this response
                     int turnParsedBase = es.totalBlocksParsed() - attemptedBlockCount;
+                    boolean isLastApplyRetryBeforeAbort = updatedConsecutiveApplyFailures == MAX_APPLY_FAILURES - 1;
                     var retryMessages = CodePrompts.buildApplyRetryMessages(
-                            lastAiText, editResult.blockResults(), buildError, turnParsedBase);
+                            lastAiText,
+                            editResult.blockResults(),
+                            buildError,
+                            turnParsedBase,
+                            isLastApplyRetryBeforeAbort);
 
                     // Replace the last AI message in taskMessages with the tagged version
                     // Note: rawMessages is not modified - it preserves the original conversation
@@ -1395,14 +1586,7 @@ public class CodeAgent {
          * @return a new ConversationState with compacted taskMessages, preserving rawMessages
          */
         ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
-            var explanations = rawMessages.stream()
-                    .filter(AiMessage.class::isInstance)
-                    .map(AiMessage.class::cast)
-                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
-                            .map(AiMessage::text)
-                            .orElse(""))
-                    .filter(seg -> !seg.isBlank())
-                    .collect(Collectors.joining("\n\n"));
+            var explanations = extractReasoning(rawMessages);
             var changedFilesCdl =
                     es.changedFiles().stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
             var summaryText =
@@ -1422,6 +1606,17 @@ public class CodeAgent {
             compactedMessages.add(new AiMessage(summaryText));
             return new ConversationState(
                     rawMessages, compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
+        }
+
+        static String extractReasoning(List<ChatMessage> messages) {
+            return messages.stream()
+                    .filter(AiMessage.class::isInstance)
+                    .map(AiMessage.class::cast)
+                    .map(ai -> CodePrompts.redactEditBlocks(ai, false)
+                            .map(AiMessage::text)
+                            .orElse(""))
+                    .filter(seg -> !seg.isBlank())
+                    .collect(Collectors.joining("\n\n"));
         }
 
         /**
@@ -1481,7 +1676,8 @@ public class CodeAgent {
             Map<ProjectFile, String> originalFileContents,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
             boolean showBuildError,
-            boolean useArchitectModel) {
+            boolean useArchitectModel,
+            List<ProjectFile> testFilesOverride) {
 
         public EditState(
                 int consecutiveParseFailures,
@@ -1504,7 +1700,35 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     hasAttemptedBuild,
-                    false);
+                    false,
+                    List.of());
+        }
+
+        public EditState(
+                int consecutiveParseFailures,
+                int consecutiveApplyFailures,
+                int consecutiveBuildFailures,
+                int blocksAppliedWithoutBuild,
+                int totalBlocksParsed,
+                String lastBuildError,
+                Set<ProjectFile> changedFiles,
+                Map<ProjectFile, String> originalFileContents,
+                Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
+                boolean showBuildError,
+                boolean useArchitectModel) {
+            this(
+                    consecutiveParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    totalBlocksParsed,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    showBuildError,
+                    useArchitectModel,
+                    List.of());
         }
 
         EditState withConsecutiveParseFailures(int count) {
@@ -1519,7 +1743,8 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     showBuildError,
-                    false);
+                    false,
+                    testFilesOverride);
         }
 
         /** Returns a new WorkspaceState with updated parse failures and total parsed count. */
@@ -1535,7 +1760,8 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     showBuildError,
-                    false);
+                    false,
+                    testFilesOverride);
         }
 
         /**
@@ -1555,7 +1781,8 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     false,
-                    newBuildFailures >= 3);
+                    newBuildFailures >= 3,
+                    testFilesOverride);
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -1582,7 +1809,8 @@ public class CodeAgent {
                     Collections.unmodifiableMap(mergedOriginals),
                     javaLintDiagnostics,
                     showBuildError,
-                    shouldUseArchitect);
+                    shouldUseArchitect,
+                    testFilesOverride);
         }
 
         EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
@@ -1597,7 +1825,8 @@ public class CodeAgent {
                     originalFileContents,
                     diags,
                     showBuildError,
-                    false);
+                    false,
+                    testFilesOverride);
         }
 
         /**
@@ -1825,6 +2054,9 @@ public class CodeAgent {
         int applyRetries = 0;
         int apiRetries = 0;
 
+        @Nullable
+        TaskResult.StopReason internalStopReason = null;
+
         void addTokens(@Nullable Llm.ResponseMetadata usage) {
             if (usage == null) {
                 return;
@@ -1859,7 +2091,7 @@ public class CodeAgent {
             jsonMap.put("applyRetries", applyRetries);
             jsonMap.put("apiRetries", apiRetries);
             jsonMap.put("changedFiles", changedFilesList);
-            jsonMap.put("stopReason", stopDetails.reason().name());
+            jsonMap.put("stopReason", (internalStopReason != null ? internalStopReason : stopDetails.reason()).name());
             jsonMap.put("stopExplanation", stopDetails.explanation());
 
             try {

@@ -53,6 +53,11 @@ public class GitIgnoreUtils {
                 trimmed = trimmed.substring(1);
             }
 
+            // Strip optional leading **/ prefix
+            if (trimmed.startsWith("**/")) {
+                trimmed = trimmed.substring(3);
+            }
+
             // Match .brokk/** (comprehensive) or .brokk/ (directory)
             if (trimmed.equals(".brokk/**") || trimmed.equals(".brokk/")) {
                 logger.debug("Found comprehensive .brokk ignore pattern: {}", line.trim());

@@ -1,12 +1,14 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
+import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.AnalyzerCreator;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -305,6 +307,84 @@ public class GoAnalyzerTest {
                 declarations.size(),
                 "Expected 15 declarations in declarations.go. Found: "
                         + declarations.stream().map(CodeUnit::fqName).toList());
+    }
+
+    @Test
+    void testFqNameConstructionRationale() {
+        Set<CodeUnit> declarations = analyzer.getDeclarations(declarationsGoFile);
+        Map<String, CodeUnit> fqnMap = declarations.stream().collect(Collectors.toMap(CodeUnit::fqName, cu -> cu));
+
+        // 1. Top-level function: Simple package.Name
+        assertEquals(
+                "declpkg.MyTopLevelFunction",
+                fqnMap.get("declpkg.MyTopLevelFunction").fqName());
+
+        // 2. Struct: Simple package.Name
+        assertEquals("declpkg.MyStruct", fqnMap.get("declpkg.MyStruct").fqName());
+
+        // 3. Interface: Simple package.Name
+        assertEquals("declpkg.MyInterface", fqnMap.get("declpkg.MyInterface").fqName());
+
+        // 4. Method on struct: Receiver type is part of the name to match Class.Method semantics
+        // This ensures methods are logically parented by their types in the FQN.
+        assertEquals(
+                "declpkg.MyStruct.GetFieldA",
+                fqnMap.get("declpkg.MyStruct.GetFieldA").fqName());
+
+        // 5. Interface method: Similar to struct methods, parented by the interface name
+        assertEquals(
+                "declpkg.MyInterface.DoSomething",
+                fqnMap.get("declpkg.MyInterface.DoSomething").fqName());
+
+        // 6. Struct field: Uses StructName.FieldName convention for FQN uniqueness and grouping
+        assertEquals(
+                "declpkg.MyStruct.FieldA", fqnMap.get("declpkg.MyStruct.FieldA").fqName());
+
+        // 7. Global variable: Uses '_module_' convention to distinguish package-level vars from types/funcs
+        // This mimics a "module" scope for symbols that don't have a natural parent type.
+        assertEquals(
+                "declpkg._module_.MyGlobalVar",
+                fqnMap.get("declpkg._module_.MyGlobalVar").fqName());
+
+        // 8. Global constant: Also uses '_module_' convention
+        assertEquals(
+                "declpkg._module_.MyGlobalConst",
+                fqnMap.get("declpkg._module_.MyGlobalConst").fqName());
+
+        // 9. Type alias: Treated as FIELD_LIKE but follows '_module_' naming
+        assertEquals(
+                "declpkg._module_.StringAlias",
+                fqnMap.get("declpkg._module_.StringAlias").fqName());
+
+        // 10. Named type: Treated as CLASS_LIKE (can have methods), so no _module_ prefix
+        assertEquals("declpkg.MyInt", fqnMap.get("declpkg.MyInt").fqName());
+    }
+
+    @Test
+    void testInlineProjectConstFqName() throws IOException {
+        String source =
+                """
+                package yaml
+
+                type yaml_parser_state_t int
+
+                const (
+                    yaml_PARSE_STREAM_START_STATE yaml_parser_state_t = iota
+                    yaml_PARSE_FLOW_MAPPING_VALUE_STATE
+                )
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "parser.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            var file = new ProjectFile(project.getRoot(), "parser.go");
+            var declarations = inlineAnalyzer.getDeclarations(file);
+            var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+            assertTrue(
+                    fqns.contains("yaml._module_.yaml_PARSE_FLOW_MAPPING_VALUE_STATE"),
+                    "Expected FQN for package-level const yaml_PARSE_FLOW_MAPPING_VALUE_STATE. Found: " + fqns);
+        }
     }
 
     @Test

@@ -149,12 +149,13 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     }
 
     // Default glob patterns per language, used when stressing an arbitrary directory
-    private static final Map<Language, List<String>> DEFAULT_LANGUAGE_PATTERNS = Map.of(
-            Languages.JAVA, List.of("**/*.java"),
-            Languages.C_CPP, List.of("**/*.c", "**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp"),
-            Languages.TYPESCRIPT, List.of("**/*.ts"),
-            Languages.JAVASCRIPT, List.of("**/*.js"),
-            Languages.PYTHON, List.of("*.py", "**/*.py"));
+    private static final Map<Language, List<String>> DEFAULT_LANGUAGE_PATTERNS = Map.ofEntries(
+            Map.entry(Languages.JAVA, List.of("**/*.java")),
+            Map.entry(Languages.C_CPP, List.of("**/*.c", "**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp")),
+            Map.entry(Languages.TYPESCRIPT, List.of("**/*.ts")),
+            Map.entry(Languages.JAVASCRIPT, List.of("**/*.js")),
+            Map.entry(Languages.PYTHON, List.of("*.py", "**/*.py")),
+            Map.entry(Languages.RUST, List.of("**/*.rs")));
 
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
@@ -313,7 +314,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         // Ensure the base directory exists
         Files.createDirectories(projectsBaseDir);
 
-        ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(threads, "TSRR-");
+        ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor("TSRR-", threads);
         AtomicInteger successCount = new AtomicInteger(0);
         List<Callable<Void>> tasks = new ArrayList<>();
 
@@ -1629,7 +1630,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             }
             var mapper = new ObjectMapper();
             mapper.enable(SerializationFeature.INDENT_OUTPUT);
-            mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+            mapper.setDefaultPropertyInclusion(JsonInclude.Include.NON_NULL);
             mapper.writeValue(file.toFile(), report);
         }
 
@@ -1896,6 +1897,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();
+            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
 
             Files.writeString(remoteRoot.resolve("A.java"), "public class A {}");
             Files.writeString(remoteRoot.resolve("B.cpp"), "int main() {}");
@@ -1970,6 +1975,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     .start()
                     .waitFor();
             new ProcessBuilder("git", "config", "user.name", "test")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "config", "commit.gpgsign", "false")
                     .directory(remoteRoot.toFile())
                     .start()
                     .waitFor();

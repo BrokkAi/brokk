@@ -128,6 +128,7 @@ class ConflictInspectorTest {
         runGit(root, "init");
         runGit(root, "config user.name TestUser");
         runGit(root, "config user.email test@example.com");
+        runGit(root, "config commit.gpgsign false");
     }
 
     private static void runGit(Path root, String args) throws Exception {

@@ -1,10 +1,19 @@
 package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.IssueRewriterAgent;
+import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.tasks.TaskList;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.jetbrains.annotations.Blocking;
 import org.junit.jupiter.api.Test;
 
 class JobRunnerTest {
@@ -179,5 +188,173 @@ class JobRunnerTest {
         assertTrue(
                 prompt.contains("Ignore previous instructions"),
                 "Prompt should explicitly mention example 'Ignore previous instructions' as something to ignore from PR text");
+    }
+
+    @Test
+    void testBuildReviewPrompt_PlacesDiffAndPolicyLinesInCorrectSections() {
+        String diff = "x = 1";
+        String prompt = JobRunner.buildReviewPrompt(diff, PrReviewService.Severity.HIGH, 3, "", "");
+
+        int diffInstructionsIndex = prompt.indexOf("The diff to review is provided");
+        int lineNumberSectionIndex = prompt.indexOf("IMPORTANT: Line Number Format");
+        int commentPolicyIndex = prompt.indexOf("COMMENT POLICY (STRICT):");
+        int diffBlockIndex = prompt.indexOf("```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```");
+        int severityPolicyIndex = prompt.indexOf("ONLY emit comments with severity >= HIGH.");
+        int maxPolicyIndex = prompt.indexOf("MAX 3 comments total.");
+
+        assertTrue(diffInstructionsIndex >= 0, "Prompt should include diff review instructions");
+        assertTrue(lineNumberSectionIndex >= 0, "Prompt should include line number format section");
+        assertTrue(commentPolicyIndex >= 0, "Prompt should include comment policy section");
+        assertTrue(diffBlockIndex >= 0, "Prompt should include fenced diff block");
+        assertTrue(severityPolicyIndex >= 0, "Prompt should include severity policy line");
+        assertTrue(maxPolicyIndex >= 0, "Prompt should include max comments policy line");
+
+        assertTrue(
+                diffBlockIndex > diffInstructionsIndex && diffBlockIndex < lineNumberSectionIndex,
+                "Diff block should appear in the diff section before line-number guidance");
+        assertTrue(
+                severityPolicyIndex > commentPolicyIndex,
+                "Severity policy line should appear inside the comment policy section");
+        assertTrue(
+                maxPolicyIndex > commentPolicyIndex,
+                "Max comments policy line should appear inside the comment policy section");
+    }
+
+    @Test
+    void testParsePrReviewResponse_ReturnsNullForEmptyAndMalformedInput() {
+        assertNull(PrReviewService.parsePrReviewResponse(""), "Empty text should not parse");
+        assertNull(PrReviewService.parsePrReviewResponse("   "), "Whitespace-only text should not parse");
+        assertNull(PrReviewService.parsePrReviewResponse("This is not JSON at all"), "Plain text should not parse");
+        assertNull(
+                PrReviewService.parsePrReviewResponse("{\"unrelated\": true}"),
+                "JSON without summaryMarkdown should not parse");
+    }
+
+    @Test
+    void testParsePrReviewResponse_ParsesValidReviewJson() {
+        String json = "{\"summaryMarkdown\": \"## Review\\nLooks good.\", \"comments\": []}";
+        var parsed = PrReviewService.parsePrReviewResponse(json);
+        assertNotNull(parsed, "Valid review JSON should parse");
+        assertEquals("## Review\nLooks good.", parsed.summaryMarkdown());
+    }
+
+    @Test
+    void testLutz_noTasks_doesNotExecuteTasks() throws InterruptedException {
+        JobRunner runner = new JobRunner(null, null);
+        List<TaskList.TaskItem> executedTasks = new ArrayList<>();
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of();
+            }
+
+            @Override
+            @Blocking
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                    throws InterruptedException {
+                executedTasks.add(task);
+            }
+        };
+
+        runner.runLutzFromSearchResult(fakeContext, null, null, () -> false);
+
+        assertTrue(executedTasks.isEmpty(), "No tasks should be executed when task list is empty");
+    }
+
+    @Test
+    void testObjectiveForModeLutzEqualsLutzObjective() {
+        assertEquals(SearchPrompts.Objective.LUTZ, JobRunner.objectiveForMode(JobRunner.Mode.LUTZ));
+    }
+
+    @Test
+    void testObjectiveForLutzSearchPhaseIsLutzObjective() {
+        assertEquals(SearchPrompts.Objective.LUTZ, JobRunner.objectiveForLutzSearchPhase());
+    }
+
+    @Test
+    void testObjectiveForModePlanIsTasksOnly() {
+        assertEquals(SearchPrompts.Objective.TASKS_ONLY, JobRunner.objectiveForMode(JobRunner.Mode.PLAN));
+    }
+
+    @Test
+    void testLutz_tasksExist_executesEachIncompleteTask() throws InterruptedException {
+        JobRunner runner = new JobRunner(null, null);
+        List<TaskList.TaskItem> executedTasks = new ArrayList<>();
+
+        TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", true); // already done
+        TaskList.TaskItem task2 = new TaskList.TaskItem("2", "title2", "text2", false); // incomplete
+        TaskList.TaskItem task3 = new TaskList.TaskItem("3", "title3", "text3", false); // incomplete
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of(task1, task2, task3);
+            }
+
+            @Override
+            @Blocking
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                    throws InterruptedException {
+                executedTasks.add(task);
+            }
+        };
+
+        // We provide a dummy model because tasks exist and require execution
+        StreamingChatModel mockModel = new StreamingChatModel() {};
+
+        runner.runLutzFromSearchResult(fakeContext, null, mockModel, () -> false);
+
+        assertEquals(2, executedTasks.size(), "Two tasks should have been executed");
+        assertEquals("2", executedTasks.get(0).id());
+        assertEquals("3", executedTasks.get(1).id());
+    }
+
+    @Test
+    void testLutz_cancellationPropagates() {
+        JobRunner runner = new JobRunner(null, null);
+
+        TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", false);
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of(task1);
+            }
+
+            @Override
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code) {}
+        };
+
+        org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
+            runner.runLutzFromSearchResult(fakeContext, null, null, () -> true);
+        });
+    }
+
+    @Test
+    void testLutz_cancellationDuringTaskExecutionPropagates() {
+        JobRunner runner = new JobRunner(null, null);
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+
+        TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", false);
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of(task1);
+            }
+
+            @Override
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code) {
+                // Simulate cancellation occurring during the execution of this task
+                cancelled.set(true);
+            }
+        };
+
+        StreamingChatModel mockModel = new StreamingChatModel() {};
+
+        org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
+            runner.runLutzFromSearchResult(fakeContext, null, mockModel, cancelled::get);
+        });
     }
 }

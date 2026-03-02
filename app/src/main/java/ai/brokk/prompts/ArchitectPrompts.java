@@ -112,8 +112,8 @@ public class ArchitectPrompts {
         besides the Workspace itself that is the only information they will have.
 
         DO NOT assume that the workspace is correctly configured to start solving the goal! You MUST
-        evaluate the workspace contents INDEPENDENTLY at each step and drop irrelevant fragments for
-        the next step in your plan!
+        evaluate the workspace contents INDEPENDENTLY at each step, including dropping fragments that are
+        irrelevant for the next step in your plan!
         """;
     }
 

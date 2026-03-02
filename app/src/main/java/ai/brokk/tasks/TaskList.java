@@ -2,6 +2,8 @@ package ai.brokk.tasks;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class TaskList {
 
@@ -36,5 +38,19 @@ public class TaskList {
         public TaskListData(List<TaskItem> tasks) {
             this(null, tasks);
         }
+    }
+
+    public static String formatChecklist(TaskListData data) {
+        var tasks = data.tasks();
+        if (tasks.isEmpty()) {
+            return "(No tasks)";
+        }
+        return IntStream.range(0, tasks.size())
+                .mapToObj(i -> {
+                    var t = tasks.get(i);
+                    String status = t.done() ? "x" : " ";
+                    return "%d. [%s] %s".formatted(i + 1, status, t.title());
+                })
+                .collect(Collectors.joining("\n"));
     }
 }

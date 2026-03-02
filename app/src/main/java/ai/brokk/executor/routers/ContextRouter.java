@@ -10,18 +10,24 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
+import java.net.URLConnection;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
@@ -49,8 +55,14 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             if (normalizedPath.equals("/v1/context")) {
                 handleGetContext(exchange);
                 return;
+            } else if (normalizedPath.startsWith("/v1/context/fragments/")) {
+                handleGetContextFragment(exchange, normalizedPath);
+                return;
             } else if (normalizedPath.equals("/v1/tasklist")) {
                 handleGetTaskList(exchange);
+                return;
+            } else if (normalizedPath.equals("/v1/context/conversation")) {
+                handleGetConversation(exchange);
                 return;
             }
         }
@@ -71,6 +83,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             case "/v1/context/classes" -> handlePostContextClasses(exchange);
             case "/v1/context/methods" -> handlePostContextMethods(exchange);
             case "/v1/context/text" -> handlePostContextText(exchange);
+            case "/v1/tasklist" -> handlePostTaskList(exchange);
             default ->
                 SimpleHttpServer.sendJsonResponse(
                         exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
@@ -125,12 +138,37 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 fragmentList.add(map);
             }
 
+            var project = contextManager.getProject();
+            String branch;
+            if (project.hasGit()) {
+                try {
+                    branch = project.getRepo().getCurrentBranch();
+                } catch (Exception e) {
+                    logger.debug("Failed to get current branch", e);
+                    branch = "unknown";
+                }
+            } else {
+                branch = "(no git)";
+            }
+
+            double totalCost = 0.0;
+            var sessionId = contextManager.getCurrentSessionId();
+            var sessionManager = contextManager.getProject().getSessionManager();
+            var maybeSessionInfo = sessionManager.listSessions().stream()
+                    .filter(s -> s.id().equals(sessionId))
+                    .findFirst();
+            if (maybeSessionInfo.isPresent() && maybeSessionInfo.get().totalCost() != null) {
+                totalCost = maybeSessionInfo.get().totalCost();
+            }
+
             int maxTokens = 200_000;
             var response = Map.of(
                     "fragments", fragmentList,
                     "usedTokens", totalUsedTokens,
                     "maxTokens", maxTokens,
-                    "tokensEstimated", includeTokens);
+                    "tokensEstimated", includeTokens,
+                    "branch", branch,
+                    "totalCost", totalCost);
 
             SimpleHttpServer.sendJsonResponse(exchange, response);
         } catch (Exception e) {
@@ -138,6 +176,112 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Failed to retrieve context", e));
         }
+    }
+
+    private void handleGetContextFragment(HttpExchange exchange, String normalizedPath) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
+            return;
+        }
+
+        var prefix = "/v1/context/fragments/";
+        var encodedId = normalizedPath.substring(prefix.length());
+        if (encodedId.isBlank()) {
+            RouterUtil.sendValidationError(exchange, "fragmentId is required");
+            return;
+        }
+
+        String fragmentId;
+        try {
+            fragmentId = URLDecoder.decode(encodedId, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, "fragmentId is not valid URL encoding");
+            return;
+        }
+
+        try {
+            var live = contextManager.liveContext();
+            var fragment = live.allFragments()
+                    .filter(f -> f.id().equals(fragmentId))
+                    .findFirst()
+                    .orElse(null);
+            if (fragment == null) {
+                SimpleHttpServer.sendJsonResponse(
+                        exchange,
+                        404,
+                        ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Fragment not found: " + fragmentId));
+                return;
+            }
+
+            // Bounded wait for computed fragments to stabilize CI and handle async materialization.
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                cf.await(Duration.ofMillis(500));
+            }
+
+            // Non-blocking accessors: prefer renderNowOr to avoid blocking handler threads.
+            Path filePath = null;
+            if (fragment.getType().isPath()) {
+                // Use a non-blocking renderNowOr(Set.of()) to obtain currently-available backing files.
+                var filesNow = fragment.referencedFiles().renderNowOr(Set.of());
+                filePath =
+                        filesNow.stream().findFirst().map(ProjectFile::absPath).orElse(null);
+            }
+
+            // Use non-blocking access for text; avoid join() which may block.
+            String text = fragment.isText() ? fragment.text().renderNowOr("(binary fragment)") : "(binary fragment)";
+
+            // Build URI: prefer file backing if available, otherwise use brokk:// context URI.
+            var uri = filePath != null ? filePath.toUri().toString() : "brokk://context/fragment/" + fragment.id();
+
+            // Derive mime type from path when available; otherwise use syntaxStyle via non-blocking accessor.
+            String mimeType;
+            if (filePath != null) {
+                mimeType = mimeTypeForPath(filePath);
+            } else {
+                var style = fragment.syntaxStyle().renderNowOr("");
+                mimeType = mimeTypeForStyle(style);
+            }
+
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, Map.of("id", fragment.id(), "uri", uri, "mimeType", mimeType, "text", text));
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/context/fragments/{id}", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to retrieve context fragment", e));
+        }
+    }
+
+    private String mimeTypeForPath(Path path) {
+        try {
+            var detected = Files.probeContentType(path);
+            if (detected != null && !detected.isBlank()) {
+                return detected;
+            }
+        } catch (IOException e) {
+            logger.debug("Could not probe content type for {}: {}", path, e.toString());
+        }
+        var guessed = URLConnection.guessContentTypeFromName(path.getFileName().toString());
+        return guessed != null && !guessed.isBlank() ? guessed : "text/plain";
+    }
+
+    private String mimeTypeForStyle(String syntaxStyle) {
+        var style = syntaxStyle.strip().toLowerCase(Locale.ROOT);
+        return switch (style) {
+            case "markdown", "md" -> "text/markdown";
+            case "json" -> "application/json";
+            case "xml" -> "application/xml";
+            case "yaml", "yml" -> "application/x-yaml";
+            case "java" -> "text/x-java-source";
+            case "python", "py" -> "text/x-python";
+            case "javascript", "js" -> "text/javascript";
+            case "typescript", "ts" -> "text/typescript";
+            case "kotlin", "kt" -> "text/x-kotlin";
+            case "html" -> "text/html";
+            case "css" -> "text/css";
+            case "shell", "bash", "sh" -> "text/x-shellscript";
+            case "go" -> "text/x-go";
+            case "rust", "rs" -> "text/x-rustsrc";
+            default -> "text/plain";
+        };
     }
 
     private void handlePostContextDrop(HttpExchange exchange) throws IOException {
@@ -329,22 +473,11 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             return;
         }
 
-        contextManager.addSummaries(
-                Set.of(),
-                validClassNames.stream()
-                        .flatMap(name -> analyzer.getDefinitions(name).stream().filter(CodeUnit::isClass))
-                        .collect(Collectors.toSet()));
-
         var addedClasses = new ArrayList<AddedContextClass>();
-        var live = contextManager.liveContext();
         for (var className : validClassNames) {
-            var fragId = live.allFragments()
-                    .filter(f -> f instanceof ContextFragments.SummaryFragment sf
-                            && sf.getTargetIdentifier().contains(className))
-                    .map(ContextFragment::id)
-                    .findFirst()
-                    .orElse("");
-            addedClasses.add(new AddedContextClass(fragId, className));
+            var fragment = new ContextFragments.CodeFragment(contextManager, className);
+            contextManager.addFragments(fragment);
+            addedClasses.add(new AddedContextClass(fragment.id(), className));
         }
 
         SimpleHttpServer.sendJsonResponse(exchange, new AddContextClassesResponse(addedClasses));
@@ -414,6 +547,29 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         SimpleHttpServer.sendJsonResponse(exchange, Map.of("id", id, "chars", text.length()));
     }
 
+    private void handlePostTaskList(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+        var request = RouterUtil.parseJsonOr400(exchange, ReplaceTaskListRequest.class, "/v1/tasklist");
+        if (request == null) return;
+
+        var tasks = request.tasks();
+        if (tasks == null) {
+            RouterUtil.sendValidationError(exchange, "tasks must not be null");
+            return;
+        }
+
+        // Reject lists that contain explicit null elements to avoid server-side NPEs.
+        if (tasks.stream().anyMatch(Objects::isNull)) {
+            RouterUtil.sendValidationError(exchange, "tasks must not contain null elements");
+            return;
+        }
+
+        var nonNullTasks = Objects.requireNonNull(tasks);
+        var updated = new TaskList.TaskListData(request.bigPicture(), List.copyOf(nonNullTasks));
+        contextManager.pushContext(ctx -> ctx.withTaskList(updated));
+        SimpleHttpServer.sendJsonResponse(exchange, contextManager.getTaskList());
+    }
+
     private String classifyChipKind(ContextFragment fragment) {
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) return "SUMMARY";
         if (!fragment.isValid()) return "INVALID";
@@ -463,4 +619,61 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     private record AddContextMethodsResponse(List<AddedContextMethod> added) {}
 
     private record AddContextTextRequest(String text) {}
+
+    private record ReplaceTaskListRequest(
+            @org.jetbrains.annotations.Nullable String bigPicture,
+            @org.jetbrains.annotations.Nullable List<TaskList.TaskItem> tasks) {}
+
+    // ── GET /v1/context/conversation ──────────────────────
+
+    /**
+     * Returns the current live context's task history as displayable conversation messages.
+     */
+    private void handleGetConversation(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) return;
+
+        try {
+            var taskHistory = contextManager.liveContext().getTaskHistory();
+            var entries = new ArrayList<Map<String, Object>>();
+
+            for (var task : taskHistory) {
+                var entryMap = new HashMap<String, Object>();
+                entryMap.put("sequence", task.sequence());
+                entryMap.put("isCompressed", task.isCompressed());
+
+                if (task.meta() != null) {
+                    entryMap.put("taskType", task.meta().type().displayName());
+                }
+
+                var log = task.mopLog();
+                if (log != null) {
+                    var msgList = new ArrayList<Map<String, Object>>();
+                    for (var msg : log.messages()) {
+                        var msgMap = new HashMap<String, Object>();
+                        msgMap.put("role", msg.type().name().toLowerCase(java.util.Locale.ROOT));
+                        msgMap.put("text", Messages.getText(msg));
+
+                        if (msg instanceof dev.langchain4j.data.message.AiMessage ai
+                                && ai.reasoningContent() != null
+                                && !ai.reasoningContent().isBlank()) {
+                            msgMap.put("reasoning", ai.reasoningContent());
+                        }
+
+                        msgList.add(msgMap);
+                    }
+                    entryMap.put("messages", msgList);
+                } else if (task.summary() != null) {
+                    entryMap.put("summary", task.summary());
+                }
+
+                entries.add(entryMap);
+            }
+
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("entries", entries));
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/context/conversation", e);
+            var error = ErrorPayload.internalError("Failed to retrieve conversation", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 }

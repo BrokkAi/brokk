@@ -167,14 +167,14 @@ class CodeAgentTest {
         // the first block and then stop without reporting an error.
         String llmText =
                 """
-                         <block>
+                         ```
                          file.java
                          <<<<<<< SEARCH
                          System.out.println("Hello");
                          =======
                          System.out.println("World");
                          >>>>>>> REPLACE
-                         </block>
+                         ```
                          This is some trailing text.
                          """;
 
@@ -194,12 +194,12 @@ class CodeAgentTest {
         var originalRequest = new UserMessage("original user request");
         String llmTextWithParseError =
                 """
-                <block>
+                ```
                 file.java
                 <<<<<<< SEARCH
                 foo();
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """; // Missing ======= divider
         var badAiResponse = new AiMessage(llmTextWithParseError);
 
@@ -259,6 +259,40 @@ class CodeAgentTest {
         assertTrue(
                 nextRequestText.contains("<target_file name=\"" + file.toString() + "\">"),
                 "Retry prompt should contain target_file tag for " + file);
+    }
+
+    // A-5: applyPhase – threshold check for full-file replacement reminder
+    @Test
+    void testApplyPhase_showsFullFileReplacementReminderAtThreshold() throws IOException {
+        var file = cm.toFile("test.txt");
+        file.write("initial content");
+        cm.addEditableFile(file);
+
+        var nonMatchingBlock = new EditBlock.SearchReplaceBlock(file.toString(), "nonexistent", "replacement");
+        var cs = createConversationState(List.of(new AiMessage("Previous attempt")), new UserMessage("req"));
+
+        // Simulate being one failure away from the reminder threshold.
+        // applyPhase will increment this to MAX_APPLY_FAILURES - 1, which triggers the reminder.
+        var es = new CodeAgent.EditState(
+                0, // consecutiveParseFailures
+                CodeAgent.MAX_APPLY_FAILURES - 2, // consecutiveApplyFailures (e.g., 1)
+                0, // consecutiveBuildFailures
+                0, // blocksAppliedWithoutBuild
+                "", // lastBuildError
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap(),
+                false);
+
+        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(nonMatchingBlock)), null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retryStep = (CodeAgent.Step.Retry) result;
+        String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
+
+        assertTrue(
+                nextRequestText.contains("Strongly prefer BRK_ENTIRE_FILE full-file replacements"),
+                "Retry prompt should encourage full-file replacement when near failure limit");
     }
 
     // A-4: applyPhase – mix success & failure
@@ -410,19 +444,6 @@ class CodeAgentTest {
         assertEquals(TaskResult.StopReason.INTERRUPTED, fatalStep.stopDetails().reason());
     }
 
-    // L-1: Loop termination - "no edits, no error"
-    @Test
-    void testExecute_exitsSuccessOnNoEdits() {
-        var stubModel = new TestScriptedLanguageModel("Okay, I see no changes are needed.");
-        codeAgent = new CodeAgent(cm, stubModel, consoleIO);
-        project.setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
-        var initialContext = newContext();
-        var result = codeAgent.executeWithoutHistory(initialContext, "A request that results in no edits", Set.of());
-
-        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
-        assertEquals(initialContext, result.context());
-    }
-
     // L-2: Loop termination - "no edits, but has build error"
     @Test
     void testExecute_exitsBuildErrorOnNoEditsWithPreviousError() throws IOException {
@@ -438,14 +459,14 @@ class CodeAgentTest {
 
         var firstResponse =
                 """
-                            <block>
+                            ```
                             test.txt
                             <<<<<<< SEARCH
                             hello
                             =======
                             goodbye
                             >>>>>>> REPLACE
-                            </block>
+                            ```
                             """;
         var secondResponse = "I am unable to fix the build error.";
         var stubModel = new TestScriptedLanguageModel(firstResponse, secondResponse);
@@ -820,14 +841,14 @@ class CodeAgentTest {
         // Create a model that returns partial text (some valid blocks) + error (simulating connection drop)
         var partialBlockText =
                 """
-                <block>
+                ```
                 test.txt
                 <<<<<<< SEARCH
                 hello
                 =======
                 goodbye
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """;
 
         // Prepare the Llm.StreamingResult with partial text and an error.
@@ -872,14 +893,14 @@ class CodeAgentTest {
         // First response: apply edit hello -> goodbye
         var firstResponse =
                 """
-                <block>
+                ```
                 %s
                 <<<<<<< SEARCH
                 hello
                 =======
                 goodbye
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """
                         .formatted(file.toString());
 
@@ -937,14 +958,14 @@ class CodeAgentTest {
         // Scripted model proposes an edit to the read-only file
         var response =
                 """
-                <block>
+                ```
                 %s
                 <<<<<<< SEARCH
                 hello
                 =======
                 goodbye
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """
                         .formatted(roFile.toString());
         var stubModel = new TestScriptedLanguageModel(response);
@@ -991,14 +1012,14 @@ class CodeAgentTest {
 
         var response =
                 """
-                <block>
+                ```
                 %s
                 <<<<<<< SEARCH
                 hello
                 =======
                 goodbye
                 >>>>>>> REPLACE
-                </block>
+                ```
                 """
                         .formatted(file.toString());
         var stubModel = new TestScriptedLanguageModel(response);
@@ -1019,65 +1040,6 @@ class CodeAgentTest {
                 result.stopDetails().reason(),
                 "Editable ProjectPathFragment should take precedence over other fragment types");
         assertEquals("goodbye", file.read().orElseThrow().strip(), "File should be modified");
-    }
-
-    // CONV-1: CodeAgent conversation is included in TaskResult.output but NOT baked into TaskResult.context
-    @Test
-    void testExecute_conversationInOutputNotInContext() throws IOException {
-        // Arrange: file with initial content
-        var file = cm.toFile("conv.txt");
-        file.write("hello");
-        cm.addEditableFile(file);
-
-        // Create initial context with the file
-        var initialFragment = new ContextFragments.ProjectPathFragment(file, cm);
-        var initialContext = newContext().addFragments(List.of(initialFragment));
-
-        // LLM provides an edit
-        var response =
-                """
-                <block>
-                %s
-                <<<<<<< SEARCH
-                hello
-                =======
-                goodbye
-                >>>>>>> REPLACE
-                </block>
-                """
-                        .formatted(file.toString());
-
-        var stubModel = new TestScriptedLanguageModel(response);
-        codeAgent = new CodeAgent(cm, stubModel, consoleIO);
-
-        // Mock build to succeed
-        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> "Build successful";
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
-        project.setBuildDetails(bd);
-        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
-
-        // Act
-        var result = codeAgent.executeWithoutHistory(initialContext, "Change hello to goodbye", Set.of());
-
-        // Assert: Task completed successfully
-        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
-
-        // Assert: TaskResult.output contains the conversation
-        var outputFragment = result.output();
-        assertNotNull(outputFragment, "TaskResult.output should not be null");
-        var outputText = outputFragment.text().join();
-        assertTrue(outputText.contains("goodbye"), "Output should contain the LLM response with the edit");
-
-        // Assert: TaskResult.context does NOT have the conversation baked in
-        // The context should contain file fragments but not the conversation/task messages
-        var contextFragments = result.context().getAllFragmentsInDisplayOrder();
-        boolean hasTaskFragment = contextFragments.stream().anyMatch(f -> f instanceof ContextFragments.TaskFragment);
-        assertFalse(hasTaskFragment, "TaskResult.context should NOT contain a TaskFragment with the conversation");
-
-        // Additional verification: the context should still have the file fragment
-        var hasFileFragment =
-                contextFragments.stream().anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment);
-        assertTrue(hasFileFragment, "TaskResult.context should still contain file fragments");
     }
 
     // RO-4: computeReadOnlyPaths – precedence for ProjectPathFragment, SummaryFragment, CodeFragment, and explicit
@@ -1166,7 +1128,7 @@ class CodeAgentTest {
 
         var summarySummaryOnly = new ContextFragments.SummaryFragment(
                 cm, "com.example.SummaryOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        assertFalse(summarySummaryOnly.files().join().isEmpty());
+        assertFalse(summarySummaryOnly.sourceFiles().join().isEmpty());
         var summaryPpfAndSummaryEditable = new ContextFragments.SummaryFragment(
                 cm, "com.example.PpfAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
         var summaryPpfReadonly = new ContextFragments.SummaryFragment(

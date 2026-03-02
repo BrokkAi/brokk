@@ -600,7 +600,7 @@ public class WorkspaceChip extends JPanel {
 
         private String computeAggregateSummaryTooltip() {
             var allFiles = summaryFragments.stream()
-                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                    .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                     .map(ProjectFile::toString)
                     .distinct()
                     .sorted()
@@ -821,7 +821,7 @@ public class WorkspaceChip extends JPanel {
                     : selected.getAllFragmentsInDisplayOrder().stream()
                             .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                             .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
-                            .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                            .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                             .distinct()
                             .toList();
             contextManager

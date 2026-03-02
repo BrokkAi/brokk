@@ -2,21 +2,34 @@ package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
+import ai.brokk.util.BuildTools;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -37,7 +50,7 @@ class BuildAgentTest {
         String template = "tests/runtests.py{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("servers.tests");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules");
 
         assertEquals("tests/runtests.py servers.tests", result);
     }
@@ -47,7 +60,7 @@ class BuildAgentTest {
         String template = "pytest{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("tests.unit", "tests.integration", "tests.e2e");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules");
 
         assertEquals("pytest tests.unit tests.integration tests.e2e", result);
     }
@@ -57,7 +70,7 @@ class BuildAgentTest {
         String template = "jest{{#files}} {{value}}{{/files}}";
         List<String> files = List.of("src/app.test.js", "src/util.test.js");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
+        String result = BuildTools.interpolateMustacheTemplate(template, files, "files");
 
         assertEquals("jest src/app.test.js src/util.test.js", result);
     }
@@ -67,7 +80,7 @@ class BuildAgentTest {
         String template = "pytest{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules");
 
         assertEquals("pytest", result);
     }
@@ -77,7 +90,7 @@ class BuildAgentTest {
         String template = "go test -run '{{#classes}} {{value}}{{/classes}}'";
         List<String> classes = List.of("TestFoo");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
+        String result = BuildTools.interpolateMustacheTemplate(template, classes, "classes");
 
         assertEquals("go test -run ' TestFoo'", result);
     }
@@ -260,7 +273,7 @@ class BuildAgentTest {
         String template = "python{{pyver}} -m pytest";
         List<String> empty = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", "3.11");
+        String result = BuildTools.interpolateMustacheTemplate(template, empty, "modules", "3.11");
 
         assertEquals("python3.11 -m pytest", result);
     }
@@ -270,7 +283,7 @@ class BuildAgentTest {
         String template = "pytest";
         List<String> empty = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", "3.11");
+        String result = BuildTools.interpolateMustacheTemplate(template, empty, "modules", "3.11");
 
         assertEquals("pytest", result);
     }
@@ -280,7 +293,7 @@ class BuildAgentTest {
         String template = "pytest --pyver={{pyver}}";
         List<String> empty = List.of();
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", null);
+        String result = BuildTools.interpolateMustacheTemplate(template, empty, "modules", null);
 
         assertEquals("pytest --pyver=", result);
     }
@@ -290,7 +303,7 @@ class BuildAgentTest {
         String template = "python{{pyver}} tests/runtests.py{{#modules}} {{value}}{{/modules}}";
         List<String> modules = List.of("tests.unit", "tests.integration");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "3.10");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules", "3.10");
 
         assertEquals("python3.10 tests/runtests.py tests.unit tests.integration", result);
     }
@@ -300,7 +313,7 @@ class BuildAgentTest {
         String template = "uv run {{#modules}}{{value}}{{/modules}}";
         List<String> modules = List.of("tests.e2e");
 
-        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "");
+        String result = BuildTools.interpolateMustacheTemplate(template, modules, "modules", "");
 
         assertEquals("uv run tests.e2e", result);
     }
@@ -367,7 +380,7 @@ class BuildAgentTest {
         testProject.setExclusionPatterns(Set.of("*.svg", "*.png", "build"));
 
         // Create a BuildAgent - we don't need LLM for this test
-        var agent = new BuildAgent(testProject, null, null);
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
 
         // Call reportBuildDetails with new patterns from "LLM"
         // This simulates what happens when BuildAgent runs again
@@ -382,6 +395,7 @@ class BuildAgentTest {
         // Verify existing patterns are preserved AND new patterns are added
         var reportedDetails = agent.getReportedDetails();
         assert reportedDetails != null;
+        assertEquals("", reportedDetails.afterTaskListCommand());
         var finalPatterns = reportedDetails.exclusionPatterns();
 
         // Existing patterns should be preserved
@@ -418,7 +432,7 @@ class BuildAgentTest {
         }
 
         var project = MainProject.forTests(tempDir);
-        var agent = new BuildAgent(project, null, null);
+        var agent = new BuildAgent(project, null, null, new TestConsoleIO());
 
         var patterns = Set.of(
                 "node_modules", // Gitignored - should be removed
@@ -456,7 +470,7 @@ class BuildAgentTest {
         }
 
         var project = MainProject.forTests(tempDir);
-        var agent = new BuildAgent(project, null, null);
+        var agent = new BuildAgent(project, null, null, new TestConsoleIO());
 
         agent.reportBuildDetails(
                 "npm run build",
@@ -487,7 +501,7 @@ class BuildAgentTest {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
             project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of(), null, ""));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -500,7 +514,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertTrue(updated.getBuildError().isBlank(), "Build error should be blank on success");
             assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
@@ -517,7 +531,7 @@ class BuildAgentTest {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
             project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of(), null, ""));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -528,7 +542,7 @@ class BuildAgentTest {
                 throw new Environment.FailureException("boom", "stdout:\nfail", 1);
             };
 
-            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertFalse(updated.getBuildError().isBlank(), "Build error should be non-blank on failure");
             assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
@@ -561,7 +575,7 @@ class BuildAgentTest {
                 };
             };
 
-            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertFalse(updated.getBuildError().contains("null"), "Build error must not contain the literal 'null'");
         } finally {
@@ -574,7 +588,7 @@ class BuildAgentTest {
         Files.writeString(tempDir.resolve("README.md"), "x");
         var project = new TestProject(tempDir);
         project.setBuildDetails(
-                new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+                new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of(), null, ""));
 
         var io = new TestConsoleIO();
         var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
@@ -582,7 +596,7 @@ class BuildAgentTest {
 
         var ctxWithError = ctx.withBuildResult(false, "previous failure");
 
-        var updated = BuildAgent.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
+        var updated = BuildTools.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
 
         assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
         assertTrue(io.getOutputLog().contains("No explicit command specified, skipping."), "Should log skip message");
@@ -643,7 +657,7 @@ class BuildAgentTest {
         Files.createDirectory(tempDir.resolve("src"));
         var testProject = new TestProject(tempDir);
 
-        var agent = new BuildAgent(testProject, null, null);
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
 
         // testSomeCommand with unsupported {{python_version}} tag
         var ex = assertThrows(ToolRegistry.ToolCallException.class, () -> {
@@ -666,7 +680,7 @@ class BuildAgentTest {
         Files.createDirectory(tempDir.resolve("src"));
         var testProject = new TestProject(tempDir);
 
-        var agent = new BuildAgent(testProject, null, null);
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
 
         // testAllCommand with unsupported {{#targets}} section
         var ex = assertThrows(ToolRegistry.ToolCallException.class, () -> {
@@ -688,7 +702,7 @@ class BuildAgentTest {
         Files.createDirectory(tempDir.resolve("src"));
         var testProject = new TestProject(tempDir);
 
-        var agent = new BuildAgent(testProject, null, null);
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
 
         // Should not throw - all tags are valid
         String result = agent.reportBuildDetails(
@@ -769,7 +783,7 @@ class BuildAgentTest {
         Files.createDirectory(tempDir.resolve("src"));
         var testProject = new TestProject(tempDir);
 
-        var agent = new BuildAgent(testProject, null, null);
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
 
         // testSomeCommand with delimiter-change tag
         var ex = assertThrows(ToolRegistry.ToolCallException.class, () -> {
@@ -785,5 +799,504 @@ class BuildAgentTest {
         assertTrue(ex.getMessage().contains("testSomeCommand"), "Error should mention the field name");
         assertTrue(ex.getMessage().contains("="), "Error should mention the delimiter change");
         assertTrue(ex.getMessage().contains("Allowed"), "Error should mention allowed tags");
+    }
+
+    @Test
+    void testRunExplicitCommandUsesTestTimeout(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setTestCommandTimeoutSeconds(120L); // Custom test timeout
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            var capturedTimeout = new java.util.concurrent.atomic.AtomicReference<Duration>();
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                capturedTimeout.set(timeout);
+                return "ok";
+            };
+
+            BuildTools.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+
+            assertEquals(
+                    Duration.ofSeconds(120), capturedTimeout.get(), "Test command should use test-specific timeout");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunExplicitCommandUnlimitedTimeout(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setTestCommandTimeoutSeconds(-1L); // Unlimited timeout
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            var capturedTimeout = new java.util.concurrent.atomic.AtomicReference<Duration>();
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                capturedTimeout.set(timeout);
+                return "ok";
+            };
+
+            BuildTools.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+
+            assertEquals(
+                    Environment.UNLIMITED_TIMEOUT,
+                    capturedTimeout.get(),
+                    "Timeout of -1 should result in UNLIMITED_TIMEOUT");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testRunVerificationUsesRunTimeout(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setRunCommandTimeoutSeconds(45L); // Custom run timeout
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint-cmd", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            var capturedTimeout = new java.util.concurrent.atomic.AtomicReference<Duration>();
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                capturedTimeout.set(timeout);
+                return "ok";
+            };
+
+            BuildTools.runVerification(ctx);
+
+            assertEquals(
+                    Duration.ofSeconds(45),
+                    capturedTimeout.get(),
+                    "Verification command should use run-specific timeout");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesLintFailureStopsImmediately(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                outputConsumer.accept("lint-error");
+                throw new Environment.FailureException("lint failed", "compile error", 1);
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 5, Map.of(), null);
+
+            assertFalse(result.success(), "Should fail when lint fails");
+            assertEquals(1, callCount.get(), "Should only run lint once, never reach tests");
+            assertEquals(1, result.exitCode());
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesTestPassesOnFirstTry(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                outputConsumer.accept("ok");
+                return "ok";
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 5, Map.of(), null);
+
+            assertTrue(result.success(), "Should succeed");
+            assertEquals(2, callCount.get(), "Should run lint once + test once");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesTestPassesOnThirdAttempt(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                int n = callCount.incrementAndGet();
+                if (command.equals("lint-cmd")) {
+                    return "lint ok";
+                }
+                // First two test attempts fail, third succeeds
+                if (n <= 3) { // call 1 = lint, call 2 = test attempt 1, call 3 = test attempt 2
+                    outputConsumer.accept("flaky failure");
+                    throw new Environment.FailureException("test failed", "flaky", 1);
+                }
+                outputConsumer.accept("test passed");
+                return "test ok";
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 5, Map.of(), null);
+
+            assertTrue(result.success(), "Should succeed after retries");
+            assertEquals(4, callCount.get(), "Should run lint(1) + test fail(2) + test fail(3) + test pass(4)");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesAllTestAttemptsExhausted(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                if (command.equals("lint-cmd")) {
+                    return "lint ok";
+                }
+                outputConsumer.accept("persistent failure");
+                throw new Environment.FailureException("test failed", "always fails", 42);
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 5, Map.of(), null);
+
+            assertFalse(result.success(), "Should fail after all retries exhausted");
+            assertEquals(6, callCount.get(), "Should run lint(1) + 5 test attempts");
+            assertEquals(42, result.exitCode(), "Should return exit code from last attempt");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesBlankLintSkipsToTests(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                assertEquals("test-cmd", command, "Only test command should be run");
+                return "test ok";
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "", "test-cmd", 5, Map.of(), null);
+
+            assertTrue(result.success(), "Should succeed");
+            assertEquals(1, callCount.get(), "Should only run the test command");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesBlankTestReturnsSuccessAfterLint(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                return "lint ok";
+            };
+
+            var result = BuildVerifier.verifyWithRetries(project, "lint-cmd", "", 5, Map.of(), null);
+
+            assertTrue(result.success(), "Should succeed when lint passes and no test command");
+            assertEquals(1, callCount.get(), "Should only run lint");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testVerifyWithRetriesStreamsOutputForEachAttempt(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                int n = callCount.incrementAndGet();
+                if (command.equals("lint-cmd")) {
+                    outputConsumer.accept("lint output");
+                    return "lint ok";
+                }
+                outputConsumer.accept("test-attempt-" + (n - 1));
+                throw new Environment.FailureException("fail", "fail", 1);
+            };
+
+            var streamedLines = new ArrayList<String>();
+            var result =
+                    BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 3, Map.of(), streamedLines::add);
+
+            assertFalse(result.success());
+            assertTrue(streamedLines.contains("lint output"), "Should stream lint output");
+            assertTrue(streamedLines.contains("test-attempt-1"), "Should stream first test attempt");
+            assertTrue(streamedLines.contains("test-attempt-2"), "Should stream second test attempt");
+            assertTrue(streamedLines.contains("test-attempt-3"), "Should stream third test attempt");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandGoModules(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.GO);
+        // Mock GoAnalyzer to return specific test packages
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return List.of(".", "./auth");
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "main_test.go");
+        ProjectFile file2 = new ProjectFile(tempDir, "auth/auth_test.go");
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "go build", "go test ./...", "go test {{#packages}}{{value}} {{/packages}}", Set.of());
+
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        // GoAnalyzer.getTestModules returns ./path and .
+        assertEquals("go test . ./auth ", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandPythonPackages(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.PYTHON);
+        // Mock PythonAnalyzer to return specific test modules
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return List.of("auth.test_login", "tests.test_foo");
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "tests/test_foo.py");
+        ProjectFile file2 = new ProjectFile(tempDir, "auth/test_login.py");
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "python -m compile",
+                "python -m pytest",
+                "python -m pytest {{#packages}}{{value}} {{/packages}}",
+                Set.of());
+
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        // Result should be sorted dotted labels: auth.test_login tests.test_foo
+        assertEquals("python -m pytest auth.test_login tests.test_foo ", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandJavaPackages(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.JAVA);
+        // Java uses default IAnalyzer.getTestModules which extracts packageName from CodeUnits
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return files.stream()
+                        .flatMap(f -> getTopLevelDeclarations(f).stream())
+                        .map(ai.brokk.analyzer.CodeUnit::packageName)
+                        .distinct()
+                        .sorted()
+                        .toList();
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "src/main/java/com/example/App.java");
+        ProjectFile file2 = new ProjectFile(tempDir, "src/main/java/com/example/util/Helper.java");
+
+        analyzer.addDeclaration(CodeUnit.cls(file1, "com.example", "App"));
+        analyzer.addDeclaration(CodeUnit.cls(file2, "com.example.util", "Helper"));
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "mvn compile",
+                "mvn test",
+                "mvn test -Dtest={{#packages}}{{value}}.*{{^last}} {{/last}}{{/packages}}",
+                Set.of());
+
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        assertEquals("mvn test -Dtest=com.example.* com.example.util.*", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommandRustModules(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir, Languages.RUST);
+        TestAnalyzer analyzer = new TestAnalyzer() {
+            private final Map<ProjectFile, List<CodeUnit>> fileToDecls = new java.util.HashMap<>();
+
+            @Override
+            public boolean isEmpty() {
+                return false;
+            }
+
+            @Override
+            public void addDeclaration(CodeUnit cu) {
+                super.addDeclaration(cu);
+                fileToDecls.computeIfAbsent(cu.source(), k -> new ArrayList<>()).add(cu);
+            }
+
+            @Override
+            public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+                return fileToDecls.getOrDefault(file, List.of());
+            }
+
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return files.stream()
+                        .flatMap(f -> getTopLevelDeclarations(f).stream())
+                        .map(ai.brokk.analyzer.CodeUnit::packageName)
+                        .distinct()
+                        .sorted()
+                        .toList();
+            }
+        };
+        TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+        ProjectFile file1 = new ProjectFile(tempDir, "src/lib.rs");
+        ProjectFile file2 = new ProjectFile(tempDir, "src/foo.rs");
+
+        analyzer.addDeclaration(new CodeUnit(file1, CodeUnitType.FUNCTION, "crate", "test_lib"));
+        analyzer.addDeclaration(new CodeUnit(file2, CodeUnitType.FUNCTION, "crate::foo", "test_foo"));
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "cargo check",
+                "cargo test",
+                "cargo test {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}",
+                Set.of());
+
+        String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
+
+        assertEquals("cargo test crate crate::foo", result);
+    }
+
+    @Test
+    void testValidateBuildDetailsSuccess(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            // Lint command succeeds
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> "ok";
+
+            var agent = new BuildAgent(project, null, null, new TestConsoleIO());
+            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
+
+            String result = agent.validateBuildDetails(details);
+            assertNull(result, "validateBuildDetails should return null when commands pass");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testValidateBuildDetailsLintFailure(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                outputConsumer.accept("compile error");
+                throw new Environment.FailureException("build failed", "compile error", 1);
+            };
+
+            var agent = new BuildAgent(project, null, null, new TestConsoleIO());
+            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
+
+            String result = agent.validateBuildDetails(details);
+            assertNotNull(result, "validateBuildDetails should return error when lint fails");
+            assertTrue(result.contains("Build/lint command failed"), "Error should mention build/lint failure");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
+
+    @Test
+    void testValidateBuildDetailsBlankCommandsSkipsValidation(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("README.md"), "x");
+        var project = new TestProject(tempDir);
+
+        var agent = new BuildAgent(project, null, null, new TestConsoleIO());
+        // Both commands are blank - should skip validation entirely and return null
+        var details = new BuildAgent.BuildDetails("", "", "", Set.of(), Map.of());
+
+        String result = agent.validateBuildDetails(details);
+        assertNull(result, "validateBuildDetails should return null when all commands are blank");
+    }
+
+    @Test
+    void testVerifyWithRetriesUsesCustomMaxRetries(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+
+            var callCount = new AtomicInteger(0);
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                if (command.equals("lint-cmd")) return "ok";
+                throw new Environment.FailureException("fail", "fail", 1);
+            };
+
+            BuildVerifier.verifyWithRetries(project, "lint-cmd", "test-cmd", 7, Map.of(), null);
+
+            assertEquals(8, callCount.get(), "Should run lint(1) + 7 test attempts");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
     }
 }

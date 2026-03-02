@@ -220,22 +220,24 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 if (definitionNode != null && !definitionNode.isNull()) {
                     String nodeType = definitionNode.getType();
                     if ("index_signature".equals(nodeType)) {
-                        // Fields require "Container.field" format; use _module_. when no class container
+                        // Fields require "Container.field" format; use filename when no class container
                         finalShortName = adjustedClassChain.isEmpty()
-                                ? "_module_." + simpleName
+                                ? file.getFileName() + "." + simpleName
                                 : adjustedClassChain + "." + simpleName;
                         return CodeUnit.field(file, packageName, finalShortName);
                     }
                 }
-                // Fields require "Container.field" format; use _module_. when no class container
-                finalShortName =
-                        adjustedClassChain.isEmpty() ? "_module_." + simpleName : adjustedClassChain + "." + simpleName;
+                // Fields require "Container.field" format; use filename when no class container
+                finalShortName = adjustedClassChain.isEmpty()
+                        ? file.getFileName() + "." + simpleName
+                        : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             case ALIAS_LIKE -> {
-                // Type aliases are fields and require "Container.alias" format; use _module_. when no class container
-                finalShortName =
-                        adjustedClassChain.isEmpty() ? "_module_." + simpleName : adjustedClassChain + "." + simpleName;
+                // Type aliases are fields and require "Container.alias" format; use filename when no class container
+                finalShortName = adjustedClassChain.isEmpty()
+                        ? file.getFileName() + "." + simpleName
+                        : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {
@@ -582,13 +584,42 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected boolean shouldUnwrapExportStatements() {
-        return true;
-    }
+    protected ResolvedNodes resolveSignatureNodes(
+            TSNode definitionNode, String simpleName, SkeletonType refined, SourceContent sourceContent) {
+        TSNode nodeForSignature = definitionNode;
+        TSNode nodeForContent = definitionNode;
 
-    @Override
-    protected boolean needsVariableDeclaratorUnwrapping(TSNode node, SkeletonType skeletonType) {
-        return skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE;
+        // 1. Unwrap export statement
+        if ("export_statement".equals(definitionNode.getType())) {
+            TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
+            if (declarationInExport != null && !declarationInExport.isNull()) {
+                nodeForSignature = declarationInExport;
+                nodeForContent = declarationInExport;
+            }
+        }
+
+        // 2. Unwrap variable declaration to specific declarator for content/body extraction
+        if (refined == SkeletonType.FIELD_LIKE || refined == SkeletonType.FUNCTION_LIKE) {
+            String nodeType = nodeForContent.getType();
+            if ("lexical_declaration".equals(nodeType) || "variable_declaration".equals(nodeType)) {
+                // Find the variable_declarator child that matches the simpleName
+                for (int i = 0; i < nodeForContent.getChildCount(); i++) {
+                    TSNode child = nodeForContent.getChild(i);
+                    if ("variable_declarator".equals(child.getType())) {
+                        TSNode nameNode = child.getChildByFieldName(
+                                getLanguageSyntaxProfile().identifierFieldName());
+                        if (nameNode != null
+                                && !nameNode.isNull()
+                                && sourceContent.substringFrom(nameNode).equals(simpleName)) {
+                            nodeForContent = child;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return new ResolvedNodes(nodeForSignature, nodeForContent);
     }
 
     @Override
@@ -786,13 +817,11 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
     @Override
     protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
-        // For function+namespace declaration merging, keep the first one (typically the function)
+        // For TypeScript declaration merging (e.g. function + namespace), we want to process both
+        // so that children of both are captured. The base class will merge them into a single FQN
+        // entry because shouldMergeSignaturesForSameFqn() is true.
         if (isBenignDuplicate(existing, candidate)) {
-            log.trace(
-                    "TypeScript declaration merging detected for {} (function + namespace). Keeping {} kind.",
-                    existing.fqName(),
-                    existing.isFunction() ? "function" : "namespace");
-            return true; // Ignore the duplicate (keep first one)
+            return false;
         }
 
         // Default behavior for other duplicates
@@ -877,7 +906,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     private @Nullable CodeUnit findDirectParent(CodeUnit cu) {
         for (var entry : withCodeUnitProperties(Map::entrySet)) {
             CodeUnit parent = entry.getKey();
-            List<CodeUnit> children = entry.getValue().children();
+            Set<CodeUnit> children = entry.getValue().children();
             if (children.contains(cu)) {
                 return parent;
             }

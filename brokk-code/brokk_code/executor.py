@@ -1,21 +1,126 @@
 import asyncio
-import io
 import logging
-import re
-import tarfile
+import shutil
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 
+from brokk_code.workspace import resolve_workspace_dir
+
 logger = logging.getLogger(__name__)
+
+BUNDLED_EXECUTOR_VERSION = "0.23.0.beta9"
+_EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
+_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
+_READY_SENTINEL = "Executor listening on http://"
+_STARTUP_LINE_TIMEOUT = 120.0
 
 
 class ExecutorError(Exception):
     """Custom error for ExecutorManager operations."""
 
     pass
+
+
+def resolve_jbang_binary() -> Optional[str]:
+    """Finds the jbang binary on the system."""
+    # 1. Check PATH
+    jbang_path = shutil.which("jbang")
+    if jbang_path:
+        return jbang_path
+
+    # 2. Check common install locations
+    home = Path.home()
+    if sys.platform == "win32":
+        candidates = [
+            home / ".jbang" / "bin" / "jbang.cmd",
+            home / ".jbang" / "bin" / "jbang.exe",
+            home / ".jbang" / "bin" / "jbang",
+        ]
+    else:
+        candidates = [
+            home / ".jbang" / "bin" / "jbang",
+            Path("/opt/homebrew/bin/jbang"),
+            Path("/usr/local/bin/jbang"),
+        ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return None
+
+
+def install_jbang() -> str:
+    """Installs jbang via the official script and trusts the brokk catalog."""
+    is_windows = sys.platform == "win32"
+    timeout_s = 120.0
+
+    logger.info("Installing jbang...")
+    try:
+        if is_windows:
+            cmd = [
+                "powershell",
+                "-Command",
+                'iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"',
+            ]
+        else:
+            cmd = ["bash", "-c", "curl -Ls https://sh.jbang.dev | bash -s - app setup"]
+
+        # Use capture_output=True (which sets both stdout and stderr to PIPE)
+        # subprocess.run handles draining the pipes to avoid deadlocks.
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+        if proc.returncode != 0:
+            stderr_hint = f": {proc.stderr.strip()}" if proc.stderr else ""
+            raise ExecutorError(f"jbang installer exited with code {proc.returncode}{stderr_hint}")
+
+    except subprocess.TimeoutExpired:
+        raise ExecutorError("jbang installation timed out after 2 minutes")
+    except ExecutorError:
+        raise
+    except Exception as e:
+        raise ExecutorError(f"Failed to run jbang installer: {e}")
+
+    jbang_path = resolve_jbang_binary()
+    if not jbang_path:
+        raise ExecutorError(
+            "jbang was installed but could not be found. You may need to restart your terminal."
+        )
+
+    # Trust the brokk catalog and release download URL
+    trust_urls = [
+        "https://github.com/BrokkAi/brokk-releases",
+        "https://github.com/BrokkAi/brokk-releases/releases/download/",
+    ]
+    for url in trust_urls:
+        try:
+            trust_proc = subprocess.run(
+                [jbang_path, "trust", "add", url],
+                capture_output=True,
+                text=True,
+            )
+            if trust_proc.returncode != 0:
+                logger.warning(
+                    "Failed to trust %s: %s",
+                    url,
+                    trust_proc.stderr.strip()
+                    if trust_proc.stderr
+                    else f"exit code {trust_proc.returncode}",
+                )
+        except Exception as e:
+            logger.warning("Failed to run trust command for %s: %s", url, e)
+
+    return jbang_path
 
 
 class ExecutorManager:
@@ -25,273 +130,73 @@ class ExecutorManager:
         jar_path: Optional[Path] = None,
         executor_version: Optional[str] = None,
         executor_snapshot: bool = True,
+        vendor: Optional[str] = None,
+        exit_on_stdin_eof: bool = False,
+        brokk_api_key: Optional[str] = None,
     ):
-        self.workspace_dir = (workspace_dir or Path.cwd()).resolve()
+        self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
         self.jar_override = jar_path
         self.executor_version = executor_version
         self.use_snapshot = executor_snapshot
+        self.vendor = vendor
+        self.exit_on_stdin_eof = exit_on_stdin_eof
+        self.brokk_api_key = brokk_api_key
         self.auth_token = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
         self.resolved_jar_path: Optional[Path] = None
+        self.shutdown_context: Optional[str] = None
 
         self._process: Optional[asyncio.subprocess.Process] = None
+        # The stdin stream for the subprocess (when created with PIPE).
+        # Stored so we can close it on shutdown.
+        self._stdin: Optional[asyncio.StreamWriter] = None
         self._http_client: Optional[httpx.AsyncClient] = None
 
-    def _sanitize_tag_for_filename(self, tag: str) -> str:
-        """Sanitize a git tag for use in a filename."""
-        stripped = tag.strip()
-        sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", stripped)
-        sanitized = sanitized.strip("._-")
-        return sanitized or "unknown"
+    @property
+    def _main_class(self) -> str:
+        return _EXECUTOR_MAIN_CLASS
 
-    def _cached_jar_path(self, version: Optional[str]) -> Path:
-        """Returns the local cache path for a given executor version (or latest when None)."""
-        dest_dir = Path.home() / ".brokk"
-        if not version:
-            if self.use_snapshot:
-                return dest_dir / "brokk-snapshot.jar"
-            return dest_dir / "brokk.jar"
-        safe_version = self._sanitize_tag_for_filename(version)
-        return dest_dir / f"brokk-{safe_version}.jar"
+    def _parse_port_from_line(self, line: str) -> Optional[int]:
+        """Extract the port number from a startup log line, or return None."""
+        if _READY_SENTINEL in line:
+            try:
+                return int(line.split(":")[-1])
+            except (ValueError, IndexError):
+                return None
+        return None
 
-    def _find_jar(self) -> Path:
-        """Locates the brokk.jar file with fallback to download."""
-        # 1. Explicit override
-        if self.jar_override:
-            if not self.jar_override.exists():
-                raise ExecutorError(f"Provided jar path does not exist: {self.jar_override}")
-            return self.jar_override
-
-        # 2. Check cached download location (versioned if executor_version is set)
-        cached_jar = self._cached_jar_path(self.executor_version)
-        if cached_jar.exists():
-            return cached_jar
-
-        # 3. Search upward for local development builds (only for "latest" mode)
-        if not self.executor_version:
-            shadow_jar = self.workspace_dir / "app" / "build" / "libs" / "brokk.jar"
-            if shadow_jar.exists():
-                return shadow_jar
-
-            curr = self.workspace_dir
-            while curr != curr.parent:
-                if (curr / "gradlew").exists():
-                    potential_jar = curr / "app" / "build" / "libs" / "brokk.jar"
-                    if potential_jar.exists():
-                        return potential_jar
-                curr = curr.parent
-
-        # 4. Download from GitHub (versioned if executor_version is set)
-        return self._download_jar(self.executor_version)
-
-    def _download_jar(self, version: Optional[str] = None) -> Path:
-        """Downloads the requested or latest release JAR from GitHub.
-
-        Tag matching policy when 'version' is provided:
-        - We perform an exact, case-sensitive match against the release 'tag_name'
-          after applying .strip() to the provided version string.
+    async def _await_ready(self, exec_id: str) -> int:
         """
-        api_url = "https://api.github.com/repos/BrokkAi/brokk-releases/releases"
-        dest_jar = self._cached_jar_path(version)
-        dest_jar.parent.mkdir(parents=True, exist_ok=True)
+        Read subprocess stdout until a port is found via _parse_port_from_line.
+        Returns the port number. Raises ExecutorError if none is found.
+        Subclasses may override to use a different readiness strategy.
+        """
+        output_lines: List[str] = []
+        while True:
+            try:
+                line_bytes = await asyncio.wait_for(
+                    self._process.stdout.readline(), timeout=_STARTUP_LINE_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                break
+            if not line_bytes:
+                break
+            line = line_bytes.decode().strip()
+            logger.debug("Executor: %s", line)
+            output_lines.append(line)
+            parsed = self._parse_port_from_line(line)
+            if parsed is not None:
+                return parsed
 
-        requested = version.strip() if version else None
-        logger.info(
-            "Fetching release information from GitHub (requested_tag=%r, snapshot_mode=%s)...",
-            requested,
-            self.use_snapshot,
+        output_summary = "\n".join(output_lines[-30:]) if output_lines else "(no output)"
+        raise ExecutorError(
+            f"Failed to extract port from executor output.\nLast output:\n{output_summary}"
         )
-        try:
-            target_release: Optional[Dict[str, Any]] = None
-            all_fetched_releases: List[Dict[str, Any]] = []
 
-            with httpx.Client(follow_redirects=True, timeout=30.0) as client:
-                page = 1
-                while True:
-                    response = client.get(api_url, params={"per_page": 100, "page": page})
-                    response.raise_for_status()
-                    releases = response.json()
-                    if not releases:
-                        break
-                    all_fetched_releases.extend(releases)
-
-                    if requested:
-                        target_release = next(
-                            (r for r in releases if r.get("tag_name") == requested), None
-                        )
-                    elif self.use_snapshot:
-                        # Preferred snapshot selection: first one with 'snapshot' in tag
-                        target_release = next(
-                            (r for r in releases if "snapshot" in r.get("tag_name", "").lower()),
-                            None,
-                        )
-                    else:
-                        # Stable selection: first one WITHOUT 'snapshot' in tag
-                        target_release = next(
-                            (
-                                r
-                                for r in releases
-                                if "snapshot" not in r.get("tag_name", "").lower()
-                            ),
-                            None,
-                        )
-
-                    if target_release:
-                        break
-                    page += 1
-
-                if not target_release and not requested and self.use_snapshot:
-                    # Fallback for snapshot mode: if no explicit snapshot tag found, take the latest
-                    if all_fetched_releases:
-                        target_release = all_fetched_releases[0]
-                        logger.info(
-                            "No explicit snapshot tag found; falling back to latest: %s",
-                            target_release.get("tag_name"),
-                        )
-
-                if not target_release:
-                    available = [r.get("tag_name", "") for r in all_fetched_releases]
-                    if requested:
-                        raise ExecutorError(
-                            f"Executor release tag not found: '{requested}'. Available: {available}"
-                        )
-                    mode = "snapshot" if self.use_snapshot else "stable"
-                    raise ExecutorError(
-                        f"No suitable {mode} release found on GitHub. Available: {available}"
-                    )
-
-                assets = target_release.get("assets", [])
-                jar_asset: Optional[Dict[str, Any]] = None
-                archive_assets: List[Dict[str, Any]] = []
-
-                for asset in assets:
-                    name = asset.get("name", "")
-                    if name.endswith(".jar"):
-                        jar_asset = asset
-                        break
-                    if name.endswith((".tgz", ".tar.gz")):
-                        archive_assets.append(asset)
-
-                tgz_asset: Optional[Dict[str, Any]] = None
-                if not jar_asset and archive_assets:
-                    # Logic to find the best archive
-                    # 1. Exact match for brokk-{requested}.tgz
-                    if requested:
-                        match_names = {f"brokk-{requested}.tgz", f"brokk-{requested}.tar.gz"}
-                        tgz_asset = next(
-                            (a for a in archive_assets if a.get("name") in match_names), None
-                        )
-
-                    # 2. Prefer brokk-* and NOT Brokk.Installer*
-                    if not tgz_asset:
-                        tgz_asset = next(
-                            (
-                                a
-                                for a in archive_assets
-                                if a.get("name", "").lower().startswith("brokk-")
-                                and not a.get("name", "").startswith("Brokk.Installer")
-                            ),
-                            None,
-                        )
-
-                    # 3. Fallback to any archive
-                    if not tgz_asset:
-                        tgz_asset = archive_assets[0]
-
-                downloaded_asset_name = "brokk.jar"
-                if jar_asset:
-                    jar_url = jar_asset["browser_download_url"]
-                    jar_name = jar_asset.get("name", "brokk.jar")
-                    downloaded_asset_name = jar_name
-                    logger.info(
-                        "Downloading executor jar (tag=%s, asset=%s) ...",
-                        target_release.get("tag_name"),
-                        jar_name,
-                    )
-                    jar_response = client.get(jar_url)
-                    jar_response.raise_for_status()
-                    dest_jar.write_bytes(jar_response.content)
-                elif tgz_asset:
-                    tgz_url = tgz_asset["browser_download_url"]
-                    asset_filename = tgz_asset.get("name", "archive.tgz")
-                    downloaded_asset_name = asset_filename
-                    logger.info(
-                        "Downloading executor archive (tag=%s, asset=%s) ...",
-                        target_release.get("tag_name"),
-                        asset_filename,
-                    )
-                    tgz_response = client.get(tgz_url)
-                    tgz_response.raise_for_status()
-                    jar_bytes = self._extract_jar_from_tgz(
-                        tgz_response.content, requested, asset_filename
-                    )
-                    dest_jar.write_bytes(jar_bytes)
-                else:
-                    tag = target_release.get("tag_name", "unknown")
-                    asset_names = [a.get("name", "") for a in assets]
-                    raise ExecutorError(
-                        f"Executor release has no .jar or .tgz asset: "
-                        f"tag='{tag}', assets={asset_names}"
-                    )
-
-        except httpx.HTTPError as e:
-            raise ExecutorError(f"Failed to download brokk.jar from GitHub: {e}")
-        except (KeyError, IndexError, TypeError, ValueError) as e:
-            raise ExecutorError(f"Failed to parse GitHub release info: {e}")
-
-        logger.info("Downloaded %s to %s", downloaded_asset_name, dest_jar)
-        return dest_jar
-
-    def _extract_jar_from_tgz(
-        self, tgz_content: bytes, version: Optional[str], asset_name: str
-    ) -> bytes:
-        """Extracts the best-matching JAR from a TGZ archive bytes."""
-        with tarfile.open(fileobj=io.BytesIO(tgz_content), mode="r:gz") as tar:
-            members: List[tarfile.TarInfo] = [m for m in tar.getmembers() if m.isfile()]
-            jar_members = [m for m in members if m.name.endswith(".jar")]
-
-            if not jar_members:
-                raise ExecutorError(f"No .jar files found in archive: {asset_name}")
-
-            # 1. Exact path match for versioned bundles
-            if version:
-                exact_path = f"package/jdeploy-bundle/brokk-{version}.jar"
-                for m in jar_members:
-                    if m.name == exact_path:
-                        return tar.extractfile(m).read()  # type: ignore
-
-            # 2. Contains jdeploy-bundle/ and brokk in basename
-            # This handles cases like 'package/jdeploy-bundle/brokk-b441ac1.jar'
-            for m in jar_members:
-                path_parts = Path(m.name).parts
-                basename = path_parts[-1]
-                if "jdeploy-bundle" in path_parts and "brokk" in basename.lower():
-                    logger.info("Found JAR in archive via jdeploy-bundle path: %s", m.name)
-                    return tar.extractfile(m).read()  # type: ignore
-
-            # 3. Any jar containing 'brokk'
-            for m in jar_members:
-                if "brokk" in Path(m.name).name.lower():
-                    logger.info("Found JAR in archive via name match: %s", m.name)
-                    return tar.extractfile(m).read()  # type: ignore
-
-            member_names = [m.name for m in jar_members]
-            raise ExecutorError(
-                f"Could not find a suitable Brokk JAR in {asset_name}. Found JARs: {member_names}"
-            )
-
-    async def start(self):
-        """Starts the Java HeadlessExecutorMain subprocess."""
-        jar_path = self._find_jar()
-        self.resolved_jar_path = jar_path
-        exec_id = str(uuid.uuid4())
-
-        cmd = [
-            "java",
-            "-cp",
-            str(jar_path),
-            "ai.brokk.executor.HeadlessExecutorMain",
+    def _get_executor_args(self, exec_id: str) -> List[str]:
+        """Returns the common command-line arguments for the HeadlessExecutorMain."""
+        args = [
             "--exec-id",
             exec_id,
             "--listen-addr",
@@ -301,52 +206,148 @@ class ExecutorManager:
             "--workspace-dir",
             str(self.workspace_dir),
         ]
+        if self.vendor is not None and str(self.vendor).strip():
+            args.extend(["--vendor", str(self.vendor).strip()])
+        if self.brokk_api_key is not None and str(self.brokk_api_key).strip():
+            args.extend(["--brokk-api-key", str(self.brokk_api_key).strip()])
+        if self.exit_on_stdin_eof:
+            args.append("--exit-on-stdin-eof")
+        return args
+
+    def _get_direct_java_command(self, jar_path: Path, exec_id: str) -> List[str]:
+        """Returns the command for Direct-Java mode (explicit JAR override)."""
+        cmd = [
+            "java",
+            "-Djava.awt.headless=true",
+            "-Dapple.awt.UIElement=true",
+            "-cp",
+            str(jar_path),
+            self._main_class,
+        ]
+        cmd.extend(self._get_executor_args(exec_id))
+        return cmd
+
+    async def _get_jbang_command(self, exec_id: str) -> List[str]:
+        """Returns the command for launching via jbang, installing if necessary."""
+        jbang_bin = resolve_jbang_binary()
+        if not jbang_bin:
+            jbang_bin = await asyncio.to_thread(install_jbang)
+
+        version = self.executor_version or BUNDLED_EXECUTOR_VERSION
+        jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
+        cmd = [
+            jbang_bin,
+            "--java",
+            "21",
+            "-R",
+            "-Djava.awt.headless=true "
+            + "-Dapple.awt.UIElement=true "
+            + "--enable-native-access=ALL-UNNAMED",
+            "--main",
+            self._main_class,
+            jar_url,
+        ]
+        cmd.extend(self._get_executor_args(exec_id))
+        return cmd
+
+    def _find_dev_jar(self) -> Optional[Path]:
+        """Searches for a local development JAR in the project structure."""
+
+        def _find_in_workspace(base: Path) -> Optional[Path]:
+            libs_dir = base / "app" / "build" / "libs"
+            if not libs_dir.exists():
+                return None
+
+            named_jar = list(libs_dir.glob("brokk-*.jar"))
+            if not named_jar:
+                return None
+
+            # Prefer the newest built jar when multiple versions are present.
+            return max(named_jar, key=lambda jar: jar.stat().st_mtime)
+
+        curr = self.workspace_dir
+        while curr != curr.parent:
+            if (curr / "gradlew").exists():
+                potential_jar = _find_in_workspace(curr)
+                if potential_jar:
+                    return potential_jar
+            curr = curr.parent
+        return None
+
+    async def start(self):
+        """Starts the Java HeadlessExecutorMain subprocess."""
+        exec_id = str(uuid.uuid4())
+
+        if self.jar_override:
+            self.resolved_jar_path = self.jar_override
+            print(f"Running in dev mode with JAR: {self.jar_override}")
+            cmd = self._get_direct_java_command(self.jar_override, exec_id)
+        else:
+            dev_jar = self._find_dev_jar()
+            if dev_jar:
+                self.resolved_jar_path = dev_jar
+                print(f"Running in dev mode with local JAR: {dev_jar}")
+                cmd = self._get_direct_java_command(dev_jar, exec_id)
+            else:
+                cmd = await self._get_jbang_command(exec_id)
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
         try:
+            # Create subprocess with a dedicated stdin pipe so the Java
+            # executor can detect parent death.
+            logger.info(f"Launching executor via {cmd[0]}...")
+            #
+            # Implementation note / lifecycle guarantee:
+            # - We intentionally open the child's stdin as a PIPE and retain the StreamWriter
+            #   (self._stdin) reference. The Java HeadlessExecutorMain watches System.in for EOF
+            #   and treats that as a parent-death signal, initiating a controlled shutdown.
+            # - IDEs like IntelliJ will close the child's stdin when the run/debug profile is
+            #   terminated or the parent process is killed. Relying on stdin EOF allows the Java
+            #   executor to exit even when the Python process's 'finally' cleanup does not run,
+            #   preventing lingering brokk.jar/HeadlessExecutorMain processes.
+            #
+            # See HeadlessExecutorMain's stdin monitor for more details.
             self._process = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(self.workspace_dir),
             )
+            # Store the stdin stream for later closure in stop()
+            # Note: Process.stdin is a StreamWriter-like object when stdin=PIPE.
+            self._stdin = self._process.stdin  # type: ignore[attr-defined]
         except FileNotFoundError:
-            raise ExecutorError(
-                "Java executable not found. "
-                "Please ensure JDK 21+ is installed and 'java' is in your PATH."
-            )
+            binary = cmd[0]
+            if "jbang" in binary.lower():
+                raise ExecutorError(
+                    f"jbang executable not found at '{binary}'. "
+                    "Please ensure jbang is installed or provide a local JAR with --jar."
+                )
+            else:
+                raise ExecutorError(
+                    f"Java executable not found ('{binary}'). "
+                    "Please ensure JDK 21+ is installed and 'java' is in your PATH."
+                )
 
-        # Parse stdout for the listening URL
-        port = None
-        # We use a timeout for the initial port readout to avoid hanging
-        # if the JAR crashes immediately
-        while True:
-            try:
-                line_bytes = await asyncio.wait_for(self._process.stdout.readline(), timeout=10.0)
-            except asyncio.TimeoutError:
-                break
-            if not line_bytes:
-                break
-            line = line_bytes.decode().strip()
-            logger.debug(f"Executor: {line}")
-
-            if "Executor listening on http://" in line:
-                # Line format: "Executor listening on http://127.0.0.1:PORT"
-                try:
-                    port = int(line.split(":")[-1])
-                    break
-                except (ValueError, IndexError):
-                    continue
-
-        if port is None:
+        try:
+            port = await self._await_ready(exec_id)
+        except ExecutorError:
             await self.stop()
-            raise ExecutorError("Failed to extract port from executor output")
+            raise
 
         self.base_url = f"http://127.0.0.1:{port}"
-        self._http_client = httpx.AsyncClient(
-            base_url=self.base_url,
+        self._http_client = self._make_http_client(self.base_url)
+        logger.info("Executor started at %s", self.base_url)
+
+    def _make_http_client(self, base_url: str) -> httpx.AsyncClient:
+        """Creates the HTTP client used to talk to the subprocess."""
+        return httpx.AsyncClient(
+            base_url=base_url,
             headers={"Authorization": f"Bearer {self.auth_token}"},
             timeout=30.0,
         )
-        logger.info(f"Executor started at {self.base_url}")
 
     async def get_health_live(self) -> Dict[str, Any]:
         """Fetches unauthenticated liveness info (version, protocol, execId)."""
@@ -387,6 +388,73 @@ class ExecutorManager:
             return self.session_id
         except httpx.HTTPError as e:
             raise ExecutorError(f"Failed to create session: {e}")
+
+    async def list_sessions(self) -> Dict[str, Any]:
+        """Lists known sessions and the current active session ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/sessions")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/sessions")
+            raise  # Should not be reached
+
+    async def switch_session(self, session_id: str) -> Dict[str, Any]:
+        """Switches the active session by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not session_id or not session_id.strip():
+            raise ExecutorError("session_id must not be blank")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/sessions/switch", json={"sessionId": session_id}
+            )
+            resp.raise_for_status()
+            self.session_id = session_id
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/sessions/switch (status={status}): {e}") from e
+
+    async def rename_session(self, session_id: str, name: str) -> Dict[str, Any]:
+        """Renames a session by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not session_id or not session_id.strip():
+            raise ExecutorError("session_id must not be blank")
+        if not name or not name.strip():
+            raise ExecutorError("name must not be blank")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/sessions/rename", json={"sessionId": session_id, "name": name}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/sessions/rename")
+            raise  # Should not be reached
+
+    async def delete_session(self, session_id: str) -> Dict[str, Any]:
+        """Deletes a session by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not session_id or not session_id.strip():
+            raise ExecutorError("session_id must not be blank")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/sessions/delete", json={"sessionId": session_id}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/sessions/delete (status={status}): {e}") from e
 
     async def download_session_zip(self, session_id: str) -> bytes:
         """Downloads the ZIP archive for a specific session."""
@@ -432,8 +500,17 @@ class ExecutorManager:
         reasoning_level_code: Optional[str] = None,
         mode: str = "LUTZ",
         tags: Optional[Dict[str, str]] = None,
+        session_id: Optional[str] = None,
+        auto_commit: bool = True,
+        skip_verification: Optional[bool] = None,
+        max_issue_fix_attempts: Optional[int] = None,
     ) -> str:
-        """Submits a new job to the executor."""
+        """Submits a new job to the executor.
+
+        Backwards-compatible: session_id is optional. If provided (or if
+        self.session_id was previously set via create_session/import_session_zip),
+        the header 'X-Session-Id' will be included on the POST to /v1/jobs.
+        """
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
@@ -444,7 +521,7 @@ class ExecutorManager:
         payload = {
             "taskInput": task_input,
             "plannerModel": planner_model,
-            "autoCommit": True,
+            "autoCommit": auto_commit,
             "autoCompress": True,
             "tags": job_tags,
         }
@@ -456,8 +533,17 @@ class ExecutorManager:
             payload["reasoningLevel"] = reasoning_level
         if reasoning_level_code:
             payload["reasoningLevelCode"] = reasoning_level_code
+        if skip_verification is not None:
+            payload["skipVerification"] = skip_verification
+        if max_issue_fix_attempts is not None:
+            payload["maxIssueFixAttempts"] = max_issue_fix_attempts
 
         headers = {"Idempotency-Key": str(uuid.uuid4())}
+        # Prefer explicit argument, fall back to manager-level session_id if present.
+        effective_session_id = session_id or self.session_id
+        if effective_session_id:
+            headers["X-Session-Id"] = effective_session_id
+
         resp = await self._http_client.post("/v1/jobs", json=payload, headers=headers)
         resp.raise_for_status()
         return resp.json()["jobId"]
@@ -481,12 +567,14 @@ class ExecutorManager:
         last_status_check = -float("inf")
         status_interval = 2.0  # Seconds between status checks when events are flowing
         state = "QUEUED"
+        terminal_empty_polls = 0
+        max_terminal_empty_polls = 3
 
         while True:
             now = asyncio.get_event_loop().time()
 
             # 1. Check job status if enough time has passed
-            if now - last_status_check > status_interval:
+            if terminal_empty_polls == 0 and now - last_status_check > status_interval:
                 status_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
                 status_resp.raise_for_status()
                 status_data = status_resp.json()
@@ -507,12 +595,17 @@ class ExecutorManager:
 
             # 3. Check for termination
             if state in terminal_states:
-                # If we just hit a terminal state, check one last time for any
-                # race-condition events.
-                if not events:
-                    break
-                # If we did get events, we continue one more loop without sleeping
-                # to clear the buffer.
+                if events:
+                    terminal_empty_polls = 0
+                else:
+                    # The status endpoint can report terminal state slightly before
+                    # the final events are visible. Drain a few extra empty event polls
+                    # before exiting so callers do not miss terminal notifications.
+                    terminal_empty_polls += 1
+                    if terminal_empty_polls >= max_terminal_empty_polls:
+                        break
+                    await asyncio.sleep(min_sleep)
+                    continue
 
             # 4. Adaptive sleep
             if events:
@@ -560,7 +653,7 @@ class ExecutorManager:
         ) from e
 
     async def get_context(self) -> Dict[str, Any]:
-        """Returns the current session context."""
+        """Returns the current session context, including tokens and totalCost."""
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
@@ -570,6 +663,55 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/context")
+            raise  # Should not be reached
+
+    async def get_context_fragment(self, fragment_id: str) -> Dict[str, Any]:
+        """Returns embedded-resource content for a context fragment by ID."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not fragment_id or not fragment_id.strip():
+            raise ExecutorError("fragment_id must not be blank")
+
+        endpoint = f"/v1/context/fragments/{quote(fragment_id, safe='')}"
+        try:
+            resp = await self._http_client.get(endpoint)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, endpoint)
+            raise  # Should not be reached
+
+    async def get_models(self) -> Dict[str, Any]:
+        """Returns runtime-available model information from the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/models")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/models")
+            raise  # Should not be reached
+
+    async def get_completions(self, query: str, limit: int = 20) -> Dict[str, Any]:
+        """Returns file/symbol completions for a query string."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        query_text = query.strip()
+        if not query_text:
+            return {"completions": []}
+
+        bounded_limit = max(1, min(limit, 50))
+        try:
+            resp = await self._http_client.get(
+                "/v1/completions", params={"query": query_text, "limit": str(bounded_limit)}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/completions")
             raise  # Should not be reached
 
     async def drop_context_fragments(self, fragment_ids: List[str]) -> Dict[str, Any]:
@@ -677,6 +819,106 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/tasklist")
             raise  # Should not be reached
 
+    async def get_conversation(self) -> Dict[str, Any]:
+        """Returns displayable conversation entries for the current session context."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/context/conversation")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/context/conversation")
+            raise  # Should not be reached
+
+    async def add_context_files(self, relative_paths: List[str]) -> Dict[str, Any]:
+        """Adds files to context by workspace-relative paths."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not relative_paths:
+            return {"added": []}
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/files", json={"relativePaths": relative_paths}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/files (status={status}): {e}") from e
+
+    async def add_context_classes(self, class_names: List[str]) -> Dict[str, Any]:
+        """Adds class summaries to context by fully-qualified class names."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not class_names:
+            return {"added": []}
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/classes", json={"classNames": class_names}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/classes (status={status}): {e}") from e
+
+    async def add_context_methods(self, method_names: List[str]) -> Dict[str, Any]:
+        """Adds method sources to context by fully-qualified method names."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not method_names:
+            return {"added": []}
+        try:
+            resp = await self._http_client.post(
+                "/v1/context/methods", json={"methodNames": method_names}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/context/methods (status={status}): {e}") from e
+
+    async def set_tasklist(self, tasklist_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Replaces the current task list data."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/tasklist", json=tasklist_data)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/tasklist")
+            raise  # Should not be reached
+
+    async def start_openai_oauth(self) -> Dict[str, Any]:
+        """Initiates the OpenAI OAuth flow."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/openai/oauth/start")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/openai/oauth/start (status={status}): {e}") from e
+
+    async def get_openai_oauth_status(self) -> Dict[str, Any]:
+        """Checks the connection status of OpenAI OAuth."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/openai/oauth/status")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/openai/oauth/status")
+            raise  # Should not be reached
+
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:
@@ -698,12 +940,49 @@ class ExecutorManager:
 
         if self._process:
             logger.info("Stopping executor subprocess...")
+            # First, attempt to close stdin so the child process can
+            # observe EOF and exit if it chooses.
+            if self._stdin is not None:
+                try:
+                    # StreamWriter.close() is synchronous; wait for wait_closed() if available.
+                    #
+                    # Closing the child's stdin is the preferred first step for shutdown because
+                    # HeadlessExecutorMain treats stdin EOF as a signal to perform a controlled
+                    # shutdown. This helps ensure the Java process exits even if the Python
+                    # interpreter is killed abruptly by the IDE and its own cleanup handlers
+                    # do not run.
+                    self._stdin.close()
+                    wait_closed = getattr(self._stdin, "wait_closed", None)
+                    if callable(wait_closed):
+                        try:
+                            await wait_closed()
+                        except (BrokenPipeError, ConnectionResetError):
+                            # Child already gone or closed the pipe;
+                            # ignore these expected conditions.
+                            pass
+                        except Exception:
+                            logger.exception("Unexpected error while waiting for stdin to close")
+                    # Clear reference
+                except (BrokenPipeError, ConnectionResetError):
+                    # Expected if the child has already exited or closed the pipe.
+                    pass
+                except Exception:
+                    logger.exception("Unexpected error while closing subprocess stdin")
+                finally:
+                    self._stdin = None
+
             try:
                 self._process.terminate()
                 try:
-                    await asyncio.wait_for(self._process.wait(), timeout=3.0)
+                    await asyncio.wait_for(self._process.wait(), timeout=30.0)
                 except asyncio.TimeoutError:
-                    logger.warning("Executor didn't terminate in time, killing...")
+                    if self.shutdown_context:
+                        logger.warning(
+                            "Executor didn't terminate in time, killing... (%s)",
+                            self.shutdown_context,
+                        )
+                    else:
+                        logger.warning("Executor didn't terminate in time, killing...")
                     self._process.kill()
                     await self._process.wait()
             except ProcessLookupError:

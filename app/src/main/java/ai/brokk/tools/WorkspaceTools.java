@@ -11,6 +11,7 @@ import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HtmlToMarkdown;
+import ai.brokk.util.Lines;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -23,11 +24,11 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Provides tools for manipulating the context (adding/removing files and fragments) and adding analysis results
@@ -40,8 +41,19 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 public class WorkspaceTools {
     private static final Logger logger = LogManager.getLogger(WorkspaceTools.class);
 
+    public record DropReport(
+            Set<String> droppedFragmentIds, Set<String> protectedFragmentIds, Set<String> unknownFragmentIds) {
+        public DropReport {
+            droppedFragmentIds = Set.copyOf(droppedFragmentIds);
+            protectedFragmentIds = Set.copyOf(protectedFragmentIds);
+            unknownFragmentIds = Set.copyOf(unknownFragmentIds);
+        }
+    }
+
     // Per-instance working context (immutable Context instances replaced on modification)
     private Context context;
+
+    private @Nullable DropReport lastDropReport = null;
 
     /**
      * Construct a WorkspaceTools instance operating on the provided Context.
@@ -56,12 +68,22 @@ public class WorkspaceTools {
         return context;
     }
 
+    public @Nullable DropReport getLastDropReport() {
+        return lastDropReport;
+    }
+
+    public void clearLastDropReport() {
+        this.lastDropReport = null;
+    }
+
     /**
      * Represents a fragment removal request with its ID and structured drop metadata.
      * Used by {@link #dropWorkspaceFragments(List)} to structure the input.
      */
     public record FragmentRemoval(
-            @D("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
+            @D(
+                            "The alphanumeric ID exactly as listed in <workspace_toc>. If you do not see a `fragmentid` attribute you cannot drop it. Filenames are not IDs, descriptions are not IDs.")
+                    String fragmentId,
             @D(KEY_FACTS_DESCRIPTION) String keyFacts,
             @D(DROP_REASON_DESCRIPTION) String dropReason) {}
 
@@ -126,6 +148,59 @@ public class WorkspaceTools {
 
         String report = reporter.report();
         return report.isEmpty() ? "No changes." : report;
+    }
+
+    @Tool(
+            """
+            Add a specific line range from a project file to the Workspace as an editable fragment.
+            Lines are stored with line numbers and the requested range is capped at 200 lines.
+            For source code navigation, prefer addClassesToWorkspace/addMethodsToWorkspace when those can identify the exact code unit you need.
+            """)
+    public String addLineRangeToWorkspace(
+            @P("The filename relative to project root.") String filename,
+            @P("The 1-based start line number (inclusive).") int startLine,
+            @P("The 1-based end line number (inclusive). Maximum 200 lines from start.") int endLine) {
+        String normalized = filename.strip();
+        if (normalized.isEmpty()) {
+            return "Filename cannot be empty.";
+        }
+
+        final ProjectFile file;
+        try {
+            file = context.getContextManager().toFile(normalized);
+        } catch (IllegalArgumentException e) {
+            return "Invalid path: `%s`.".formatted(filename);
+        }
+
+        if (!file.exists()) {
+            return "File not found: " + normalized;
+        }
+        if (file.isDirectory()) {
+            return "File path `%s` is a directory; only normal files may be added.".formatted(normalized);
+        }
+
+        var contentOpt = file.read();
+        if (contentOpt.isEmpty()) {
+            return "Could not read file: " + normalized;
+        }
+
+        int effectiveStart = Math.max(1, startLine);
+        int requestedEnd = Math.max(effectiveStart, Math.min(endLine, effectiveStart + 199));
+
+        var rangeResult = Lines.range(contentOpt.get(), effectiveStart, requestedEnd);
+        if (rangeResult.lineCount() == 0) {
+            return "No lines found in range %d-%d for file %s".formatted(effectiveStart, requestedEnd, normalized);
+        }
+
+        int actualEnd = effectiveStart + rangeResult.lineCount() - 1;
+        var fragment =
+                new ContextFragments.LineRangeFragment(context.getContextManager(), file, effectiveStart, requestedEnd);
+        if (context.contains(fragment)) {
+            return "Already present (no-op): %s:%d-%d".formatted(normalized, effectiveStart, actualEnd);
+        }
+
+        context = context.addFragments(fragment);
+        return "Added: %s (lines %d-%d)".formatted(normalized, effectiveStart, actualEnd);
     }
 
     @Tool(
@@ -204,7 +279,7 @@ public class WorkspaceTools {
 
     @Tool(
             value = "Remove specified fragments (files, text snippets, task history, analysis results) "
-                    + "from the Workspace and record structured breadcrumbs (keyFacts + dropReason) in DISCARDED_CONTEXT. "
+                    + "from the Workspace by their `fragmentid` and record structured breadcrumbs (keyFacts + dropReason) in DISCARDED_CONTEXT. "
                     + "Do not drop file fragments that you still need to read or edit.")
     public String dropWorkspaceFragments(
             @P("List of fragments to remove from the Workspace. Must not be empty. Pinned fragments are ineligible.")
@@ -228,7 +303,7 @@ public class WorkspaceTools {
         var foundFragments =
                 idsToDropSet.stream().filter(byId::containsKey).map(byId::get).toList();
         var unknownIds =
-                idsToDropSet.stream().filter(id -> !byId.containsKey(id)).toList();
+                idsToDropSet.stream().filter(id -> !byId.containsKey(id)).collect(Collectors.toSet());
 
         // Partition found into droppable vs protected based on pinning policy
         var partitioned =
@@ -251,13 +326,16 @@ public class WorkspaceTools {
         // Serialize updated JSON
         String discardedJson = SpecialTextType.serializeDiscardedContext(mergedDiscarded);
 
-        // Apply removal and upsert DISCARDED_CONTEXT in the local context
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
+        var protectedIds = protectedFragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
+        this.lastDropReport = new DropReport(droppedIds, protectedIds, unknownIds);
+
+        // Apply removal and upsert DISCARDED_CONTEXT in the local context
         context =
                 context.removeFragmentsByIds(droppedIds).withSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
 
         logger.debug(
-                "dropWorkspaceFragments: dropped={}, pinned={}, unknown={}, updatedDiscardedEntries={}",
+                "dropWorkspaceFragments: dropped={}, pinned={}, unknown={}. discardedFragments map now {} entries",
                 droppedIds.size(),
                 protectedFragments.size(),
                 unknownIds.size(),
@@ -554,19 +632,23 @@ public class WorkspaceTools {
         // Delegate to ContextManager to ensure centralized refresh via setTaskList
         context = cm.createOrReplaceTaskList(context, explanation, taskItems);
 
-        var lines = IntStream.range(0, tasks.size())
-                .mapToObj(i -> (i + 1) + ". " + tasks.get(i).title())
-                .collect(Collectors.joining("\n"));
-        var formattedTaskList = "# Task List\n" + lines + "\n";
+        var taskListData = context.getTaskListDataOrEmpty();
+        String checklist = TaskList.formatChecklist(taskListData);
+        var formattedTaskList = "# Task List\n" + checklist + "\n";
 
         var io = cm.getIo();
         io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
-        int count = tasks.size();
+        int count = taskListData.tasks().size();
         String suffix = (count == 1) ? "" : "s";
         String message =
-                "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
-                        .formatted(count, suffix);
+                """
+                **Task list created** with %d item%s.
+
+                Here is your current task list:
+                %s
+                """
+                        .formatted(count, suffix, checklist);
         io.llmOutput(message, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         return formattedTaskList;
@@ -708,7 +790,7 @@ public class WorkspaceTools {
 
         Set<ProjectFile> filesInWorkspace = fragments.stream()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
 
         Set<ProjectFile> fileSummariesInWorkspace = new HashSet<>();
@@ -762,7 +844,7 @@ public class WorkspaceTools {
     private Set<ProjectFile> currentWorkspaceFiles() {
         return context.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
     }
 

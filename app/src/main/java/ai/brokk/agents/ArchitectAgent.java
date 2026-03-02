@@ -18,12 +18,13 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.ArchitectPrompts;
-import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
@@ -43,10 +44,12 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -63,6 +66,20 @@ import org.jetbrains.annotations.Nullable;
 
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
+    private static final int MAX_TURNS = 10;
+
+    /**
+     * Listener for ArchitectAgent events.
+     */
+    @FunctionalInterface
+    public interface ArchitectListener {
+        /**
+         * Invoked when a CodeAgent call completes.
+         *
+         * @param context the resulting context from the CodeAgent run
+         */
+        void onCodeAgentResult(Context context);
+    }
 
     private final IConsoleIO io;
 
@@ -76,7 +93,11 @@ public class ArchitectAgent {
     private record SearchTask(ToolExecutionRequest request, Future<SearchTaskResult> future) {}
 
     // Result of executing a single search request: both the tool execution result and the SearchAgent result
-    private record SearchTaskResult(ToolExecutionResult toolResult, TaskResult taskResult) {}
+    private record SearchTaskResult(
+            ToolExecutionResult toolResult, TaskResult taskResult, SearchPrompts.Objective objective) {}
+
+    // Lightweight carrier for the thread-local: just the SearchAgent result and objective (no tool result)
+    private record SearchAgentOutput(TaskResult taskResult, SearchPrompts.Objective objective) {}
 
     private record PlanningTurn(
             ToolRegistry toolRegistry,
@@ -104,6 +125,9 @@ public class ArchitectAgent {
     // Tracks if we have ever entered emergency mode (restricted tools due to context size)
     private boolean hasEnteredEmergencyMode = false;
 
+    @Nullable
+    private ArchitectListener listener;
+
     private final Set<ProjectFile> presentedRelatedFiles = new HashSet<>();
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
@@ -117,7 +141,19 @@ public class ArchitectAgent {
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
 
-    private static final ThreadLocal<TaskResult> threadlocalSearchResult = new ThreadLocal<>();
+    private boolean deferBuildForInitialCodeAgentCall = false;
+
+    @Nullable
+    private String verifyCommand;
+
+    private static final ThreadLocal<SearchAgentOutput> threadlocalSearchResult = new ThreadLocal<>();
+
+    private static SearchPrompts.Objective parseSearchObjective(String mode) {
+        return switch (mode.toUpperCase(Locale.ROOT)) {
+            case "ANSWER" -> SearchPrompts.Objective.ANSWER_ONLY;
+            default -> SearchPrompts.Objective.WORKSPACE_ONLY;
+        };
+    }
 
     /**
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
@@ -166,6 +202,19 @@ public class ArchitectAgent {
         this.io = io;
         this.scope = scope;
         this.context = initialContext;
+        this.verifyCommand = null;
+    }
+
+    public void setVerifyCommand(@Nullable String verifyCommand) {
+        this.verifyCommand = verifyCommand;
+    }
+
+    public void setDeferBuildForInitialCodeAgentCall(boolean deferBuildForInitialCodeAgentCall) {
+        this.deferBuildForInitialCodeAgentCall = deferBuildForInitialCodeAgentCall;
+    }
+
+    public void setListener(@Nullable ArchitectListener listener) {
+        this.listener = listener;
     }
 
     /**
@@ -208,7 +257,14 @@ public class ArchitectAgent {
             throws ToolRegistry.FatalLlmException, InterruptedException {
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
+        // Remove any stale diff from a previous failed CodeAgent attempt
+        var existingChanges = context.getSpecial(SpecialTextType.CODE_AGENT_CHANGES);
+        if (existingChanges.isPresent()) {
+            context = context.removeFragments(List.of(existingChanges.get()));
+        }
+
         // Record planning history before invoking CodeAgent
+        context = cm.compressHistory(context);
         addPlanningToHistory();
 
         io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
@@ -217,26 +273,66 @@ public class ArchitectAgent {
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
+        var initialContext = context;
         var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        // Update local context with the CodeAgent's resulting context
-        var initialContext = context;
-        context = scope.append(result);
+
+        // Update architect context with the CodeAgent's fragments, preserving the Architect history
+        var codeContext = result.context();
+        context = codeContext
+                .withHistory(context.getTaskHistory())
+                .addHistoryEntry(codeContext.getTaskHistory().getLast());
+        scope.append(codeContext);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
+        // we're done with the original result now, make sure we don't reuse it by accident instead of the
+        // post-verifyCommand results
+        result = null;
 
-        if (result.stopDetails().reason() == StopReason.SUCCESS) {
-            var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
-            var fileList = changedFragments.stream()
-                    .map(cf -> cf.shortDescription().join())
-                    .sorted()
-                    .collect(Collectors.joining(", "));
-            resultString += " Changed fragments: " + (fileList.isEmpty() ? "None" : fileList);
-
+        if (reason == StopReason.SUCCESS) {
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
-            return resultString;
+            if (!deferBuild && !changedFragments.isEmpty()) {
+                codeAgentJustSucceeded = true;
+
+                if (verifyCommand != null) {
+                    BuildAgent.@Nullable BuildDetails override = cm.getProject().awaitBuildDetails();
+                    context = BuildTools.runExplicitCommand(context, verifyCommand, override);
+                    if (!context.getBuildError().isBlank()) {
+                        codeAgentJustSucceeded = false;
+                        reason = StopReason.BUILD_ERROR;
+                        stopDetails = new TaskResult.StopDetails(reason, "Broader verification step failed");
+                        // let the planning loop continue to fix it
+                    }
+                }
+            }
+
+            // re-check in case verifyCommand failed
+            if (reason == StopReason.SUCCESS) {
+                if (listener != null) {
+                    listener.onCodeAgentResult(context);
+                }
+
+                var fileList = changedFragments.stream()
+                        .map(cf -> cf.shortDescription().join())
+                        .sorted()
+                        .collect(Collectors.joining(", "));
+
+                return """
+            # Status
+            %s
+
+            # Changed fragments
+            %s
+            %s
+            """
+                        .formatted(
+                                deferBuild
+                                        ? "CodeAgent finished with build deferred as requested."
+                                        : "CodeAgent finished with a successful build.",
+                                fileList.isEmpty() ? "None" : fileList,
+                                fileList.isEmpty() ? "" : "\nThe changes made are reflected in the Workspace.");
+            }
         }
 
         // For non-SUCCESS outcomes, format error feedback appropriately
@@ -251,100 +347,40 @@ public class ArchitectAgent {
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
-        // Format recoverable errors with clear guidance for the LLM
-        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation());
-        logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
-
-        // Offer undo if the CodeAgent failed and left changes behind
-        if (!changedFragments.isEmpty()) {
-            this.offerUndoToolNext = true;
+        if (listener != null) {
+            listener.onCodeAgentResult(context);
         }
 
+        // Extract and compress reasoning
+        var lastEntry = codeContext.getTaskHistory().getLast();
+        var messages = new ArrayList<>(lastEntry.mopMessages());
+        var summary = cm.compressHistory(CodeAgent.ConversationState.extractReasoning(messages));
+        var reasoningSummarySuffix = "\n\n# CodeAgent reasoning summary\n\n" + summary;
+
+        // Offer undo and attach diff if the CodeAgent failed and left changes behind
+        if (!changedFragments.isEmpty()) {
+            String combinedDiffText = CodeAgent.cumulativeDiffForChanges(initialContext, context);
+            // FIXME the if here is working around a bug, ContextDelta should not return
+            // changed fragments with an empty diff
+            if (!combinedDiffText.isBlank()) {
+                this.offerUndoToolNext = true;
+                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
+            } else {
+                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, "Code Agent made no changes");
+            }
+        }
+
+        // Format recoverable errors with clear guidance for the LLM
+        var diffPresentation =
+                context.getSpecial(SpecialTextType.CODE_AGENT_CHANGES).isPresent()
+                        ? CodeAgent.DiffPresentation.WORKSPACE_FRAGMENT
+                        : CodeAgent.DiffPresentation.NONE;
+        String resultString =
+                CodeAgent.formatPostFailureResponse(reason, stopDetails.explanation(), diffPresentation, null)
+                        + reasoningSummarySuffix;
+        logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
+
         return resultString;
-    }
-
-    /**
-     * Formats CodeAgent failure messages with clear, structured guidance for the LLM.
-     * Each failure type includes actionable next steps.
-     */
-    private String formatCodeAgentFailure(StopReason reason, String explanation) {
-        return switch (reason) {
-            case READ_ONLY_EDIT ->
-                """
-                    **Constraint Violation: Read-Only File**
-
-                    Your instructions asked to modify a file marked read-only in the Workspace:
-                    %s
-
-                    To proceed, do one of the following:
-                    1. Add the file for editing with addFilesToWorkspace([...]), then retry callCodeAgent.
-                    2. If it should remain read-only, adjust instructions to edit a different file or create a new one.
-
-                    No changes were applied.
-                    """
-                        .formatted(explanation);
-            case PARSE_ERROR ->
-                """
-                    **Parse Error: Invalid Response Format**
-
-                    The Code Agent couldn't parse the response after multiple attempts:
-                    %s
-
-                    Next steps:
-                    - Retry callCodeAgent with instructions that produce only valid SEARCH/REPLACE blocks (no commentary).
-                    - Keep edits small and focused; prefer one file or a single function per turn.
-                    """
-                        .formatted(explanation);
-            case APPLY_ERROR ->
-                """
-                    **Apply Error: Edit Blocks Failed**
-
-                    The Code Agent couldn't apply edits after multiple attempts:
-                    %s
-
-                    Likely cause: search patterns were too generic to match uniquely.
-
-                    Try one of:
-                    - Include more unique context in each SEARCH/REPLACE block (surrounding lines that appear only once).
-                    - Target a specific function or class and include that identifier in your instructions.
-                    - Add the exact files first (addFilesToWorkspace or addFileSummariesToWorkspace), then retry callCodeAgent.
-                    - Or undo with 'undoLastChanges'.
-                    """
-                        .formatted(explanation);
-            case BUILD_ERROR ->
-                """
-                    **Build Error: Failed to Compile/Test**
-
-                    Build/test verification failed after multiple attempts:
-                    %s
-
-                    Details are in the Workspace. The Code Agent applied changes but couldn't verify them.
-                    If this is a multi-step change that will temporarily break the build, retry callCodeAgent with deferBuild=true and complete the follow-up fixes next.
-                    You can also retry with different instructions, or undo with 'undoLastChanges'.
-                    """
-                        .formatted(explanation);
-            case IO_ERROR ->
-                """
-                    **IO Error: File System Issue**
-
-                    An error occurred while reading or writing files:
-                    %s
-
-                    This may be a transient issue. You can retry.
-                    """
-                        .formatted(explanation);
-            default ->
-                """
-                    **Code Agent Failed**
-
-                    Reason: %s
-                    Details: %s
-
-                    Changes may have been made but may not be complete.
-                    You can undo with 'undoLastChanges' or retry with different instructions.
-                    """
-                        .formatted(reason, explanation);
-        };
     }
 
     private void addPlanningToHistory() throws InterruptedException {
@@ -352,7 +388,8 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-        context = scope.append(resultWithMessages(StopReason.SUCCESS, goal));
+        context = context.addHistoryEntry(messages, TaskResult.Type.ARCHITECT, planningModel, goal);
+        scope.append(context);
     }
 
     @Tool(
@@ -437,9 +474,14 @@ public class ArchitectAgent {
     @Tool(
             "Invoke the Search Agent to find information relevant to the given query. The Search Agent explores the codebase to find relevant identifiers and files. Searching is slower than adding known files directly, but useful when you don't know exact names or locations. ")
     public String callSearchAgent(
-            @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
+            @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query,
+            @P(
+                            "The search mode: WORKSPACE to direct SearchAgent to add relevant fragments to the Workspace; ANSWER to answer the question and leave the Workspace untouched")
+                    String mode)
             throws ToolRegistry.FatalLlmException, InterruptedException {
-        logger.debug("callSearchAgent invoked with query: {}", query);
+        logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
+
+        var objective = parseSearchObjective(mode);
 
         // Acquire echo lock - only first caller gets to stream output
         boolean shouldEcho = searchAgentEchoInUse.compareAndSet(false, true);
@@ -453,12 +495,18 @@ public class ArchitectAgent {
             }
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
-            var searchAgent =
-                    new SearchAgent(context, query, planningModel, scope, saIo, SearchAgent.ScanConfig.noAppend());
+            var searchAgent = new SearchAgent(
+                    context.clearHistory(),
+                    query,
+                    planningModel,
+                    objective,
+                    scope,
+                    saIo,
+                    SearchAgent.ScanConfig.noAppend());
             var result = searchAgent.execute();
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
-            threadlocalSearchResult.set(result);
+            threadlocalSearchResult.set(new SearchAgentOutput(result, objective));
 
             if (result.stopDetails().reason() == StopReason.LLM_ERROR) {
                 throw new ToolRegistry.FatalLlmException(result.stopDetails().explanation());
@@ -469,7 +517,42 @@ public class ArchitectAgent {
                 return result.stopDetails().toString();
             }
 
-            var stringResult = "Search complete";
+            var lastEntry = result.context().getTaskHistory().getLast();
+            var reasoningSummary = lastEntry.description();
+
+            String stringResult;
+            if (objective == SearchPrompts.Objective.WORKSPACE_ONLY) {
+                var delta = ContextDelta.between(
+                                context.clearHistory(), result.context().clearHistory())
+                        .join();
+                var addedFragmentList = delta.addedFragments().stream()
+                        .map(f -> "- " + f.shortDescription().join())
+                        .collect(Collectors.joining("\n"));
+
+                stringResult =
+                        """
+                        # Search results
+                        Search Agent successfully completed; the workspace has been updated as requested.
+
+                        ## Reasoning summary
+                        %s
+
+                        ## Added fragments
+                        %s
+                        """
+                                .formatted(
+                                        reasoningSummary, addedFragmentList.isEmpty() ? "(None)" : addedFragmentList);
+            } else {
+                stringResult =
+                        """
+                        %s
+
+                        ## Reasoning summary
+                        %s
+                        """
+                                .formatted(result.stopDetails().explanation(), reasoningSummary);
+            }
+
             logger.debug(stringResult);
             return stringResult;
         } finally {
@@ -537,9 +620,9 @@ public class ArchitectAgent {
         context = searchAgent.scanContext();
 
         // Run Architect proper
-        var archResult = this.execute();
-        context = scope.append(archResult);
-        return archResult.withContext(context);
+        TaskResult archResult = this.execute();
+        scope.append(archResult);
+        return archResult;
     }
 
     /**
@@ -556,8 +639,23 @@ public class ArchitectAgent {
     private TaskResult executeInternal() throws InterruptedException {
         // run code agent first
         try {
-            var initialSummary = callCodeAgent(goal, false);
-            architectMessages.add(new AiMessage("Initial CodeAgent attempt:\n" + initialSummary));
+            // Note: callCodeAgent(String, boolean) is a @Tool method on ArchitectAgent.
+            // When ArchitectAgent calls it directly here, it bypasses ToolRegistry.executeTool
+            // and thus bypasses the console hooks. However, since this is a direct method call
+            // and we want these events in the headless log, we should manually emit them or
+            // use the registry. Given the current structure, we manually instrument this call.
+
+            var req = ToolExecutionRequest.builder()
+                    .name("callCodeAgent")
+                    .arguments("{\"instructions\": \"%s\", \"deferBuild\": false}".formatted(goal))
+                    .build();
+
+            io.beforeToolCall(req);
+            var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
+            io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
+            architectMessages.add(new UserMessage(
+                    "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
+                            + initialSummary));
         } catch (ToolRegistry.FatalLlmException e) {
             var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
             this.lastFatalReason = null;
@@ -566,7 +664,6 @@ public class ArchitectAgent {
             return resultWithMessages(fatalReason);
         }
 
-        // If CodeAgent succeeded, immediately finish without entering planning loop
         if (codeAgentJustSucceeded) {
             return codeAgentSuccessResult();
         }
@@ -574,8 +671,15 @@ public class ArchitectAgent {
         var llm = cm.getLlm(new Llm.Options(planningModel, goal, TaskResult.Type.ARCHITECT).withEcho());
         var modelsService = cm.getService();
 
-        while (true) {
-            io.showTransientMessage("Brokk Architect is preparing the next actions…");
+        Set<ContextFragment> protectedFromPruning = Set.of();
+        for (int turnNumber = 1; turnNumber <= MAX_TURNS; turnNumber++) {
+            boolean isFinalTurn = (turnNumber == MAX_TURNS);
+
+            if (isFinalTurn) {
+                io.showTransientMessage("Brokk Architect is preparing final turn (turn limit reached)");
+            } else {
+                io.showTransientMessage("Brokk Architect is preparing turn " + turnNumber);
+            }
 
             // Determine active models and their maximum allowed input tokens
             var models = new ArrayList<StreamingChatModel>();
@@ -586,7 +690,8 @@ public class ArchitectAgent {
                     .min()
                     .orElseThrow();
 
-            var outcome = runPlanningTurnWithContextTooLargeRecovery(llm, maxInputTokens);
+            var outcome =
+                    runPlanningTurnWithContextTooLargeRecovery(llm, maxInputTokens, protectedFromPruning, isFinalTurn);
             if (outcome instanceof PlanningTurnOutcome.Terminal terminal) {
                 return terminal.taskResult();
             }
@@ -594,18 +699,29 @@ public class ArchitectAgent {
 
             var tr = turn.toolRegistry();
             var wst = turn.workspaceTools();
-            var messages = turn.messages();
             var result = turn.result();
 
             totalUsage = TokenUsage.sum(
                     totalUsage, castNonNull(result.originalResponse()).tokenUsage());
-            // Add the request and response to message history
+            // Add the request and response to message history.
+            // We append a stub for the user message instead of the full instructions to keep history lean.
             var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
-            architectMessages.add(messages.getLast());
+            architectMessages.add(new UserMessage(ArchitectPrompts.instructionsMarker()));
             architectMessages.add(aiMessage);
 
             var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
+
+            // On the final turn, only callCodeAgent and abortProject are allowed;
+            // filter out anything else the LLM may have attempted
+            if (isFinalTurn) {
+                var allowed = Set.of("callCodeAgent", "abortProject");
+                deduplicatedRequests.removeIf(req -> !allowed.contains(req.name()));
+                if (deduplicatedRequests.isEmpty()) {
+                    logger.info("Terminal turn: LLM did not call callCodeAgent or abortProject; ending.");
+                    return resultWithMessages(StopReason.SUCCESS);
+                }
+            }
 
             // carry forward into outer loop
             ToolExecutionRequest answerReq = null, abortReq = null;
@@ -638,7 +754,11 @@ public class ArchitectAgent {
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
+
+                    io.beforeToolCall(answerReq);
                     var toolResult = tr.executeTool(answerReq);
+                    io.afterToolOutput(toolResult);
+
                     io.llmOutput(
                             "Project final answer: " + toolResult.resultText(),
                             ChatMessageType.AI,
@@ -655,7 +775,11 @@ public class ArchitectAgent {
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
+
+                    io.beforeToolCall(abortReq);
                     var toolResult = tr.executeTool(abortReq);
+                    io.afterToolOutput(toolResult);
+
                     io.llmOutput(
                             "Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     return resultWithMessages(StopReason.LLM_ABORTED);
@@ -666,7 +790,11 @@ public class ArchitectAgent {
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
                 wst.setContext(context);
+
+                io.beforeToolCall(req);
                 ToolExecutionResult toolResult = tr.executeTool(req);
+                io.afterToolOutput(toolResult);
+
                 context = wst.getContext();
                 architectMessages.add(toolResult.toExecutionResultMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
@@ -695,10 +823,12 @@ public class ArchitectAgent {
                     Callable<SearchTaskResult> task = () -> {
                         // Ensure a clean slate for this thread before invoking the tool
                         threadlocalSearchResult.remove();
+                        io.beforeToolCall(req);
                         var toolResult = trForSearchBatch.executeTool(req);
-                        var saResult = requireNonNull(threadlocalSearchResult.get());
+                        io.afterToolOutput(toolResult);
+                        var saOutput = requireNonNull(threadlocalSearchResult.get());
                         logger.debug("Finished SearchAgent task for request: {}", req.name());
-                        return new SearchTaskResult(toolResult, saResult);
+                        return new SearchTaskResult(toolResult, saOutput.taskResult(), saOutput.objective());
                     };
                     var taskDescription = "SearchAgent: " + LogDescription.getShortDescription(req.arguments());
                     var future = cm.submitBackgroundTask(taskDescription, task);
@@ -733,9 +863,12 @@ public class ArchitectAgent {
                             baseSaResult = searchOutcome.taskResult();
                         }
 
-                        // Merge contexts deterministically
-                        combinedContext =
-                                combinedContext.union(searchOutcome.taskResult().context());
+                        // Merge context fragments
+                        var outcomeContext = searchOutcome.taskResult().context();
+                        if (searchOutcome.objective() == SearchPrompts.Objective.WORKSPACE_ONLY) {
+                            combinedContext = combinedContext.addFragments(
+                                    outcomeContext.allFragments().toList());
+                        }
 
                         // Count failures by SearchAgent stop reason
                         if (searchOutcome.taskResult().stopDetails().reason() != StopReason.SUCCESS) {
@@ -772,38 +905,23 @@ public class ArchitectAgent {
                     throw new InterruptedException();
                 }
 
-                // SearchAgents like to drop fragments unrelated to their mission; union our original context
-                // with the Search results
-                combinedContext = combinedContext.union(context);
-
                 // Post-batch message with workspace merge summary
-                printSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
-
-                // Build the final history entry using the full transcript
-                // Fallback in case no SA result was produced (should be rare)
-                if (baseSaResult != null) {
-                    // Create a single history entry using the base SA's metadata/description,
-                    // but with the combined context and the full transcript.
-                    var combinedResult = new TaskResult(
-                            cm,
-                            baseSaResult.actionDescription(),
-                            io.getLlmRawMessages(),
-                            combinedContext,
-                            baseSaResult.stopDetails(),
-                            Objects.requireNonNullElse(
-                                    baseSaResult.meta(),
-                                    new TaskResult.TaskMeta(
-                                            TaskResult.Type.SEARCH, ModelConfig.from(planningModel, cm.getService()))));
-                    context = scope.append(combinedResult);
-                }
+                outputSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
+                context = combinedContext.addHistoryEntry(
+                        io.getLlmRawMessages(), TaskResult.Type.SEARCH, planningModel, "Multiple concurrent searches");
+                scope.append(context);
 
                 // Reset batch size after all SAs are finished
                 currentBatchSize = 0;
             }
 
             // code agent calls are done serially
+            var initialContext = context;
             for (var req : codeAgentReqs) {
+                io.beforeToolCall(req);
                 ToolExecutionResult toolResult = tr.executeTool(req);
+                io.afterToolOutput(toolResult);
+
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                     var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
                     this.lastFatalReason = null;
@@ -818,11 +936,17 @@ public class ArchitectAgent {
             if (codeAgentJustSucceeded) {
                 return codeAgentSuccessResult();
             }
+            protectedFromPruning =
+                    ContextDelta.between(initialContext, context).join().getChangedFragments();
         }
+
+        // All turns exhausted (including the terminal turn); return what we have
+        return resultWithMessages(StopReason.TURN_LIMIT);
     }
 
     @Blocking
-    private PlanningTurnOutcome runPlanningTurnWithContextTooLargeRecovery(Llm llm, int maxInputTokens)
+    private PlanningTurnOutcome runPlanningTurnWithContextTooLargeRecovery(
+            Llm llm, int maxInputTokens, Set<ContextFragment> protectedFromPruning, boolean isFinalTurn)
             throws InterruptedException {
         var removedFragmentDescriptionsThisTurn = new ArrayList<String>();
 
@@ -837,6 +961,12 @@ public class ArchitectAgent {
             if (!removedFragmentDescriptionsThisTurn.isEmpty()) {
                 harnessNotes.add("Dropped very large fragments " + removedFragmentDescriptionsThisTurn
                         + " to reduce workspace size.");
+            }
+            if (isFinalTurn) {
+                var allowedTools = List.of("callCodeAgent", "abortProject");
+                harnessNotes.add("Turn limit reached. This is your FINAL turn. Tools are restricted to "
+                        + allowedTools
+                        + ". You MUST either call callCodeAgent to commit your plan, or abortProject to cancel.");
             }
             if (emergencyToolMode) {
                 var allowedTools = criticalAllowedTools();
@@ -866,7 +996,12 @@ public class ArchitectAgent {
 
             var toolSpecs = new ArrayList<ToolSpecification>();
             ToolContext toolContext;
-            if (emergencyToolMode) {
+            if (isFinalTurn) {
+                // Terminal turn: only allow committing work or aborting
+                var allowed = List.of("callCodeAgent", "abortProject");
+                toolSpecs.addAll(tr.getTools(allowed));
+                toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
+            } else if (emergencyToolMode) {
                 notifyCriticalWorkspaceRestriction(workspaceTokenSize, maxInputTokens);
                 var allowed = criticalAllowedTools();
                 allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
@@ -885,7 +1020,8 @@ public class ArchitectAgent {
 
                 allowed.add("callCodeAgent");
 
-                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
+                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()
+                        && !Objects.equals(System.getenv("BRK_ALLOW_SET_BUILD_DETAILS"), "false")) {
                     allowed.add("setBuildDetails");
                     allowed.add("verifyBuildCommand");
                 }
@@ -911,10 +1047,12 @@ public class ArchitectAgent {
             io.showTransientMessage("Brokk Architect is preparing the next actions…");
             var result = llm.sendRequest(messages, toolContext);
 
+            // happy path
             if (result.error() == null) {
                 return new PlanningTurnOutcome.Success(new PlanningTurn(tr, wst, messages, result));
             }
 
+            // llm error
             if (!(result.error() instanceof ContextTooLargeException)) {
                 logger.debug(
                         "Error from LLM while deciding next action: {}",
@@ -925,8 +1063,11 @@ public class ArchitectAgent {
                 return new PlanningTurnOutcome.Terminal(resultWithMessages(StopReason.LLM_ERROR));
             }
 
+            // context too large
             int totalPromptTokens = Messages.getApproximateMessageTokens(messages);
             int conversationTokens = Math.max(0, totalPromptTokens - workspaceTokenSize);
+
+            // 1. if history alone is too large, we can't recover
             if (conversationTokens > workspaceTokenSize) {
                 var abortMessage =
                         "Architect aborting: ContextTooLarge while conversation history (" + conversationTokens
@@ -936,15 +1077,14 @@ public class ArchitectAgent {
                 return new PlanningTurnOutcome.Terminal(resultWithMessages(StopReason.LLM_ABORTED, abortMessage));
             }
 
-            var maybeLargest = findLargestFragmentToDrop(context);
+            // 2. attempt to recover by removing the largest fragment
+            var maybeLargest = findLargestFragmentToDrop(context, protectedFromPruning);
             if (maybeLargest.isEmpty()) {
                 var abortMessage =
                         "Architect aborting: ContextTooLarge and no further workspace fragments could be dropped.";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, abortMessage);
                 return new PlanningTurnOutcome.Terminal(resultWithMessages(StopReason.LLM_ERROR, abortMessage));
             }
-
-            // remove the largest fragment and try again in emergency mode
             var largest = maybeLargest.get();
             var desc = largest.description().join();
             removedFragmentDescriptionsThisTurn.add(desc);
@@ -954,6 +1094,8 @@ public class ArchitectAgent {
             String discardedJson = SpecialTextType.serializeDiscardedContext(mergedDiscarded);
             context = context.removeFragmentsByIds(List.of(largest.id()))
                     .withSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
+
+            // set local emergency mode and global has-entered flags
             emergencyToolMode = true;
             hasEnteredEmergencyMode = true;
         }
@@ -986,14 +1128,8 @@ public class ArchitectAgent {
     }
 
     private TaskResult codeAgentSuccessResult() {
-        // we've already added the code agent's result to history and we don't have anything extra to add to that here
-        return new TaskResult(
-                cm,
-                "Architect finished work for: " + goal,
-                io.getLlmRawMessages(),
-                context,
-                new TaskResult.StopDetails(StopReason.SUCCESS),
-                taskMeta());
+        // messages are alerady appended to context by callCodeaAgent
+        return new TaskResult(context, new TaskResult.StopDetails(StopReason.SUCCESS));
     }
 
     private TaskResult.TaskMeta taskMeta() {
@@ -1002,13 +1138,8 @@ public class ArchitectAgent {
 
     private TaskResult resultWithMessages(StopReason reason, String message) {
         // include the messages we exchanged with the LLM for any planning steps since we ran a sub-agent
-        return new TaskResult(
-                cm,
-                message,
-                io.getLlmRawMessages(),
-                context,
-                new TaskResult.StopDetails(reason),
-                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
+        context = context.addHistoryEntry(io.getLlmRawMessages(), TaskResult.Type.ARCHITECT, planningModel, message);
+        return new TaskResult(context, new TaskResult.StopDetails(reason));
     }
 
     private TaskResult resultWithMessages(StopReason reason) {
@@ -1040,7 +1171,7 @@ public class ArchitectAgent {
      * Prints a concise summary after a batch of SearchAgents complete, including whether Workspace changed.
      * Only prints when batchSize > 1 to avoid noisy UX for single searches.
      */
-    private void printSearchBatchSummary(Context baseContext, Context mergedContext, int batchSize, int failedCount) {
+    private void outputSearchBatchSummary(Context baseContext, Context mergedContext, int batchSize, int failedCount) {
         if (batchSize <= 1) {
             return;
         }
@@ -1105,23 +1236,12 @@ public class ArchitectAgent {
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
 
-        // History from previous tasks/sessions
-        messages.addAll(CodePrompts.instance.getHistoryMessages(context, taskMeta()));
+        // History from previous tasks/sessions; we primarily want to avoid CODE and SEARCH sub-agents
+        var safeTypes = EnumSet.of(TaskResult.Type.ASK, TaskResult.Type.REVIEW, TaskResult.Type.ARCHITECT);
+        messages.addAll(WorkspacePrompts.getHistoryMessages(context, taskMeta(), safeTypes));
 
-        // This agent's own conversational history for the current goal, with the instructionsMarker
-        // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)
-        var marker = ArchitectPrompts.instructionsMarker();
-        messages.addAll(architectMessages.stream()
-                .map(msg -> {
-                    if (msg instanceof UserMessage um) {
-                        var text = um.singleText();
-                        if (text.contains(marker)) {
-                            return new UserMessage(marker);
-                        }
-                    }
-                    return msg;
-                })
-                .toList());
+        // This agent's own conversational history for the current goal.
+        messages.addAll(architectMessages);
 
         // Add related identifiers as a separate message/ack pair, unless we are/were in emergency mode
         var related = hasEnteredEmergencyMode
@@ -1180,10 +1300,11 @@ public class ArchitectAgent {
     }
 
     @Blocking
-    private Optional<ContextFragment> findLargestFragmentToDrop(Context ctx) {
+    private Optional<ContextFragment> findLargestFragmentToDrop(Context ctx, Set<ContextFragment> protectedFragments) {
         var candidates = ctx.allFragments()
                 .filter(f -> !f.getType().isOutput())
                 .filter(f -> !ctx.isPinned(f))
+                .filter(f -> protectedFragments.stream().noneMatch(p -> p.hasSameSource(f)))
                 .filter(ContextFragment::isText)
                 .toList();
 

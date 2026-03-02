@@ -7,6 +7,7 @@ import ai.brokk.util.Environment;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.awt.Component;
+import java.awt.GraphicsEnvironment;
 import java.awt.Window;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -46,6 +47,9 @@ public class OpenAiOAuthService {
 
     private static final Object lock = new Object();
 
+    @org.jetbrains.annotations.TestOnly
+    public static volatile @org.jetbrains.annotations.Nullable Runnable testAuthorizationHook = null;
+
     @Nullable
     private static SimpleHttpServer activeServer;
 
@@ -54,6 +58,9 @@ public class OpenAiOAuthService {
 
     @Nullable
     private static String pendingVerifier;
+
+    @Nullable
+    private static String pendingAuthorizationUrl;
 
     private static final String HTML_SUCCESS =
             """
@@ -161,10 +168,16 @@ public class OpenAiOAuthService {
      *
      * @param parent The parent component for error dialogs
      */
-    public static void startAuthorization(Component parent) {
-        Window ancestor = (parent instanceof Window w) ? w : SwingUtilities.getWindowAncestor(parent);
+    public static void startAuthorization(@Nullable Component parent) {
+        Window ancestor =
+                (parent == null) ? null : (parent instanceof Window w) ? w : SwingUtilities.getWindowAncestor(parent);
 
         synchronized (lock) {
+            if (testAuthorizationHook != null) {
+                testAuthorizationHook.run();
+                return;
+            }
+
             stopActiveServerInternal();
 
             String verifier = generateVerifier();
@@ -182,20 +195,33 @@ public class OpenAiOAuthService {
                 logger.error("Failed to start OAuth callback server on port {}", OAUTH_PORT, e);
                 pendingState = null;
                 pendingVerifier = null;
-                SwingUtilities.invokeLater(() -> {
-                    javax.swing.JOptionPane.showMessageDialog(
-                            ancestor,
-                            "Failed to start OAuth callback server on port " + OAUTH_PORT + ".\n"
-                                    + "Please ensure no other application is using this port.",
-                            "OAuth Server Error",
-                            javax.swing.JOptionPane.ERROR_MESSAGE);
-                });
+                pendingAuthorizationUrl = null;
+                boolean canShowDialog = ancestor != null || !GraphicsEnvironment.isHeadless();
+                if (canShowDialog) {
+                    SwingUtilities.invokeLater(() -> {
+                        javax.swing.JOptionPane.showMessageDialog(
+                                ancestor,
+                                "Failed to start OAuth callback server on port " + OAUTH_PORT + ".\n"
+                                        + "Please ensure no other application is using this port.",
+                                "OAuth Server Error",
+                                javax.swing.JOptionPane.ERROR_MESSAGE);
+                    });
+                } else {
+                    throw new IllegalStateException("Failed to start OAuth callback server on port " + OAUTH_PORT, e);
+                }
                 return;
             }
 
             String url = buildAuthorizationUrl(challenge, state);
+            pendingAuthorizationUrl = url;
             logger.debug("Opening OpenAI authorization URL");
             Environment.openInBrowser(url, ancestor);
+        }
+    }
+
+    public static @Nullable String getPendingAuthorizationUrl() {
+        synchronized (lock) {
+            return pendingAuthorizationUrl;
         }
     }
 
@@ -291,6 +317,7 @@ public class OpenAiOAuthService {
         }
         pendingState = null;
         pendingVerifier = null;
+        pendingAuthorizationUrl = null;
     }
 
     private static String buildAuthorizationUrl(String challenge, String state) {

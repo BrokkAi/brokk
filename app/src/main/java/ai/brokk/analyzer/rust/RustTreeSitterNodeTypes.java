@@ -30,6 +30,10 @@ public final class RustTreeSitterNodeTypes {
     public static final String GENERIC_TYPE = "generic_type";
     public static final String TYPE_IDENTIFIER = "type_identifier";
     public static final String SCOPED_TYPE_IDENTIFIER = "scoped_type_identifier";
+    public static final String REFERENCE_TYPE = "reference_type";
+    public static final String POINTER_TYPE = "pointer_type";
+    public static final String ARRAY_TYPE = "array_type";
+    public static final String TUPLE_TYPE = "tuple_type";
 
     // Other declarations
     public static final String ATTRIBUTE = "attribute";

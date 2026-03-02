@@ -1,6 +1,6 @@
 # GUI standards
 
-1. **Swing thread safety**: Public methods that deal with Swing components should either assert they are being run on the EDT, or wrap in SwingUtilities.invokeLater. (Prefer `SwingUtil.runOnEdt(Callable<T> task, T defaultValue)` or `SwingUtil.runOnEdt(Runnable task)` to `SwingUtilities.invokeAndWait` when blocking for the result.)
+1. **Swing thread safety**: Public methods that deal with Swing components should either assert they are being run on the EDT, or wrap in SwingUtilities.invokeLater. (Prefer `SwingUtil.runOnEdt(Callable<T> task, T defaultValue)` or `SwingUtil.runOnEdt(Runnable task)` to `SwingUtilities.invokeAndWait` when blocking for the result. runOnEdt wraps invokeAndWait but handles exception logging.)
 1. **Never block on the EDT**: do not call get() or join() against a Future or similar object. Do not use synchronized blocks or wait for lock acquisition. Any method that does these should assert that it is not on the EDT.
 1. **Notifications**: Use IConsoleIO.showNotification (also EDT-safe) for informational messages, and IConsoleIO.toolError for modal errors. If you do not have the IConsoleIO API available in the Workspace, stop and ask the user to provide it. Both methods are EDT-safe.
 1. **Named components**: Avoid navigating component hierarchies to retrieve a specific component by index or text. Save a reference as a field instead.

@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
@@ -166,6 +167,7 @@ public class ReviewAgent {
             long turn1Start = System.currentTimeMillis();
             Llm.StreamingResult turn1Result;
             var turn1Messages = new ArrayList<ChatMessage>();
+            @Nullable MemoryConsole turn1Io = null;
             while (true) {
                 turn1Messages.clear();
                 turn1Messages.add(buildSystemMessage());
@@ -187,6 +189,7 @@ public class ReviewAgent {
                         }
                     }
                 };
+                turn1Io = progressConsole;
                 turn1Llm.setOutput(progressConsole);
 
                 turn1Result = turn1Llm.sendRequest(turn1Messages);
@@ -249,16 +252,19 @@ public class ReviewAgent {
 
             Context contextWithMeta =
                     reviewContext.addFragments(SpecialTextType.REVIEW_METADATA.create(cm, metadata.toJson()));
-            var result = new TaskResult(
-                    cm,
-                    "Code Review",
-                    publishedMessages,
-                    contextWithMeta,
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                    new TaskResult.TaskMeta(TaskResult.Type.REVIEW, turn1ModelConfig));
-            var finalContext = scope.append(result);
 
-            return new ReviewResult(review, finalContext);
+            IConsoleIO io = requireNonNull(turn1Io);
+            contextWithMeta = contextWithMeta.addHistoryEntry(
+                    io.getLlmRawMessages(),
+                    publishedMessages,
+                    TaskResult.Type.REVIEW,
+                    turn1Model,
+                    "Please review this diff");
+
+            var result = new TaskResult(contextWithMeta, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+            scope.append(result);
+
+            return new ReviewResult(review, contextWithMeta);
         }
     }
 

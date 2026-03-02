@@ -6,8 +6,9 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.mcp.McpConfig;
+import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.IProject;
+import ai.brokk.util.Environment;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -26,7 +27,8 @@ public class TestProject implements IProject {
     private final Path root;
     private final Language language;
 
-    private long runCommandTimeoutSeconds = 0L;
+    private long runCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
+    private long testCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
 
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
             CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
@@ -37,6 +39,7 @@ public class TestProject implements IProject {
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
+    private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
 
     public TestProject(Path root) {
@@ -121,6 +124,16 @@ public class TestProject implements IProject {
     }
 
     @Override
+    public boolean isGitConfigDeclined() {
+        return gitConfigDeclined;
+    }
+
+    @Override
+    public void setGitConfigDeclined(boolean declined) {
+        this.gitConfigDeclined = declined;
+    }
+
+    @Override
     public @Nullable String getJdk() {
         return jdk;
     }
@@ -164,6 +177,24 @@ public class TestProject implements IProject {
     @Override
     public Language getBuildLanguage() {
         return language;
+    }
+
+    @Override
+    public long getRunCommandTimeoutSeconds() {
+        return runCommandTimeoutSeconds;
+    }
+
+    public void setRunCommandTimeoutSeconds(long seconds) {
+        this.runCommandTimeoutSeconds = seconds;
+    }
+
+    @Override
+    public long getTestCommandTimeoutSeconds() {
+        return testCommandTimeoutSeconds;
+    }
+
+    public void setTestCommandTimeoutSeconds(long seconds) {
+        this.testCommandTimeoutSeconds = seconds;
     }
 
     @Override

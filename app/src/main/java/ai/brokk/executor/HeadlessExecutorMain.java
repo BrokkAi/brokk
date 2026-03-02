@@ -1,18 +1,25 @@
 package ai.brokk.executor;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
-import ai.brokk.SessionManager;
-import ai.brokk.agents.BuildAgent;
+import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.executor.routers.ActivityRouter;
+import ai.brokk.executor.routers.CompletionsRouter;
 import ai.brokk.executor.routers.ContextRouter;
+import ai.brokk.executor.routers.FavoritesRouter;
 import ai.brokk.executor.routers.JobsRouter;
+import ai.brokk.executor.routers.ModelsRouter;
+import ai.brokk.executor.routers.OpenAiAuthRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -34,14 +41,22 @@ public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
 
     // Valid argument keys that the application accepts
-    private static final Set<String> VALID_ARGS =
-            Set.of("exec-id", "listen-addr", "auth-token", "workspace-dir", "brokk-api-key", "proxy-setting", "help");
+    private static final Set<String> VALID_ARGS = Set.of(
+            "exec-id",
+            "listen-addr",
+            "auth-token",
+            "workspace-dir",
+            "brokk-api-key",
+            "proxy-setting",
+            "vendor",
+            "exit-on-stdin-eof",
+            "help");
 
     private final UUID execId;
     private final SimpleHttpServer server;
     private final ContextManager contextManager;
     private final JobStore jobStore;
-    private final SessionManager sessionManager;
+    private final JobRunner jobRunner;
     private final JobReservation jobReservation = new JobReservation();
     private final Thread initThread;
     private final CompletableFuture<Void> headlessInit = new CompletableFuture<>();
@@ -108,6 +123,31 @@ public final class HeadlessExecutorMain {
         return System.getenv(envVarName);
     }
 
+    private static boolean parseBooleanValue(String rawValue, String sourceName) {
+        var normalized = rawValue.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "", "1", "true", "yes", "on" -> true;
+            case "0", "false", "no", "off" -> false;
+            default ->
+                throw new IllegalArgumentException("Invalid boolean value for " + sourceName + ": '" + rawValue
+                        + "'. Expected one of true/false, 1/0, yes/no, on/off.");
+        };
+    }
+
+    private static boolean getBooleanConfigValue(
+            Map<String, String> parsedArgs, String argKey, String envVarName, boolean defaultValue) {
+        if (parsedArgs.containsKey(argKey)) {
+            return parseBooleanValue(parsedArgs.get(argKey), "--" + argKey);
+        }
+
+        var envValue = System.getenv(envVarName);
+        if (envValue != null && !envValue.isBlank()) {
+            return parseBooleanValue(envValue, envVarName);
+        }
+
+        return defaultValue;
+    }
+
     /**
      * Create a copy of the parsed arguments map with sensitive values redacted.
      * Sensitive keys include: auth-token, brokk-api-key
@@ -147,10 +187,15 @@ public final class HeadlessExecutorMain {
         System.out.println("  --workspace-dir <path>     Path to workspace directory (required)");
         System.out.println("  --brokk-api-key <key>      Brokk API key override (optional)");
         System.out.println("  --proxy-setting <setting>  LLM proxy: BROKK, LOCALHOST, STAGING (optional)");
+        System.out.println(
+                "  --vendor <vendor>          Other-models vendor: Default, Anthropic, Gemini, OpenAI, OpenAI - Codex (optional)");
+        System.out.println(
+                "  --exit-on-stdin-eof[=bool] Exit when stdin closes/errors (default: false; env EXIT_ON_STDIN_EOF)");
         System.out.println("  --help                     Show this help message");
         System.out.println();
         System.out.println("Arguments can also be provided via environment variables:");
-        System.out.println("  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING");
+        System.out.println(
+                "  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING, EXIT_ON_STDIN_EOF");
         System.out.println();
 
         System.exit(invalidArgs.isEmpty() ? 0 : 1);
@@ -188,9 +233,8 @@ public final class HeadlessExecutorMain {
         // Ensure sessions directory exists
         Files.createDirectories(sessionsDir);
 
-        // Initialize JobStore and SessionManager
-        this.jobStore = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
-        this.sessionManager = new SessionManager(sessionsDir);
+        // Initialize JobStore
+        this.jobStore = new JobStore(workspaceDir.resolve(".brokk"));
 
         // Initialize headless context asynchronously to avoid blocking constructor
         // Pass false to resume the last active session from workspace.properties
@@ -198,7 +242,7 @@ public final class HeadlessExecutorMain {
         this.initThread = new Thread(
                 () -> {
                     try {
-                        this.contextManager.createHeadless(BuildAgent.BuildDetails.EMPTY, false);
+                        this.contextManager.createHeadless(false, new HeadlessConsole());
                         headlessInit.complete(null);
                         logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {
@@ -218,21 +262,35 @@ public final class HeadlessExecutorMain {
         this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
         this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
 
-        var sessionsRouter =
-                new SessionsRouter(this.contextManager, this.sessionManager, val -> this.sessionLoaded = val);
+        var sessionsRouter = new SessionsRouter(
+                this.contextManager,
+                this.contextManager.getProject().getSessionManager(),
+                val -> this.sessionLoaded = val);
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
+        this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
         var jobsRouter = new JobsRouter(
-                this.contextManager,
-                this.jobStore,
-                new JobRunner(this.contextManager, this.jobStore),
-                this.jobReservation,
-                this.headlessInit);
+                this.contextManager, this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
         this.server.registerAuthenticatedContext("/v1/jobs", jobsRouter);
 
         var contextRouter = new ContextRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/context", contextRouter);
         this.server.registerAuthenticatedContext("/v1/tasklist", contextRouter);
+
+        var modelsRouter = new ModelsRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/models", modelsRouter);
+
+        var activityRouter = new ActivityRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/activity", activityRouter);
+
+        var completionsRouter = new CompletionsRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/completions", completionsRouter);
+
+        var favoritesRouter = new FavoritesRouter();
+        this.server.registerAuthenticatedContext("/v1/favorites", favoritesRouter);
+
+        var openAiAuthRouter = new OpenAiAuthRouter();
+        this.server.registerAuthenticatedContext("/v1/openai/oauth", openAiAuthRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -312,15 +370,12 @@ public final class HeadlessExecutorMain {
             Thread.currentThread().interrupt();
         }
 
+        this.jobRunner.shutdown();
+
         try {
             this.contextManager.close();
         } catch (Exception e) {
             logger.warn("Error closing ContextManager", e);
-        }
-        try {
-            this.sessionManager.close();
-        } catch (Exception e) {
-            logger.warn("Error closing SessionManager", e);
         }
         this.server.stop(delaySeconds);
         logger.info("HeadlessExecutorMain stopped");
@@ -418,8 +473,50 @@ public final class HeadlessExecutorMain {
             }
             var workspaceDir = Path.of(workspaceDirStr);
 
+            var exitOnStdinEof = getBooleanConfigValue(parsedArgs, "exit-on-stdin-eof", "EXIT_ON_STDIN_EOF", false);
+
             // Build ContextManager from workspace
             var project = new MainProject(workspaceDir);
+
+            // Apply vendor preference and role mappings (if requested)
+            String vendorArg = parsedArgs.get("vendor");
+            if (vendorArg != null && !vendorArg.isBlank()) {
+                String requestedVendor = vendorArg.trim();
+                String canonicalVendor;
+                if (ModelProperties.DEFAULT_VENDOR.equalsIgnoreCase(requestedVendor)) {
+                    canonicalVendor = ModelProperties.DEFAULT_VENDOR;
+                } else {
+                    canonicalVendor = ModelProperties.getAvailableVendors().stream()
+                            .filter(v -> v.equalsIgnoreCase(requestedVendor))
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalArgumentException(
+                                    "Invalid vendor: '" + requestedVendor + "'. Must be one of: "
+                                            + ModelProperties.DEFAULT_VENDOR + ", "
+                                            + String.join(", ", ModelProperties.getAvailableVendors())));
+                }
+
+                if (ModelProperties.DEFAULT_VENDOR.equals(canonicalVendor)) {
+                    for (ModelProperties.ModelType type : ModelProperties.ModelType.values()) {
+                        if (type != ModelProperties.ModelType.CODE && type != ModelProperties.ModelType.ARCHITECT) {
+                            project.removeModelConfig(type);
+                        }
+                    }
+                    MainProject.setOtherModelsVendorPreference("");
+                    logger.info("Cleared other-models vendor preference and internal role overrides");
+                } else {
+                    if ("OpenAI - Codex".equals(canonicalVendor) && !MainProject.isOpenAiCodexOauthConnected()) {
+                        throw new IllegalArgumentException(
+                                "OpenAI - Codex selected but Codex OAuth is not connected; connect/login first.");
+                    }
+                    var vendorModels = requireNonNull(
+                            ModelProperties.getVendorModels(canonicalVendor),
+                            "Vendor models unexpectedly null for " + canonicalVendor);
+                    vendorModels.forEach(project::setModelConfig);
+                    MainProject.setOtherModelsVendorPreference(canonicalVendor);
+                    logger.info("Applied other-models vendor preference: {}", canonicalVendor);
+                }
+            }
+
             var contextManager = new ContextManager(project);
 
             // Set per-executor Brokk API key override if provided
@@ -453,6 +550,11 @@ public final class HeadlessExecutorMain {
                     + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
             System.out.println(
                     "  proxySetting: " + (proxySetting != null ? proxySetting.name() : "(using global config)"));
+            if (vendorArg != null && !vendorArg.isBlank()) {
+                System.out.println("  vendor:      " + vendorArg.trim());
+            }
+            System.out.println();
+            System.out.println("  exitOnStdinEof: " + exitOnStdinEof);
             System.out.println();
             System.out.println("Available HTTP Endpoints:");
             System.out.println();
@@ -483,6 +585,9 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/context/methods          - add method sources to context");
             System.out.println("    POST /v1/context/text             - add pasted text to context");
             System.out.println("    GET  /v1/tasklist                 - get current task list content");
+            System.out.println("    POST /v1/tasklist                 - replace current task list content");
+            System.out.println("    GET  /v1/completions              - file and symbol completions");
+            System.out.println("    GET  /v1/favorites                - user's favorite model configs");
             System.out.println();
 
             // Create and start executor
@@ -496,6 +601,48 @@ public final class HeadlessExecutorMain {
             System.out.println("Executor listening on http://" + boundHost + ":" + boundPort);
             System.out.println("Try: curl http://" + boundHost + ":" + boundPort + "/health/live");
             System.out.println();
+
+            if (exitOnStdinEof) {
+                // Monitor stdin for EOF / parent-death signal.
+                // This thread blocks on System.in.read() and will initiate a controlled shutdown
+                // if EOF is observed or an IOException occurs. It is a daemon so it won't
+                // prevent JVM shutdown if other non-daemon threads remain.
+                Thread stdinMonitor = new Thread(
+                        () -> {
+                            try {
+                                // Read until EOF (-1) or exception. We don't process the bytes; we only
+                                // treat EOF as a signal that the parent has gone away.
+                                int read;
+                                while ((read = System.in.read()) != -1) {
+                                    // Consume bytes without processing. If stdin is a terminal, this will
+                                    // block until user input / EOF and thus not interfere with normal usage.
+                                }
+                                logger.info("System.in closed (EOF detected). Initiating controlled shutdown.");
+                            } catch (IOException e) {
+                                logger.info(
+                                        "IOException while monitoring System.in; initiating controlled shutdown.", e);
+                            } catch (Throwable t) {
+                                logger.warn(
+                                        "Unexpected error in System.in monitor; initiating controlled shutdown.", t);
+                            } finally {
+                                try {
+                                    // Try to stop executor gracefully; use a short delay to speed shutdown.
+                                    executor.stop(5);
+                                } catch (Exception e) {
+                                    logger.warn("Error while stopping executor from stdin monitor", e);
+                                } finally {
+                                    // Ensure process exits even if shutdown hook doesn't run immediately.
+                                    System.exit(0);
+                                }
+                            }
+                        },
+                        "HeadlessExecutor-StdInMonitor");
+                stdinMonitor.setDaemon(true);
+                stdinMonitor.start();
+                logger.info("System.in EOF monitor enabled; process will exit when stdin closes or errors.");
+            } else {
+                logger.info("System.in EOF monitor disabled; executor will ignore stdin closure.");
+            }
 
             // Add shutdown hook
             Runtime.getRuntime()

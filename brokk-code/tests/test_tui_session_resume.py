@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -15,7 +15,7 @@ class SessionStubExecutor(StubExecutor):
         self.workspace_dir = None
         self.import_calls = []
         self.create_calls = []
-        self.download_calls = []
+        self.conversation = {"entries": []}
 
     async def create_session(self, name: str = "TUI Session") -> str:
         self.create_calls.append(name)
@@ -27,16 +27,15 @@ class SessionStubExecutor(StubExecutor):
         self.session_id = session_id or "imported-session"
         return self.session_id
 
-    async def download_session_zip(self, session_id: str) -> bytes:
-        self.download_calls.append(session_id)
-        return b"fake-zip-data"
+    async def get_conversation(self):
+        return self.conversation
 
 
 @pytest.mark.asyncio
-async def test_startup_creates_new_session_when_no_resume(tmp_path):
+async def test_startup_creates_new_session_by_default(tmp_path):
     workspace = tmp_path
     stub = SessionStubExecutor()
-    # --no-resume
+    # Default behavior is no resume
     app = BrokkApp(executor=stub, workspace_dir=workspace, resume_session=False)
 
     with patch("brokk_code.app.ChatPanel"):
@@ -90,18 +89,194 @@ async def test_startup_prefers_cli_session(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_exports_session(tmp_path):
-    workspace = tmp_path
-    stub = SessionStubExecutor()
-    stub.session_id = "active-789"
+async def test_resume_command_launches_with_correct_id(tmp_path):
+    """
+    Verifies that the 'resume <id>' command correctly initializes BrokkApp
+    with the specified session_id.
+    """
+    from brokk_code.__main__ import _build_parser
 
-    app = BrokkApp(executor=stub, workspace_dir=workspace)
-    app._executor_ready = True
+    workspace = tmp_path
+    session_id = "manual-resume-id"
+
+    # Simulate: brokk-code resume manual-resume-id --workspace <tmp_path>
+    parser = _build_parser()
+    args = parser.parse_args(["resume", session_id, "--workspace", str(workspace)])
+
+    assert args.command == "resume"
+    assert args.session_id == session_id
+
+    stub = SessionStubExecutor()
+    # We simulate what main() does
+    app = BrokkApp(
+        executor=stub,
+        workspace_dir=workspace,
+        session_id=args.session_id,
+        resume_session=False,
+    )
+
+    assert app.requested_session_id == session_id
+    assert app.resume_session is False
 
     with patch("brokk_code.app.ChatPanel"):
-        await asyncio.wait_for(app.action_quit(), timeout=3.0)
+        # We need to set a valid zip for the stub to "resume" it
+        get_session_zip_path(workspace, session_id).write_bytes(b"resumed-zip")
+        await asyncio.wait_for(app._start_executor(), timeout=3.0)
 
-    assert "active-789" in stub.download_calls
-    zip_path = get_session_zip_path(workspace, "active-789")
-    assert zip_path.exists()
-    assert zip_path.read_bytes() == b"fake-zip-data"
+    assert len(stub.import_calls) == 1
+    assert stub.import_calls[0][1] == session_id
+
+
+def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
+    """
+    Verifies that main() prints the resume hint after the app finishes running,
+    if a last session ID exists AND has history tasks in contexts.jsonl.
+    """
+    import json
+    import zipfile
+
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "hint-session-789"
+    save_last_session_id(workspace, session_id)
+
+    # Create a zip with history tasks in contexts.jsonl so the hint prints
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr(
+            "contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}) + "\n"
+        )
+
+    # Patch BrokkApp.run so it doesn't actually start the TUI
+    # and sys.argv so main() uses our temp workspace.
+    with (
+        patch("brokk_code.app.BrokkApp.run", return_value=None),
+        patch(
+            "sys.argv",
+            ["brokk", "--workspace", str(workspace)],
+        ),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    expected_hint = f"brokk resume {session_id}"
+    assert expected_hint in captured.out
+
+
+def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
+    """
+    Verifies that main() does NOT print the resume hint if the session exists
+    but has no qualifying history tasks.
+    """
+    import json
+    import zipfile
+
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "no-tasks-session"
+    save_last_session_id(workspace, session_id)
+
+    # Create a zip with contexts.jsonl but NO qualifying tasks (missing meta or sequence)
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("contexts.jsonl", json.dumps({"tasks": [{"sequence": 1}]}) + "\n")
+
+    with (
+        patch("brokk_code.app.BrokkApp.run", return_value=None),
+        patch(
+            "sys.argv",
+            ["brokk", "--workspace", str(workspace)],
+        ),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    assert "brokk resume" not in captured.out
+
+
+def test_replay_conversation_entries_renders_messages(tmp_path):
+    workspace = tmp_path
+    stub = SessionStubExecutor()
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+
+    class FakeChat:
+        def __init__(self):
+            self.calls = []
+            self._message_history = []
+
+        def _render_message_entry(self, kind, content, **kwargs):
+            self.calls.append(("render", kind, content, kwargs))
+
+        def add_user_message(self, text):
+            self.calls.append(("user", text))
+
+        def add_markdown(self, text):
+            self.calls.append(("ai", text))
+
+        def add_tool_result(self, text):
+            self.calls.append(("tool", text))
+
+        def add_system_message(self, text, level="INFO"):
+            self.calls.append(("system", level, text))
+
+        def append_message(self, author, text):
+            self.calls.append(("legacy", author, text))
+
+    fake_chat = FakeChat()
+    app._maybe_chat = lambda: fake_chat  # type: ignore[method-assign]
+
+    replayed = app._replay_conversation_entries(
+        {
+            "entries": [
+                {
+                    "sequence": 1,
+                    "messages": [
+                        {"role": "user", "text": "Please fix it"},
+                        {"role": "ai", "text": "Done", "reasoning": "Thinking steps"},
+                        {"role": "tool_execution_result", "text": "Command output"},
+                    ],
+                },
+                {"sequence": 2, "summary": "Compressed summary"},
+            ]
+        }
+    )
+
+    assert replayed == 2
+    assert ("user", "Please fix it") in fake_chat.calls
+    assert ("ai", "Done") in fake_chat.calls
+    assert ("tool", "Command output") in fake_chat.calls
+    assert any(call[:3] == ("render", "REASONING", "Thinking steps") for call in fake_chat.calls)
+    assert ("ai", "Compressed summary") in fake_chat.calls
+
+
+@pytest.mark.asyncio
+async def test_resume_session_seeds_session_cost_from_context(tmp_path):
+    """Verify that resuming a session seeds the session cost from the executor context."""
+    workspace = tmp_path
+    last_id = "cost-session"
+    save_last_session_id(workspace, last_id)
+    zip_path = get_session_zip_path(workspace, last_id)
+    zip_path.write_bytes(b"zip-data")
+
+    stub = SessionStubExecutor()
+    stub.wait_ready = AsyncMock(return_value=True)
+    stub.get_context = AsyncMock(
+        return_value={
+            "branch": "main",
+            "totalCost": 4.321,
+        }
+    )
+
+    app = BrokkApp(executor=stub, workspace_dir=workspace, resume_session=True)
+
+    with patch("brokk_code.app.ChatPanel"):
+        await asyncio.wait_for(app._start_executor(), timeout=3.0)
+
+    # Trigger context refresh which seeds the cost
+    await app._refresh_context_panel()
+
+    assert app.session_total_cost == pytest.approx(4.321, rel=1e-6)
+    assert len(stub.import_calls) == 1
+    assert stub.import_calls[0][1] == last_id

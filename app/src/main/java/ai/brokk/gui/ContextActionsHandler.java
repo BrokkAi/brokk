@@ -6,7 +6,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.AnalyzerWrapper;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -144,7 +143,7 @@ public class ContextActionsHandler {
 
             // Show in Project (for PROJECT_PATH fragments)
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().renderNowOr(Set.of()).stream()
+                fragment.sourceFiles().renderNowOr(Set.of()).stream()
                         .findFirst()
                         .ifPresent(projectFile ->
                                 list.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(actions, projectFile)));
@@ -159,7 +158,7 @@ public class ContextActionsHandler {
 
             // View History/Compress History
             if (actions.hasGit() && fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().renderNowOr(Set.of()).stream()
+                fragment.sourceFiles().renderNowOr(Set.of()).stream()
                         .findFirst()
                         .ifPresent(projectFile ->
                                 list.add(WorkspaceAction.VIEW_HISTORY.createFileAction(actions, projectFile)));
@@ -181,31 +180,34 @@ public class ContextActionsHandler {
 
             // Edit/Read/Summarize
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().renderNowOr(Set.of()).stream().findFirst().ifPresent(projectFile -> {
-                    var fileData = new TableUtils.FileReferenceList.FileReferenceData(
-                            projectFile.getFileName(), projectFile.toString(), projectFile);
+                fragment.referencedFiles().renderNowOr(Set.of()).stream()
+                        .findFirst()
+                        .ifPresent(projectFile -> {
+                            var fileData = new TableUtils.FileReferenceList.FileReferenceData(
+                                    projectFile.getFileName(), projectFile.toString(), projectFile);
 
-                    // Check if already editable
-                    var ctx = actions.contextManager.selectedContext();
-                    boolean isAlreadyEditable = ctx != null
-                            && ctx.allFragments()
-                                    .filter(f -> f.getType().isPath())
-                                    .anyMatch(f -> f == fragment);
+                            // Check if already editable
+                            var ctx = actions.contextManager.selectedContext();
+                            boolean isAlreadyEditable = ctx != null
+                                    && ctx.allFragments()
+                                            .filter(f -> f.getType().isPath())
+                                            .anyMatch(f -> f == fragment);
 
-                    if (isAlreadyEditable) {
-                        list.add(WorkspaceAction.EDIT_FILE.createDisabledAction("Already in edit mode"));
-                    } else {
-                        list.add(WorkspaceAction.EDIT_FILE.createFileRefAction(actions, fileData));
-                    }
+                            if (isAlreadyEditable) {
+                                list.add(WorkspaceAction.EDIT_FILE.createDisabledAction("Already in edit mode"));
+                            } else {
+                                list.add(WorkspaceAction.EDIT_FILE.createFileRefAction(actions, fileData));
+                            }
 
-                    // Summarize the exact fragment instance that was clicked, so we can drop that same instance after.
-                    list.add(new AbstractAction("Summarize " + projectFile.getFileName()) {
-                        @Override
-                        public void actionPerformed(ActionEvent e) {
-                            actions.performContextActionAsync(ContextAction.SUMMARIZE, List.of(fragment));
-                        }
-                    });
-                });
+                            // Summarize the exact fragment instance that was clicked, so we can drop that same instance
+                            // after.
+                            list.add(new AbstractAction("Summarize " + projectFile.getFileName()) {
+                                @Override
+                                public void actionPerformed(ActionEvent e) {
+                                    actions.performContextActionAsync(ContextAction.SUMMARIZE, List.of(fragment));
+                                }
+                            });
+                        });
             } else {
                 var selectedFragments = List.of(fragment);
                 actions.addEditAndSummarizeActions(selectedFragments, list);
@@ -523,7 +525,7 @@ public class ContextActionsHandler {
     private void doEditAction(List<? extends ContextFragment> selectedFragments) {
         assert !selectedFragments.isEmpty();
         var files = selectedFragments.stream()
-                .flatMap(fragment -> fragment.files().join().stream())
+                .flatMap(fragment -> fragment.referencedFiles().join().stream())
                 .collect(Collectors.toSet());
         if (files.isEmpty()) {
             chrome.showNotification(
@@ -731,16 +733,17 @@ public class ContextActionsHandler {
         }
 
         HashSet<ProjectFile> selectedFiles = new HashSet<>();
-        HashSet<CodeUnit> selectedClasses = new HashSet<>();
 
-        selectedFragments.stream().flatMap(frag -> frag.files().join().stream()).forEach(selectedFiles::add);
+        selectedFragments.stream()
+                .flatMap(frag -> frag.referencedFiles().join().stream())
+                .forEach(selectedFiles::add);
 
         if (selectedFiles.isEmpty()) {
             chrome.toolError("No files or classes identified for summarization in the selection.");
             return;
         }
 
-        boolean success = contextManager.addSummaries(selectedFiles, selectedClasses);
+        boolean success = contextManager.addSummaries(selectedFiles, Set.of());
         if (!success) {
             chrome.toolError("No summarizable content found in the selected files or symbols.");
             return;
@@ -770,7 +773,7 @@ public class ContextActionsHandler {
                 .liveContext()
                 .allFragments()
                 .filter(cf -> cf.getType().includeInProjectGuide())
-                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .flatMap(cf -> cf.referencedFiles().renderNowOr(Set.of()).stream())
                 .filter(pf -> ContextManager.isTestFile(pf, analyzer))
                 .collect(Collectors.toSet()));
     }
@@ -880,7 +883,7 @@ public class ContextActionsHandler {
 
     private boolean hasFiles(List<ContextFragment> fragments) {
         return fragments.stream()
-                .flatMap(frag -> frag.files().renderNowOr(Set.of()).stream())
+                .flatMap(frag -> frag.referencedFiles().renderNowOr(Set.of()).stream())
                 .findAny()
                 .isPresent();
     }
@@ -888,7 +891,7 @@ public class ContextActionsHandler {
     private boolean allTrackedProjectFiles(List<ContextFragment> fragments) {
         var project = contextManager.getProject();
         var allFiles = fragments.stream()
-                .flatMap(frag -> frag.files().renderNowOr(Set.of()).stream())
+                .flatMap(frag -> frag.referencedFiles().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
 
         var trackedFiles = project.getRepo().getTrackedFiles();

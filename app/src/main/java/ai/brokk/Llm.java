@@ -24,6 +24,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.NonRetriableException;
+import dev.langchain4j.exception.OverthinkingException;
 import dev.langchain4j.exception.PaymentRequiredException;
 import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.internal.ExceptionMapper;
@@ -866,7 +867,7 @@ public class Llm {
         try {
             var dir = getOrCreateTaskHistoryDir();
             var formattedRequest = "# Request to %s:\n\n%s\n"
-                    .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
+                    .formatted(contextManager.getService().nameOf(model), Messages.format(request.messages()));
             var formattedTools = request.toolSpecifications() == null
                             || request.toolSpecifications().isEmpty()
                     ? ""
@@ -921,19 +922,19 @@ public class Llm {
                 int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
                 String tokenSummary = "%,d tokens / %d%% cached".formatted(totalTokens, cachedPct);
 
-                String message;
                 if (pricing.bands().isEmpty()) {
-                    message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
+                    String message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
+                    io.showNotification(IConsoleIO.NotificationRole.COST, message);
+                    logger.debug("LLM cost: {}", message);
                 } else {
                     double cost = pricing.getCostFor(uncached, cached, output);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);
-                    message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
+                    String message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
+                    io.showNotification(IConsoleIO.NotificationRole.COST, message, cost);
+                    logger.debug("LLM cost: {}", message);
                 }
-
-                io.showNotification(IConsoleIO.NotificationRole.COST, message);
-                logger.debug("LLM cost: {}", message);
             }
         }
     }
@@ -1070,21 +1071,23 @@ public class Llm {
      */
     public record StreamingResult(
             @Nullable NullSafeResponse chatResponse, @Nullable Exception error, int retries, long elapsedMs) {
-        public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Exception error) {
-            this(partialResponse, error, 0, 0);
-        }
-
         public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Exception error, int retries) {
             this(partialResponse, error, retries, 0);
         }
 
-        public static StreamingResult fromResponse(@Nullable ChatResponse originalResponse, @Nullable Exception error) {
-            return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, 0);
-        }
-
         public static StreamingResult fromResponse(
                 @Nullable ChatResponse originalResponse, @Nullable Exception error, long elapsedMs) {
-            return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, elapsedMs);
+            NullSafeResponse nsr = new NullSafeResponse(originalResponse);
+            if (error == null && originalResponse != null) {
+                boolean isLength = originalResponse.finishReason() == FinishReason.LENGTH;
+                if (isLength && nsr.isEmpty()) {
+                    error = new OverthinkingException("Model reached max output tokens before generating text");
+                    // If we set error, we must ensure NullSafeResponse doesn't have the originalResponse
+                    // to satisfy the constructor assertion.
+                    nsr = new NullSafeResponse(nsr.text(), nsr.reasoningContent(), nsr.toolRequests(), null);
+                }
+            }
+            return new StreamingResult(nsr, error, 0, elapsedMs);
         }
 
         public StreamingResult {

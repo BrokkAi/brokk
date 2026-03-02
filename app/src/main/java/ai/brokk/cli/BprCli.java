@@ -17,18 +17,19 @@ import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
-import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.prompts.SearchPrompts;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildTools;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -41,11 +42,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -82,11 +83,6 @@ public final class BprCli implements Callable<Integer> {
     private List<String> addClasses = new ArrayList<>();
 
     @CommandLine.Option(
-            names = "--add-url",
-            description = "Add content from a URL as a read-only fragment. Can be repeated.")
-    private List<String> addUrls = new ArrayList<>();
-
-    @CommandLine.Option(
             names = "--add-summary-class",
             description = "Add a summary of the given class to the workspace. Can be repeated.")
     private List<String> addSummaryClasses = new ArrayList<>();
@@ -105,13 +101,15 @@ public final class BprCli implements Callable<Integer> {
     @Nullable
     private String architectPrompt;
 
+    @CommandLine.Option(
+            names = "--infer-context",
+            description = "Infer and cache relevant context for the given prompt using Architect and Code agents.")
+    @Nullable
+    private String inferContextPrompt;
+
     @CommandLine.Option(names = "--code", description = "Run Code agent with the given prompt.")
     @Nullable
     private String codePrompt;
-
-    @CommandLine.Option(names = "--ask", description = "Run Ask command with the given prompt.")
-    @Nullable
-    private String askPrompt;
 
     @CommandLine.Option(
             names = "--search-answer",
@@ -124,10 +122,6 @@ public final class BprCli implements Callable<Integer> {
             description = "Research and execute a set of tasks to accomplish the given prompt")
     @Nullable
     private String lutzPrompt;
-
-    @CommandLine.Option(names = "--lutz-lite", description = "Execute a single task to solve the given issue.")
-    @Nullable
-    private String lutzLitePrompt;
 
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
@@ -171,7 +165,7 @@ public final class BprCli implements Callable<Integer> {
     private String favoriteModelsJson;
 
     @CommandLine.Option(
-            names = "--deepscan",
+            names = {"--deep-scan", "--deepscan"},
             arity = "0..1",
             fallbackValue = "true",
             description =
@@ -278,28 +272,35 @@ public final class BprCli implements Callable<Integer> {
         }
 
         // --- Action Validation ---
-        long actionCount = Stream.of(
+        boolean deepScan = deepScanGoal != null;
+
+        long nonDeepScanActionCount = Stream.of(
                         architectPrompt,
+                        inferContextPrompt,
                         codePrompt,
-                        askPrompt,
                         searchAnswerPrompt,
                         lutzPrompt,
-                        lutzLitePrompt,
                         searchWorkspace)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
-        if (merge) actionCount++;
-        if (build) actionCount++;
-        boolean deepScan = deepScanGoal != null;
-        if (actionCount > 1) {
+        if (merge) nonDeepScanActionCount++;
+        if (build) nonDeepScanActionCount++;
+
+        if (nonDeepScanActionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
+                    "At most one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace) can be specified.");
             return 1;
         }
-        if (deepScan) actionCount++;
+        if (deepScan && nonDeepScanActionCount > 0) {
+            System.err.println(
+                    "Deep Scan (--deep-scan/--deepscan) is a standalone action and cannot be combined with other actions.");
+            return 1;
+        }
+
+        long actionCount = nonDeepScanActionCount + (deepScan ? 1 : 0);
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "At least one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --deepscan) or --worktree is required.");
+                    "At least one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace, --deep-scan) or --worktree is required.");
             return 1;
         }
 
@@ -312,22 +313,24 @@ public final class BprCli implements Callable<Integer> {
         }
 
         //  Expand @file syntax for prompt parameters
-        TaskFileInfo architectTaskInfo = null, codeTaskInfo = null, askTaskInfo = null;
-        TaskFileInfo searchAnswerTaskInfo = null, lutzTaskInfo = null, lutzLiteTaskInfo = null;
+        TaskFileInfo architectTaskInfo = null, codeTaskInfo = null;
+        TaskFileInfo inferContextTaskInfo = null;
+        TaskFileInfo searchAnswerTaskInfo = null, lutzTaskInfo = null;
         TaskFileInfo searchWorkspaceTaskInfo = null;
+        TaskFileInfo deepScanTaskInfo = null;
 
         try {
             if (architectPrompt != null) {
                 architectTaskInfo = maybeLoadFromFile(architectPrompt);
                 architectPrompt = architectTaskInfo.content;
             }
+            if (inferContextPrompt != null) {
+                inferContextTaskInfo = maybeLoadFromFile(inferContextPrompt);
+                inferContextPrompt = inferContextTaskInfo.content;
+            }
             if (codePrompt != null) {
                 codeTaskInfo = maybeLoadFromFile(codePrompt);
                 codePrompt = codeTaskInfo.content;
-            }
-            if (askPrompt != null) {
-                askTaskInfo = maybeLoadFromFile(askPrompt);
-                askPrompt = askTaskInfo.content;
             }
             if (searchAnswerPrompt != null) {
                 searchAnswerTaskInfo = maybeLoadFromFile(searchAnswerPrompt);
@@ -337,13 +340,13 @@ public final class BprCli implements Callable<Integer> {
                 lutzTaskInfo = maybeLoadFromFile(lutzPrompt);
                 lutzPrompt = lutzTaskInfo.content;
             }
-            if (lutzLitePrompt != null) {
-                lutzLiteTaskInfo = maybeLoadFromFile(lutzLitePrompt);
-                lutzLitePrompt = lutzLiteTaskInfo.content;
-            }
             if (searchWorkspace != null) {
                 searchWorkspaceTaskInfo = maybeLoadFromFile(searchWorkspace);
                 searchWorkspace = searchWorkspaceTaskInfo.content;
+            }
+            if (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank()) {
+                deepScanTaskInfo = maybeLoadFromFile(deepScanGoal);
+                deepScanGoal = deepScanTaskInfo.content;
             }
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
@@ -399,10 +402,12 @@ public final class BprCli implements Callable<Integer> {
         project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
         logger.trace("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
         cm = new ContextManager(project);
+        var io = cm.getIo();
 
+        cm.createHeadless(true, new HeadlessConsole());
         // Build BuildDetails from environment variables
-        String buildLintCmd = System.getenv("BRK_BUILD_CMD");
         String testAllCmd = System.getenv("BRK_TESTALL_CMD");
+        String buildLintCmd = System.getenv("BRK_BUILD_CMD");
         String testSomeCmd = System.getenv("BRK_TESTSOME_CMD");
         var buildDetails = new BuildAgent.BuildDetails(
                 buildLintCmd != null ? buildLintCmd : "",
@@ -411,9 +416,7 @@ public final class BprCli implements Callable<Integer> {
                 Set.of(),
                 Map.of("VIRTUAL_ENV", ".venv")); // venv is hardcoded to override swebench task runner
         logger.info("Build Details: " + buildDetails);
-
-        cm.createHeadless(buildDetails, true);
-        var io = cm.getIo();
+        mainProject.setBuildDetails(buildDetails);
 
         //  Model Overrides initialization
         var service = cm.getService();
@@ -424,14 +427,13 @@ public final class BprCli implements Callable<Integer> {
 
         // Determine which models are required by the chosen action(s).
         boolean needsPlanModel = architectPrompt != null
+                || inferContextPrompt != null
                 || searchAnswerPrompt != null
                 || lutzPrompt != null
-                || lutzLitePrompt != null
                 || deepScan
                 || merge
                 || (searchWorkspace != null && !searchWorkspace.isBlank());
-        boolean needsCodeModel =
-                codePrompt != null || askPrompt != null || architectPrompt != null || lutzLitePrompt != null || merge;
+        boolean needsCodeModel = codePrompt != null || architectPrompt != null || inferContextPrompt != null || merge;
 
         if (needsPlanModel && planModelName == null) {
             System.err.println("Error: This action requires --planmodel to be specified.");
@@ -521,23 +523,17 @@ public final class BprCli implements Callable<Integer> {
         if (!resolvedSummaryClasses.isEmpty()) tools.addClassSummariesToWorkspace(resolvedSummaryClasses);
         if (!addSummaryFiles.isEmpty()) tools.addFileSummariesToWorkspace(addSummaryFiles);
         if (!addMethodSources.isEmpty()) tools.addMethodsToWorkspace(addMethodSources);
-        for (var url : addUrls) {
-            tools.addUrlContentsToWorkspace(url);
+        // Pin CLI fragments if --infer-context is active
+        if (inferContextPrompt != null) {
+            var ctx = tools.getContext();
+            for (var f : ctx.allFragments().toList()) {
+                ctx = ctx.withPinned(f, true);
+            }
+            tools.setContext(ctx);
         }
+
         cm.pushContext(ctx -> tools.getContext());
         var context = cm.liveContext();
-
-        // --- Deep Scan ------------------------------------------------------
-        boolean isStandaloneDeepScan = deepScan
-                && architectPrompt == null
-                && codePrompt == null
-                && askPrompt == null
-                && searchAnswerPrompt == null
-                && lutzPrompt == null
-                && lutzLitePrompt == null
-                && !merge
-                && !build
-                && searchWorkspace == null;
 
         if (deepScan) {
             if (planModel == null) {
@@ -550,36 +546,14 @@ public final class BprCli implements Callable<Integer> {
                     IConsoleIO.NotificationRole.INFO,
                     ContextFragment.describe(cm.liveContext().allFragments()));
 
-            String goalForScan;
-            if (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank()) {
-                goalForScan = deepScanGoal;
-            } else if (isStandaloneDeepScan) {
-                goalForScan = "Analyze the workspace and suggest relevant context";
-            } else {
-                goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
-                        .filter(s -> s != null && !s.isBlank())
-                        .findFirst()
-                        .orElseThrow();
-            }
+            String goalForScan = (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank())
+                    ? deepScanGoal
+                    : "Analyze the workspace and suggest relevant context";
 
-            // Determine task file for cache
-            @Nullable
-            Path taskFile = Stream.of(
-                            architectTaskInfo,
-                            codeTaskInfo,
-                            askTaskInfo,
-                            searchAnswerTaskInfo,
-                            lutzTaskInfo,
-                            lutzLiteTaskInfo)
-                    .filter(Objects::nonNull)
-                    .map(info -> info.taskFile)
-                    .filter(Objects::nonNull)
-                    .findFirst()
-                    .orElse(null);
+            @Nullable Path deepScanCacheTaskFile = deepScanTaskInfo != null ? deepScanTaskInfo.taskFile : null;
 
-            // Attempt to serve recommendation from cache (properties file if available, otherwise JSON)
             ContextAgent.RecommendationResult recommendations;
-            var cached = readRecommendationFromCache(taskFile, cm);
+            var cached = readRecommendationFromCache(deepScanCacheTaskFile, cm, project);
             if (cached.isPresent()) {
                 recommendations = cached.get();
             } else {
@@ -587,9 +561,8 @@ public final class BprCli implements Callable<Integer> {
                 recommendations = agent.getRecommendations(cm.liveContext());
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
-                // Persist successful results to cache; failures are not cached.
                 if (recommendations.success() && getCacheMode().canWrite()) {
-                    writeRecommendationToCache(recommendations, taskFile);
+                    writeRecommendationToCache(recommendations, deepScanCacheTaskFile);
                 }
             }
 
@@ -600,25 +573,15 @@ public final class BprCli implements Callable<Integer> {
                                 + recommendations.fragments().stream()
                                         .map(ContextFragment::shortDescription)
                                         .toList());
-                for (var fragment : recommendations.fragments()) {
-                    switch (fragment.getType()) {
-                        case SKELETON -> {
-                            cm.addFragments(fragment);
-                            io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
-                        }
-                        default -> cm.addSummaries(fragment.files().renderNowOr(Set.of()), Set.of());
-                    }
-                }
+                cm.pushContext(ctx -> ctx.addAsSummaries(recommendations.fragments()));
             } else {
                 io.toolError("Deep Scan did not complete successfully");
             }
 
-            // Output metrics if BRK_COLLECT_METRICS is set
             if ("true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))) {
                 var metrics = SearchMetrics.tracking();
-                // Collect files added from recommendations
                 var filesAddedPaths = recommendations.fragments().stream()
-                        .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                        .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                         .map(pf -> pf.getRelPath().toString())
                         .collect(Collectors.toSet());
                 metrics.recordContextScan(
@@ -626,7 +589,6 @@ public final class BprCli implements Callable<Integer> {
                         !recommendations.success(),
                         filesAddedPaths,
                         recommendations.metadata());
-                // Record outcome (no search turns for deepscan)
                 metrics.recordOutcome(
                         recommendations.success() ? TaskResult.StopReason.SUCCESS : TaskResult.StopReason.LLM_ERROR,
                         filesAddedPaths.size());
@@ -635,11 +597,26 @@ public final class BprCli implements Callable<Integer> {
                 System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
             }
 
-            // If deepscan is standalone, exit here with success
-            if (isStandaloneDeepScan || "true".equals(System.getenv().get("BRK_SCAN_ONLY"))) {
-                return 0;
-            }
+            return recommendations.success() ? 0 : 1;
         }
+
+        @Nullable Path cacheTaskFile = null;
+        if (architectPrompt != null) {
+            cacheTaskFile = architectTaskInfo != null ? architectTaskInfo.taskFile : null;
+        } else if (inferContextPrompt != null) {
+            cacheTaskFile = inferContextTaskInfo != null ? inferContextTaskInfo.taskFile : null;
+        } else if (codePrompt != null) {
+            cacheTaskFile = codeTaskInfo != null ? codeTaskInfo.taskFile : null;
+        } else if (searchAnswerPrompt != null) {
+            cacheTaskFile = searchAnswerTaskInfo != null ? searchAnswerTaskInfo.taskFile : null;
+        } else if (lutzPrompt != null) {
+            cacheTaskFile = lutzTaskInfo != null ? lutzTaskInfo.taskFile : null;
+        }
+
+        CacheApplication cacheApplication = applyContextCacheIfEnabled(cacheTaskFile, cm, project);
+        context = cacheApplication.context();
+        Optional<ContextAgent.RecommendationResult> cachedContextRec = cacheApplication.cachedRecommendation();
+        var explicitContext = context;
 
         // --- Run Action ---
         io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
@@ -652,37 +629,91 @@ public final class BprCli implements Callable<Integer> {
         String scopeInput;
         if (architectPrompt != null) {
             scopeInput = architectPrompt;
+        } else if (inferContextPrompt != null) {
+            scopeInput = inferContextPrompt;
         } else if (codePrompt != null) {
             scopeInput = codePrompt;
-        } else if (askPrompt != null) {
-            scopeInput = requireNonNull(askPrompt);
         } else if (merge) {
             scopeInput = "Merge";
         } else if (searchAnswerPrompt != null) {
             scopeInput = requireNonNull(searchAnswerPrompt);
         } else if (build) {
             scopeInput = "Build";
-        } else if (lutzLitePrompt != null) {
-            scopeInput = requireNonNull(lutzLitePrompt);
         } else { // lutzPrompt != null
             scopeInput = requireNonNull(lutzPrompt);
         }
 
         try (var scope = cm.beginTaskUngrouped(scopeInput)) {
             try {
-                if (architectPrompt != null) {
-                    // Architect requires a plan model and a code model
+                if (architectPrompt != null || inferContextPrompt != null) {
+                    boolean isInfer = inferContextPrompt != null;
+                    String prompt = castNonNull(isInfer ? inferContextPrompt : architectPrompt);
+                    @Nullable Path taskFile = isInfer ? cacheTaskFile : null;
+
                     if (planModel == null) {
-                        System.err.println("Error: --architect requires --planmodel to be specified.");
+                        System.err.println("Error: --architect/--infer-context requires --planmodel to be specified.");
                         return 1;
                     }
                     if (codeModel == null) {
-                        System.err.println("Error: --architect requires --codemodel to be specified.");
+                        System.err.println("Error: --architect/--infer-context requires --codemodel to be specified.");
                         return 1;
                     }
-                    var agent = new ArchitectAgent(cm, planModel, codeModel, architectPrompt, scope);
-                    result = agent.execute();
-                    context = scope.append(result);
+
+                    ArchitectAgent agent;
+
+                    AtomicReference<Context> discoveredContext = new AtomicReference<>(explicitContext);
+                    if (isInfer) {
+                        logger.info(
+                                "Using context cache mode {} for --infer-context (BRK_CONTEXT_CACHE={})",
+                                getCacheMode(),
+                                System.getenv("BRK_CONTEXT_CACHE"));
+
+                        agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, explicitContext);
+                        if (testAllCmd != null) {
+                            agent.setVerifyCommand(testAllCmd);
+                        }
+                        agent.setListener(codeContext -> {
+                            var delta = ContextDelta.between(explicitContext, codeContext)
+                                    .join();
+                            discoveredContext.set(
+                                    requireNonNull(discoveredContext.get()).addAsSummaries(delta.addedFragments()));
+                        });
+                        result = agent.execute();
+                    } else {
+                        agent = new ArchitectAgent(cm, planModel, codeModel, prompt, scope, explicitContext);
+                        result = agent.executeWithScan();
+                    }
+
+                    context = result.context();
+                    scope.append(result);
+
+                    if (isInfer
+                            && getCacheMode().canWrite()
+                            && result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                        var delta = ContextDelta.between(explicitContext, requireNonNull(discoveredContext.get()))
+                                .join();
+                        var finalRec = new ContextAgent.RecommendationResult(true, delta.addedFragments(), null);
+                        writeRecommendationToCache(finalRec, taskFile);
+
+                        var baseContext = cachedContextRec
+                                .map(recommendationResult ->
+                                        explicitContext.addAsSummaries(recommendationResult.fragments()))
+                                .orElse(explicitContext);
+                        var recDelta = ContextDelta.between(
+                                        baseContext, explicitContext.addAsSummaries(finalRec.fragments()))
+                                .join();
+                        var jsonMap = new java.util.LinkedHashMap<String, Object>();
+                        jsonMap.put("addedFragments", recDelta.addedFragments().size());
+                        jsonMap.put(
+                                "removedFragments", recDelta.removedFragments().size());
+
+                        try {
+                            var jsonString = ai.brokk.project.AbstractProject.objectMapper.writeValueAsString(jsonMap);
+                            System.err.println("\nBRK_CONTEXT_METRICS=" + jsonString);
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            logger.warn("Failed to serialize context metrics", e);
+                        }
+                    }
                 } else if (codePrompt != null) {
                     // CodeAgent must use codemodel only
                     if (codeModel == null) {
@@ -691,14 +722,7 @@ public final class BprCli implements Callable<Integer> {
                     }
                     var agent = new CodeAgent(cm, codeModel);
                     result = agent.execute(codePrompt, Set.of());
-                    context = scope.append(result);
-                } else if (askPrompt != null) {
-                    if (codeModel == null) {
-                        System.err.println("Error: --ask requires --codemodel to be specified.");
-                        return 1;
-                    }
-                    result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
-                    context = scope.append(result);
+                    scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
                         System.err.println("Error: --merge requires --planmodel to be specified.");
@@ -722,7 +746,7 @@ public final class BprCli implements Callable<Integer> {
                     try {
                         result = mergeAgent.execute();
                         // Merge orchestrates planning and code models; TaskMeta is ambiguous here.
-                        context = scope.append(result);
+                        scope.append(result);
                     } catch (Exception e) {
                         io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
                         return 1;
@@ -741,9 +765,10 @@ public final class BprCli implements Callable<Integer> {
                             SearchPrompts.Objective.ANSWER_ONLY,
                             scope);
                     result = agent.execute();
-                    context = scope.append(result);
+                    context = result.context();
+                    scope.append(result);
                 } else if (build) {
-                    String buildError = BuildAgent.runVerification(cm);
+                    String buildError = BuildTools.runVerification(cm);
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             buildError.isEmpty()
@@ -753,28 +778,6 @@ public final class BprCli implements Callable<Integer> {
                     System.exit(buildError.isEmpty() ? 0 : 1);
                     // make the compiler happy
                     result = null;
-                } else if (lutzLitePrompt != null) {
-                    if (planModel == null) {
-                        System.err.println("Error: --lutz-lite requires --planmodel to be specified.");
-                        return 1;
-                    }
-                    if (codeModel == null) {
-                        System.err.println("Error: --lutz-lite requires --codemodel to be specified.");
-                        return 1;
-                    }
-
-                    var taskText =
-                            """
-                            Solve the following issue. Pull appropriate existing tests into the Workspace; if you are adding new functionality, add new tests if you can do so within the existing constraints.
-
-                            Issue: """
-                                    + requireNonNull(lutzLitePrompt);
-                    var task = new TaskList.TaskItem("", taskText, false);
-
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
-                    var taskResult = cm.executeTask(task, planModel, codeModel);
-                    context = scope.append(taskResult);
-                    result = taskResult;
                 } else { // lutzPrompt != null
                     if (planModel == null) {
                         System.err.println("Error: --lutz requires --planmodel to be specified.");
@@ -795,7 +798,8 @@ public final class BprCli implements Callable<Integer> {
                             cm.getIo(),
                             config);
                     result = agent.execute();
-                    context = scope.append(result);
+                    context = result.context();
+                    scope.append(result);
 
                     // Execute pending tasks sequentially
                     var tasksData = cm.getTaskList();
@@ -812,7 +816,7 @@ public final class BprCli implements Callable<Integer> {
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
 
                             var taskResult = cm.executeTask(task, planModel, codeModel);
-                            context = scope.append(taskResult);
+                            scope.append(taskResult);
                             result = taskResult; // Track last result for final status check
 
                             if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
@@ -1017,6 +1021,19 @@ public final class BprCli implements Callable<Integer> {
      */
     private record ModelInfo(String alias, String model) {}
 
+    private record CacheApplication(
+            Context context, Optional<ContextAgent.RecommendationResult> cachedRecommendation) {}
+
+    private static CacheApplication applyContextCacheIfEnabled(
+            @Nullable Path taskFile, ContextManager cm, AbstractProject project) {
+        var cached = readRecommendationFromCache(taskFile, cm, project);
+        if (cached.isEmpty()) {
+            return new CacheApplication(cm.liveContext(), Optional.empty());
+        }
+        var updated = cm.pushContext(ctx -> ctx.addAsSummaries(cached.get().fragments()));
+        return new CacheApplication(updated, cached);
+    }
+
     // -------------------------
     // CA cache helpers (JSON)
     // -------------------------
@@ -1082,7 +1099,7 @@ public final class BprCli implements Callable<Integer> {
     }
 
     static Optional<ContextAgent.RecommendationResult> readRecommendationFromCache(
-            @Nullable Path taskFile, ContextManager cm) {
+            @Nullable Path taskFile, ContextManager cm, AbstractProject project) {
         CacheMode mode = getCacheMode();
         if (!mode.canRead()) {
             logger.debug(
@@ -1110,22 +1127,83 @@ public final class BprCli implements Callable<Integer> {
                         var classes = parseFromCdl(classesCdl);
 
                         logger.debug(
-                                "Read {} files and {} classes from properties cache", files.size(), classes.size());
+                                "Read {} files and {} classes from properties cache {}",
+                                files.size(),
+                                classes.size(),
+                                propsFile);
 
                         var fileFragments = files.stream()
+                                .flatMap(fname -> {
+                                    var pf = cm.toFile(fname);
+                                    if (pf.exists()) {
+                                        return Stream.of(fname);
+                                    }
+                                    String bareName =
+                                            Path.of(fname).getFileName().toString();
+                                    var matches = project.getRepo().getTrackedFiles().parallelStream()
+                                            .filter(f -> f.getFileName().equals(bareName))
+                                            .map(ProjectFile::toString)
+                                            .toList();
+
+                                    if (matches.size() == 1) {
+                                        logger.debug(
+                                                "Resolved missing cached file '{}' to '{}'", fname, matches.getFirst());
+                                        return matches.stream();
+                                    } else if (matches.size() > 1) {
+                                        logger.warn(
+                                                "Ambiguous resolution for missing cached file '{}': {}",
+                                                fname,
+                                                matches);
+                                        return matches.stream();
+                                    } else {
+                                        logger.warn("Could not find replacement for missing cached file '{}'", fname);
+                                        return Stream.empty();
+                                    }
+                                })
                                 .map(fname -> (ContextFragment) new ContextFragments.SummaryFragment(
                                         cm, fname, ContextFragment.SummaryType.FILE_SKELETONS))
                                 .toList();
-                        var classFragments = classes.stream()
+
+                        var analyzer = cm.getAnalyzerUninterrupted();
+                        List<ContextFragment> classFragments;
+                        classFragments = classes.stream()
+                                .flatMap(fqcn -> {
+                                    if (!analyzer.getDefinitions(fqcn).isEmpty()) {
+                                        return Stream.of(fqcn);
+                                    }
+                                    String simpleName =
+                                            fqcn.contains(".") ? fqcn.substring(fqcn.lastIndexOf('.') + 1) : fqcn;
+                                    var matches = analyzer.searchDefinitions(simpleName, false).stream()
+                                            .filter(cu -> cu.isClass()
+                                                    && cu.shortName().equals(simpleName))
+                                            .map(CodeUnit::fqName)
+                                            .toList();
+
+                                    if (matches.size() == 1) {
+                                        logger.debug(
+                                                "Resolved missing cached class '{}' to '{}'", fqcn, matches.getFirst());
+                                        return matches.stream();
+                                    } else if (matches.size() > 1) {
+                                        logger.warn(
+                                                "Ambiguous resolution for missing cached class '{}': {}",
+                                                fqcn,
+                                                matches);
+                                        return matches.stream();
+                                    } else {
+                                        logger.warn("Could not find replacement for missing cached class '{}'", fqcn);
+                                        return Stream.empty();
+                                    }
+                                })
                                 .map(fqcn -> (ContextFragment) new ContextFragments.SummaryFragment(
                                         cm, fqcn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
                                 .toList();
 
-                        return Optional.of(new ContextAgent.RecommendationResult(
-                                true,
-                                Streams.concat(fileFragments.stream(), classFragments.stream())
-                                        .toList(),
-                                null));
+                        var allFragments = Streams.concat(fileFragments.stream(), classFragments.stream())
+                                .toList();
+                        if (allFragments.isEmpty()) {
+                            return Optional.empty();
+                        }
+                        return Optional.of(new ContextAgent.RecommendationResult(true, allFragments, null));
                     }
                 } catch (IOException e) {
                     logger.warn("Failed to read properties cache from {}: {}", propsFile, e.getMessage());
@@ -1159,7 +1237,8 @@ public final class BprCli implements Callable<Integer> {
             } else if (cf instanceof ContextFragments.ProjectPathFragment ppf) {
                 files.add(ppf.file().toString());
             } else {
-                throw new IllegalArgumentException(cf.toString());
+                // Ignore unsupported fragments for caching
+                logger.debug("Skipping unsupported fragment type for cache: {}", cf.getType());
             }
         }
 

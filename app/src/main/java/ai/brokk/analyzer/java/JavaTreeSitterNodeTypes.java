@@ -51,6 +51,7 @@ public final class JavaTreeSitterNodeTypes {
     // Declaration context node types
     public static final String VARIABLE_DECLARATOR = "variable_declarator";
     public static final String FORMAL_PARAMETER = "formal_parameter";
+    public static final String SPREAD_PARAMETER = "spread_parameter";
     public static final String LOCAL_VARIABLE_DECLARATION = "local_variable_declaration";
     public static final String ENHANCED_FOR_STATEMENT = "enhanced_for_statement";
     public static final String CATCH_FORMAL_PARAMETER = "catch_formal_parameter";

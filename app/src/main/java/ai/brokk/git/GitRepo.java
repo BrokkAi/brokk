@@ -2005,8 +2005,47 @@ public class GitRepo implements Closeable, IGitRepo {
         return new ArrayList<>(commits);
     }
 
-    /** One commit in a file’s history together with the path the file had inside that commit. */
-    public record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
+    /**
+     * Retrieves git history for a path (file, directory, or empty for repo-wide).
+     */
+    @Override
+    public List<CommitInfo> getGitLog(String path, int limit) throws GitAPIException {
+        if (path.isEmpty()) {
+            return listCommitsDetailed("", limit);
+        }
+
+        // Canonicalize the path relative to project root
+        var canonicalPath = Path.of(path).normalize();
+        var absPath = projectRoot.resolve(canonicalPath);
+
+        // Check if the path is a file that exists or is tracked
+        var projectFile = new ProjectFile(projectRoot, canonicalPath);
+        boolean isTrackedFile = getTrackedFiles().contains(projectFile);
+        boolean isExistingFile = java.nio.file.Files.isRegularFile(absPath);
+        boolean isDirectory = java.nio.file.Files.isDirectory(absPath);
+
+        if (isTrackedFile || isExistingFile) {
+            return getFileHistory(projectFile, limit);
+        } else if (isDirectory) {
+            return getPathLog(toUnixPath(canonicalPath), limit);
+        }
+
+        // Path doesn't exist as file or directory - try as a path prefix in git log
+        return getPathLog(toRepoRelativePath(projectFile), limit);
+    }
+
+    private List<CommitInfo> getPathLog(String repoRelPath, int limit) throws GitAPIException {
+        var logCommand = git.log().addPath(repoRelPath);
+        if (limit < Integer.MAX_VALUE) {
+            logCommand.setMaxCount(limit);
+        }
+
+        var results = new ArrayList<CommitInfo>();
+        for (var revCommit : logCommand.call()) {
+            results.add(fromRevCommit(revCommit));
+        }
+        return results;
+    }
 
     /**
      * Like {`getFileHistory`} but also returns, for each commit, the path the file had *in that commit* (following
@@ -2211,6 +2250,8 @@ public class GitRepo implements Closeable, IGitRepo {
         remote().fetchPrRef(prNumber, "origin");
     }
 
+    public record SearchCommitsResult(List<CommitInfo> commits, boolean truncated) {}
+
     /**
      * Search commits whose full message, author name, or author e-mail match the supplied regular expression
      * (case-insensitive).
@@ -2221,6 +2262,14 @@ public class GitRepo implements Closeable, IGitRepo {
      * @throws GitRepoException if the regex is invalid
      */
     public List<CommitInfo> searchCommits(String query) throws GitAPIException {
+        return searchCommitsWithTruncation(query, Integer.MAX_VALUE).commits();
+    }
+
+    public SearchCommitsResult searchCommits(String query, int limit) throws GitAPIException {
+        return searchCommitsWithTruncation(query, limit);
+    }
+
+    private SearchCommitsResult searchCommitsWithTruncation(String query, int limit) throws GitAPIException {
         var matches = new ArrayList<CommitInfo>();
 
         Pattern pattern = null;
@@ -2236,13 +2285,16 @@ public class GitRepo implements Closeable, IGitRepo {
             } else {
                 // Try again with pattern escaping from the start
                 try {
-                    return searchCommits(".*" + Pattern.quote(query) + ".*");
+                    return searchCommitsWithTruncation(".*" + Pattern.quote(query) + ".*", limit);
                 } catch (PatternSyntaxException rethrownException) {
                     regexValid = false;
                 }
             }
         }
         final String fallbackPattern = query.toLowerCase(Locale.ROOT);
+
+        // Collect up to limit + 1 so we can distinguish "exactly limit" from "more than limit"
+        int collectLimit = (limit == Integer.MAX_VALUE) ? Integer.MAX_VALUE : limit + 1;
 
         for (var commit : git.log().call()) {
             var msg = commit.getFullMessage();
@@ -2263,9 +2315,17 @@ public class GitRepo implements Closeable, IGitRepo {
 
             if (match) {
                 matches.add(this.fromRevCommit(commit));
+                if (matches.size() >= collectLimit) {
+                    break;
+                }
             }
         }
-        return matches;
+
+        boolean truncated = matches.size() > limit;
+        if (truncated) {
+            matches.remove(matches.size() - 1);
+        }
+        return new SearchCommitsResult(List.copyOf(matches), truncated);
     }
 
     @Override

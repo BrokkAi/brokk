@@ -1,22 +1,33 @@
 import asyncio
 import logging
 import random
+import re
 import time
+import webbrowser
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Header
+from textual.widgets import Button, Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
-from brokk_code.settings import DEFAULT_THEME, Settings, normalize_theme_name
-from brokk_code.widgets.chat_panel import ChatPanel
+from brokk_code.settings import (
+    DEFAULT_THEME,
+    Settings,
+    normalize_theme_name,
+    write_brokk_api_key,
+)
+from brokk_code.welcome import build_welcome_message, get_braille_icon
+from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
+from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
+from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +37,6 @@ class ContextModalScreen(ModalScreen[None]):
 
     BINDINGS = [
         Binding("escape", "close_context", "Close", show=False),
-        Binding("ctrl+l", "close_context", "Close", show=False),
     ]
 
     def __init__(self, on_close: Callable[[], None]) -> None:
@@ -45,18 +55,579 @@ class ContextModalScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class TaskListModalScreen(ModalScreen[None]):
+    """Full-screen modal wrapper for the task list panel."""
+
+    BINDINGS = [
+        Binding("escape", "close_tasklist", "Close", show=False),
+    ]
+
+    def __init__(self, on_close: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_close = on_close
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="tasklist-modal-container"):
+            yield TaskListPanel(id="tasklist-panel")
+
+    def on_mount(self) -> None:
+        self.query_one(TaskListPanel).focus()
+
+    def action_close_tasklist(self) -> None:
+        self._on_close()
+        self.dismiss(None)
+
+
+class TaskTitleModalScreen(ModalScreen[Optional[str]]):
+    """Small modal to prompt for a task title (add/edit)."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, title: str, *, initial: str = "") -> None:
+        super().__init__()
+        self._title = title
+        self._initial = initial
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="task-title-modal-container"):
+            yield Static(self._title, id="task-title-modal-title")
+            yield Input(value=self._initial, placeholder="Task title", id="task-title-input")
+
+    def on_mount(self) -> None:
+        inp = self.query_one("#task-title-input", Input)
+        inp.focus()
+        inp.cursor_position = len(inp.value)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = str(event.value or "").strip()
+        self.dismiss(value if value else None)
+
+
+class BrokkApiKeyModalScreen(ModalScreen[None]):
+    """Modal to prompt for the Brokk API key."""
+
+    BINDINGS = [
+        Binding("ctrl+c", "quit_prompt", "Quit", show=False),
+        Binding("ctrl+d", "quit_prompt", "Quit", show=False),
+    ]
+
+    def __init__(
+        self,
+        on_submit: Callable[[str], asyncio.Future[bool] | Any],
+        message: str = "Enter Brokk API Key",
+        is_update: bool = False,
+    ) -> None:
+        super().__init__()
+        self._on_submit = on_submit
+        self._message = message
+        self._is_update = is_update
+
+    def compose(self) -> ComposeResult:
+        from textual.widgets import LoadingIndicator, Markdown
+
+        with Vertical(id="api-key-modal-container"):
+            with VerticalScroll(id="api-key-modal-scroll"):
+                yield Static(get_braille_icon(), id="api-key-modal-icon")
+                yield Markdown(
+                    build_welcome_message(BrokkApp.get_slash_commands()),
+                    id="api-key-modal-welcome",
+                )
+            yield Static(self._message, id="api-key-modal-title")
+            yield LoadingIndicator(id="api-key-modal-spinner", classes="hidden")
+            yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
+            footer_text = "Press Ctrl+C or Ctrl+D to exit."
+            if self._is_update:
+                footer_text += (
+                    "\n[dim]Note: API key updates will apply to " + "the next executor restart.[/]"
+                )
+            yield Static(footer_text, id="api-key-modal-footer")
+
+    def on_mount(self) -> None:
+        self.query_one("#api-key-input", Input).focus()
+
+    async def action_quit_prompt(self) -> None:
+        await self.app.action_quit()
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = str(event.value or "").strip()
+        if not value:
+            self.query_one("#api-key-modal-title", Static).update(
+                "[bold red]API Key is required[/]"
+            )
+            return
+
+        # Show spinner and disable input while processing
+        spinner = self.query_one("#api-key-modal-spinner")
+        title = self.query_one("#api-key-modal-title", Static)
+        spinner.remove_class("hidden")
+        event.input.disabled = True
+        if self._is_update:
+            title.update("Saving key...")
+        else:
+            title.update("Starting Brokk... (first run may take a moment)")
+
+        try:
+            res = self._on_submit(value)
+            if asyncio.iscoroutine(res):
+                success = await res
+            else:
+                success = bool(res)
+
+            if success:
+                self.dismiss(None)
+            else:
+                spinner.add_class("hidden")
+                title.update("[bold red]Failed to save API key[/]")
+                event.input.disabled = False
+                event.input.focus()
+        except Exception as e:
+            logger.exception("API key submission failed")
+            spinner.add_class("hidden")
+            title.update(f"[bold red]{str(e)}[/]")
+            event.input.disabled = False
+            event.input.focus()
+
+
+class OpenAiAuthUrlModalScreen(ModalScreen[None]):
+    """Modal for copying/opening the OpenAI OAuth URL safely."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close", show=False),
+    ]
+
+    def __init__(self, auth_url: str) -> None:
+        super().__init__()
+        self._auth_url = auth_url
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="openai-auth-modal-container"):
+            yield Static("OpenAI Authorization", id="openai-auth-modal-title")
+            yield Static(
+                "Use Copy URL to avoid terminal wrapping/copy issues.",
+                id="openai-auth-modal-help",
+            )
+            yield Input(value=self._auth_url, id="openai-auth-url-input")
+            with Horizontal(id="openai-auth-modal-actions"):
+                yield Button("Copy URL", id="openai-auth-copy", variant="primary")
+                yield Button("Open Browser", id="openai-auth-open")
+                yield Button("Close", id="openai-auth-close")
+            yield Static("", id="openai-auth-modal-status")
+
+    def on_mount(self) -> None:
+        inp = self.query_one("#openai-auth-url-input", Input)
+        inp.focus()
+        inp.cursor_position = 0
+        try:
+            inp.select_all()
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        status = self.query_one("#openai-auth-modal-status", Static)
+        button_id = event.button.id or ""
+        if button_id == "openai-auth-copy":
+            try:
+                self.app.copy_to_clipboard(self._auth_url)
+                status.update("Copied URL to clipboard.")
+            except Exception as e:
+                logger.exception("Failed to copy OpenAI OAuth URL to clipboard")
+                status.update(f"Copy failed: {e}")
+            return
+        if button_id == "openai-auth-open":
+            try:
+                opened = bool(webbrowser.open(self._auth_url))
+                status.update(
+                    "Opened default browser." if opened else "Could not open browser automatically."
+                )
+            except Exception as e:
+                logger.exception("Failed to open OpenAI OAuth URL from modal")
+                status.update(f"Open failed: {e}")
+            return
+        if button_id == "openai-auth-close":
+            self.dismiss(None)
+
+
+class ModelSelectModal(ModalScreen[str]):
+    """A modal for selecting from available models."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, models: List[str]) -> None:
+        super().__init__()
+        self.models = models
+        self._item_id_to_model: Dict[str, str] = {
+            f"model-{idx}": model for idx, model in enumerate(models)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="model-select-container"):
+            yield Static("Select Model", id="model-select-title")
+            with VerticalScroll(id="model-select-list-wrap"):
+                yield ListView(
+                    *[
+                        ListItem(Static(model_name), id=item_id)
+                        for item_id, model_name in self._item_id_to_model.items()
+                    ],
+                    id="model-select-list",
+                )
+
+    def on_mount(self) -> None:
+        self.query_one("#model-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        model_name = self._item_id_to_model.get(message.item.id)
+        if model_name:
+            self.dismiss(model_name)
+
+
+class ReasoningSelectModal(ModalScreen[str]):
+    """A modal for selecting the reasoning level."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, levels: List[str], current: str) -> None:
+        super().__init__()
+        self.levels = levels
+        self.current = current
+        self._item_id_to_level: Dict[str, str] = {
+            f"level-{idx}": level for idx, level in enumerate(levels)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="reasoning-select-container"):
+            yield Static("Select Reasoning", id="reasoning-select-title")
+            with VerticalScroll(id="reasoning-select-list-wrap"):
+                yield ListView(
+                    *[
+                        ListItem(
+                            Static(
+                                f"{'[x]' if level == self.current else '[ ]'} {level}",
+                                markup=False,
+                            ),
+                            id=item_id,
+                        )
+                        for item_id, level in self._item_id_to_level.items()
+                    ],
+                    id="reasoning-select-list",
+                )
+
+    def on_mount(self) -> None:
+        self.query_one("#reasoning-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        level = self._item_id_to_level.get(message.item.id)
+        if level:
+            self.dismiss(level)
+
+
+class ModeSelectModal(ModalScreen[str]):
+    """A modal for selecting the agent mode."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, modes: List[str], current: str) -> None:
+        super().__init__()
+        self.modes = modes
+        self.current = current
+        self._item_id_to_mode: Dict[str, str] = {
+            f"mode-{idx}": mode for idx, mode in enumerate(modes)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="mode-select-container"):
+            yield Static("Select Mode", id="mode-select-title")
+            with VerticalScroll(id="mode-select-list-wrap"):
+                yield ListView(
+                    *[
+                        ListItem(
+                            Static(
+                                f"{'[x]' if mode == self.current else '[ ]'} {mode}",
+                                markup=False,
+                            ),
+                            id=item_id,
+                        )
+                        for item_id, mode in self._item_id_to_mode.items()
+                    ],
+                    id="mode-select-list",
+                )
+
+    def on_mount(self) -> None:
+        self.query_one("#mode-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        mode = self._item_id_to_mode.get(message.item.id)
+        if mode:
+            self.dismiss(mode)
+
+
+class SessionSelectModal(ModalScreen[str]):
+    """A modal for selecting and switching between sessions."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+        Binding("n", "new_session", "New", show=False),
+        Binding("r", "rename_session", "Rename", show=False),
+        Binding("d", "delete_session", "Delete", show=False),
+        Binding("x", "delete_session", "Delete", show=False),
+    ]
+
+    def __init__(
+        self,
+        sessions: List[Dict[str, Any]],
+        current_id: str,
+        on_rename: Optional[Callable[[str, str], Awaitable[bool]]] = None,
+    ) -> None:
+        super().__init__()
+        self.sessions = sessions
+        self.current_id = current_id
+        self._on_rename = on_rename
+        self._item_id_to_session_id: Dict[str, str] = {
+            f"session-{idx}": str(s.get("id", "")) for idx, s in enumerate(sessions)
+        }
+
+    @staticmethod
+    def _format_session_row(s: Dict[str, Any]) -> str:
+        title_width = 60
+        date_width = 16  # matches "YYYY-MM-DD HH:MM"
+
+        name = s.get("name") or s.get("id")
+        title = (str(name or "")).strip()
+        title = title[:title_width]
+
+        # Modified time
+        modified = s.get("modified", 0)
+        date_text = ""
+        if modified > 0:
+            dt = datetime.fromtimestamp(modified / 1000)
+            date_text = dt.strftime("%Y-%m-%d %H:%M")
+
+        # AI responses (entries)
+        ai_responses = s.get("aiResponses", 0)
+        entry_text = ""
+        if ai_responses > 0:
+            suffix = "entry" if ai_responses == 1 else "entries"
+            entry_text = f"{ai_responses} {suffix}"
+
+        return f"{title:<{title_width}}  {date_text:<{date_width}}  {entry_text}".rstrip()
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="session-select-container"):
+            yield Static("Select Session", id="session-select-title")
+            with VerticalScroll(id="session-select-list-wrap"):
+                items = []
+                for item_id, s in zip(self._item_id_to_session_id.keys(), self.sessions):
+                    label = self._format_session_row(s)
+                    items.append(ListItem(Static(label, markup=False), id=item_id))
+
+                yield ListView(*items, id="session-select-list")
+            yield Static(
+                "Enter: Switch  [bold]N[/]: New  [bold]R[/]: Rename "
+                + " [bold]D[/]: Delete  Esc: Cancel",
+                id="session-select-footer",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#session-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        selected_id = self._item_id_to_session_id.get(message.item.id)
+        if selected_id:
+            self.dismiss(selected_id)
+
+    def action_rename_session(self) -> None:
+        list_view = self.query_one("#session-select-list", ListView)
+        if list_view.highlighted_child and list_view.highlighted_child.id:
+            session_id = self._item_id_to_session_id.get(list_view.highlighted_child.id)
+            if not session_id:
+                return
+
+            initial_name = ""
+            for s in self.sessions:
+                if str(s.get("id")) == session_id:
+                    initial_name = s.get("name") or ""
+                    break
+
+            def on_rename_submitted(new_name: Optional[str]) -> None:
+                if not new_name or not new_name.strip() or self._on_rename is None:
+                    return
+                clean_name = new_name.strip()
+
+                async def do_rename() -> None:
+                    renamed = await self._on_rename(session_id, clean_name)
+                    if not renamed:
+                        return
+                    self._update_session_name(session_id, clean_name)
+
+                self.app.run_worker(do_rename())
+
+            self.app.push_screen(
+                TaskTitleModalScreen("Rename Session", initial=initial_name),
+                on_rename_submitted,
+            )
+
+    def action_new_session(self) -> None:
+        self.dismiss("new")
+
+    def action_delete_session(self) -> None:
+        list_view = self.query_one("#session-select-list", ListView)
+        if list_view.highlighted_child and list_view.highlighted_child.id:
+            session_id = self._item_id_to_session_id.get(list_view.highlighted_child.id)
+            if session_id:
+                self.dismiss(f"delete:{session_id}")
+
+    def _update_session_name(self, session_id: str, new_name: str) -> None:
+        for s in self.sessions:
+            if str(s.get("id")) == session_id:
+                s["name"] = new_name
+                break
+
+        item_id = next(
+            (item_id for item_id, sid in self._item_id_to_session_id.items() if sid == session_id),
+            None,
+        )
+        if not item_id:
+            return
+
+        list_view = self.query_one("#session-select-list", ListView)
+        item = next((child for child in list_view.children if child.id == item_id), None)
+        if not isinstance(item, ListItem):
+            return
+
+        try:
+            label_widget = item.query_one(Static)
+        except Exception:
+            return
+
+        session = next((s for s in self.sessions if str(s.get("id")) == session_id), None)
+        if not session:
+            return
+
+        label_widget.update(self._format_session_row(session))
+
+
+class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
+    """A combined modal for selecting both model and reasoning level side-by-side."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, models: List[str], current_model: str, current_reasoning: str) -> None:
+        super().__init__()
+        self.models = models
+        self.selected_model = current_model
+        self.selected_reasoning = current_reasoning
+        self.reasoning_levels = ["disable", "low", "medium", "high"]
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="model-reasoning-combined-container"):
+            with Vertical(classes="selection-pane"):
+                yield Static("Model", id="model-select-title")
+                with VerticalScroll(id="model-select-list-wrap"):
+                    items = []
+                    for idx, m in enumerate(self.models):
+                        label = f"{'[x]' if m == self.selected_model else '[ ]'} {m}"
+                        items.append(ListItem(Static(label, markup=False), id=f"m-{idx}"))
+                    yield ListView(*items, id="model-select-list")
+
+            with Vertical(classes="selection-pane"):
+                yield Static("Reasoning", id="reasoning-select-title")
+                with VerticalScroll(id="reasoning-select-list-wrap"):
+                    items = []
+                    for idx, r in enumerate(self.reasoning_levels):
+                        label = f"{'[x]' if r == self.selected_reasoning else '[ ]'} {r}"
+                        items.append(ListItem(Static(label, markup=False), id=f"r-{idx}"))
+                    yield ListView(*items, id="reasoning-select-list")
+
+    def on_mount(self) -> None:
+        # Sync model list highlight
+        try:
+            m_list = self.query_one("#model-select-list", ListView)
+            m_idx = self.models.index(self.selected_model)
+            m_list.index = m_idx
+        except (ValueError, Exception):
+            pass
+
+        # Sync reasoning list highlight
+        try:
+            r_list = self.query_one("#reasoning-select-list", ListView)
+            r_idx = self.reasoning_levels.index(self.selected_reasoning)
+            r_list.index = r_idx
+        except (ValueError, Exception):
+            pass
+
+        # Focus the model list by default
+        self.query_one("#model-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+
+        try:
+            if message.list_view.id == "model-select-list":
+                # IDs are 'm-0', 'm-1', etc.
+                idx_str = message.item.id.split("-")[-1]
+                idx = int(idx_str)
+                self.selected_model = self.models[idx]
+                # Update markers in model list
+                for i, item in enumerate(message.list_view.query(ListItem)):
+                    marker = "[x]" if i == idx else "[ ]"
+                    # The Static widget was created with markup=False in compose()
+                    item.query_one(Static).update(f"{marker} {self.models[i]}")
+
+                # Sync and focus reasoning list
+                r_list = self.query_one("#reasoning-select-list", ListView)
+                try:
+                    r_idx = self.reasoning_levels.index(self.selected_reasoning)
+                    r_list.index = r_idx
+                except (ValueError, Exception):
+                    pass
+                r_list.focus()
+
+            elif message.list_view.id == "reasoning-select-list":
+                # IDs are 'r-0', 'r-1', etc.
+                idx_str = message.item.id.split("-")[-1]
+                idx = int(idx_str)
+                self.selected_reasoning = self.reasoning_levels[idx]
+                # Dismiss immediately upon reasoning selection
+                self.dismiss((self.selected_model, self.selected_reasoning))
+        except (ValueError, IndexError):
+            logger.error("Failed to parse index from ListItem id: %s", message.item.id)
+
+
 class BrokkApp(App):
-    """The main Brokk TUI application."""
+    """The main Brokk TUI application.
+
+    Task list UI policy:
+    - The task list is accessed via a full-screen modal (TaskListModalScreen).
+    - The side task list panel remains mounted for layout stability and potential future use,
+      but it is not toggled by /task.
+    """
 
     CSS_PATH = "styles/app.tcss"
+    COMMAND_PALETTE_DISPLAY = "Settings"
     BINDINGS = [
+        # Footer/help-bar ordering: Context, Tasks, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
-        Binding("ctrl+l", "toggle_context", "Context", show=True),
-        Binding("ctrl+n", "toggle_notifications", "Notifications", show=True),
-        Binding("ctrl+t", "toggle_tasklist", "Tasks", show=True),
-        Binding("ctrl+g", "toggle_mode", "Mode", show=True),
-        Binding("f3", "toggle_mode", "Mode", show=True),
-        Binding("f2", "change_theme", "Theme Palette", show=True),
+        Binding("ctrl+p", "command_palette", "Settings", show=True),
+        Binding("ctrl+o", "toggle_output", "Toggle Output", show=True),
+        Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
 
     def __init__(
@@ -67,41 +638,93 @@ class BrokkApp(App):
         executor_snapshot: bool = True,
         executor: Optional[ExecutorManager] = None,
         session_id: Optional[str] = None,
-        resume_session: bool = True,
+        resume_session: bool = False,
+        vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
+        self.settings = Settings.load()
         if executor:
             self.executor = executor
             if workspace_dir:
-                self.executor.workspace_dir = workspace_dir.resolve()
+                self.executor.workspace_dir = resolve_workspace_dir(workspace_dir)
+            if vendor is not None:
+                self.executor.vendor = vendor
         else:
             self.executor = ExecutorManager(
-                workspace_dir or Path.cwd(),
+                resolve_workspace_dir(workspace_dir or Path.cwd()),
                 jar_path,
                 executor_version=executor_version,
                 executor_snapshot=executor_snapshot,
+                vendor=vendor,
+                exit_on_stdin_eof=True,
+                brokk_api_key=self.settings.get_brokk_api_key(),
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
-        self.settings = Settings.load()
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
-        self.sub_title = f"Mode: {self.agent_mode}"
-        self.current_model = "gpt-5.2"
-        self.code_model: Optional[str] = "gemini-3-flash-preview"
-        self.reasoning_level: Optional[str] = "low"
-        self.reasoning_level_code: Optional[str] = "disable"
+        self.show_verbose_output: bool = False
+
+        # Initialize model and reasoning settings from persisted Settings if present,
+        # otherwise fall back to safe defaults.
+        # We accept persisted values as-is at startup; validation against the
+        # executor model catalog can occur later if needed.
+        self.current_model = (
+            str(self.settings.last_model).strip()
+            if self.settings.last_model and str(self.settings.last_model).strip()
+            else "gpt-5.2"
+        )
+        self.code_model = (
+            str(self.settings.last_code_model).strip()
+            if self.settings.last_code_model and str(self.settings.last_code_model).strip()
+            else "gemini-3-flash-preview"
+        )
+        self.reasoning_level = (
+            str(self.settings.last_reasoning_level).strip()
+            if self.settings.last_reasoning_level
+            and str(self.settings.last_reasoning_level).strip()
+            else "low"
+        )
+        self.reasoning_level_code = (
+            str(self.settings.last_code_reasoning_level).strip()
+            if self.settings.last_code_reasoning_level
+            else "disable"
+        )
+        self.auto_commit = (
+            bool(self.settings.last_auto_commit)
+            if isinstance(self.settings.last_auto_commit, bool)
+            else True
+        )
+        self.current_branch = "unknown"
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
+        self._startup_pending_prompt: Optional[str] = None
         self._pending_updated_at: float = 0
         self._pending_generation: int = 0
         self._pending_min_wait_until: float = 0.0
         self._resubmit_grace_s: float = 0.2
         self._last_ctrl_c_time: float = 0
+        self._executor_started: bool = False
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
+        self._renamed_sessions: set[str] = set()
+        self._rename_session_lock = asyncio.Lock()
+        self._reasoning_target: str = "planner"
+
+        # Accumulators for LLM usage costs (USD).
+        # current_job_cost resets at the start of each new job submission.
+        # session_total_cost accumulates for the lifetime of the App instance.
+        self.current_job_cost: float = 0.0
+        self.session_total_cost: float = 0.0
+
+        self._tasklist_restore_focus_widget: Any | None = None
+
+        # Shutdown coordination flags and lock
+        self._shutting_down: bool = False
+        self._shutdown_completed: bool = False
+        self._shutdown_lock = asyncio.Lock()
 
     @property
     def current_mode(self) -> str:
@@ -119,39 +742,115 @@ class BrokkApp(App):
         except (ScreenStackError, Exception):
             return None
 
+    def _show_welcome_message(self) -> None:
+        """Constructs and displays the branded welcome message in the ChatPanel."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        chat.add_welcome(get_braille_icon(), build_welcome_message(self.get_slash_commands()))
+
+    def _maybe_statusline(self) -> Optional[StatusLine]:
+        """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
+        try:
+            chat = self._maybe_chat()
+            if chat:
+                return chat.query_one(StatusLine)
+            return self.query_one(StatusLine)
+        except (ScreenStackError, Exception):
+            return None
+
+    def _update_statusline(self) -> None:
+        """Collect current state and update the mounted StatusLine (best-effort)."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+        try:
+            status = chat.query_one("#status-line", StatusLine)
+        except Exception:
+            return
+        if not status:
+            return
+        try:
+            workspace = None
+            try:
+                if getattr(self, "executor", None) is not None:
+                    ws = getattr(self.executor, "workspace_dir", None)
+                    if ws is not None:
+                        workspace = str(ws)
+            except Exception:
+                workspace = None
+
+            status.update_status(
+                mode=getattr(self, "current_mode", getattr(self, "agent_mode", "unknown")),
+                model=getattr(self, "current_model", None),
+                reasoning=getattr(self, "reasoning_level", None),
+                workspace=workspace,
+                branch=getattr(self, "current_branch", "unknown"),
+                turn_cost=getattr(self, "current_job_cost", None),
+                session_cost=getattr(self, "session_total_cost", None),
+            )
+        except Exception:
+            # Swallow all errors when updating UI that's possibly not mounted in tests.
+            return
+
     def compose(self) -> ComposeResult:
-        yield Header()
         with Horizontal():
             yield ChatPanel(id="chat-main")
             yield TaskListPanel(id="side-tasklist")
-        yield Footer()
 
     async def on_mount(self) -> None:
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
+            chat.show_verbose = self.show_verbose_output
             chat.set_token_bar_visible(True)
-            chat.add_system_message("Starting Brokk executor...")
 
             # Load initial prompt history for arrow-key navigation
             history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
 
-        self.run_worker(self._start_executor())
+            self._show_welcome_message()
+
+        # Check for API key before starting executor
+        if not self.settings.get_brokk_api_key():
+
+            async def on_key_entered(key: str) -> bool:
+                try:
+                    await asyncio.to_thread(write_brokk_api_key, key)
+                    self.executor.brokk_api_key = key
+                    if chat:
+                        chat.add_system_message("API key saved. Starting Brokk executor...")
+                    self.run_worker(self._start_executor())
+                    return True
+                except Exception as e:
+                    logger.exception("Failed to save API key on startup")
+                    raise e
+
+            self.push_screen(BrokkApiKeyModalScreen(on_submit=on_key_entered))
+        else:
+            if chat:
+                chat.add_system_message("Starting Brokk executor...")
+            self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
         self.run_worker(self._poll_tasklist())
         self.run_worker(self._poll_context())
+        self._update_statusline()
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
         try:
             from brokk_code.session_persistence import (
-                get_session_zip_path,
+                get_session_zip_resume_path,
                 load_last_session_id,
                 save_last_session_id,
             )
 
             await self.executor.start()
+            # Mark as started only after successful launch so monitor begins checks
+            self._executor_started = True
 
             # Fetch and display effective build hint immediately
             try:
@@ -174,7 +873,9 @@ class BrokkApp(App):
 
             resumed = False
             if session_to_resume:
-                zip_path = get_session_zip_path(self.executor.workspace_dir, session_to_resume)
+                zip_path = get_session_zip_resume_path(
+                    self.executor.workspace_dir, session_to_resume
+                )
                 if zip_path.exists():
                     try:
                         msg = f"Resuming session {session_to_resume}..."
@@ -198,12 +899,30 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
-                if chat:
-                    chat.add_system_message("Ready!")
-                else:
-                    logger.info("Executor ready")
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
+
+                if resumed:
+                    try:
+                        conversation_data = await self.executor.get_conversation()
+                        replayed = self._replay_conversation_entries(conversation_data)
+                        if replayed:
+                            msg = (
+                                f"Replayed {replayed} conversation "
+                                f"{'entry' if replayed == 1 else 'entries'}."
+                            )
+                            if chat:
+                                chat.add_system_message(msg)
+                            else:
+                                logger.info(msg)
+                    except Exception as e:
+                        logger.warning("Failed to replay conversation transcript: %s", e)
+
+                # Process prompt queued during startup
+                if self._startup_pending_prompt:
+                    queued_prompt = self._startup_pending_prompt
+                    self._startup_pending_prompt = None
+                    self.run_worker(self._run_job(queued_prompt))
             else:
                 msg = "Executor failed to become ready (timeout)."
                 if chat:
@@ -211,22 +930,42 @@ class BrokkApp(App):
                 else:
                     logger.error(msg)
         except ExecutorError as e:
+            msg = str(e)
+            if "jbang" in msg.lower():
+                msg += (
+                    "\n\nHint: Install jbang from https://jbang.dev "
+                    "or provide a local JAR with --jar."
+                )
             if chat:
-                chat.add_system_message(str(e), level="ERROR")
+                chat.add_system_message(msg, level="ERROR")
             else:
-                logger.error(str(e))
+                logger.error(msg)
         except Exception as e:
             msg = f"Unexpected startup error: {e}"
             if chat:
                 chat.add_system_message(msg, level="ERROR")
             else:
                 logger.error(msg)
+        finally:
+            if chat:
+                chat.set_job_running(False)
 
     async def _monitor_executor(self) -> None:
         """Background worker to check if the executor dies unexpectedly."""
         while True:
+            if not self._executor_started:
+                await asyncio.sleep(0.5)
+                continue
+
             await asyncio.sleep(2.0)
+            # Re-check started flag in case of rapid stop during sleep
+            if not self._executor_started:
+                continue
+
             if not self.executor.check_alive():
+                if self._shutting_down or self._shutdown_completed:
+                    logger.debug("Executor process exited during shutdown.")
+                    break
                 msg = "Executor process crashed unexpectedly."
                 chat = self._maybe_chat()
                 if chat:
@@ -242,7 +981,7 @@ class BrokkApp(App):
                 # We poll even if a job is running, as /v1/tasklist is low impact
                 try:
                     tasklist_data = await self.executor.get_tasklist()
-                    self.query_one(TaskListPanel).update_tasklist_details(tasklist_data)
+                    self._update_tasklist_details_all(tasklist_data)
                 except Exception:
                     logger.debug("Periodic tasklist poll failed", exc_info=True)
             await asyncio.sleep(15.0)
@@ -264,6 +1003,17 @@ class BrokkApp(App):
         async with self._refresh_context_lock:
             try:
                 context_data = await self.executor.get_context()
+                self.current_branch = context_data.get("branch", "unknown")
+
+                # Seed or update session cost from executor's cumulative total
+                remote_total = context_data.get("totalCost")
+                if isinstance(remote_total, (int, float)):
+                    # We only seed from remote if our local tracker is 0 or if the remote
+                    # total is higher (e.g. following a resume).
+                    # Ongoing increments happen via _handle_event.
+                    self.session_total_cost = max(
+                        self.session_total_cost, round(float(remote_total), 6)
+                    )
 
                 # UI updates are best-effort if screen is not on stack
                 try:
@@ -273,10 +1023,11 @@ class BrokkApp(App):
                         self.query_one(ContextPanel).refresh_context(context_data)
                 except (ScreenStackError, Exception):
                     pass
+
                 try:
-                    task_list = self.query_one(TaskListPanel)
-                    if not task_list.has_detailed_info:
-                        task_list.refresh_tasklist(context_data)
+                    for task_list in self._tasklist_panels():
+                        if not task_list.has_detailed_info:
+                            task_list.refresh_tasklist(context_data)
                 except (ScreenStackError, Exception):
                     pass
 
@@ -285,7 +1036,12 @@ class BrokkApp(App):
                 if chat:
                     used = context_data.get("usedTokens", 0)
                     max_tokens = context_data.get("maxTokens")
-                    chat.set_token_usage(used, max_tokens)
+                    fragments = context_data.get("fragments")
+                    chat.set_token_usage(
+                        used, max_tokens, fragments, session_cost=self.session_total_cost
+                    )
+
+                self._update_statusline()
 
                 # Clear error tracking on success
                 self._reported_refresh_errors.clear()
@@ -321,6 +1077,14 @@ class BrokkApp(App):
                     await self.executor.drop_context_fragments(message.fragment_ids)
                     if chat:
                         chat.add_system_message(f"Dropped {len(message.fragment_ids)} fragment(s).")
+                case "drop_others":
+                    to_drop = self._compute_drop_others(
+                        panel._fragments, selected_fragments, panel._active_id
+                    )
+                    if to_drop:
+                        await self.executor.drop_context_fragments(to_drop)
+                        if chat:
+                            chat.add_system_message(f"Dropped {len(to_drop)} other fragment(s).")
                 case "drop_all":
                     await self.executor.drop_all_context()
                     if chat:
@@ -361,6 +1125,29 @@ class BrokkApp(App):
                 logger.error("Context action failed: %s", e)
 
     @staticmethod
+    def _compute_drop_others(
+        all_fragments: List[Dict[str, Any]],
+        selected_fragments: List[Dict[str, Any]],
+        active_id: Optional[str],
+    ) -> List[str]:
+        protected_ids = {str(f.get("id", "")) for f in selected_fragments}
+        if active_id:
+            protected_ids.add(active_id)
+
+        to_drop = []
+        for f in all_fragments:
+            f_id = str(f.get("id", ""))
+            if not f_id or f_id in protected_ids:
+                continue
+            if bool(f.get("pinned", False)):
+                continue
+            chip_kind = str(f.get("chip_kind", f.get("chipKind", ""))).upper()
+            if chip_kind == "HISTORY":
+                continue
+            to_drop.append(f_id)
+        return to_drop
+
+    @staticmethod
     def _collect_pin_updates(selected_fragments: List[Dict[str, Any]]) -> List[tuple[str, bool]]:
         updates: List[tuple[str, bool]] = []
         for fragment in selected_fragments:
@@ -386,6 +1173,199 @@ class BrokkApp(App):
             updates.append((fragment_id, not current))
         return updates
 
+    def _tasklist_panels(self) -> List[TaskListPanel]:
+        """Return all mounted task list panels (side + modal if present)."""
+        panels: List[TaskListPanel] = []
+        try:
+            panels.append(self.query_one("#side-tasklist", TaskListPanel))
+        except Exception:
+            pass
+
+        try:
+            if isinstance(self.screen, TaskListModalScreen):
+                panels.append(self.screen.query_one(TaskListPanel))
+        except Exception:
+            pass
+
+        return panels
+
+    def _active_tasklist_panel(self) -> TaskListPanel:
+        """Return the panel that should receive task actions."""
+        try:
+            current_screen = self.screen
+        except ScreenStackError:
+            current_screen = None
+
+        if isinstance(current_screen, TaskListModalScreen):
+            try:
+                return current_screen.query_one(TaskListPanel)
+            except Exception:
+                # Modal may be current but its contents not mounted yet; fall back to side panel.
+                return self.query_one("#side-tasklist", TaskListPanel)
+
+        return self.query_one("#side-tasklist", TaskListPanel)
+
+    def _update_tasklist_details_all(self, tasklist_data: Dict[str, Any]) -> None:
+        for panel in self._tasklist_panels():
+            panel.update_tasklist_details(tasklist_data)
+
+    async def _ensure_tasklist_data(self) -> Optional[Dict[str, Any]]:
+        panel = self._active_tasklist_panel()
+        data = panel.tasklist_data_for_update()
+        if data is not None:
+            return data
+        data = await self.executor.get_tasklist()
+        self._update_tasklist_details_all(data)
+        return panel.tasklist_data_for_update()
+
+    async def _persist_tasklist(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        saved = await self.executor.set_tasklist(data)
+        self._update_tasklist_details_all(saved)
+        return saved
+
+    async def _toggle_selected_task(self) -> None:
+        chat = self.query_one(ChatPanel)
+        panel = self._active_tasklist_panel()
+        selected = panel.selected_task()
+        if not selected:
+            chat.add_system_message("No task selected.")
+            return
+
+        task_id = str(selected.get("id", "")).strip()
+        if not task_id:
+            chat.add_system_message("Selected task has no ID and cannot be updated.", level="ERROR")
+            return
+
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                chat.add_system_message("No task list active.")
+                return
+            tasks = data.get("tasks", [])
+            for task in tasks:
+                if str(task.get("id", "")).strip() == task_id:
+                    task["done"] = not bool(task.get("done", False))
+                    break
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to toggle task: {e}", level="ERROR")
+
+    async def _delete_selected_task(self) -> None:
+        chat = self.query_one(ChatPanel)
+        panel = self._active_tasklist_panel()
+        selected = panel.selected_task()
+        if not selected:
+            chat.add_system_message("No task selected.")
+            return
+
+        task_id = str(selected.get("id", "")).strip()
+        if not task_id:
+            chat.add_system_message("Selected task has no ID and cannot be deleted.", level="ERROR")
+            return
+
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                chat.add_system_message("No task list active.")
+                return
+            before = len(data.get("tasks", []))
+            data["tasks"] = [
+                task for task in data.get("tasks", []) if str(task.get("id", "")).strip() != task_id
+            ]
+            if len(data["tasks"]) == before:
+                chat.add_system_message("Selected task no longer exists.")
+                return
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to delete task: {e}", level="ERROR")
+
+    async def _add_task(self, title: str) -> None:
+        chat = self.query_one(ChatPanel)
+        normalized_title = title.strip()
+        if not normalized_title:
+            chat.add_system_message("Task title cannot be blank.", level="ERROR")
+            return
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                data = {"bigPicture": None, "tasks": []}
+            tasks = data.get("tasks", [])
+            tasks.append({"title": normalized_title, "text": normalized_title, "done": False})
+            data["tasks"] = tasks
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to add task: {e}", level="ERROR")
+
+    async def _edit_selected_task(self, title: str) -> None:
+        chat = self.query_one(ChatPanel)
+        panel = self._active_tasklist_panel()
+        selected = panel.selected_task()
+        if not selected:
+            chat.add_system_message("No task selected.")
+            return
+
+        task_id = str(selected.get("id", "")).strip()
+        if not task_id:
+            chat.add_system_message("Selected task has no ID and cannot be updated.", level="ERROR")
+            return
+
+        normalized_title = title.strip()
+        if not normalized_title:
+            chat.add_system_message("Task title cannot be blank.", level="ERROR")
+            return
+
+        try:
+            data = await self._ensure_tasklist_data()
+            if not data:
+                chat.add_system_message("No task list active.")
+                return
+            updated = False
+            for task in data.get("tasks", []):
+                if str(task.get("id", "")).strip() == task_id:
+                    task["title"] = normalized_title
+                    if not str(task.get("text", "")).strip():
+                        task["text"] = normalized_title
+                    updated = True
+                    break
+            if not updated:
+                chat.add_system_message("Selected task no longer exists.")
+                return
+            await self._persist_tasklist(data)
+        except Exception as e:
+            chat.add_system_message(f"Failed to edit task: {e}", level="ERROR")
+
+    def on_chat_panel_mode_selected(self, message: ChatPanel.ModeSelected) -> None:
+        self._set_mode(message.mode.upper())
+
+    def on_chat_panel_reasoning_level_selected(
+        self, message: ChatPanel.ReasoningLevelSelected
+    ) -> None:
+        chat = self._maybe_chat()
+        if self._reasoning_target == "code":
+            self.reasoning_level_code = message.level
+            try:
+                self.settings.last_code_reasoning_level = message.level
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist code reasoning level")
+            if chat:
+                chat.add_system_message_markup(
+                    f"Code reasoning level changed to: [bold]{message.level}[/]"
+                )
+        else:
+            self.reasoning_level = message.level
+            try:
+                self.settings.last_reasoning_level = message.level
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist reasoning level")
+            if chat:
+                chat.add_system_message_markup(
+                    f"Reasoning level changed to: [bold]{message.level}[/]"
+                )
+
+        self._update_statusline()
+
     def on_chat_panel_submitted(self, message: ChatPanel.Submitted) -> None:
         """
         Handles user input from the chat panel.
@@ -393,7 +1373,7 @@ class BrokkApp(App):
         Persistence Policy:
         - Only non-command prompts (text not starting with '/') are recorded.
         - Prompts are recorded at the moment of submission, regardless of whether
-          they trigger a cancellation or are later aborted.
+        they trigger a cancellation or are later aborted.
         - History is stored in the project-specific directory:
           `self.executor.workspace_dir / ".brokk" / "prompts.json"`
         """
@@ -423,15 +1403,261 @@ class BrokkApp(App):
                 if self._pending_generation == 1:
                     chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
+            elif not self._executor_ready:
+                self._startup_pending_prompt = raw_text
+                chat.add_system_message("Queuing prompt until Brokk is ready...")
             else:
                 self.run_worker(self._run_job(raw_text))
 
-    async def _run_job(self, task_input: str) -> None:
-        self.job_in_progress = True
-        chat = self.query_one(ChatPanel)
-        chat.set_job_running(True)
-        chat.set_response_pending()
+    @staticmethod
+    def _extract_at_mentions(task_input: str) -> List[str]:
+        """Extracts whitespace-delimited @mention tokens from prompt text."""
+        tokens = re.findall(r"(?<!\S)@([^\s@]+)", task_input)
+        unique_tokens: List[str] = []
+        seen = set()
+        for token in tokens:
+            norm = token.strip()
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            unique_tokens.append(norm)
+        return unique_tokens
+
+    @staticmethod
+    def _extract_fragment_ids_from_add_context_response(resp: Any) -> List[str]:
+        if not isinstance(resp, dict):
+            return []
+
+        added = resp.get("added")
+        if not isinstance(added, list):
+            return []
+
+        ids: List[str] = []
+        for item in added:
+            if not isinstance(item, dict):
+                continue
+            raw_id = item.get("id", item.get("fragmentId"))
+            if raw_id is None:
+                continue
+            frag_id = str(raw_id).strip()
+            if frag_id:
+                ids.append(frag_id)
+
+        return list(dict.fromkeys(ids))
+
+    async def _attach_mentions_to_context(self, task_input: str) -> List[str]:
+        """Resolves @mentions and attaches matching entities to context before job submission.
+
+        Returns fragment IDs for any newly-attached context fragments when the executor's
+        add_context_* endpoints include them in their payload. If the executor does not
+        return fragment IDs, rollback-on-submit-failure is not possible.
+        """
+        mentions = self._extract_at_mentions(task_input)
+        if not mentions:
+            return []
+        if not hasattr(self.executor, "get_completions"):
+            return []
+
+        file_paths: List[str] = []
+        class_names: List[str] = []
+        method_names: List[str] = []
+
+        for mention in mentions:
+            try:
+                completion_data = await self.executor.get_completions(mention, limit=20)
+            except Exception:
+                logger.exception("Failed resolving @mention '%s' via completions", mention)
+                continue
+
+            raw_items = completion_data.get("completions", [])
+            if not isinstance(raw_items, list):
+                continue
+
+            selected: Optional[Dict[str, str]] = None
+            mention_lower = mention.lower()
+            for raw in raw_items:
+                if not isinstance(raw, dict):
+                    continue
+                detail = str(raw.get("detail", "")).strip()
+                name = str(raw.get("name", "")).strip()
+
+                if detail.lower() == mention_lower or name.lower() == mention_lower:
+                    selected = {
+                        "type": str(raw.get("type", "")).strip().lower(),
+                        "detail": detail,
+                        "name": name,
+                    }
+                    break
+
+            if selected is None:
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message(f"No exact match for @{mention}")
+                continue
+
+            completion_type = selected["type"]
+            detail = selected["detail"] or selected["name"]
+            if not detail:
+                continue
+
+            if completion_type == "file":
+                file_paths.append(detail)
+            elif completion_type in {"class", "module"}:
+                class_names.append(detail)
+            elif completion_type == "function":
+                method_names.append(detail)
+            elif completion_type == "field":
+                if "." in detail:
+                    class_names.append(detail.rsplit(".", 1)[0])
+
+        # De-duplicate while preserving order
+        file_paths = list(dict.fromkeys(file_paths))
+        class_names = list(dict.fromkeys(class_names))
+        method_names = list(dict.fromkeys(method_names))
+
+        attached_parts: List[str] = []
+        attached_fragment_ids: List[str] = []
+
+        if file_paths and hasattr(self.executor, "add_context_files"):
+            try:
+                resp = await self.executor.add_context_files(file_paths)
+                attached_fragment_ids.extend(
+                    self._extract_fragment_ids_from_add_context_response(resp)
+                )
+                attached_parts.append(f"files={len(file_paths)}")
+            except Exception:
+                logger.exception("Failed attaching @mentions as context files")
+        if class_names and hasattr(self.executor, "add_context_classes"):
+            try:
+                resp = await self.executor.add_context_classes(class_names)
+                attached_fragment_ids.extend(
+                    self._extract_fragment_ids_from_add_context_response(resp)
+                )
+                attached_parts.append(f"classes={len(class_names)}")
+            except Exception:
+                logger.exception("Failed attaching @mentions as context classes")
+        if method_names and hasattr(self.executor, "add_context_methods"):
+            try:
+                resp = await self.executor.add_context_methods(method_names)
+                attached_fragment_ids.extend(
+                    self._extract_fragment_ids_from_add_context_response(resp)
+                )
+                attached_parts.append(f"methods={len(method_names)}")
+            except Exception:
+                logger.exception("Failed attaching @mentions as context methods")
+
+        if attached_parts:
+            chat = self._maybe_chat()
+            if chat:
+                details = ", ".join(attached_parts)
+                chat.add_system_message(f"Attached @mentions to context: {details}")
+
+        return list(dict.fromkeys(attached_fragment_ids))
+
+    async def _login_openai(self) -> None:
+        """Async helper to initiate OpenAI OAuth login flow."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        if not self._executor_ready:
+            chat.add_system_message(
+                "Brokk executor is not yet ready. Please wait a moment and try again.",
+                level="WARNING",
+            )
+            return
+
         try:
+            resp = await self.executor.start_openai_oauth()
+            auth_url = resp.get("url") if isinstance(resp, dict) else None
+            if isinstance(auth_url, str) and auth_url:
+                opened = False
+                try:
+                    opened = bool(await asyncio.to_thread(webbrowser.open, auth_url))
+                except Exception:
+                    logger.exception("Failed to open OpenAI OAuth URL from TUI client")
+                chat.add_system_message(
+                    "Starting OpenAI authorization. "
+                    + ("Browser opened. " if opened else "")
+                    + "Use the OpenAI Authorization modal to copy the exact URL."
+                )
+                try:
+                    self.push_screen(OpenAiAuthUrlModalScreen(auth_url))
+                except Exception:
+                    logger.exception("Failed to open OpenAI OAuth URL modal")
+                    chat.add_system_message(
+                        "OpenAI auth URL (exact): " + auth_url,
+                        level="WARNING",
+                    )
+            else:
+                chat.add_system_message(
+                    "Opening browser for OpenAI authorization. After completing the login flow, "
+                    "Codex-gated models will become available."
+                )
+        except Exception as e:
+            logger.exception("OpenAI OAuth login failed")
+            chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
+
+    def _derive_session_name(self, text: str) -> str:
+        """Derives a short session name from the first prompt text."""
+        # Strip leading mentions and common command-like prefixes
+        cleaned = re.sub(r"^(?:@\S+\s+|/ask\s+|/lutz\s+|/code\s+)+", "", text, flags=re.IGNORECASE)
+        # Take first line and truncate
+        first_line = cleaned.strip().split("\n")[0]
+        if len(first_line) > 60:
+            return first_line[:57].strip() + "..."
+        return first_line
+
+    async def _maybe_rename_session(self, first_prompt: str) -> None:
+        """Asynchronously renames the session if it's new/unnamed."""
+        session_id = self.executor.session_id
+        if not session_id:
+            return
+
+        async with self._rename_session_lock:
+            if session_id in self._renamed_sessions:
+                return
+
+            # Check if the session name is generic before renaming
+            try:
+                sessions_data = await self.executor.list_sessions()
+                current_id = sessions_data.get("currentSessionId")
+                sessions = sessions_data.get("sessions", [])
+
+                # Find current session and check if it's using the default name
+                current_session = next((s for s in sessions if s.get("id") == current_id), None)
+                if not current_session or current_session.get("name") != "TUI Session":
+                    # Already named or not found; mark as "renamed" to skip further checks
+                    self._renamed_sessions.add(session_id)
+                    return
+
+                new_name = self._derive_session_name(first_prompt)
+                if not new_name:
+                    return
+
+                await self.executor.rename_session(session_id, new_name)
+                self._renamed_sessions.add(session_id)
+
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message(f"Session renamed to: {new_name}")
+            except Exception as e:
+                logger.warning("Failed to auto-rename session: %s", e)
+
+    async def _run_job(self, task_input: str) -> None:
+        # Attempt auto-rename on first prompt if session is default
+        if self._executor_ready and self.executor.session_id:
+            self.run_worker(self._maybe_rename_session(task_input))
+
+        self.current_job_cost = 0.0
+        self.job_in_progress = True
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
+            chat.set_response_pending()
+        attached_fragment_ids: List[str] = []
+        try:
+            attached_fragment_ids = await self._attach_mentions_to_context(task_input)
             self.current_job_id = await self.executor.submit_job(
                 task_input,
                 self.current_model,
@@ -439,13 +1665,36 @@ class BrokkApp(App):
                 reasoning_level=self.reasoning_level,
                 reasoning_level_code=self.reasoning_level_code,
                 mode=self.current_mode,
+                auto_commit=self.auto_commit,
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
         except Exception as e:
-            chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
+            if (
+                self.current_job_id is None
+                and attached_fragment_ids
+                and hasattr(self.executor, "drop_context_fragments")
+            ):
+                try:
+                    await self.executor.drop_context_fragments(attached_fragment_ids)
+                except Exception:
+                    logger.exception(
+                        "Failed to rollback context fragments after submit_job failure: %s",
+                        attached_fragment_ids,
+                    )
+
+            if chat:
+                err_type = type(e).__name__
+                chat.add_system_message(
+                    f"Job failed or interrupted ({err_type}): {e}",
+                    level="ERROR",
+                )
+            else:
+                logger.error("Job failed or interrupted (%s): %s", type(e).__name__, e)
         finally:
-            chat.set_response_finished()
+            if chat:
+                chat.set_response_finished()
+                chat.set_job_running(False)
 
             # Yield to the event loop to allow any rapid subsequent submissions
             # triggered by the cancellation to be processed before we check _pending_prompt.
@@ -484,50 +1733,142 @@ class BrokkApp(App):
                 else:
                     self.job_in_progress = False
                     self.current_job_id = None
-                    chat.set_job_running(False)
             else:
                 # Only mark idle once we are sure no more prompts are queued
                 self.job_in_progress = False
                 self.current_job_id = None
-                chat.set_job_running(False)
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
         data = event.get("data", {})
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
 
         if event_type == "LLM_TOKEN":
-            chat.append_token(
-                token=data.get("token", ""),
-                message_type=data.get("messageType", "AI"),
-                is_new_message=bool(data.get("isNewMessage", False)),
-                is_reasoning=bool(data.get("isReasoning", False)),
-                is_terminal=bool(data.get("isTerminal", False)),
-            )
+            if chat:
+                chat.append_token(
+                    token=data.get("token", ""),
+                    message_type=data.get("messageType", "AI"),
+                    is_new_message=bool(data.get("isNewMessage", False)),
+                    is_reasoning=bool(data.get("isReasoning", False)),
+                    is_terminal=bool(data.get("isTerminal", False)),
+                )
         elif event_type == "NOTIFICATION":
             level = data.get("level", "INFO")
             msg = data.get("message", "")
-            chat.add_notification(msg, level=level)
+            cost = data.get("cost")
+
+            level_upper = level.upper()
+            is_cost = level_upper == "COST"
+            is_confirm = level_upper == "CONFIRM"
+
+            if is_cost and isinstance(cost, (int, float)):
+                increment = float(cost)
+                # Use rounding to avoid floating point precision artifacts
+                # LLM costs often go to 4+ decimal places.
+                self.current_job_cost = round(self.current_job_cost + increment, 6)
+                self.session_total_cost = round(self.session_total_cost + increment, 6)
+                self._update_statusline()
+
+            if chat and not is_cost and not is_confirm:
+                chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
             msg = data.get("message", "Unknown error")
-            chat.add_notification(msg, level="ERROR")
-            # Also keep error in chat for visibility in logs
-            chat.add_system_message(msg, level="ERROR")
+            if chat:
+                chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
+        elif event_type == "COMMAND_RESULT":
+            if chat:
+                stage = data.get("stage", "Command")
+                command = data.get("command", "")
+                success = data.get("success", False)
+                output = data.get("output", "").strip()
+                exception = data.get("exception")
+
+                status = "[bold green]Success[/]" if success else "[bold red]Failed[/]"
+                header = f"**{stage}**: `{command}` ({status})"
+
+                parts = [header]
+                if output:
+                    parts.append(f"```\n{output}\n```")
+                if exception:
+                    parts.append(f"**Error**: {exception}")
+
+                chat.add_tool_result("\n\n".join(parts))
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
                 self.run_worker(self._refresh_context_panel())
 
+    def _replay_conversation_entries(self, conversation_data: Dict[str, Any]) -> int:
+        """Render executor conversation history into the ChatPanel."""
+        chat = self._maybe_chat()
+        if not chat:
+            return 0
+
+        entries = conversation_data.get("entries")
+        if not isinstance(entries, list):
+            return 0
+
+        replayed_entries = 0
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+
+            messages = entry.get("messages")
+            if isinstance(messages, list):
+                rendered_any = False
+                for msg in messages:
+                    if not isinstance(msg, dict):
+                        continue
+
+                    role = str(msg.get("role", "")).strip().lower()
+                    text = msg.get("text")
+                    if not isinstance(text, str):
+                        text = ""
+
+                    reasoning = msg.get("reasoning")
+                    if isinstance(reasoning, str) and reasoning.strip():
+                        content = reasoning.strip()
+                        chat._message_history.append({"kind": "REASONING", "content": content})
+                        chat._render_message_entry("REASONING", content)
+                        rendered_any = True
+
+                    if not text.strip():
+                        continue
+
+                    if role == "user":
+                        chat.add_user_message(text)
+                    elif role in ("ai", "assistant"):
+                        chat.add_markdown(text)
+                    elif "tool" in role:
+                        chat.add_tool_result(text)
+                    elif role in ("system", "notification", "error"):
+                        chat.add_system_message(text, level="ERROR" if role == "error" else "INFO")
+                    else:
+                        chat.append_message(role.title() if role else "System", text)
+                    rendered_any = True
+
+                if rendered_any:
+                    replayed_entries += 1
+                continue
+
+            summary = entry.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                chat.add_markdown(summary)
+                replayed_entries += 1
+
+        return replayed_entries
+
     def _set_mode(self, new_mode: str, *, announce: bool = True) -> None:
-        """Sets the agent mode, updates the subtitle, and optionally announces to chat."""
+        """Sets the agent mode, updates the status line, and optionally announces to chat."""
         self.agent_mode = new_mode
-        self.sub_title = f"Mode: {self.agent_mode}"
+        # Update statusline if present
+        self._update_statusline()
         if announce:
             msg_markup = f"Mode changed to: [bold]{self.agent_mode}[/]"
             chat = self._maybe_chat()
             if chat:
-                chat.add_system_message_markup(msg_markup, level="WARNING")
+                chat.add_system_message_markup(msg_markup)
             else:
                 logger.info("Mode changed to %s", self.agent_mode)
 
@@ -537,7 +1878,8 @@ class BrokkApp(App):
         status = (
             "[bold green]Ready[/]" if self._executor_ready else "[bold yellow]Initializing...[/]"
         )
-        jar_path = self.executor.resolved_jar_path or "Unknown"
+        jar_path = self.executor.resolved_jar_path or "via jbang"
+        launch_mode = "Direct JAR" if self.executor.resolved_jar_path else "jbang"
 
         planner_info = (
             f"Planner Model: [bold]{self.current_model}[/] "
@@ -550,42 +1892,160 @@ class BrokkApp(App):
         info_markup = (
             f"Status: {status}\n"
             f"Workspace: [bold]{self.executor.workspace_dir}[/]\n"
+            f"Launch Mode: [bold]{launch_mode}[/]\n"
             f"Executor JAR: [bold]{jar_path}[/]\n"
             f"Mode: [bold]{self.agent_mode}[/]\n"
+            f"Auto-commit: [bold]{'ON' if self.auto_commit else 'OFF'}[/]\n"
             f"{planner_info}\n"
             f"{code_info}"
         )
         chat.add_system_message_markup(info_markup)
+
+    @staticmethod
+    def get_slash_commands() -> List[Dict[str, str]]:
+        """Returns the structured catalog of supported slash commands."""
+        return [
+            {"command": "/api-key", "description": "Update your Brokk API key"},
+            {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
+            {"command": "/context", "description": "Toggle and focus context panel"},
+            {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
+            {"command": "/ask", "description": "Set mode to ASK (questions only)"},
+            {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
+            {"command": "/mode", "description": "Open mode selection menu"},
+            {"command": "/model", "description": "Change the planner LLM model"},
+            {"command": "/model-code", "description": "Change the code LLM model"},
+            {"command": "/reasoning", "description": "Set reasoning level for planner"},
+            {"command": "/reasoning-code", "description": "Set reasoning level for code model"},
+            {"command": "/autocommit", "description": "Toggle auto-commit for submitted jobs"},
+            {"command": "/settings", "description": "Open settings"},
+            {"command": "/history", "description": "Show recent prompt history"},
+            {"command": "/history-clear", "description": "Clear prompt history"},
+            {"command": "/task", "description": "Open/close the task list"},
+            {"command": "/sessions", "description": "List and switch between sessions"},
+            {"command": "/info", "description": "Show current configuration and status"},
+            {"command": "/help", "description": "Show help message"},
+            {"command": "/quit", "description": "Exit the application"},
+            {"command": "/exit", "description": "Exit the application"},
+        ]
 
     def _handle_command(self, cmd: str) -> None:
         chat = self.query_one(ChatPanel)
         parts = cmd.split()
         base = parts[0].lower()
 
-        if base == "/model" and len(parts) > 1:
-            self.current_model = parts[1]
-            chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
-        elif base == "/model-code" and len(parts) > 1:
-            self.code_model = parts[1]
-            chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
-        elif base == "/reasoning" and len(parts) > 1:
-            self.reasoning_level = parts[1]
-            chat.add_system_message_markup(
-                f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
-            )
-        elif base == "/reasoning-code" and len(parts) > 1:
-            self.reasoning_level_code = parts[1]
-            chat.add_system_message_markup(
-                f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
-            )
-        elif base in ("/theme", "/palette"):
+        if base == "/model":
             if len(parts) > 1:
-                chat.add_system_message(
-                    "Theme selection now uses the theme palette. Use /theme with no arguments."
+                self.current_model = parts[1]
+                # Persist the last-used planner model for subsequent runs
+                try:
+                    self.settings.last_model = self.current_model
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_model setting")
+                chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
+                self._update_statusline()
+            else:
+                self.run_worker(self.action_select_model_and_reasoning())
+        elif base == "/model-code":
+            if len(parts) > 1:
+                self.code_model = parts[1]
+                # Persist the last-used code model
+                try:
+                    self.settings.last_code_model = self.code_model
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_code_model setting")
+                chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
+                self._update_statusline()
+            else:
+                self.run_worker(self.action_select_code_model_and_reasoning())
+        elif base == "/reasoning":
+            if len(parts) > 1:
+                self.reasoning_level = parts[1]
+                # Persist planner reasoning preference
+                try:
+                    self.settings.last_reasoning_level = self.reasoning_level
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_reasoning_level setting")
+                chat.add_system_message_markup(
+                    f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
                 )
-            self.action_change_theme()
-        elif base in ("/ask", "/search", "/lutz"):
+                self._update_statusline()
+            else:
+                self.action_select_reasoning(target="planner")
+        elif base == "/reasoning-code":
+            if len(parts) > 1:
+                self.reasoning_level_code = parts[1]
+                # Persist code reasoning preference
+                try:
+                    self.settings.last_code_reasoning_level = self.reasoning_level_code
+                    self.settings.save()
+                except Exception:
+                    logger.exception("Failed to persist last_code_reasoning_level setting")
+                chat.add_system_message_markup(
+                    f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
+                )
+                self._update_statusline()
+            else:
+                self.action_select_reasoning(target="code")
+        elif base == "/autocommit":
+            if len(parts) == 1:
+                state = "ON" if self.auto_commit else "OFF"
+                chat.add_system_message_markup(
+                    f"Auto-commit mode: [bold]{state}[/]\nUsage: /autocommit on|off|toggle",
+                    level="WARNING",
+                )
+                return
+
+            if len(parts) != 2:
+                chat.add_system_message(
+                    "Usage: /autocommit on|off|toggle (or true/false/1/0/yes/no)",
+                    level="ERROR",
+                )
+                return
+
+            arg = parts[1].strip().lower()
+            truthy = {"on", "true", "1", "yes"}
+            falsy = {"off", "false", "0", "no"}
+            if arg in truthy:
+                new_value = True
+            elif arg in falsy:
+                new_value = False
+            elif arg == "toggle":
+                new_value = not self.auto_commit
+            else:
+                chat.add_system_message(
+                    "Usage: /autocommit on|off|toggle (or true/false/1/0/yes/no)",
+                    level="ERROR",
+                )
+                return
+
+            self.auto_commit = new_value
+            try:
+                self.settings.last_auto_commit = self.auto_commit
+                self.settings.save()
+            except Exception:
+                logger.exception("Failed to persist last_auto_commit setting")
+
+            if self.auto_commit:
+                chat.add_system_message_markup("Auto-commit mode: [bold]ON[/]")
+            else:
+                chat.add_system_message_markup(
+                    "Auto-commit mode: [bold]OFF[/] (changes will not be committed automatically)",
+                    level="WARNING",
+                )
+        elif base == "/settings":
+            if len(parts) > 1:
+                chat.add_system_message("Settings opens from /settings with no arguments.")
+            self.action_command_palette()
+        elif base in ("/code", "/ask", "/lutz"):
             self._set_mode(base[1:].upper())
+        elif base == "/mode":
+            if len(parts) > 1:
+                self._set_mode(parts[1].upper())
+            else:
+                self.action_select_mode()
         elif base == "/info":
             self._render_info()
         elif base == "/history":
@@ -599,28 +2059,205 @@ class BrokkApp(App):
             clear_history(self.executor.workspace_dir)
             chat.set_history([])
             chat.add_system_message("Prompt history cleared.")
-        elif base == "/help":
-            help_text = (
-                "Available commands:\n"
-                "  /ask                  - Set mode to ASK (questions only)\n"
-                "  /search               - Set mode to SEARCH (read-only code search)\n"
-                "  /lutz                 - Set mode to LUTZ (default; full agent access)\n"
-                "  /model <name>         - Change the planner LLM model\n"
-                "  /model-code <name>    - Change the code LLM model\n"
-                "  /reasoning <level>    - Set reasoning level for planner\n"
-                "  /reasoning-code <level> - Set reasoning level for code model\n"
-                "  /theme, /palette      - Open the theme palette\n"
-                "  /history              - Show recent prompt history\n"
-                "  /history-clear        - Clear prompt history\n"
-                "  /info                 - Show current configuration and status\n"
-                "  /help                 - Show this help message\n"
-                "  /quit, /exit          - Exit the application"
+        elif base == "/login-openai":
+            if len(parts) > 1:
+                chat.add_system_message(
+                    "Usage: /login-openai (opens browser for authorization)",
+                    level="WARNING",
+                )
+            else:
+                self.run_worker(self._login_openai())
+        elif base == "/api-key":
+
+            async def on_key_entered(key: str) -> bool:
+                try:
+                    await asyncio.to_thread(write_brokk_api_key, key)
+                    self.executor.brokk_api_key = key
+                    chat.add_system_message(
+                        "API key updated. New key will be used on the next executor launch."
+                    )
+                    return True
+                except Exception as e:
+                    logger.error("Failed to update API key: %s", e)
+                    chat.add_system_message(f"Failed to update API key: {e}", level="ERROR")
+                    raise
+
+            self.push_screen(
+                BrokkApiKeyModalScreen(on_key_entered, "Update Brokk API Key", is_update=True)
             )
-            chat.append_message("System", help_text)
+        elif base == "/context":
+            self.action_toggle_context()
+        elif base == "/task":
+            if len(parts) != 1:
+                chat.add_system_message(
+                    "Usage: /task (task actions are available via task list keybindings).",
+                    level="WARNING",
+                )
+                return
+            self.action_toggle_tasklist()
+        elif base == "/sessions":
+            self.run_worker(self._show_sessions())
+        elif base == "/help":
+            commands = self.get_slash_commands()
+            # Calculate padding based on longest command
+            max_cmd_len = max(len(c["command"]) for c in commands)
+            lines = ["Available commands:"]
+            for c in commands:
+                lines.append(f"  {c['command']: <{max_cmd_len}} - {c['description']}")
+            chat.append_message("System", "\n".join(lines))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
             chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
+
+    async def action_select_model(self) -> None:
+        chat = self._maybe_chat()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot select model.", level="ERROR"
+                )
+            return
+
+        try:
+            models_data = await self.executor.get_models()
+            raw_models = models_data.get("models", [])
+            if not isinstance(raw_models, list):
+                raw_models = []
+            available_models: List[str] = []
+            for model in raw_models:
+                if isinstance(model, str):
+                    name = model.strip()
+                elif isinstance(model, dict):
+                    name = str(model.get("name", "")).strip()
+                else:
+                    name = ""
+                if name:
+                    available_models.append(name)
+            if not available_models:
+                if chat:
+                    chat.add_system_message("No models available from executor.", level="ERROR")
+                return
+
+            def update_selection(model_id: str | None) -> None:
+                if model_id:
+                    self.current_model = model_id
+                    # Persist choice
+                    try:
+                        self.settings.last_model = model_id
+                        self.settings.save()
+                    except Exception:
+                        logger.exception("Failed to persist model setting")
+
+                    if chat:
+                        chat.add_system_message_markup(f"Model changed to: [bold]{model_id}[/]")
+
+                    # Update statusline (best-effort)
+                    try:
+                        self._update_statusline()
+                    except Exception:
+                        pass
+
+            self.push_screen(ModelSelectModal(available_models), update_selection)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
+
+    async def action_select_model_and_reasoning(self) -> None:
+        await self._select_model_and_reasoning_flow(target="planner")
+
+    async def action_select_code_model_and_reasoning(self) -> None:
+        await self._select_model_and_reasoning_flow(target="code")
+
+    async def _select_model_and_reasoning_flow(self, target: str = "planner") -> None:
+        chat = self._maybe_chat()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot select model.", level="ERROR"
+                )
+            return
+
+        try:
+            models_data = await self.executor.get_models()
+            raw_models = models_data.get("models", [])
+            if not isinstance(raw_models, list):
+                raw_models = []
+            available_models: List[str] = []
+            for model in raw_models:
+                if isinstance(model, str):
+                    name = model.strip()
+                elif isinstance(model, dict):
+                    name = str(model.get("name", "")).strip()
+                else:
+                    name = ""
+                if name:
+                    available_models.append(name)
+            if not available_models:
+                if chat:
+                    chat.add_system_message("No models available from executor.", level="ERROR")
+                return
+
+            def update_selection(result: tuple[str, str] | None) -> None:
+                if result:
+                    model_id, reasoning = result
+                    if target == "code":
+                        self.code_model = model_id
+                        self.reasoning_level_code = reasoning
+                        try:
+                            self.settings.last_code_model = model_id
+                            self.settings.last_code_reasoning_level = reasoning
+                            self.settings.save()
+                        except Exception:
+                            logger.exception("Failed to persist code model/reasoning settings")
+                        label = "Code Model"
+                    else:
+                        self.current_model = model_id
+                        self.reasoning_level = reasoning
+                        try:
+                            self.settings.last_model = model_id
+                            self.settings.last_reasoning_level = reasoning
+                            self.settings.save()
+                        except Exception:
+                            logger.exception("Failed to persist model/reasoning settings")
+                        label = "Model"
+
+                    if chat:
+                        msg = f"{label}: [bold]{model_id}[/] (Reasoning: [bold]{reasoning}[/])"
+                        chat.add_system_message_markup(f"Settings updated: {msg}")
+
+                    # Update statusline (best-effort)
+                    try:
+                        self._update_statusline()
+                    except Exception:
+                        pass
+
+            current_m = self.code_model if target == "code" else self.current_model
+            current_r = self.reasoning_level_code if target == "code" else self.reasoning_level
+
+            self.push_screen(
+                ModelReasoningSelectModal(available_models, current_m, current_r),
+                update_selection,
+            )
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
+
+    def action_select_reasoning(self, target: str = "planner") -> None:
+        chat = self._maybe_chat()
+        if chat:
+            self._reasoning_target = target
+            levels = ["disable", "low", "medium", "high"]
+            current_val = self.reasoning_level_code if target == "code" else self.reasoning_level
+            current = str(current_val or "low").strip() or "low"
+            if current not in levels:
+                current = "low"
+            chat.open_reasoning_menu(levels, current)
+
+    def action_select_mode(self) -> None:
+        chat = self._maybe_chat()
+        if chat:
+            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):
@@ -642,13 +2279,101 @@ class BrokkApp(App):
         if chat:
             chat.set_token_bar_visible(True)
 
+    def _maybe_focused_widget(self) -> Any | None:
+        """Best-effort focused widget lookup; returns None if there is no active screen."""
+        try:
+            return self.focused
+        except ScreenStackError:
+            return None
+
     def action_toggle_tasklist(self) -> None:
-        panel = self.query_one("#side-tasklist")
-        panel.display = not panel.display
+        """Toggle the task list modal.
+
+        When opened, the modal's TaskListPanel receives focus.
+        When closed, focus is restored to whatever had it previously (best-effort).
+        """
+        try:
+            current_screen = self.screen
+        except ScreenStackError:
+            current_screen = None
+
+        if isinstance(current_screen, TaskListModalScreen):
+            self._restore_tasklist_focus()
+            current_screen.dismiss(None)
+            return
+
+        self._tasklist_restore_focus_widget = self._maybe_focused_widget()
+
+        def on_close() -> None:
+            self._restore_tasklist_focus()
+
+        self.push_screen(TaskListModalScreen(on_close=on_close))
+
+        if self._executor_ready:
+            self.run_worker(self._ensure_tasklist_data())
+            self.run_worker(self._refresh_context_panel())
+
+    def _restore_tasklist_focus(self) -> None:
+        widget = self._tasklist_restore_focus_widget
+        self._tasklist_restore_focus_widget = None
+        if widget is None:
+            return
+        try:
+            widget.focus()
+        except Exception:
+            pass
+
+    def action_task_next(self) -> None:
+        panel = self._active_tasklist_panel()
+        panel.move_selection(1)
+
+    def action_task_prev(self) -> None:
+        panel = self._active_tasklist_panel()
+        panel.move_selection(-1)
+
+    def action_task_toggle(self) -> None:
+        self.run_worker(self._toggle_selected_task())
+
+    def action_task_delete(self) -> None:
+        self.run_worker(self._delete_selected_task())
+
+    def action_task_add(self) -> None:
+        def on_done(result: Optional[str]) -> None:
+            if result is None:
+                return
+            self.run_worker(self._add_task(result))
+
+        self.push_screen(TaskTitleModalScreen("Add Task"), on_done)
+
+    def action_task_edit(self) -> None:
+        chat = self._maybe_chat()
+        panel = self._active_tasklist_panel()
+        selected = panel.selected_task()
+        if not selected:
+            if chat:
+                chat.add_system_message("No task selected.")
+            return
+
+        initial = str(selected.get("title", "") or "").strip()
+
+        def on_done(result: Optional[str]) -> None:
+            if result is None:
+                return
+            self.run_worker(self._edit_selected_task(result))
+
+        self.push_screen(TaskTitleModalScreen("Edit Task", initial=initial), on_done)
+
+    def action_toggle_output(self) -> None:
+        """Toggles visibility of reasoning and tool output."""
+        self.show_verbose_output = not self.show_verbose_output
+        chat = self._maybe_chat()
+        if chat:
+            chat.show_verbose = self.show_verbose_output
+            chat.refresh_log(self.show_verbose_output)
 
     def action_toggle_mode(self) -> None:
-        """Cycles through agent modes: LUTZ -> ASK -> SEARCH -> LUTZ."""
-        modes = ["LUTZ", "ASK", "SEARCH"]
+        """Cycles through agent modes: CODE -> ASK -> LUTZ -> CODE."""
+        modes = ["CODE", "ASK", "LUTZ"]
         try:
             current_index = modes.index(self.agent_mode)
         except ValueError:
@@ -656,10 +2381,6 @@ class BrokkApp(App):
 
         next_index = (current_index + 1) % len(modes)
         self._set_mode(modes[next_index])
-
-    def action_toggle_notifications(self) -> None:
-        panel = self.query_one("#notification-panel")
-        panel.toggle_class("hidden")
 
     def _set_theme(self, theme_name: str) -> None:
         normalized_theme = normalize_theme_name(theme_name.lower())
@@ -682,7 +2403,15 @@ class BrokkApp(App):
         self.settings.save()
 
     async def action_handle_ctrl_c(self) -> None:
-        """Handles Ctrl+C: Cancel job first, then double-tap to quit."""
+        """Handles Ctrl+C: Clear input, cancel job, or double-tap to quit."""
+        chat_panel = self._maybe_chat()
+        if chat_panel:
+            chat_inputs = self.query("#chat-input").results(ChatInput)
+            chat_input = next(chat_inputs, None)
+            if chat_input and chat_input.text.strip():
+                chat_panel.clear_input()
+                return
+
         now = time.time()
 
         if self.job_in_progress and self.current_job_id:
@@ -690,7 +2419,8 @@ class BrokkApp(App):
             self._pending_updated_at = 0
             self._pending_generation = 0
             self._pending_min_wait_until = 0.0
-            self.query_one(ChatPanel).add_system_message("Cancelling job...")
+            if chat_panel:
+                chat_panel.add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)
             # Reset double-tap timer so they don't accidentally quit while cancelling
             self._last_ctrl_c_time = now
@@ -702,39 +2432,190 @@ class BrokkApp(App):
             self.query_one(ChatPanel).add_system_message("Press Ctrl+C again to quit.")
             self._last_ctrl_c_time = now
 
-    async def _export_session(self) -> None:
-        """Best-effort export of the current session zip to workspace cache."""
-        if not self.executor.session_id or not self._executor_ready:
-            return
+    async def _shutdown_once(self, *, show_message: bool = True) -> None:
+        """Perform shutdown actions once completed. Concurrency-safe with retry on stop failure."""
+        # Fast path
+        async with self._shutdown_lock:
+            if self._shutdown_completed or self._shutting_down:
+                return
+            self._shutting_down = True
 
-        from brokk_code.session_persistence import get_session_zip_path
+            # Notify user once
+            if show_message:
+                msg = "Shutting down..."
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message(msg)
+                else:
+                    logger.info(msg)
 
-        try:
-            session_id = self.executor.session_id
-            zip_bytes = await self.executor.download_session_zip(session_id)
-            zip_path = get_session_zip_path(self.executor.workspace_dir, session_id)
-            zip_path.write_bytes(zip_bytes)
-            logger.info("Session %s exported to %s", session_id, zip_path)
-        except Exception as e:
-            logger.warning("Failed to export session zip on shutdown: %s", e)
+            # Mark executor not ready immediately so any concurrent refresh short-circuits.
+            self._executor_ready = False
+
+            # Stop executor (best-effort). Multiple calls are safe because
+            # ExecutorManager.stop is idempotent.
+            try:
+                await self.executor.stop()
+            except Exception:
+                logger.debug("Executor.stop encountered an error during shutdown", exc_info=True)
+                self._shutting_down = False
+                return
+
+            self._shutdown_completed = True
 
     async def action_quit(self) -> None:
-        msg = "Shutting down..."
+        # Centralized shutdown; show_message True to surface to user via chat/logs.
+        await self._shutdown_once(show_message=True)
+        # After clean shutdown, exit the app
+        try:
+            self.exit()
+        except Exception:
+            # exit() may raise in some test harnesses; ignore to avoid double-shutdown.
+            pass
+
+    async def _show_sessions(self) -> None:
         chat = self._maybe_chat()
-        if chat:
-            chat.add_system_message(msg)
-        else:
-            logger.info(msg)
-        await self._export_session()
-        await self.executor.stop()
-        self.exit()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot list sessions.", level="ERROR"
+                )
+            return
+
+        try:
+            data = await self.executor.list_sessions()
+            sessions = data.get("sessions", [])
+            current_id = data.get("currentSessionId", "")
+
+            if not sessions:
+                if chat:
+                    chat.add_system_message("No sessions found.")
+                return
+
+            def on_selected(selected_id: str | None) -> None:
+                if not selected_id:
+                    return
+                if selected_id == "new":
+                    self.run_worker(self._create_session_from_menu())
+                elif selected_id.startswith("rename:"):
+                    sid = selected_id.split(":", 1)[1]
+                    self.run_worker(self._rename_session_workflow(sid, sessions))
+                elif selected_id.startswith("delete:"):
+                    sid = selected_id.split(":", 1)[1]
+                    self.run_worker(self._delete_session_workflow(sid))
+                elif selected_id != current_id:
+                    self.run_worker(self._switch_to_session(selected_id))
+
+            async def on_rename(session_id: str, new_name: str) -> bool:
+                return await self._rename_session(session_id, new_name)
+
+            self.push_screen(SessionSelectModal(sessions, current_id, on_rename), on_selected)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to list sessions: {e}", level="ERROR")
+
+    async def _rename_session(self, session_id: str, new_name: str) -> bool:
+        chat = self._maybe_chat()
+        async with self._rename_session_lock:
+            try:
+                await self.executor.rename_session(session_id, new_name)
+                self._renamed_sessions.add(session_id)
+                if chat:
+                    chat.add_system_message(f"Session renamed to: {new_name}")
+                await self._refresh_context_panel()
+                return True
+            except Exception as e:
+                if chat:
+                    chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
+                return False
+
+    async def _create_session_from_menu(self) -> None:
+        from brokk_code.session_persistence import save_last_session_id
+
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            chat.add_system_message("Creating new session...")
+            session_id = await self.executor.create_session()
+            save_last_session_id(self.executor.workspace_dir, session_id)
+
+            chat._message_history.clear()
+            log = chat.query_one("#chat-log")
+            await log.query("*").remove()
+
+            await self._refresh_context_panel()
+            chat.add_system_message(f"Created and switched to session {session_id}.")
+        except Exception as e:
+            chat.add_system_message(f"Failed to create session: {e}", level="ERROR")
+
+    async def _rename_session_workflow(
+        self, session_id: str, sessions: List[Dict[str, Any]]
+    ) -> None:
+        initial_name = ""
+        for s in sessions:
+            if str(s.get("id")) == session_id:
+                initial_name = s.get("name") or ""
+                break
+
+        def on_rename_submitted(new_name: Optional[str]) -> None:
+            if not new_name or not new_name.strip():
+                return
+
+            async def do_rename():
+                await self._rename_session(session_id, new_name.strip())
+
+            self.run_worker(do_rename())
+
+        self.push_screen(
+            TaskTitleModalScreen("Rename Session", initial=initial_name), on_rename_submitted
+        )
+
+    async def _delete_session_workflow(self, session_id: str) -> None:
+        chat = self._maybe_chat()
+        try:
+            await self.executor.delete_session(session_id)
+            if chat:
+                chat.add_system_message(f"Deleted session {session_id}")
+            await self._refresh_context_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to delete session: {e}", level="ERROR")
+
+    async def _switch_to_session(self, session_id: str) -> None:
+        from brokk_code.session_persistence import save_last_session_id
+
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            chat.add_system_message(f"Switching to session {session_id}...")
+            await self.executor.switch_session(session_id)
+            save_last_session_id(self.executor.workspace_dir, session_id)
+
+            # Clear UI and history
+            chat._message_history.clear()
+            # Clear log container (the ScrollableContainer containing message widgets)
+            log = chat.query_one("#chat-log")
+            await log.query("*").remove()
+
+            # Replay
+            conversation_data = await self.executor.get_conversation()
+            self._replay_conversation_entries(conversation_data)
+
+            # Refresh
+            await self._refresh_context_panel()
+            chat.add_system_message(f"Successfully switched to session {session_id}.")
+        except Exception as e:
+            logger.exception("Failed to switch session")
+            chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""
-        # Note: action_quit already calls _export_session.
-        # on_unmount is a fallback for other exit paths.
-        await self._export_session()
-        await self.executor.stop()
+        # on_unmount is a fallback shutdown path; avoid double-running shutdown logic.
+        await self._shutdown_once(show_message=False)
 
 
 if __name__ == "__main__":

@@ -1,15 +1,12 @@
 package ai.brokk.prompts;
 
 import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.SyntaxAwareConfig;
-import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
-import ai.brokk.TaskResult.TaskMeta;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
@@ -51,7 +48,7 @@ public class CodePrompts {
     @Blocking
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
         return instructionsFlags(ctx.getEditableFragments()
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet()));
     }
 
@@ -240,7 +237,7 @@ public class CodePrompts {
         }
 
         var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, suppressedTypes);
-        messages.addAll(getHistoryMessages(ctx, taskMeta));
+        messages.addAll(WorkspacePrompts.getHistoryMessages(ctx, taskMeta));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
         messages.addAll(taskMessages);
@@ -285,7 +282,11 @@ public class CodePrompts {
      * @return An ApplyRetryMessages containing the tagged AiMessage and retry UserMessage.
      */
     public static ApplyRetryMessages buildApplyRetryMessages(
-            String originalAiText, List<EditBlock.ApplyResult> blockResults, String buildError, int startingIndex) {
+            String originalAiText,
+            List<EditBlock.ApplyResult> blockResults,
+            String buildError,
+            int startingIndex,
+            boolean isLastApplyRetryBeforeAbort) {
         var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
         assert !failures.isEmpty();
 
@@ -338,7 +339,8 @@ public class CodePrompts {
         var data = new ApplyRetryData(
                 successIndices.isEmpty() ? "None" : String.join(", ", successIndices),
                 fileDetails,
-                !buildError.isBlank() && successIndices.isEmpty());
+                !buildError.isBlank() && successIndices.isEmpty(),
+                isLastApplyRetryBeforeAbort);
 
         try {
             return new ApplyRetryMessages(taggedAiMessage, new UserMessage(APPLY_RETRY_TEMPLATE.apply(data)));
@@ -381,47 +383,6 @@ public class CodePrompts {
         }
     }
 
-    public List<ChatMessage> getHistoryMessages(Context ctx, TaskMeta currentMeta) {
-        var taskHistory = ctx.getTaskHistory();
-        var messages = new ArrayList<ChatMessage>();
-
-        // Merge compressed messages into a single taskhistory message
-        var compressed = taskHistory.stream()
-                .filter(TaskEntry::isCompressed)
-                .map(TaskEntry::toString)
-                .collect(Collectors.joining("\n\n"));
-        if (!compressed.isEmpty()) {
-            messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
-            messages.add(new AiMessage("Ok, I see the history."));
-        }
-
-        // Uncompressed messages: process for tool and S/R block redaction
-        taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
-            var entryRawMessages = castNonNull(e.log()).messages();
-            if (entryRawMessages.isEmpty()) {
-                return;
-            }
-
-            // Determine the messages to include from the entry
-            var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
-                    ? entryRawMessages
-                    : entryRawMessages.subList(0, entryRawMessages.size() - 1);
-
-            var entryMeta = e.meta();
-
-            var currentPrimaryModel = currentMeta.primaryModel();
-            var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
-
-            // Redact tool calls if the primary models differ
-            boolean redactToolCalls =
-                    entryPrimaryModel != null && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
-
-            messages.addAll(redactHistoryMessages(relevantEntryMessages, redactToolCalls));
-        });
-
-        return messages;
-    }
-
     public enum InstructionsFlags {
         SYNTAX_AWARE,
         MERGE_AGENT_MARKERS
@@ -437,7 +398,10 @@ public class CodePrompts {
             @org.jetbrains.annotations.Nullable String goal) {}
 
     private record ApplyRetryData(
-            String successIndices, List<FileFailure> failuresByFile, boolean showBuildFailureReminder) {
+            String successIndices,
+            List<FileFailure> failuresByFile,
+            boolean showBuildFailureReminder,
+            boolean showFullFileReplacementReminder) {
         public record FileFailure(String filename, String failedBlocksList) {}
     }
 
@@ -641,6 +605,13 @@ public class CodePrompts {
                 </failed_blocks>
                 </target_file>
                 {{~/each}}
+                {{#if showFullFileReplacementReminder~}}
+                <reminder>
+                  Apply has failed repeatedly, and the next apply failure will abort the task.
+                  Strongly prefer BRK_ENTIRE_FILE full-file replacements for affected file(s), instead of the kinds of line-based edits that have not worked so far.
+                  In BRK_ENTIRE_FILE, the REPLACE section must contain the complete final updated contents of the file.
+                </reminder>
+                {{~/if}}
                 {{#if showBuildFailureReminder~}}
                 <reminder>
                   The build is currently failing; the details are in the conversation history.

@@ -7,11 +7,15 @@ import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.tools.ToolExecutionResult;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import javax.swing.JOptionPane;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -28,6 +32,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
     private final JobStore jobStore;
     private final String jobId;
+    private final @Nullable Consumer<Double> costListener;
 
     /**
      * Create a new HeadlessHttpConsole.
@@ -36,8 +41,13 @@ public class HeadlessHttpConsole extends MemoryConsole {
      * @param jobId The job ID to append events to
      */
     public HeadlessHttpConsole(JobStore jobStore, String jobId) {
+        this(jobStore, jobId, null);
+    }
+
+    public HeadlessHttpConsole(JobStore jobStore, String jobId, @Nullable Consumer<Double> costListener) {
         this.jobStore = jobStore;
         this.jobId = jobId;
+        this.costListener = costListener;
     }
 
     /**
@@ -84,6 +94,30 @@ public class HeadlessHttpConsole extends MemoryConsole {
     public void showNotification(NotificationRole role, String message) {
         var data = Map.of("level", role.name(), "message", message);
         appendEvent("NOTIFICATION", data);
+    }
+
+    @Override
+    public void showNotification(NotificationRole role, String message, @Nullable Double cost) {
+        if (role == NotificationRole.COST && cost != null && costListener != null) {
+            try {
+                costListener.accept(cost);
+            } catch (Exception e) {
+                logger.warn("Cost listener threw exception", e);
+            }
+        }
+
+        if (role == NotificationRole.COST && cost != null) {
+            // Enriched payload for cost notifications: include structured numeric cost.
+            var data = Map.of(
+                    "level", role.name(),
+                    "message", message,
+                    "cost", cost);
+            appendEvent("NOTIFICATION", data);
+            return;
+        }
+
+        // For non-cost notifications or when cost is not provided, preserve legacy behavior.
+        showNotification(role, message);
     }
 
     @Override
@@ -248,6 +282,25 @@ public class HeadlessHttpConsole extends MemoryConsole {
         appendEvent("STATE_HINT", data);
     }
 
+    @Override
+    public void beforeToolCall(ToolExecutionRequest request) {
+        var data = new HashMap<String, Object>();
+        putIfNonNull(data, "id", request.id());
+        putIfNonNull(data, "name", request.name());
+        putIfNonNull(data, "arguments", request.arguments());
+        appendEvent("TOOL_CALL", data);
+    }
+
+    @Override
+    public void afterToolOutput(ToolExecutionResult result) {
+        var data = new HashMap<String, Object>();
+        putIfNonNull(data, "id", result.toolId());
+        putIfNonNull(data, "name", result.toolName());
+        putIfNonNull(data, "status", result.status().name());
+        putIfNonNull(data, "resultText", result.resultText());
+        appendEvent("TOOL_OUTPUT", data);
+    }
+
     /**
      * Get the last sequence number of appended events by querying the JobStore.
      * This makes the JobStore the authoritative source of truth.
@@ -308,6 +361,12 @@ public class HeadlessHttpConsole extends MemoryConsole {
             case JOptionPane.PLAIN_MESSAGE -> "INFO";
             default -> "INFO";
         };
+    }
+
+    private static void putIfNonNull(Map<String, Object> data, String key, @Nullable Object value) {
+        if (value != null) {
+            data.put(key, value);
+        }
     }
 
     /**

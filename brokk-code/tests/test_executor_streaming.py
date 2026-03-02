@@ -25,7 +25,7 @@ async def test_stream_events_polling_logic():
     # 1. Status check -> RUNNING
     # 2. Events check -> returns 2 events, nextAfter 10
     # 3. Status check -> COMPLETED
-    # 4. Events check -> returns 0 events, nextAfter 10 (loop terminates)
+    # 4-6. Events checks -> empty terminal drain polls, then loop terminates
 
     status_running = MagicMock(spec=httpx.Response)
     status_running.status_code = 200
@@ -53,7 +53,9 @@ async def test_stream_events_polling_logic():
         status_running,  # Loop 1 Status
         events_payload,  # Loop 1 Events
         status_completed,  # Loop 2 Status
-        empty_events,  # Loop 2 Events
+        empty_events,  # Loop 2 Events (terminal drain 1)
+        empty_events,  # Loop 3 Events (terminal drain 2)
+        empty_events,  # Loop 4 Events (terminal drain 3 -> exit)
     ]
 
     # Use a small sleep to speed up test
@@ -80,7 +82,7 @@ async def test_stream_events_polling_logic():
     # Call 1: Status
     # Call 2: Events with after=-1
     # Call 3: Status
-    # Call 4: Events with after=10
+    # Call 4+: terminal drain events with after=10
     mock_client.get.assert_any_call(f"/v1/jobs/{job_id}/events?after=-1&limit=100")
     mock_client.get.assert_any_call(f"/v1/jobs/{job_id}/events?after=10&limit=100")
 
@@ -114,14 +116,17 @@ async def test_stream_events_adaptive_backoff():
     # 4. Iter 2: Get status (RUNNING), Get events (Empty) -> sleep 0.1,
     #    last_status_check reset to 0.0
     # 5. Iter 3: now (6.0) - last_status_check (0.0) > 2.0 -> triggers status check
-    # 6. Iter 3: Get status (COMPLETED), Get events (Empty) -> Exit
+    # 6. Iter 3: Get status (COMPLETED), Get events (Empty) -> terminal drain
+    # 7-8. Additional event polls only (Empty) -> Exit after drain budget
     mock_client.get.side_effect = [
         status_running,
         empty_events,  # Iter 1: sleep 0.05
         status_running,
         empty_events,  # Iter 2: sleep 0.1
         status_completed,
-        empty_events,  # Iter 3: exit
+        empty_events,  # Iter 3: terminal drain 1
+        empty_events,  # terminal drain 2
+        empty_events,  # terminal drain 3 -> exit
     ]
 
     with (
@@ -141,3 +146,61 @@ async def test_stream_events_adaptive_backoff():
         assert len(sleep_calls) >= 2
         assert sleep_calls[0] == 0.05
         assert sleep_calls[1] == 0.1
+
+
+@pytest.mark.asyncio
+async def test_stream_events_drains_terminal_race_and_yields_late_notification():
+    executor = ExecutorManager()
+    executor.base_url = "http://127.0.0.1:8080"
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    executor._http_client = mock_client
+
+    status_completed = MagicMock(spec=httpx.Response)
+    status_completed.status_code = 200
+    status_completed.json.return_value = {"state": "COMPLETED"}
+
+    empty_events = MagicMock(spec=httpx.Response)
+    empty_events.status_code = 200
+    empty_events.json.return_value = {"events": [], "nextAfter": 10}
+
+    late_events = MagicMock(spec=httpx.Response)
+    late_events.status_code = 200
+    late_events.json.return_value = {
+        "events": [
+            {
+                "seq": 11,
+                "type": "NOTIFICATION",
+                "data": {
+                    "level": "INFO",
+                    "message": "ISSUE_WRITER: issue created id https://github.com/brokkai/brokk/issues/999",
+                },
+            }
+        ],
+        "nextAfter": 11,
+    }
+
+    # Status says COMPLETED before final notification is visible.
+    # stream_events should keep draining and yield the late notification.
+    mock_client.get.side_effect = [
+        status_completed,
+        empty_events,  # terminal drain 1
+        late_events,  # final event appears during terminal drain
+        status_completed,  # status re-check after late event
+        empty_events,  # terminal drain 1 after late event
+        empty_events,  # terminal drain 2
+        empty_events,  # terminal drain 3 -> exit
+    ]
+
+    with (
+        patch("asyncio.sleep", AsyncMock()),
+        patch("asyncio.get_event_loop") as mock_loop_factory,
+    ):
+        mock_loop = MagicMock()
+        mock_loop.time.side_effect = [float(i * 3.0) for i in range(1000)]
+        mock_loop_factory.return_value = mock_loop
+
+        collected = []
+        async for event in executor.stream_events("job"):
+            collected.append(event)
+
+    assert [e["seq"] for e in collected] == [11]

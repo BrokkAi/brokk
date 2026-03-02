@@ -42,6 +42,7 @@ public record ProjectState(
 
         // Onboarding completion detection
         boolean onboardingCompleted, // true if onboarding was already shown (property in workspace.properties)
+        boolean gitConfigDeclined,
 
         // Async handles (for steps that need to wait on background operations)
         @Nullable CompletableFuture<String> styleGuideFuture, // Future<String> with style content
@@ -84,10 +85,11 @@ public record ProjectState(
 
     /**
      * Checks if git configuration is needed (.gitignore needs Brokk patterns).
-     * Only returns true if the project has Git initialized and .gitignore lacks Brokk patterns.
+     * Only returns true if the project has Git initialized, .gitignore lacks Brokk patterns,
+     * and the user has not previously declined the configuration.
      */
     public boolean needsGitConfig() {
-        return project.hasGit() && !gitignoreConfigured;
+        return project.hasGit() && !gitignoreConfigured && !gitConfigDeclined;
     }
 
     /**

@@ -18,7 +18,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.init.onboarding.GitIgnoreUtils;
 import ai.brokk.init.onboarding.StyleGuideMigrator;
-import ai.brokk.mcp.McpConfig;
+import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
@@ -118,6 +118,7 @@ public final class MainProject extends AbstractProject {
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
     private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
     private static final String MIGRATION_DECLINED_KEY = "styleMdMigrationDeclined";
+    private static final String GIT_CONFIG_DECLINED_KEY = "gitConfigDeclined";
 
     // Old keys for migration
     private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
@@ -126,7 +127,7 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
-    private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
+    private static final String TEST_COMMAND_TIMEOUT_SECONDS_KEY = "testCommandTimeoutSeconds";
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
@@ -528,7 +529,9 @@ public final class MainProject extends AbstractProject {
                     details.testAllCommand(),
                     details.testSomeCommand(),
                     canonicalExclusions,
-                    canonicalEnv));
+                    canonicalEnv,
+                    details.maxBuildAttempts(),
+                    details.afterTaskListCommand()));
         } catch (JsonProcessingException e) {
             logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
         }
@@ -570,7 +573,9 @@ public final class MainProject extends AbstractProject {
                 details.testAllCommand(),
                 details.testSomeCommand(),
                 canonicalExclusions,
-                canonicalEnv);
+                canonicalEnv,
+                details.maxBuildAttempts(),
+                details.afterTaskListCommand());
 
         try {
             String json = objectMapper.writeValueAsString(canonicalDetails);
@@ -705,24 +710,50 @@ public final class MainProject extends AbstractProject {
         notifyAutoUpdateGitDependenciesChanged();
     }
 
+    @Override
     public long getRunCommandTimeoutSeconds() {
         String valueStr = projectProps.getProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
         if (valueStr == null) {
-            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+            return Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         }
         try {
             long seconds = Long.parseLong(valueStr);
-            return seconds > 0 ? seconds : DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+            return seconds > 0 ? seconds : Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         } catch (NumberFormatException e) {
-            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+            return Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         }
     }
 
     public void setRunCommandTimeoutSeconds(long seconds) {
-        if (seconds > 0 && seconds != DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS) {
+        if (seconds > 0 && seconds != Environment.DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS) {
             projectProps.setProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY, String.valueOf(seconds));
         } else {
             projectProps.remove(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
+        }
+        saveProjectProperties();
+    }
+
+    @Override
+    public long getTestCommandTimeoutSeconds() {
+        String valueStr = projectProps.getProperty(TEST_COMMAND_TIMEOUT_SECONDS_KEY);
+        if (valueStr == null) {
+            return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+        }
+        try {
+            long seconds = Long.parseLong(valueStr);
+            // Use -1 for unlimited, which is valid to store. Positive values are valid. 0 or other negatives fallback
+            // to default.
+            return (seconds > 0 || seconds == -1) ? seconds : Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+        } catch (NumberFormatException e) {
+            return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
+        }
+    }
+
+    public void setTestCommandTimeoutSeconds(long seconds) {
+        if ((seconds > 0 || seconds == -1) && seconds != Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS) {
+            projectProps.setProperty(TEST_COMMAND_TIMEOUT_SECONDS_KEY, String.valueOf(seconds));
+        } else {
+            projectProps.remove(TEST_COMMAND_TIMEOUT_SECONDS_KEY);
         }
         saveProjectProperties();
     }
@@ -819,7 +850,8 @@ public final class MainProject extends AbstractProject {
         if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Languages.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
-            String langsString = languages.stream().map(Language::name).collect(Collectors.joining(","));
+            String langsString =
+                    languages.stream().map(Language::internalName).sorted().collect(Collectors.joining(","));
             projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
         autoDetectedLanguagesCache = null;
@@ -1337,6 +1369,21 @@ public final class MainProject extends AbstractProject {
 
     public void setMigrationDeclined(boolean declined) {
         projectProps.setProperty(MIGRATION_DECLINED_KEY, String.valueOf(declined));
+        saveProjectProperties();
+    }
+
+    @Override
+    public boolean isGitConfigDeclined() {
+        return Boolean.parseBoolean(projectProps.getProperty(GIT_CONFIG_DECLINED_KEY, "false"));
+    }
+
+    @Override
+    public void setGitConfigDeclined(boolean declined) {
+        if (declined) {
+            projectProps.setProperty(GIT_CONFIG_DECLINED_KEY, "true");
+        } else {
+            projectProps.remove(GIT_CONFIG_DECLINED_KEY);
+        }
         saveProjectProperties();
     }
 

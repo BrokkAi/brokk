@@ -97,7 +97,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
             }
         }
         // use endRef instead of resolvedEnd to pass WORKING along
-        var summarizedChanges = DiffService.computeCumulativeDiff(repo, resolvedFrom, endRef, commits);
+        var summarizedChanges = DiffService.cumulativeDiff(repo, resolvedFrom, endRef, commits);
 
         GitWorkflow.PushPullState pushPullState = null;
         try {
@@ -131,8 +131,8 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
 
     @Blocking
     public static ReviewScope fromContext(IContextManager cm, Context context) throws ReviewLoadException {
-        var metadataFragment = context.getSpecial(SpecialTextType.REVIEW_METADATA.description());
-        var diffFragment = context.getSpecial(SpecialTextType.REVIEW_DIFF.description());
+        var metadataFragment = context.getSpecial(SpecialTextType.REVIEW_METADATA);
+        var diffFragment = context.getSpecial(SpecialTextType.REVIEW_DIFF);
 
         if (metadataFragment.isEmpty() || diffFragment.isEmpty()) {
             throw new ReviewLoadContextException("Missing diff and/or metadata fragments");
@@ -244,7 +244,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                 .toList();
 
         List<String> instructions = relevantContexts.stream()
-                .map(ctx -> ctx.getTaskHistory().getLast().log())
+                .map(ctx -> ctx.getTaskHistory().getLast().mopLog())
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(log -> log.id()))
                 .map(log -> log.description().join())

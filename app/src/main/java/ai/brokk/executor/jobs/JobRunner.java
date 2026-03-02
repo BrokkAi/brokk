@@ -1,5 +1,7 @@
 package ai.brokk.executor.jobs;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
@@ -18,6 +20,7 @@ import ai.brokk.issues.IssueHeader;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -45,6 +48,7 @@ import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -222,6 +226,9 @@ public final class JobRunner {
 
     private final ContextManager cm;
     private final JobStore store;
+
+    private record ReviewDiffResult(TaskResult taskResult, String responseText) {}
+
     private final ExecutorService runner;
     private volatile @Nullable HeadlessHttpConsole console;
     private volatile @Nullable String activeJobId;
@@ -234,9 +241,22 @@ public final class JobRunner {
         SEARCH,
         REVIEW,
         LUTZ,
+        PLAN,
         ISSUE,
         ISSUE_DIAGNOSE,
         ISSUE_WRITER
+    }
+
+    static SearchPrompts.Objective objectiveForMode(Mode mode) {
+        return switch (mode) {
+            case ASK, SEARCH, REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
+            case LUTZ -> SearchPrompts.Objective.LUTZ;
+            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
+        };
+    }
+
+    static SearchPrompts.Objective objectiveForLutzSearchPhase() {
+        return objectiveForMode(Mode.LUTZ);
     }
 
     public static Mode parseMode(JobSpec spec) {
@@ -267,6 +287,22 @@ public final class JobRunner {
     }
 
     /**
+     * Shut down the runner executor and await termination.
+     */
+    public void shutdown() {
+        logger.info("Shutting down JobRunner");
+        runner.shutdownNow();
+        try {
+            if (!runner.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                logger.warn("JobRunner executor did not terminate in time");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while waiting for JobRunner shutdown");
+        }
+    }
+
+    /**
      * Execute a job asynchronously.
      *
      * @param jobId The unique job identifier
@@ -284,7 +320,14 @@ public final class JobRunner {
 
         activeJobId = jobId;
         cancelled.set(false);
-        console = new HeadlessHttpConsole(store, jobId);
+        console = new HeadlessHttpConsole(store, jobId, delta -> {
+            try {
+                var sessionId = cm.getCurrentSessionId();
+                cm.getProject().getSessionManager().addToTotalCost(sessionId, delta);
+            } catch (Exception e) {
+                logger.warn("Failed to record cost delta for job {}: {}", jobId, e.getMessage());
+            }
+        });
         final var previousIo = cm.getIo();
         cm.setIo(console);
         logger.info("Job {} attaching streaming console", jobId);
@@ -295,7 +338,7 @@ public final class JobRunner {
             if (status == null) {
                 status = JobStatus.queued(jobId);
             }
-            status = status.withState("RUNNING");
+            status = status.withState(JobStatus.State.RUNNING.name());
             store.updateStatus(jobId, status);
             logger.info("Job {} transitioned to RUNNING", jobId);
         } catch (Exception e) {
@@ -326,7 +369,7 @@ public final class JobRunner {
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
                 final StreamingChatModel architectPlannerModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
+                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.PLAN || mode == Mode.ISSUE)
                                 ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                                 : null;
                 final StreamingChatModel architectCodeModel =
@@ -353,7 +396,7 @@ public final class JobRunner {
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(
-                                        Objects.requireNonNull(trimmedCodeModelName),
+                                        requireNonNull(trimmedCodeModelName),
                                         spec.reasoningLevelCode(),
                                         spec.temperatureCode())
                                 : defaultCodeModel(spec))
@@ -372,30 +415,30 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE ->
-                                service.nameOf(Objects.requireNonNull(architectPlannerModel));
-                            case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
-                            case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
+                            case ARCHITECT, LUTZ, PLAN, ISSUE -> service.nameOf(requireNonNull(architectPlannerModel));
+                            case ASK -> service.nameOf(requireNonNull(askPlannerModel));
+                            case SEARCH -> service.nameOf(requireNonNull(searchPlannerModel));
                             case CODE -> {
                                 var plannerName = spec.plannerModel();
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
-                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
+                            case REVIEW -> service.nameOf(requireNonNull(reviewPlannerModel));
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
-                            case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
+                            case PLAN -> "(default, ignored for PLAN)";
+                            case CODE -> service.nameOf(requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
-                            case ASK, SEARCH, REVIEW -> true;
+                            case ASK, SEARCH, PLAN, REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
                         };
@@ -426,15 +469,27 @@ public final class JobRunner {
                                     case ARCHITECT -> {
                                         cm.executeTask(
                                                 new TaskList.TaskItem("", spec.taskInput(), false),
-                                                Objects.requireNonNull(
+                                                requireNonNull(
                                                         architectPlannerModel,
                                                         "plannerModel required for ARCHITECT jobs"),
-                                                Objects.requireNonNull(
+                                                requireNonNull(
                                                         architectCodeModel,
                                                         "code model unavailable for ARCHITECT jobs"));
                                     }
                                     case LUTZ -> {
-                                        // Phase 1: Use SearchAgent to generate a task list from the initial task
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
+                                            runLutzOrchestration(
+                                                    spec.taskInput(),
+                                                    requireNonNull(
+                                                            architectPlannerModel,
+                                                            "plannerModel required for LUTZ jobs"),
+                                                    architectCodeModel,
+                                                    scope,
+                                                    cancelled::get);
+                                        }
+                                    }
+                                    case PLAN -> {
+                                        // PLAN mode: LUTZ Phase 1+2 only (generate task list, no execution)
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
                                             var searchAgent = new SearchAgent(
@@ -442,74 +497,16 @@ public final class JobRunner {
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             architectPlannerModel,
-                                                            "plannerModel required for LUTZ jobs"),
-                                                    SearchPrompts.Objective.TASKS_ONLY,
+                                                            "plannerModel required for PLAN jobs"),
+                                                    objectiveForMode(Mode.PLAN),
                                                     scope);
-                                            var taskListResult = searchAgent.execute();
-                                            scope.append(taskListResult);
-                                        }
-                                        // Task list is now in the live context and persisted by the scope
-                                        logger.debug("LUTZ Phase 1 complete: task list generated");
-
-                                        // Phase 2: Check if task list was generated; if empty, mark job complete
-                                        var generatedTasks = cm.getTaskList().tasks();
-                                        if (generatedTasks.isEmpty()) {
-                                            var msg = "SearchAgent generated no tasks for: " + spec.taskInput();
-                                            logger.info("LUTZ job {}: {}", jobId, msg);
-                                            if (console != null) {
-                                                try {
-                                                    console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                                                } catch (Throwable ignore) {
-                                                    // Non-critical: event writing failed
-                                                }
-                                            }
-                                            // No tasks generated; outer loop will handle completion/progress
-                                        } else {
-                                            // Phase 3: Execute each generated incomplete task sequentially
-                                            logger.debug(
-                                                    "LUTZ Phase 2 complete: {} task(s) to execute",
-                                                    generatedTasks.size());
-                                            var incompleteTasks = generatedTasks.stream()
-                                                    .filter(t -> !t.done())
-                                                    .toList();
-                                            logger.debug(
-                                                    "LUTZ will execute {} incomplete task(s)", incompleteTasks.size());
-
-                                            for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                                                if (cancelled.get()) {
-                                                    logger.info(
-                                                            "LUTZ job {} execution cancelled during task iteration",
-                                                            jobId);
-                                                    return; // Cancelled: exit submitLlmAction early to prevent
-                                                    // further job completion handling in the outer loop
-                                                }
-
-                                                logger.info(
-                                                        "LUTZ job {} executing generated task: {}",
-                                                        jobId,
-                                                        generatedTask.text());
-                                                try {
-                                                    cm.executeTask(
-                                                            generatedTask,
-                                                            architectPlannerModel,
-                                                            Objects.requireNonNull(architectCodeModel));
-                                                } catch (Exception e) {
-                                                    logger.warn(
-                                                            "Generated task execution failed for job {}: {}",
-                                                            jobId,
-                                                            e.getMessage());
-                                                    throw e;
-                                                }
-                                            }
-
-                                            logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
+                                            scope.append(searchAgent.execute());
                                         }
                                     }
                                     case CODE -> {
                                         var agent = new CodeAgent(
                                                 cm,
-                                                Objects.requireNonNull(
-                                                        codeModeModel, "code model unavailable for CODE jobs"));
+                                                requireNonNull(codeModeModel, "code model unavailable for CODE jobs"));
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var result = agent.execute(spec.taskInput(), Set.of());
                                             scope.append(result);
@@ -530,9 +527,9 @@ public final class JobRunner {
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         spec.taskInput(),
-                                                        Objects.requireNonNull(
+                                                        requireNonNull(
                                                                 askPlannerModel, "plannerModel required for ASK jobs"),
-                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        objectiveForMode(Mode.ASK),
                                                         scope);
 
                                                 String rawScanModel = spec.scanModel();
@@ -637,9 +634,7 @@ public final class JobRunner {
                                                 // Use helper that builds a workspace-only prompt and calls the
                                                 // planner model.
                                                 TaskResult askResult = askUsingPlannerModel(
-                                                        context,
-                                                        Objects.requireNonNull(askPlannerModel),
-                                                        spec.taskInput());
+                                                        context, requireNonNull(askPlannerModel), spec.taskInput());
                                                 scope.append(askResult);
                                             } catch (Throwable t) {
                                                 // Do not allow a planner-model failure to abort the entire job.
@@ -671,17 +666,16 @@ public final class JobRunner {
                                                         t.getMessage() == null
                                                                 ? t.getClass().getSimpleName()
                                                                 : t.getMessage());
-                                                List<ChatMessage> ui = List.of(
+                                                List<ChatMessage> uiMessages = List.of(
                                                         new UserMessage(spec.taskInput()),
                                                         new SystemMessage("ASK direct-answer failed: "
                                                                 + stopDetails.explanation()));
-                                                var failureResult = new TaskResult(
-                                                        cm,
-                                                        "ASK: " + spec.taskInput() + " [LLM_ERROR]",
-                                                        ui,
-                                                        context,
-                                                        stopDetails,
-                                                        null);
+                                                context = context.addHistoryEntry(
+                                                        uiMessages,
+                                                        TaskResult.Type.ASK,
+                                                        requireNonNull(askPlannerModel),
+                                                        spec.taskInput());
+                                                var failureResult = new TaskResult(context, stopDetails);
                                                 try {
                                                     scope.append(failureResult);
                                                 } catch (Throwable e2) {
@@ -719,9 +713,9 @@ public final class JobRunner {
                                             var searchAgent = new SearchAgent(
                                                     context,
                                                     spec.taskInput(),
-                                                    Objects.requireNonNull(
+                                                    requireNonNull(
                                                             scanModelToUse, "scan model unavailable for SEARCH jobs"),
-                                                    SearchPrompts.Objective.ANSWER_ONLY,
+                                                    objectiveForMode(Mode.SEARCH),
                                                     scope,
                                                     cm.getIo(),
                                                     scanConfig);
@@ -841,10 +835,10 @@ public final class JobRunner {
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         scanGoal,
-                                                        Objects.requireNonNull(
+                                                        requireNonNull(
                                                                 reviewScanModel,
                                                                 "scan model unavailable for REVIEW pre-scan"),
-                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        objectiveForMode(Mode.REVIEW),
                                                         scope);
 
                                                 context = searchAgent.scanContext();
@@ -868,23 +862,45 @@ public final class JobRunner {
                                             }
 
                                             // 5. Call reviewDiff() to get LLM review with enriched context
-                                            var plannerModel = Objects.requireNonNull(
+                                            var plannerModel = requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-                                            TaskResult reviewResult = reviewDiff(
+
+                                            ReviewDiffResult review = reviewDiff(
                                                     context,
                                                     plannerModel,
                                                     annotatedDiff,
                                                     prDetails.title(),
                                                     prDetails.body());
+                                            TaskResult reviewResult = review.taskResult();
                                             scope.append(reviewResult);
 
                                             // 6. Parse review output (JSON only)
-                                            String reviewText =
-                                                    reviewResult.output().text().join();
+                                            String reviewText = review.responseText();
 
                                             var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
 
                                             if (reviewResponse == null) {
+                                                if (reviewText.isBlank()) {
+                                                    var stopDetails = reviewResult.stopDetails();
+                                                    logger.error(
+                                                            "LLM returned empty response for review job {}. Stop reason: {}, explanation: {}",
+                                                            jobId,
+                                                            stopDetails.reason(),
+                                                            stopDetails.explanation());
+                                                    String causeDetail =
+                                                            stopDetails.reason() == TaskResult.StopReason.SUCCESS
+                                                                    ? ""
+                                                                    : " Cause: "
+                                                                            + stopDetails
+                                                                                    .explanation()
+                                                                                    .lines()
+                                                                                    .findFirst()
+                                                                                    .orElse(stopDetails
+                                                                                            .reason()
+                                                                                            .name());
+                                                    throw new IllegalStateException(
+                                                            "LLM returned empty response for PR review." + causeDetail);
+                                                }
                                                 // JSON parsing failed - treat as hard error
                                                 String preview = reviewText.length() > 500
                                                         ? reviewText.substring(0, 500) + "..."
@@ -955,9 +971,9 @@ public final class JobRunner {
                                         }
                                     }
                                     case ISSUE -> {
-                                        StreamingChatModel issuePlannerModel = Objects.requireNonNull(
+                                        StreamingChatModel issuePlannerModel = requireNonNull(
                                                 architectPlannerModel, "plannerModel required for ISSUE jobs");
-                                        StreamingChatModel issueCodeModel = Objects.requireNonNull(
+                                        StreamingChatModel issueCodeModel = requireNonNull(
                                                 architectCodeModel, "code model required for ISSUE jobs");
 
                                         var issueExecutor =
@@ -1069,6 +1085,17 @@ public final class JobRunner {
 
                                         try {
                                             store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
+
+                                            var issueCreatedData = new LinkedHashMap<String, Object>();
+                                            issueCreatedData.put("issueId", created.id());
+                                            if (created.htmlUrl() != null) {
+                                                issueCreatedData.put(
+                                                        "issueUrl",
+                                                        created.htmlUrl().toString());
+                                            }
+                                            issueCreatedData.put("repoOwner", repoOwner);
+                                            issueCreatedData.put("repoName", repoName);
+                                            store.appendEvent(jobId, JobEvent.of("ISSUE_CREATED", issueCreatedData));
                                         } catch (IOException ioe) {
                                             logger.warn(
                                                     "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
@@ -1138,12 +1165,27 @@ public final class JobRunner {
                         if (s == null) {
                             s = JobStatus.queued(jobId);
                         }
-                        s = s.cancelled();
+
+                        boolean alreadyCancelled =
+                                JobStatus.State.CANCELLED.name().equals(s.state());
+                        boolean hadLastSeq = s.metadata().containsKey("lastSeq");
+
+                        if (!alreadyCancelled) {
+                            s = s.cancelled();
+                        }
+
                         if (console != null) {
                             long lastSeq = console.getLastSeq();
                             s = s.withMetadata("lastSeq", Long.toString(lastSeq));
                         }
-                        store.updateStatus(jobId, s);
+
+                        // Update if state changed or if we enriched with missing metadata
+                        if (!alreadyCancelled || !hadLastSeq) {
+                            store.updateStatus(jobId, s);
+                        } else {
+                            logger.debug(
+                                    "Job {} already marked CANCELLED with metadata, skipping redundant update", jobId);
+                        }
                     } catch (Exception e2) {
                         logger.warn("Failed to persist CANCELLED status for job {}", jobId, e2);
                     }
@@ -1203,6 +1245,130 @@ public final class JobRunner {
     }
 
     /**
+     * Executes the search phase of a LUTZ job.
+     */
+    @Blocking
+    void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
+            throws InterruptedException {
+        var context = cm.liveContext();
+        var searchAgent = new SearchAgent(context, taskInput, plannerModel, objectiveForLutzSearchPhase(), scope);
+        var taskListResult = searchAgent.execute();
+        scope.append(taskListResult);
+    }
+
+    /**
+     * Executes a single task in a LUTZ job.
+     */
+    @Blocking
+    void runTaskExecutionPhase(TaskList.TaskItem task, StreamingChatModel plannerModel, StreamingChatModel codeModel)
+            throws InterruptedException {
+        cm.executeTask(task, plannerModel, codeModel);
+    }
+
+    /**
+     * Abstract context for LUTZ task orchestration, used to decouple from SearchAgent/LLM in tests.
+     */
+    interface LutzContext {
+        List<TaskList.TaskItem> getTasks();
+
+        @Blocking
+        void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                throws InterruptedException;
+    }
+
+    /**
+     * Core LUTZ orchestration loop that processes tasks after the search phase.
+     */
+    @Blocking
+    void runLutzFromSearchResult(
+            LutzContext lutzContext,
+            StreamingChatModel plannerModel,
+            @Nullable StreamingChatModel codeModel,
+            BooleanSupplier isCancelled)
+            throws InterruptedException {
+        var generatedTasks = lutzContext.getTasks();
+        if (generatedTasks.isEmpty()) {
+            var msg = "SearchAgent phase complete; no tasks to execute.";
+            logger.info("LUTZ orchestration: {}", msg);
+            if (console != null) {
+                try {
+                    console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                } catch (Throwable ignore) {
+                    // Non-critical: event writing failed
+                }
+            }
+            return;
+        }
+
+        logger.debug("LUTZ orchestration: {} task(s) to execute", generatedTasks.size());
+        var incompleteTasks = generatedTasks.stream().filter(t -> !t.done()).toList();
+        logger.debug("LUTZ orchestration: will execute {} incomplete task(s)", incompleteTasks.size());
+
+        if (isCancelled.getAsBoolean()) {
+            throw new IssueCancelledException("LUTZ orchestration: execution cancelled before task execution");
+        }
+
+        for (TaskList.TaskItem generatedTask : incompleteTasks) {
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("LUTZ orchestration: execution cancelled during task iteration");
+            }
+
+            logger.info("LUTZ orchestration: executing generated task: {}", generatedTask.text());
+            try {
+                lutzContext.executeTask(
+                        generatedTask,
+                        plannerModel,
+                        requireNonNull(codeModel, "code model unavailable for LUTZ task execution"));
+            } catch (Exception e) {
+                logger.warn("LUTZ orchestration: generated task execution failed: {}", e.getMessage());
+                throw e;
+            }
+
+            if (isCancelled.getAsBoolean()) {
+                throw new IssueCancelledException("LUTZ orchestration: execution cancelled during task iteration");
+            }
+        }
+
+        if (isCancelled.getAsBoolean()) {
+            throw new IssueCancelledException("LUTZ orchestration: execution cancelled after final task execution");
+        }
+
+        logger.debug("LUTZ orchestration: all generated tasks executed");
+    }
+
+    /**
+     * High-level LUTZ orchestration seam for testing.
+     */
+    @Blocking
+    void runLutzOrchestration(
+            String taskInput,
+            StreamingChatModel plannerModel,
+            @Nullable StreamingChatModel codeModel,
+            ContextManager.TaskScope scope,
+            BooleanSupplier isCancelled)
+            throws InterruptedException {
+        // Phase 1: Search
+        runSearchPhase(taskInput, plannerModel, scope);
+
+        // Phase 2: Execution Loop
+        LutzContext adapter = new LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return cm.getTaskList().tasks();
+            }
+
+            @Override
+            @Blocking
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                    throws InterruptedException {
+                runTaskExecutionPhase(task, planner, code);
+            }
+        };
+
+        runLutzFromSearchResult(adapter, plannerModel, codeModel, isCancelled);
+    }
+
+    /**
      * Request cancellation of an active job.
      *
      * <p>This is a cooperative cancel: it interrupts the LLM action and attempts to transition
@@ -1233,7 +1399,9 @@ public final class JobRunner {
             if (s != null) {
                 String state = s.state();
                 // Only transition if not already in a terminal state
-                if (!"COMPLETED".equals(state) && !"FAILED".equals(state) && !"CANCELLED".equals(state)) {
+                if (!JobStatus.State.COMPLETED.name().equals(state)
+                        && !JobStatus.State.FAILED.name().equals(state)
+                        && !JobStatus.State.CANCELLED.name().equals(state)) {
                     s = s.cancelled();
                     long lastSeq = console != null ? console.getLastSeq() : -1;
                     s = s.withMetadata("lastSeq", Long.toString(lastSeq));
@@ -1343,15 +1511,10 @@ public final class JobRunner {
             stop = TaskResult.StopDetails.fromResponse(response);
         }
 
-        // construct TaskResult
-        Objects.requireNonNull(stop);
-        return new TaskResult(
-                cm,
-                question,
-                List.copyOf(cm.getIo().getLlmRawMessages()),
-                ctx, // Ask never changes files; use current live context
-                stop,
-                meta);
+        requireNonNull(stop);
+
+        ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.ASK, model, question);
+        return new TaskResult(ctx, stop);
     }
 
     /**
@@ -1479,7 +1642,7 @@ public final class JobRunner {
 
                 OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
                 """
-                        .formatted(prBlocks, severityLine, maxLine, fencedDiff);
+                        .formatted(prBlocks, fencedDiff, severityLine, maxLine);
 
         return prompt;
     }
@@ -1490,11 +1653,8 @@ public final class JobRunner {
      * <p>Package-private instance method: this is not stateless since it depends on the JobRunner's
      * {@link ContextManager} for service/model access and IO routing.
      */
-    TaskResult reviewDiff(
+    ReviewDiffResult reviewDiff(
             Context ctx, StreamingChatModel model, String annotatedDiff, String prTitle, String prDescription) {
-        var svc = cm.getService();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.REVIEW, Service.ModelConfig.from(model, svc));
-
         String prompt = buildReviewPrompt(
                 annotatedDiff,
                 DEFAULT_REVIEW_SEVERITY_THRESHOLD,
@@ -1508,21 +1668,26 @@ public final class JobRunner {
         var llm = cm.getLlm(new Llm.Options(model, "PR Review", TaskResult.Type.REVIEW).withEcho());
         llm.setOutput(cm.getIo());
 
-        TaskResult.StopDetails stop = null;
+        TaskResult.StopDetails stop;
         Llm.StreamingResult response = null;
         try {
             response = llm.sendRequest(messages);
+            stop = TaskResult.StopDetails.fromResponse(response);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
 
-        if (response != null) {
-            stop = TaskResult.StopDetails.fromResponse(response);
+        String responseText = "";
+        List<ChatMessage> responseMessages = List.of();
+        if (response != null && response.chatResponse() != null) {
+            var aiMessage = response.aiMessage();
+            responseMessages = List.of(aiMessage);
+            responseText = Messages.getText(aiMessage);
         }
 
-        Objects.requireNonNull(stop);
-        return new TaskResult(cm, "PR Review", List.copyOf(cm.getIo().getLlmRawMessages()), ctx, stop, meta);
+        Context reviewContext = ctx.addHistoryEntry(responseMessages, TaskResult.Type.REVIEW, model, "PR Review");
+        return new ReviewDiffResult(new TaskResult(reviewContext, stop), responseText);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
@@ -1887,7 +2052,7 @@ public final class JobRunner {
         }
 
         String baseMessage = "Tests/lint failed after " + maxIterations + " iteration(s)";
-        if (lastFailStage != null && lastFailCommand != null && lastFailOutput != null && !lastFailOutput.isBlank()) {
+        if (!requireNonNull(lastFailOutput).isBlank()) {
             throw new IssueExecutionException(baseMessage + ". Last failure: stage=" + lastFailStage + ", command="
                     + lastFailCommand + "\nOutput:\n" + lastFailOutput);
         }
@@ -2286,19 +2451,32 @@ public final class JobRunner {
                         return List.of();
                     }
 
-                    TaskResult reviewResult;
+                    ReviewDiffResult review;
                     try {
                         try (var reviewScope = cm.beginTaskUngrouped("PR Review")) {
-                            reviewResult = new JobRunner(cm, store).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
+                            review = new JobRunner(cm, store).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         throw new IssueExecutionException("Interrupted while running PR Review", e);
                     }
-                    String reviewText = reviewResult.output().text().join();
+                    String reviewText = review.responseText();
 
                     var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
                     if (reviewResponse == null) {
+                        if (reviewText.isBlank()) {
+                            var stopDetails = review.taskResult().stopDetails();
+                            String causeDetail = stopDetails.reason() == TaskResult.StopReason.SUCCESS
+                                    ? ""
+                                    : " Cause: "
+                                            + stopDetails
+                                                    .explanation()
+                                                    .lines()
+                                                    .findFirst()
+                                                    .orElse(stopDetails.reason().name());
+                            throw new IssueExecutionException(
+                                    "LLM returned empty response for issue diff review." + causeDetail);
+                        }
                         String preview = reviewText.length() > 500 ? reviewText.substring(0, 500) + "..." : reviewText;
                         throw new IssueExecutionException(
                                 "Issue diff review response was not valid JSON. Response preview: " + preview);

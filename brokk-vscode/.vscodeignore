@@ -1,0 +1,14 @@
+.brokk/**
+.claude/**
+.vscode/**
+.vscode-test/**
+node_modules/**
+src/**
+*.vsix
+*.ts
+**/*.map
+esbuild.mjs
+tsconfig.json
+pnpm-lock.yaml
+package-lock.json
+.gitignore

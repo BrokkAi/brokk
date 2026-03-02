@@ -14,7 +14,6 @@ import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.MaterialOptionPane;
-import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.TableUtils;
 import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
@@ -581,7 +580,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                         }
                     }
                     updateCommitContextMenuState();
-                    SwingUtil.runOnEdt(() -> {
+                    SwingUtilities.invokeLater(() -> {
                         if (commitsTable.rowAtPoint(e.getPoint()) >= 0)
                             commitsContextMenu.show(commitsTable, e.getX(), e.getY());
                     });
@@ -603,7 +602,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         var ctx = chrome.getContextManager().selectedContext();
         boolean hasProjectFilesInContext = ctx != null
                 && ctx.getAllFragmentsInDisplayOrder().stream()
-                        .anyMatch(f -> !f.files().renderNowOr(Set.of()).isEmpty());
+                        .anyMatch(f -> !f.sourceFiles().renderNowOr(Set.of()).isEmpty());
 
         viewChangesItem.setEnabled(selectedRows.length == 1);
         reviewCommitsItem.setEnabled(selectedRows.length >= 1 && !isStash);
@@ -708,7 +707,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             var projectFilesInContext = (ctx == null)
                     ? Set.<ProjectFile>of()
                     : ctx.getAllFragmentsInDisplayOrder().stream()
-                            .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                            .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                             .collect(Collectors.toSet());
 
             if (projectFilesInContext.isEmpty()) {
@@ -730,7 +729,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                     }
                 }
                 final int captured = success;
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO, "Captured " + captured + " file(s) at " + shortId + ".");
                     chrome.updateWorkspace();
@@ -819,7 +818,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 }
 
                 int finalApplied = applied;
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Cherry-picked " + finalApplied + " commit(s) into '" + branchLabel + "'.");
@@ -1183,7 +1182,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 }
             }
 
-            SwingUtil.runOnEdt(() -> {
+            SwingUtilities.invokeLater(() -> {
                 changesRootNode = newRootNode;
                 changesTreeModel = new DefaultTreeModel(changesRootNode);
                 changesTree.setModel(changesTreeModel);
@@ -1199,7 +1198,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             var oldHeadId = getOldHeadId();
             try {
                 getRepo().softReset(commitId);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Soft reset from " + getShortId(oldHeadId) + " to " + getShortId(commitId) + ": "
@@ -1208,7 +1207,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 });
             } catch (GitAPIException e) {
                 logger.error("Error soft reset to {}: {}", commitId, e.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError("Error soft reset: " + e.getMessage()));
+                SwingUtilities.invokeLater(() -> chrome.toolError("Error soft reset: " + e.getMessage()));
             }
         });
     }
@@ -1217,14 +1216,14 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         contextManager.submitExclusiveAction(() -> {
             try {
                 getRepo().revertCommit(commitId);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO, "Commit " + getShortId(commitId) + " reverted.");
                     refreshCurrentViewAfterGitOp();
                 });
             } catch (GitAPIException e) {
                 logger.error("Error reverting {}: {}", commitId, e.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError("Error reverting commit: " + e.getMessage()));
+                SwingUtilities.invokeLater(() -> chrome.toolError("Error reverting commit: " + e.getMessage()));
             }
         });
     }
@@ -1234,7 +1233,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         contextManager.submitExclusiveAction(() -> {
             try {
                 repoCall.perform(idx);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMsg);
                     if (refreshView) {
                         refreshCurrentViewAfterGitOp();
@@ -1242,7 +1241,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 });
             } catch (Exception e) {
                 logger.error("{} failed: {}", description, e.getMessage(), e);
-                SwingUtil.runOnEdt(() -> chrome.toolError(description + " error: " + e.getMessage()));
+                SwingUtilities.invokeLater(() -> chrome.toolError(description + " error: " + e.getMessage()));
             }
         });
     }
@@ -1288,7 +1287,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 setCommits(stashes, Collections.emptySet(), false, false, STASHES_VIRTUAL_BRANCH);
             } catch (Exception e) {
                 logger.error("Error fetching stashes for panel", e);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     commitsTableModel.setRowCount(0);
                     commitsTableModel.addRow(
                             new Object[] {"Error loading stashes: " + e.getMessage(), "", "", "", false, null});
@@ -1313,7 +1312,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                         branchName,
                         e.getMessage(),
                         e);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     commitsTableModel.setRowCount(0);
                     commitsTableModel.addRow(
                             new Object[] {"Error loading commits: " + e.getMessage(), "", "", "", false, null});
@@ -1322,7 +1321,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             } catch (Exception e) { // Catch other potential runtime exceptions
                 logger.error(
                         "Unexpected error fetching commits for panel (branch: {}): {}", branchName, e.getMessage(), e);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     commitsTableModel.setRowCount(0);
                     commitsTableModel.addRow(
                             new Object[] {"Unexpected error: " + e.getMessage(), "", "", "", false, null});
@@ -1374,7 +1373,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 // For search results, unpushed status and push/pull buttons are less relevant,
                 // so we pass empty/false for them.
                 setCommits(searchResults, Collections.emptySet(), false, false, "Search: " + query);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     if (searchResults.isEmpty())
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO, "No commits found matching: " + query);
@@ -1385,7 +1384,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 });
             } catch (Exception e) {
                 logger.error("Error searching commits for panel: {}", query, e);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     commitsTableModel.setRowCount(0);
                     commitsTableModel.addRow(
                             new Object[] {"Error searching: " + e.getMessage(), "", "", "", false, null});
@@ -1398,7 +1397,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     public void clearCommitView() {
         this.currentBranchOrContextName = null;
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             var selectionModel = commitsTable.getSelectionModel();
             selectionModel.setValueIsAdjusting(true);
             try {
@@ -1424,7 +1423,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     public void clearSearchField() {
         if (this.options.showSearch()) {
-            SwingUtil.runOnEdt(() -> commitSearchTextField.setText(""));
+            SwingUtilities.invokeLater(() -> commitSearchTextField.setText(""));
         }
     }
 
@@ -1441,7 +1440,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         var buttonStates =
                 determineButtonStates(viewKind, canPush, canPull, unpushedCommitIds, activeBranchOrContextName);
 
-        SwingUtil.runOnEdt(() -> applyStateToUiComponents(commitRows, buttonStates, viewKind));
+        SwingUtilities.invokeLater(() -> applyStateToUiComponents(commitRows, buttonStates, viewKind));
     }
 
     private enum ViewKind {
@@ -1623,14 +1622,14 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.pull(branchName);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
                     refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
                     // For uncommitted changes
                 });
             } catch (GitAPIException ex) {
                 logger.error("Error pulling {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.toolError("Pull error for " + branchName + ": " + ex.getMessage());
                     pullButton.setEnabled(true);
                 });
@@ -1647,13 +1646,13 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.push(branchName);
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
                     refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
                 });
             } catch (TransportException ex) {
                 logger.error("Push failed for {} due to transport/permission error: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     if (GitRepo.isGitHubPermissionDenied(ex)) {
                         String errorMessage = String.format(
                                 """
@@ -1676,14 +1675,14 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             } catch (GitAPIException ex) {
                 chrome.toolError("Push error for " + branchName + ": " + ex.getMessage());
             } finally {
-                SwingUtil.runOnEdt(() -> {
+                SwingUtilities.invokeLater(() -> {
                     pushButton.setEnabled(true);
                 });
             }
         });
 
         // Restore focus if it was stolen (macOS can sometimes bring parent window forward)
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             Window nowFocusedWindow =
                     KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
 
@@ -1835,7 +1834,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     } // <-- close TreeNodeInfo record
 
     public void selectCommitById(String commitId) {
-        SwingUtil.runOnEdt(() -> {
+        SwingUtilities.invokeLater(() -> {
             for (int i = 0; i < commitsTableModel.getRowCount(); i++) {
                 ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(i, COL_COMMIT_OBJ);
                 if (commitInfo != null && commitId.equals(commitInfo.id())) {
@@ -1964,6 +1963,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     public void gitHubTokenChanged() {
         // We need to re-evaluate whether the create PR button should be enabled,
         // which happens as part of loading commits.
-        SwingUtil.runOnEdt(this::refreshCurrentViewAfterGitOp);
+        SwingUtilities.invokeLater(this::refreshCurrentViewAfterGitOp);
     }
 }

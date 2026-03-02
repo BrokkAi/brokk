@@ -9,13 +9,14 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.ExecutorsUtil;
@@ -23,6 +24,7 @@ import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.git.GitRepo;
 import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.ImageUtil;
+import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
@@ -291,7 +293,7 @@ public class ContextFragments {
         }
 
         @Override
-        public ComputedValue<Set<ProjectFile>> files() {
+        public ComputedValue<Set<ProjectFile>> referencedFiles() {
             return derived("files", ContentSnapshot::files);
         }
 
@@ -364,7 +366,7 @@ public class ContextFragments {
         }
 
         @Override
-        public ComputedValue<Set<ProjectFile>> files() {
+        public ComputedValue<Set<ProjectFile>> referencedFiles() {
             return ComputedValue.completed("files-" + id, snapshot.files());
         }
 
@@ -378,6 +380,11 @@ public class ContextFragments {
         @Override
         public ContextFragment refreshCopy() {
             return this;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> sourceFiles() {
+            return ComputedValue.completed(Set.of());
         }
 
         @Override
@@ -468,7 +475,7 @@ public class ContextFragments {
 
         @Override
         public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return files();
+            return referencedFiles();
         }
 
         @Override
@@ -567,11 +574,6 @@ public class ContextFragments {
         @Override
         public ProjectFile file() {
             return file;
-        }
-
-        @Override
-        public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return files();
         }
 
         @Override
@@ -684,7 +686,7 @@ public class ContextFragments {
 
         @Override
         public ComputedValue<Set<ProjectFile>> sourceFiles() {
-            return files();
+            return referencedFiles();
         }
 
         @Override
@@ -1412,8 +1414,9 @@ public class ContextFragments {
             Predicate<ProjectFile> fileFilter =
                     includeTestFiles ? null : file -> !ContextManager.isTestFile(file, analyzer);
 
+            // UsageFinder is the new name for the unified usage discovery service
             FuzzyResult usageResult =
-                    FuzzyUsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
+                    UsageFinder.create(contextManager, fileFilter).findUsages(targetIdentifier);
             var either = usageResult.toEither();
 
             var definitions = analyzer.getDefinitions(targetIdentifier);
@@ -1679,6 +1682,107 @@ public class ContextFragments {
         }
     }
 
+    public static class LineRangeFragment extends AbstractComputedFragment {
+        private final ProjectFile file;
+        private final int startLine;
+        private final int endLine;
+
+        public LineRangeFragment(IContextManager contextManager, ProjectFile file, int startLine, int endLine) {
+            this(UUID.randomUUID().toString(), contextManager, file, startLine, endLine, null);
+        }
+
+        public LineRangeFragment(
+                String id,
+                IContextManager contextManager,
+                ProjectFile file,
+                int startLine,
+                int endLine,
+                @Nullable String snapshotText) {
+            super(
+                    id,
+                    contextManager,
+                    computeDescription(file, startLine, endLine),
+                    computeShortDescription(file, startLine, endLine),
+                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                    snapshotText == null ? null : ContentSnapshot.textSnapshot(snapshotText, Set.of(), Set.of(file)),
+                    snapshotText == null ? () -> computeSnapshotFor(file, startLine, endLine) : null);
+            if (startLine < 1) {
+                throw new IllegalArgumentException("startLine must be >= 1");
+            }
+            if (endLine < startLine) {
+                throw new IllegalArgumentException("endLine must be >= startLine");
+            }
+            this.file = file;
+            this.startLine = startLine;
+            this.endLine = endLine;
+        }
+
+        private static String computeDescription(ProjectFile file, int startLine, int endLine) {
+            return "Line range %s:%d-%d".formatted(file.toString(), startLine, endLine);
+        }
+
+        private static String computeShortDescription(ProjectFile file, int startLine, int endLine) {
+            return "%s:%d-%d".formatted(file.getFileName(), startLine, endLine);
+        }
+
+        private static ContentSnapshot computeSnapshotFor(ProjectFile file, int startLine, int endLine) {
+            if (startLine < 1 || endLine < startLine) {
+                return new ContentSnapshot("", Set.of(), Set.of(file), (List<Byte>) null, false);
+            }
+            if (!file.exists()) {
+                return new ContentSnapshot("", Set.of(), Set.of(file), (List<Byte>) null, false);
+            }
+            var contentOpt = file.read();
+            if (contentOpt.isEmpty()) {
+                return new ContentSnapshot("", Set.of(), Set.of(file), (List<Byte>) null, false);
+            }
+            var range = Lines.range(contentOpt.get(), startLine, endLine);
+            if (range.lineCount() == 0) {
+                return new ContentSnapshot(
+                        "No lines found in range %d-%d for file %s".formatted(startLine, endLine, file.toString()),
+                        Set.of(),
+                        Set.of(file),
+                        (List<Byte>) null,
+                        true);
+            }
+            int actualEnd = startLine + range.lineCount() - 1;
+            String text = "File: %s (lines %d-%d)\n%s".formatted(file.toString(), startLine, actualEnd, range.text());
+            return new ContentSnapshot(text, Set.of(), Set.of(file), (List<Byte>) null, true);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.LINE_RANGE;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> sourceFiles() {
+            return referencedFiles();
+        }
+
+        @Override
+        public String repr() {
+            return "LineRange('%s', %d, %d)".formatted(file.toString(), startLine, endLine);
+        }
+
+        public ProjectFile file() {
+            return file;
+        }
+
+        public int startLine() {
+            return startLine;
+        }
+
+        public int endLine() {
+            return endLine;
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new LineRangeFragment(id, contextManager, file, startLine, endLine, null);
+        }
+    }
+
     public static class SkeletonFragmentFormatter {
         public record Request(
                 @Nullable CodeUnit primaryTarget,
@@ -1864,19 +1968,28 @@ public class ContextFragments {
 
         public record CodeUnitSkeleton(CodeUnit codeUnit, String skeleton) {}
 
+        /**
+         * We map skeletons by code units as FQ names are not unique in the case of overloaded methods, for example.
+         */
         @Blocking
-        private Map<String, CodeUnitSkeleton> skeletonsByFqName() {
+        private Map<CodeUnit, CodeUnitSkeleton> skeletonsByCodeUnit() {
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
+            Map<CodeUnit, CodeUnitSkeleton> out = new LinkedHashMap<>();
             for (CodeUnit cu : sources().join()) {
                 if (cu.isAnonymous()) {
                     continue;
                 }
                 analyzer.getSkeleton(cu)
                         .filter(s -> !s.isBlank())
-                        .ifPresent(skeleton -> out.putIfAbsent(cu.fqName(), new CodeUnitSkeleton(cu, skeleton)));
+                        .ifPresent(skeleton -> out.putIfAbsent(cu, new CodeUnitSkeleton(cu, skeleton)));
             }
             return out;
+        }
+
+        private record CodeUnitKey(CodeUnitType kind, String fqName, @Nullable String signature) {
+            static CodeUnitKey of(CodeUnit cu) {
+                return new CodeUnitKey(cu.kind(), cu.fqName(), cu.signature());
+            }
         }
 
         /**
@@ -1884,7 +1997,7 @@ public class ContextFragments {
          *
          * <p>Semantic aggregation:
          * - Union CodeUnits across fragments via sources()
-         * - Deduplicate by CodeUnit.fqName() (stable first-seen)
+         * - Deduplicate by CodeUnit semantic identity (kind, fqName, signature)
          * - Exclude anonymous units
          * - Use each fragment's own analyzer to obtain skeleton text
          * - Format via SkeletonFragmentFormatter in by-package mode
@@ -1899,9 +2012,10 @@ public class ContextFragments {
                 logger.error("combinedText is a blocking function and should not be called on the EDT!");
             }
 
-            Map<String, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            Map<CodeUnitKey, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
             for (SummaryFragment fragment : fragments) {
-                fragment.skeletonsByFqName().forEach(deduped::putIfAbsent);
+                fragment.skeletonsByCodeUnit()
+                        .forEach((cu, skeleton) -> deduped.putIfAbsent(CodeUnitKey.of(cu), skeleton));
             }
 
             if (deduped.isEmpty()) {
@@ -1924,6 +2038,32 @@ public class ContextFragments {
             return Set.of();
         }
 
+        /**
+         * Returns true if this summary fragment is superseded by a full fragment in the given collection.
+         *
+         * <ul>
+         *   <li>A FILE_SKELETONS summary is superseded when a {@link ProjectPathFragment} covering
+         *       the same file is present.</li>
+         *   <li>A CODEUNIT_SKELETON summary is superseded when a {@link ProjectPathFragment} or
+         *       {@link CodeFragment} whose resolved sources include the target class is present.</li>
+         * </ul>
+         */
+        @Blocking
+        public boolean isSupersededBy(Collection<? extends ContextFragment> candidates) {
+            return switch (summaryType) {
+                case FILE_SKELETONS ->
+                    candidates.stream()
+                            .filter(c -> c instanceof ProjectPathFragment)
+                            .map(c -> (ProjectPathFragment) c)
+                            .anyMatch(ppf -> ppf.file().toString().equals(targetIdentifier));
+                case CODEUNIT_SKELETON ->
+                    candidates.stream()
+                            .filter(c -> c instanceof ProjectPathFragment || c instanceof CodeFragment)
+                            .anyMatch(c -> c.sources().join().stream()
+                                    .anyMatch(cu -> cu.fqName().equals(targetIdentifier)));
+            };
+        }
+
         @Override
         public boolean isEligibleForAutoContext() {
             return false;
@@ -1943,10 +2083,8 @@ public class ContextFragments {
                     FragmentUtils.calculateContentHash(
                             FragmentType.HISTORY,
                             "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
-                            TaskEntry.formatMessages(history.stream()
-                                    .flatMap(e -> e.isCompressed()
-                                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                            : castNonNull(e.log()).messages().stream())
+                            Messages.format(history.stream()
+                                    .flatMap(e -> e.mopMessages().stream())
                                     .toList()),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             HistoryFragment.class.getName()),
@@ -1960,10 +2098,10 @@ public class ContextFragments {
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(history.stream()
+                    ContentSnapshot.textSnapshot(Messages.format(history.stream()
                             .flatMap(e -> e.isCompressed()
                                     ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                    : castNonNull(e.log()).messages().stream())
+                                    : castNonNull(e.mopLog()).messages().stream())
                             .toList())));
             this.history = List.copyOf(history);
         }
@@ -1986,46 +2124,43 @@ public class ContextFragments {
 
     public static class TaskFragment extends AbstractStaticFragment implements OutputFragment {
         private final List<ChatMessage> messages;
-        private final boolean escapeHtml;
+        private final boolean escapeHtml; // TODO wire this up or delete it, currently used by GitIssuesTab
 
         /**
          * @param description the user instructions or action goal
          */
-        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
-            this(contextManager, messages, description, true);
+        public TaskFragment(List<ChatMessage> messages, String description) {
+            this(messages, description, true);
         }
 
-        public TaskFragment(
-                IContextManager contextManager, List<ChatMessage> messages, String description, boolean escapeHtml) {
+        public TaskFragment(List<ChatMessage> messages, String description, boolean escapeHtml) {
             this(
                     FragmentUtils.calculateContentHash(
                             FragmentType.TASK,
                             description,
-                            TaskEntry.formatMessages(messages),
+                            Messages.format(messages),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
                             TaskFragment.class.getName()),
-                    contextManager,
                     messages,
                     description,
                     escapeHtml);
         }
 
-        public TaskFragment(String id, IContextManager contextManager, List<ChatMessage> messages, String description) {
-            this(id, contextManager, messages, description, true);
+        public TaskFragment(String id, List<ChatMessage> messages, String description) {
+            this(id, messages, description, true);
         }
 
-        public TaskFragment(
-                String id,
-                IContextManager contextManager,
-                List<ChatMessage> messages,
-                String description,
-                boolean escapeHtml) {
+        public TaskFragment(IContextManager contextManager, String description) {
+            this(contextManager.getIo().getLlmRawMessages(), description, true);
+        }
+
+        public TaskFragment(String id, List<ChatMessage> messages, String description, boolean escapeHtml) {
             super(
                     id,
                     description,
                     description,
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(messages)));
+                    ContentSnapshot.textSnapshot(Messages.format(messages)));
             this.messages = List.copyOf(messages);
             this.escapeHtml = escapeHtml;
         }

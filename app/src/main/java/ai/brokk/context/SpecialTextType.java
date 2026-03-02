@@ -164,6 +164,18 @@ public enum SpecialTextType {
         public String renderPreview(String rawContent) {
             return rawContent;
         }
+    },
+
+    CODE_AGENT_CHANGES(
+            "Last Code Agent Changes",
+            SyntaxConstants.SYNTAX_STYLE_NONE,
+            SyntaxConstants.SYNTAX_STYLE_NONE,
+            true // droppable
+            ) {
+        @Override
+        public String renderPreview(String rawContent) {
+            return rawContent;
+        }
     };
 
     private final String description;

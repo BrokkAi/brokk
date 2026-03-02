@@ -2,7 +2,11 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen {
+ContextModalScreen, TaskListModalScreen {
+    align: center middle;
+}
+
+BrokkApiKeyModalScreen, TaskTitleModalScreen, ModelReasoningSelectModal {
     align: center middle;
 }
 
@@ -13,12 +17,47 @@ ContextModalScreen {
     background: $surface;
 }
 
+#tasklist-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
+}
+
+#task-title-modal-container {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#task-title-modal-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+#task-title-input {
+    width: 1fr;
+}
+
 #side-tasklist {
-    width: 30;
+    width: 38;
     dock: right;
     background: $panel;
     border-left: solid $primary;
     display: none;
+}
+
+#side-tasklist:focus {
+    /* When the task list panel has keyboard focus, highlight with the accent color
+       to match other focused elements like #chat-input and .context-chip. */
+    border-left: solid $accent;
 }
 
 #tasklist-header {
@@ -31,6 +70,21 @@ ContextModalScreen {
 
 #tasklist-container {
     padding: 1 2;
+}
+
+#tasklist-selection {
+    width: 100%;
+    color: $text-disabled;
+    padding: 0 2;
+}
+
+#tasklist-help-line {
+    width: 100%;
+    height: 1;
+    color: $text-disabled;
+    background: transparent;
+    margin-bottom: 1;
+    padding: 0 1;
 }
 
 #tasklist-content {
@@ -48,41 +102,22 @@ ChatPanel {
     background: $surface;
 }
 
-#chat-spinner-area {
-    height: 1;
-    margin: 0 2;
-    layout: horizontal;
-    min-height: 1;
-}
 
-#streaming-response {
-    margin: 0 2;
-    max-height: 8;
-    overflow-y: auto;
-    border: round $primary-darken-2;
-    background: $surface-lighten-1;
-    padding: 0 1;
-}
 
-#chat-spinner {
-    height: 1;
+#help-elapsed {
     width: auto;
-    min-width: 4;
+    min-width: 17;
+    height: 1;
+    color: $text-disabled;
     background: transparent;
-    color: $accent;
+    margin-right: 1;
 }
 
-#chat-timer {
-    height: 1;
-    width: auto;
-    content-align: left middle;
-}
-
-.token-usage {
+#chat-token-bar {
     width: 1fr;
     height: 1;
+    margin: 0 2 1 2;
     content-align: right middle;
-    color: $text-disabled;
 }
 
 #context-panel {
@@ -114,12 +149,6 @@ ChatPanel {
     color: $text-disabled;
 }
 
-#context-help {
-    width: 100%;
-    color: $text-muted;
-    margin: 0 0 1 0;
-}
-
 #context-selection-status {
     width: 100%;
     color: $text-disabled;
@@ -138,6 +167,15 @@ ChatPanel {
 #context-active-status.has-active {
     color: $accent;
     text-style: bold;
+}
+
+#context-help-line {
+    width: 100%;
+    height: 1;
+    color: $text-disabled;
+    background: transparent;
+    margin-bottom: 1;
+    padding: 0 1;
 }
 
 #context-chip-scroll {
@@ -174,19 +212,6 @@ ChatPanel {
 .context-chip:hover {
     border: round $accent;
     background: $accent 22%;
-}
-
-.context-chip.is-active {
-    border: round $accent;
-    background: $accent 28%;
-    text-style: bold;
-}
-
-.context-chip.is-selected {
-    border: round $warning;
-    background: $warning 35%;
-    color: $warning-lighten-3;
-    text-style: bold;
 }
 
 .context-chip-empty {
@@ -226,27 +251,209 @@ ChatPanel {
     text-style: bold;
 }
 
+.context-chip.is-active {
+    border: round $accent-lighten-2;
+    background: $accent 45%;
+    color: $text;
+    text-style: bold;
+}
+
+.context-chip.is-selected {
+    border: round $success-lighten-2;
+    background: $success 65%;
+    color: $text;
+    text-style: bold;
+}
+
+#chat-input-container {
+    height: auto;
+    width: 100%;
+    layout: vertical;
+}
+
+#chat-input-container.autocomplete-open {
+    /* Prompt no longer moves when autocomplete is open */
+    margin-bottom: 0;
+}
+
 #chat-input {
-    margin: 1 2;
-    border: solid $primary;
-    height: 4;
-}
-
-#notification-panel {
-    height: 4;
-    margin: 0 2;
+    margin: 0 2 1 2;
     background: $panel;
-    border: solid $primary-darken-2;
+    padding: 0 1;
+    height: 3;
+    border: none;
+    content-align: left middle;
+    layer: base;
 }
 
+
+#status-line {
+    margin: 1 2 0 2;
+    height: 1;
+}
+
+#status-spinner {
+    display: none;
+}
+
+/* Ensure the Textual `.hidden` class continues to hide the status line cleanly. */
 .hidden {
     display: none;
 }
 
 #chat-input:focus {
-    border: solid $accent;
+    background: $surface-lighten-1;
+    border: none;
+    content-align: left middle;
+}
+
+SlashCommandSuggestions, ModeSuggestions, ReasoningSuggestions {
+    background: $panel;
+    border: none;
+    color: $text;
+    scrollbar-gutter: stable;
+    /* Overlay above the input: bottom margin 6 covers status line (1) + prompt (3) + help row (1) + gap */
+    margin: 0 2 6 2;
+    max-height: 20;
+    width: 1fr;
+    display: none;
+    layer: top;
+    dock: bottom;
+}
+
+SlashCommandSuggestions > ListItem:focus, ModeSuggestions > ListItem:focus, ReasoningSuggestions > ListItem:focus {
+    background: $surface-lighten-1;
+    color: $accent;
+}
+
+SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions ListItem {
+    padding: 0 1;
+}
+
+#chat-help-row {
+    height: 1;
+    margin: 0 2 1 2;
+}
+
+#help-spinner {
+    height: 1;
+    width: auto;
+    min-width: 4;
+    color: $accent;
+    background: transparent;
+    margin-right: 1;
+}
+
+#chat-help {
+    width: 1fr;
+    height: 1;
+    padding: 0 1;
+    color: $text-disabled;
+    background: transparent;
+    content-align: right middle;
+    text-align: right;
 }
 
 .ml-1 {
     margin-left: 1;
+}
+
+#model-select-container, #reasoning-select-container {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#model-reasoning-combined-container {
+    width: 100;
+    height: auto;
+    max-height: 90%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+.selection-pane {
+    width: 1fr;
+    height: auto;
+    padding: 0 1;
+}
+
+#model-select-title, #reasoning-select-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+#model-select-list-wrap, #reasoning-select-list-wrap {
+    height: auto;
+    max-height: 30;
+    border: tall $primary-darken-1;
+}
+
+#model-select-list, #reasoning-select-list {
+    background: transparent;
+    height: auto;
+}
+
+#model-select-list > ListItem:focus, #reasoning-select-list > ListItem:focus {
+    background: $accent 20%;
+    color: $text;
+    text-style: bold;
+}
+
+#model-select-list > ListItem, #reasoning-select-list > ListItem {
+    padding: 0 1;
+}
+
+#api-key-modal-container {
+    width: 100%;
+    height: 100%;
+    background: $surface;
+    padding: 1 2;
+}
+
+#api-key-modal-scroll {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#api-key-modal-icon {
+    width: 100%;
+    content-align: center middle;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#api-key-modal-welcome {
+    background: transparent;
+    padding: 0 1;
+}
+
+#api-key-modal-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#api-key-modal-spinner {
+    height: 1;
+    width: 100%;
+    color: $accent;
+    background: transparent;
+    margin-bottom: 1;
+}
+
+#api-key-modal-footer {
+    text-align: center;
+    width: 100%;
+    margin-top: 1;
+    color: $text-disabled;
 }

@@ -75,8 +75,8 @@ public class ToolRegistry {
             Map.entry("callSearchAgent", "Calling the search Agent"),
             Map.entry("searchSymbols", "Searching for symbols"),
             Map.entry("getSymbolLocations", "Finding files for symbols"),
-            Map.entry("searchSubstrings", "Searching for substrings"),
-            Map.entry("searchFilenames", "Searching for filenames"),
+            Map.entry("findFilesContaining", "Searching for substrings"),
+            Map.entry("findFilenames", "Searching for filenames"),
             Map.entry("getFileContents", "Getting file contents"),
             Map.entry("getFileSummaries", "Getting file summaries"),
             Map.entry("scanUsages", "Finding usages"),
@@ -86,14 +86,19 @@ public class ToolRegistry {
             Map.entry("getMethodSources", "Fetching method source"),
             Map.entry("getCallGraphTo", "Getting call graph TO"),
             Map.entry("getCallGraphFrom", "Getting call graph FROM"),
+            Map.entry("getGitLog", "Getting git log"),
             Map.entry("searchGitCommitMessages", "Searching git commits"),
             Map.entry("listFiles", "Listing files"),
             Map.entry("addFilesToWorkspace", "Adding files to workspace"),
+            Map.entry("addLineRangeToWorkspace", "Adding line range to workspace"),
             Map.entry("addClassesToWorkspace", "Adding classes to workspace"),
             Map.entry("addUrlContentsToWorkspace", "Adding URL contents to workspace"),
             Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),
             Map.entry("addFileSummariesToWorkspace", "Adding file summaries to workspace"),
             Map.entry("addMethodsToWorkspace", "Adding method sources to workspace"),
+            Map.entry("searchFileContents", "Searching file contents"),
+            Map.entry("xpathQuery", "Running XPath query"),
+            Map.entry("jq", "Running jq filter"),
             Map.entry("dropWorkspaceFragments", "Removing from workspace"),
             Map.entry("recommendContext", "Recommending context"),
             Map.entry("createOrReplaceTaskList", "Creating or replacing task list"),
@@ -222,8 +227,8 @@ public class ToolRegistry {
             throw ie;
         } catch (Exception e) {
             GlobalExceptionHandler.handle(e);
-            return ToolExecutionResult.internalError(
-                    request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
+            String msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+            return ToolExecutionResult.internalError(request, msg);
         }
     }
 

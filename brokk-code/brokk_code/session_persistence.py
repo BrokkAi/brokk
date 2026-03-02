@@ -1,9 +1,13 @@
 import json
 import logging
+import zipfile
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+MAX_CONTEXTS_JSONL_BYTES = 1024 * 1024  # 1MB
+MAX_CONTEXTS_JSONL_LINES = 1000
 
 
 def get_state_dir(workspace_dir: Path) -> Path:
@@ -21,6 +25,173 @@ def get_session_zip_path(workspace_dir: Path, session_id: str) -> Path:
     sessions_dir = get_state_dir(workspace_dir) / "sessions"
     sessions_dir.mkdir(parents=True, exist_ok=True)
     return sessions_dir / f"{session_id}.zip"
+
+
+def get_session_zip_resume_path(workspace_dir: Path, session_id: str) -> Path:
+    """
+    Return the best path to use when resuming a session.
+
+    Prefer the workspace-local session ZIP. If it doesn't exist and the workspace is a
+    git worktree, fall back to the Java executor's master-root storage location.
+    """
+    local_zip_path = get_state_dir(workspace_dir) / "sessions" / f"{session_id}.zip"
+    if local_zip_path.exists():
+        return local_zip_path
+
+    master_root = _get_master_root_for_brokk_state(workspace_dir)
+    if master_root is not None and master_root != workspace_dir:
+        master_zip_path = master_root / ".brokk" / "sessions" / f"{session_id}.zip"
+        if master_zip_path.exists():
+            return master_zip_path
+
+    return local_zip_path
+
+
+def _get_master_root_for_brokk_state(workspace_dir: Path) -> Optional[Path]:
+    """
+    Mirror Java's masterRootPathForConfig behavior for git worktrees.
+
+    If `.git` is a file (worktree), resolve `gitdir`, then use `commondir` to locate the
+    shared `.git` directory and return its parent (the main repo root).
+    """
+    git_marker = workspace_dir / ".git"
+    if git_marker.is_dir():
+        return workspace_dir
+    if not git_marker.is_file():
+        return None
+
+    gitdir = _read_gitdir_pointer(git_marker)
+    if gitdir is None:
+        return None
+
+    commondir_file = gitdir / "commondir"
+    if commondir_file.exists():
+        try:
+            common_dir_text = commondir_file.read_text(encoding="utf-8").strip()
+            if common_dir_text:
+                common_git_dir = (gitdir / common_dir_text).resolve()
+                if common_git_dir.name == ".git" and common_git_dir.parent.exists():
+                    return common_git_dir.parent
+        except OSError as e:
+            logger.debug("Failed to resolve git worktree commondir for %s: %s", workspace_dir, e)
+
+    # Fallback for non-worktree repos represented by a .git file pointer.
+    if gitdir.name == ".git" and gitdir.parent.exists():
+        return gitdir.parent
+    return None
+
+
+def _read_gitdir_pointer(git_file: Path) -> Optional[Path]:
+    try:
+        line = git_file.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        logger.debug("Failed to read gitdir pointer %s: %s", git_file, e)
+        return None
+
+    prefix = "gitdir:"
+    if not line.lower().startswith(prefix):
+        return None
+
+    target = line[len(prefix) :].strip()
+    if not target:
+        return None
+    return (git_file.parent / target).resolve()
+
+
+def has_tasks(zip_path: Path) -> bool:
+    """
+    Checks if the session zip contains any history tasks in contexts.jsonl.
+    A task counts if it has meta fields (taskType, primaryModelName, or primaryModelReasoning)
+    and a valid sequence number.
+    Tolerant of missing or corrupt zips; returns False in those cases.
+    """
+    if not zip_path.exists():
+        return False
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as z:
+            try:
+                info = z.getinfo("contexts.jsonl")
+            except KeyError:
+                return False
+
+            bytes_read = 0
+            lines_read = 0
+            remainder = b""
+            eof_reached = False
+
+            with z.open(info) as f:
+                while (
+                    bytes_read < MAX_CONTEXTS_JSONL_BYTES and lines_read < MAX_CONTEXTS_JSONL_LINES
+                ):
+                    chunk_size = min(4096, MAX_CONTEXTS_JSONL_BYTES - bytes_read)
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        eof_reached = True
+                        break
+                    bytes_read += len(chunk)
+
+                    lines = (remainder + chunk).splitlines(keepends=True)
+                    if not lines:
+                        remainder = b""
+                        continue
+
+                    # If the chunk didn't end with a newline, keep the last partial line
+                    # for next chunk
+                    if not lines[-1].endswith((b"\r", b"\n")):
+                        remainder = lines.pop()
+                    else:
+                        remainder = b""
+
+                    for line_bytes in lines:
+                        if lines_read >= MAX_CONTEXTS_JSONL_LINES:
+                            break
+                        lines_read += 1
+                        if _process_line(line_bytes):
+                            return True
+
+                # Process final partial line if we reached EOF without hitting line/byte caps
+                if (
+                    eof_reached
+                    and remainder
+                    and lines_read < MAX_CONTEXTS_JSONL_LINES
+                    and bytes_read <= MAX_CONTEXTS_JSONL_BYTES
+                ):
+                    if _process_line(remainder):
+                        return True
+    except (zipfile.BadZipFile, OSError) as e:
+        logger.debug("Failed to inspect session zip %s: %s", zip_path, e)
+
+    return False
+
+
+def _process_line(line_bytes: bytes) -> bool:
+    """Parses a single line from contexts.jsonl and returns True if it contains a valid task."""
+    line = line_bytes.strip()
+    if not line:
+        return False
+    try:
+        context_data = json.loads(line)
+        tasks = context_data.get("tasks")
+        if not isinstance(tasks, list):
+            return False
+
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+
+            # Check for meta fields (align with HistoryIo.java)
+            has_meta = any(
+                task.get(k) is not None
+                for k in ["taskType", "primaryModelName", "primaryModelReasoning"]
+            )
+            # Check for sequence
+            sequence = task.get("sequence")
+            if has_meta and isinstance(sequence, (int, float)):
+                return True
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return False
 
 
 def save_last_session_id(workspace_dir: Path, session_id: str) -> None:

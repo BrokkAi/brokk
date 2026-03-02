@@ -526,14 +526,18 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
-                .serviceTier(config.tier)
                 .apiKey(kp.token())
+                // this is the only custom header we can set from the client, brokk-llm discards others;
+                // in particular, anthropic-beta should be set by proxy.
                 .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
                 .promptCacheKey(shortName + kp.userId())
                 .timeout(Duration.ofSeconds(
                         config.tier == ProcessingTier.FLEX
                                 ? FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
                                 : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
+        if (supportsProcessingTier(config.name)) {
+            params = params.serviceTier(config.tier);
+        }
         params = params.maxCompletionTokens(getMaxOutputTokens(config.name));
         params = params.user(kp.userId().toString());
 

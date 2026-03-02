@@ -14,6 +14,8 @@ import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.tools.ToolExecutionResult;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Panel;
@@ -130,8 +132,53 @@ class HeadlessHttpConsoleTest {
         var data = (Map<String, Object>) event.data();
         assertEquals("INFO", data.get("level"));
         assertEquals("Test notification", data.get("message"));
+        // Legacy notifications should not include structured cost
+        assertFalse(data.containsKey("cost"));
 
         cleanup();
+    }
+
+    @Test
+    void testCostNotification_IncludesNumericCostField() throws Exception {
+        double cost = 0.123;
+        String message = "Estimated cost: $0.123";
+
+        console.showNotification(IConsoleIO.NotificationRole.COST, message, cost);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("NOTIFICATION", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("COST", data.get("level"));
+        assertEquals(message, data.get("message"));
+        assertTrue(data.containsKey("cost"));
+
+        // The JobEvent data map should carry a numeric cost value
+        Object costValue = data.get("cost");
+        assertNotNull(costValue);
+        assertTrue(costValue instanceof Double, "cost should be a Double but was " + costValue.getClass());
+        assertEquals(cost, (Double) costValue, 1e-9);
+    }
+
+    @Test
+    void testLegacyCostNotification_HasNoStructuredCost() throws Exception {
+        console.showNotification(IConsoleIO.NotificationRole.COST, "Legacy cost message");
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("NOTIFICATION", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("COST", data.get("level"));
+        assertEquals("Legacy cost message", data.get("message"));
+        assertFalse(data.containsKey("cost"));
     }
 
     @Test
@@ -686,6 +733,107 @@ class HeadlessHttpConsoleTest {
         assertThrows(UnsupportedOperationException.class, () -> snapshot.add(AiMessage.from("oops")));
         assertThrows(UnsupportedOperationException.class, () -> snapshot.remove(0));
         assertThrows(UnsupportedOperationException.class, snapshot::clear);
+    }
+
+    @Test
+    void testBeforeToolCall_MapsToToolCallEvent() throws Exception {
+        var request = ToolExecutionRequest.builder()
+                .id("call-123")
+                .name("testTool")
+                .arguments("{\"arg\": \"val\"}")
+                .build();
+
+        console.beforeToolCall(request);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("TOOL_CALL", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("call-123", data.get("id"));
+        assertEquals("testTool", data.get("name"));
+        assertEquals("{\"arg\": \"val\"}", data.get("arguments"));
+
+        cleanup();
+    }
+
+    @Test
+    void testBeforeToolCall_NullArguments_DoesNotThrowAndOmitsField() throws Exception {
+        var request =
+                ToolExecutionRequest.builder().id("call-123").name("testTool").build();
+
+        assertDoesNotThrow(() -> console.beforeToolCall(request));
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.getFirst();
+        assertEquals("TOOL_CALL", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("call-123", data.get("id"));
+        assertEquals("testTool", data.get("name"));
+        assertFalse(data.containsKey("arguments"));
+
+        cleanup();
+    }
+
+    @Test
+    void testAfterToolOutput_MapsToToolOutputEvent() throws Exception {
+        var request = ToolExecutionRequest.builder()
+                .id("call-123")
+                .name("testTool")
+                .arguments("{\"arg\": \"val\"}")
+                .build();
+        var result = ToolExecutionResult.success(request, "Success message");
+
+        console.afterToolOutput(result);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("TOOL_OUTPUT", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("call-123", data.get("id"));
+        assertEquals("testTool", data.get("name"));
+        assertEquals("SUCCESS", data.get("status"));
+        assertEquals("Success message", data.get("resultText"));
+
+        cleanup();
+    }
+
+    @Test
+    void testAfterToolOutput_ErrorStatus_MapsToToolOutputEvent() throws Exception {
+        var request = ToolExecutionRequest.builder()
+                .id("call-456")
+                .name("badTool")
+                .arguments("{}")
+                .build();
+        var result = ToolExecutionResult.requestError(request, "Invalid parameters");
+
+        console.afterToolOutput(result);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("TOOL_OUTPUT", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("call-456", data.get("id"));
+        assertEquals("badTool", data.get("name"));
+        assertEquals("REQUEST_ERROR", data.get("status"));
+        assertEquals("Invalid parameters", data.get("resultText"));
+
+        cleanup();
     }
 
     @Test

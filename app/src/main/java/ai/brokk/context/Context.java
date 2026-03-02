@@ -2,6 +2,7 @@ package ai.brokk.context;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -18,6 +19,8 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import java.time.Duration;
 import java.util.*;
 import java.util.ArrayList;
@@ -75,6 +78,10 @@ public class Context {
             List<TaskEntry> taskHistory,
             Set<ContextFragment> markedReadonlyFragments,
             Set<ContextFragment> pinnedFragments) {
+        for (var cf : fragments) {
+            // TODO make a sealed interface for `fragments`
+            assert !(cf instanceof HistoryFragment);
+        }
         for (var cf : markedReadonlyFragments) {
             assert fragments.contains(cf);
         }
@@ -154,6 +161,37 @@ public class Context {
     }
 
     /**
+     * Removes unpinned {@link ContextFragments.SummaryFragment}s that are superseded by full
+     * file or class fragments already present in this context.
+     *
+     * <p>A summary is superseded when a {@link ContextFragments.ProjectPathFragment} or
+     * {@link ContextFragments.CodeFragment} covering the same underlying source exists in the
+     * context. Pinned summaries are never removed.</p>
+     *
+     * @return a new Context with superseded summaries removed, or {@code this} if nothing changed
+     */
+    @Blocking
+    public Context removeSupersededSummaries() {
+        var nonSummaryFragments = fragments.stream()
+                .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
+                .toList();
+
+        var superseded = fragments.stream()
+                .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                .map(f -> (ContextFragments.SummaryFragment) f)
+                .filter(sf -> !pinnedFragments.contains(sf))
+                .filter(sf -> sf.isSupersededBy(nonSummaryFragments))
+                .toList();
+
+        if (superseded.isEmpty()) {
+            return this;
+        }
+
+        logger.debug("removeSupersededSummaries: removing {} superseded summaries: {}", superseded.size(), superseded);
+        return removeFragments(superseded);
+    }
+
+    /**
      * Adds fragments to the context.
      * <p>
      * Fragments are deduplicated by semantic equivalence ({@code hasSameSource}) within the input and against the current context.
@@ -184,24 +222,13 @@ public class Context {
             }
         }
 
-        // 2. Identify files that are being added as full PATH fragments.
-        // These will "kill" any existing SKELETON fragments for the same files.
-        var incomingPathFiles = expanded.stream()
-                .filter(f -> f instanceof ContextFragments.PathFragment)
-                .map(f -> (ContextFragments.PathFragment) f)
-                .flatMap(pf -> pf.files().join().stream())
-                .collect(Collectors.toSet());
-
-        // 3. Process the CURRENT fragments:
+        // Process the CURRENT fragments:
         //    a) Identify SUMMARY fragments superseded by incoming PATHS.
         //    b) Keep everything else (we will deduplicate against new inputs in the next step).
         var partitioned = this.fragments.stream().collect(Collectors.partitioningBy(f -> {
-            if (f instanceof ContextFragments.SummaryFragment) {
-                var skeletonFiles = f.files().join();
-                // If the skeleton's files overlap with incoming full paths, drop the skeleton.
-                return !Collections.disjoint(skeletonFiles, incomingPathFiles);
-            }
-            return false;
+            return f instanceof ContextFragments.SummaryFragment sf
+                    && !pinnedFragments.contains(f)
+                    && sf.isSupersededBy(toAdd);
         }));
 
         var supersededFragments = castNonNull(partitioned.get(true));
@@ -251,16 +278,17 @@ public class Context {
 
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
 
         record WeightedFile(ProjectFile file, double weight) {}
 
         var weightedSeeds = fragments.stream()
-                .filter(f -> !f.files().join().isEmpty())
+                .filter(f -> !f.sourceFiles().join().isEmpty())
                 .flatMap(fragment -> {
-                    double weight = Math.sqrt(1.0 / fragment.files().join().size());
-                    return fragment.files().join().stream().map(file -> new WeightedFile(file, weight));
+                    double weight =
+                            Math.sqrt(1.0 / fragment.sourceFiles().join().size());
+                    return fragment.sourceFiles().join().stream().map(file -> new WeightedFile(file, weight));
                 })
                 .collect(Collectors.groupingBy(wf -> wf.file, HashMap::new, Collectors.summingDouble(wf -> wf.weight)));
 
@@ -464,15 +492,10 @@ public class Context {
      */
     @Blocking
     public boolean isFileContentEmpty() {
-        return fragments.stream().allMatch(f -> f.files().join().isEmpty());
+        return fragments.stream().allMatch(f -> f.sourceFiles().join().isEmpty());
     }
 
-    public TaskEntry createTaskEntry(TaskResult result) {
-        int nextSequence = taskHistory.isEmpty() ? 1 : taskHistory.getLast().sequence() + 1;
-        return TaskEntry.fromSession(nextSequence, result);
-    }
-
-    public Context addHistoryEntry(TaskEntry taskEntry) {
+    Context addHistoryEntryInternal(TaskEntry taskEntry) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         return new Context(
@@ -609,14 +632,15 @@ public class Context {
      */
     @Blocking
     public Map<String, String> getDiscardedFragmentsNotes() {
-        return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
+        return getSpecial(SpecialTextType.DISCARDED_CONTEXT)
                 .map(sf -> SpecialTextType.deserializeDiscardedContext(sf.text().join()))
                 .orElseGet(LinkedHashMap::new);
     }
 
     // --- SpecialTextType helpers ---
 
-    public Optional<ContextFragments.StringFragment> getSpecial(String description) {
+    public Optional<ContextFragments.StringFragment> getSpecial(SpecialTextType type) {
+        String description = type.description();
         // Since special looks for self-freezing fragments, we can reliably use `renderNow`
         return allFragments()
                 .filter(f -> f instanceof ContextFragments.StringFragment sf
@@ -629,7 +653,7 @@ public class Context {
     public Context withSpecial(SpecialTextType type, String content) {
         var desc = type.description();
 
-        var existing = getSpecial(desc);
+        var existing = getSpecial(type);
         if (existing.isPresent() && content.equals(existing.get().text().join())) {
             return this;
         }
@@ -682,23 +706,6 @@ public class Context {
     }
 
     /**
-     * Merges this context with another context, combining their fragments while avoiding duplicates.
-     * Fragments from {@code other} that are not present in this context are added.
-     * File fragments are deduplicated by their source file; virtual fragments by their id().
-     * Task history and parsed output from this context are preserved.
-     *
-     * @param other the context to merge with
-     * @return a new context containing the union of fragments from both contexts
-     */
-    public Context union(Context other) {
-        if (this.fragments.isEmpty()) {
-            return other;
-        }
-
-        return this.addFragments(other.allFragments().toList());
-    }
-
-    /**
      * Returns true if the given fragment is equivalent to one already in the Context
      */
     public boolean contains(ContextFragment fragment) {
@@ -718,7 +725,7 @@ public class Context {
     }
 
     public Optional<ContextFragments.StringFragment> getBuildFragment() {
-        return getSpecial(SpecialTextType.BUILD_RESULTS.description());
+        return getSpecial(SpecialTextType.BUILD_RESULTS);
     }
 
     /**
@@ -729,21 +736,27 @@ public class Context {
     @Blocking
     public Context withBuildResult(boolean success, String processedOutput) {
         if (success) {
-            var existing = getSpecial(SpecialTextType.BUILD_RESULTS.description());
+            var existing = getSpecial(SpecialTextType.BUILD_RESULTS);
             if (existing.isEmpty()) {
                 return this;
             }
             return removeFragmentsByIds(List.of(existing.get().id()));
         }
 
-        return withSpecial(SpecialTextType.BUILD_RESULTS, processedOutput);
+        String note =
+                """
+        [HARNESS NOTE: The build is currently FAILING. I will update it automatically when Code Agent makes changes.
+        You do not need to attempt an explicit rebuild.]
+
+        """;
+        return withSpecial(SpecialTextType.BUILD_RESULTS, note + processedOutput);
     }
 
     /**
      * Retrieves the Task List fragment if present.
      */
     public Optional<ContextFragments.StringFragment> getTaskListFragment() {
-        return getSpecial(SpecialTextType.TASK_LIST.description());
+        return getSpecial(SpecialTextType.TASK_LIST);
     }
 
     /**
@@ -792,7 +805,7 @@ public class Context {
     public Context withTaskList(TaskList.TaskListData data) {
         // If tasks are empty, remove the Task List fragment instead of creating an empty one
         if (data.tasks().isEmpty()) {
-            var existing = getSpecial(SpecialTextType.TASK_LIST.description());
+            var existing = getSpecial(SpecialTextType.TASK_LIST);
             if (existing.isEmpty()) {
                 return this; // No change needed; no fragment to remove
             }
@@ -819,7 +832,7 @@ public class Context {
         // Map each fragment to the set of ProjectFiles it contains
         var fragmentsToRefresh = new HashSet<ContextFragment>();
         for (var f : fragments) {
-            if (!Collections.disjoint(f.files().join(), maybeChanged)) {
+            if (!Collections.disjoint(f.sourceFiles().join(), maybeChanged)) {
                 fragmentsToRefresh.add(f);
             }
         }
@@ -901,5 +914,87 @@ public class Context {
                 cf.await(Duration.ofMillis(remainingMillis));
             }
         }
+    }
+
+    public Context addHistoryEntry(TaskEntry te) {
+        var renumbered = new TaskEntry(getTaskHistory().size(), te.mopLog(), te.llmLog(), te.summary(), te.meta());
+        return addHistoryEntryInternal(renumbered);
+    }
+
+    public Context addHistoryEntry(
+            List<ChatMessage> mopMessages,
+            List<ChatMessage> llmMessages,
+            TaskResult.Type type,
+            StreamingChatModel model,
+            String instructions) {
+        var mc = AbstractService.ModelConfig.from(model, contextManager.getService());
+        return addHistoryEntryInternal(new TaskEntry(
+                getTaskHistory().size(),
+                new ContextFragments.TaskFragment(mopMessages, instructions),
+                new ContextFragments.TaskFragment(llmMessages, instructions),
+                null,
+                new TaskResult.TaskMeta(type, mc)));
+    }
+
+    public Context addHistoryEntry(
+            List<ChatMessage> messages, TaskResult.Type type, StreamingChatModel model, String instructions) {
+        return addHistoryEntry(messages, messages, type, model, instructions);
+    }
+
+    public Context addHistoryEntry(ContextFragments.TaskFragment log, @Nullable TaskResult.TaskMeta meta) {
+        return addHistoryEntryInternal(new TaskEntry(getTaskHistory().size(), log, log, null, meta));
+    }
+
+    @Blocking
+    public Context addAsSummaries(List<ContextFragment> fragments) {
+        List<ContextFragment> toAdd = fragments.stream()
+                .map(cf -> (ContextFragment)
+                        (switch (cf) {
+                            case ContextFragments.ProjectPathFragment ppf -> {
+                                var analyzer = contextManager.getAnalyzerUninterrupted();
+                                if (analyzer.getDeclarations(ppf.file()).isEmpty()) {
+                                    yield ppf;
+                                }
+                                yield new ContextFragments.SummaryFragment(
+                                        contextManager,
+                                        ppf.file().toString(),
+                                        ContextFragment.SummaryType.FILE_SKELETONS);
+                            }
+                            case ContextFragments.CodeFragment ccf -> {
+                                var analyzer = contextManager.getAnalyzerUninterrupted();
+                                var defs = analyzer.getDefinitions(ccf.getFullyQualifiedName());
+                                var cuOpt = defs.isEmpty()
+                                        ? Optional.<CodeUnit>empty()
+                                        : analyzer.parentOf(defs.getFirst());
+                                if (cuOpt.isEmpty()) {
+                                    logger.warn("Missing parent for " + ccf.getFullyQualifiedName());
+                                    yield null;
+                                }
+                                yield new ContextFragments.SummaryFragment(
+                                        contextManager,
+                                        cuOpt.get().fqName(),
+                                        ContextFragment.SummaryType.CODEUNIT_SKELETON);
+                            }
+                            case ContextFragments.SummaryFragment ssf -> ssf;
+                            default -> {
+                                logger.warn("Unexpected fragment type added by Architect {}", cf.getClass());
+                                yield null;
+                            }
+                        }))
+                .filter(Objects::nonNull)
+                .toList();
+
+        Context next = addFragments(toAdd);
+
+        // Mark any resulting ProjectPathFragments (the fallback for unanalyzed files) as readonly
+        for (var f : toAdd) {
+            if (f instanceof ContextFragments.ProjectPathFragment) {
+                final Context current = next;
+                next = next.findWithSameSource(f)
+                        .map(found -> current.setReadonly(found, true))
+                        .orElse(next);
+            }
+        }
+        return next;
     }
 }

@@ -2,6 +2,10 @@
 
 The Headless Executor runs Brokk sessions in a server mode, controllable via HTTP+JSON API. It's designed for remote execution, CI/CD pipelines, and programmatic task automation.
 
+The `brokk-code` client currently bundles or targets headless executor version **0.23.0.beta9** by default when launched via JBang.
+
+For end-to-end request examples (sessions, jobs, events, and mode-specific payloads), see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
+
 ## Configuration
 
 The executor requires the following configuration, provided via **environment variables** or **command-line arguments** (arguments take precedence):
@@ -14,6 +18,7 @@ The executor requires the following configuration, provided via **environment va
 | Workspace Dir | `WORKSPACE_DIR` | `--workspace-dir` | Yes | Path to the project workspace |
 | Brokk API Key | `BROKK_API_KEY` | `--brokk-api-key` | No | Per-executor Brokk API key; overrides global config. If not provided, falls back to the globally configured key |
 | LLM Proxy Setting | `PROXY_SETTING` | `--proxy-setting` | No | LLM proxy target: `BROKK` (https://proxy.brokk.ai), `LOCALHOST` (http://localhost:4000), or `STAGING` (https://staging.brokk.ai). If not provided, uses global config |
+| Other-models Vendor | (n/a) | `--vendor` | No | Sets the "Other Models" vendor preference used for internal roles (scan/summarize/commit, etc.). Use `Default` to clear overrides. Applies to non-code roles; does not change `CODE`/`ARCHITECT` role selection |
 
 Notes:
 - Sessions are stored under `<workspace>/.brokk/sessions` and jobs under `<workspace>/.brokk/jobs`.
@@ -27,6 +32,8 @@ Run the headless executor with Gradle:
 ./gradlew :app:runHeadlessExecutor
 ```
 
+This task is primarily configured via environment variables. For optional CLI-only flags (like `--vendor`), see the Production Deployment example below.
+
 ### Examples
 
 **Using environment variables:**
@@ -36,16 +43,6 @@ export LISTEN_ADDR="localhost:8080"
 export AUTH_TOKEN="my-secret-token"
 export WORKSPACE_DIR="/path/to/workspace"
 ./gradlew :app:runHeadlessExecutor
-```
-
-## Download a Session Zip
-
-To download a previously stored session zip, issue a GET request to the session sub-path.
-
-```bash
-curl -sS -X GET "http://localhost:8080/v1/sessions/<session-id>" \
-  -H "Authorization: Bearer my-secret-token" \
-  -o "<session-id>.zip"
 ```
 
 ## ASK Mode: Read-Only Answer From Current Workspace Context
@@ -87,61 +84,11 @@ ASK mode requires:
 
 ASK mode **ignores** `codeModel` since it does not perform code generation.
 
-### Example Workflows
-
-Basic ASK (no pre-scan):
-
-```bash
-# Submit a standard ASK query (no pre-scan)
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ask-query-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Where is the UserService class defined? Show me its public methods and explain what this class does.",
-  "autoCommit": false,
-  "autoCompress": true,
-  "plannerModel": "gpt-4",
-  "tags": {
-    "mode": "ASK"
-  }
-}
-JSON
-```
-
-ASK with pre-scan:
-
-```bash
-# Submit an ASK query and request a repository pre-scan (Context Engine).
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ask-prescan-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Find UserService and summarize its responsibilities and public methods.",
-  "autoCommit": false,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "preScan": true,
-  "tags": {
-    "mode": "ASK"
-  }
-}
-JSON
-```
+### ASK execution notes
 
 Note: In the current implementation, ASK pre-scan always uses the project's default scan model, regardless of `scanModel`.
 
-#### Streaming results
-
-After submitting any ASK job, stream events to observe discovery and results:
-
-```bash
-curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
-  -H "Authorization: Bearer my-secret-token" | tail -f
-```
+For concrete ASK request/streaming examples, use the curl examples document linked at the top of this page.
 
 ## SEARCH Mode: Read-Only Repository Scan (explicit scan model)
 
@@ -164,27 +111,6 @@ Key points:
 - **File search**: Search for files by name or content patterns
 - **Git history**: Search commit messages for context about changes
 - **Related code**: Automatically find related classes and dependencies
-
-### Example: SEARCH with explicit scan model
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer ${AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ${IDEMP_KEY}" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Find all usages of AuthenticationManager and summarize where it's referenced.",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-5",
-  "scanModel": "gpt-5-mini",
-  "tags": {
-    "mode": "SEARCH"
-  }
-}
-JSON
-```
 
 **Notes:**
 - `plannerModel` remains required by the API and is used for validating the job request; SEARCH will use `scanModel` (if present) as the actual scanning model.
@@ -226,47 +152,6 @@ LUTZ mode requires:
 | **Workflow** | Direct execution of user tasks | SearchAgent → task gen → Architect execution |
 | **Best For** | Single-step objectives, quick iterations | Complex multi-step goals, structured decomposition |
 
-### Example Workflow
-
-```bash
-# 1. Create a session
-curl -sS -X POST "http://localhost:8080/v1/sessions" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  --data @- <<'JSON'
-{
-  "name": "LUTZ Planning Session"
-}
-JSON
-# Returns: { "sessionId": "<session-id>" }
-
-# 2. Submit a LUTZ job with a complex objective
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: lutz-job-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Add comprehensive error handling to the UserService class and ensure all exceptions are properly logged.",
-  "autoCommit": true,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "codeModel": "gpt-5-mini",
-  "tags": {
-    "mode": "LUTZ"
-  }
-}
-JSON
-# Returns: { "jobId": "<job-id>", "state": "RUNNING", ... }
-
-# 3. Stream events to see planning and execution
-curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
-  -H "Authorization: Bearer my-secret-token" | tail -f
-# Events will show:
-# - Planning phase: SearchAgent generating subtasks
-# - Execution phase: ArchitectAgent executing each task, progress updates
-```
-
 ### Event Stream Semantics
 
 LUTZ jobs emit events following this pattern:
@@ -302,52 +187,6 @@ REVIEW mode requires:
   - `pr_number`: Pull request number
 
 REVIEW mode **ignores** `codeModel` and `scanModel` since it performs review, not code generation.
-
-### Example: Using the Convenience Endpoint
-
-The easiest way to create a PR review job is via the dedicated endpoint:
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs/pr-review" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: review-001" \
-  --data @- <<'JSON'
-{
-  "owner": "myorg",
-  "repo": "myrepo",
-  "prNumber": 123,
-  "githubToken": "ghp_xxxxxxxxxxxx",
-  "plannerModel": "gpt-4"
-}
-JSON
-```
-
-### Example: Using Tags with Standard Job Endpoint
-
-Alternatively, use the standard `/v1/jobs` endpoint with mode tags:
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: review-002" \
-  --data @- <<'JSON'
-{
-  "taskInput": "",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-4",
-  "tags": {
-    "mode": "REVIEW",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo",
-    "pr_number": "123"
-  }
-}
-JSON
-```
 
 ### Key Characteristics of REVIEW Mode
 
@@ -387,30 +226,6 @@ ISSUE_DIAGNOSE mode requires:
 
 ISSUE_DIAGNOSE mode **ignores** `codeModel` since it performs analysis only, not code generation.
 
-### Example: Diagnose an Issue
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: diagnose-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-4",
-  "tags": {
-    "mode": "ISSUE_DIAGNOSE",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo",
-    "issue_number": "42"
-  }
-}
-JSON
-```
-
 ### Two-Phase Workflow
 
 ISSUE_DIAGNOSE is designed to work with ISSUE (solve) mode in a two-phase workflow:
@@ -436,29 +251,6 @@ ISSUE_WRITER requires:
   - `repo_name`
 
 ISSUE_WRITER is read-only to the local repo (no file modifications or commits), but it creates a GitHub issue.
-
-### Example: Create an issue via POST /v1/jobs
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-writer-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Create an issue describing the NPE when AuthenticationProvider receives a null user, including evidence from the codebase.",
-  "autoCommit": false,
-  "autoCompress": false,
-  "plannerModel": "gpt-5",
-  "tags": {
-    "mode": "ISSUE_WRITER",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo"
-  }
-}
-JSON
-```
 
 ## ISSUE Mode: Automated Issue Resolution with Build Verification (and optional quick mode)
 
@@ -521,69 +313,6 @@ ISSUE mode requires:
 - `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap) — used only in full verification mode. Default: 20.
 - `skipVerification` (optional boolean): When present and `true` (only honored for ISSUE jobs), runs the quick/skip-verification flow described above. Default: `false`.
 
-### Example: Convenience Endpoint with skipVerification (quick mode)
-
-This example shows `/v1/jobs/issue` with `skipVerification=true`. Compared to the default, this tells the executor to skip per-task and final verification and review loops — it will still create the branch, apply changes, and may open a PR if delivery is enabled.
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-quick-001" \
-  --data @- <<'JSON'
-{
-  "owner": "myorg",
-  "repo": "myrepo",
-  "issueNumber": 42,
-  "githubToken": "ghp_xxxxxxxxxxxx",
-  "plannerModel": "gpt-4",
-  "codeModel": "gpt-4",
-  "maxIssueFixAttempts": 20,
-  "buildSettings": {
-    "buildLintCommand": "./gradlew classes",
-    "testAllCommand": "./gradlew test",
-    "environmentVariables": {
-      "JAVA_HOME": "/usr/lib/jvm/java-21"
-    },
-    "maxBuildAttempts": 5
-  },
-  "skipVerification": true
-}
-JSON
-```
-
-### Example: Generic POST /v1/jobs with tags and skipVerification
-
-You may also submit ISSUE jobs via the generic `/v1/jobs` endpoint. For ISSUE-mode jobs, include `tags.mode = "ISSUE"`. The optional top-level `skipVerification` boolean is accepted in the job payload but is only honored when `tags.mode == "ISSUE"`.
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: issue-quick-002" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Ignored for ISSUE mode; issue body drives the work.",
-  "plannerModel": "gpt-4",
-  "codeModel": "gpt-4",
-  "buildSettings": {
-    "buildLintCommand": "./gradlew classes",
-    "testAllCommand": "./gradlew test",
-    "maxBuildAttempts": 3
-  },
-  "maxIssueFixAttempts": 20,
-  "skipVerification": true,
-  "tags": {
-    "mode": "ISSUE",
-    "github_token": "ghp_xxxxxxxxxxxx",
-    "repo_owner": "myorg",
-    "repo_name": "myrepo",
-    "issue_number": "42"
-  }
-}
-JSON
-```
-
 ### Notes on behavior and observability
 
 - Event streams for ISSUE jobs will still reflect planning and code changes even in skip-verification mode; however, verification-related events (build runs, test results, review-bot fix attempts) will not be emitted when verification is skipped.
@@ -604,11 +333,63 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/sessions`** - Create a new session
   - Body: `{ "name": "<session name>" }`
-  - Returns: `{ "sessionId": "<uuid>", "name": "<session name>" }`
+  - Returns `201`: `{ "sessionId": "<uuid>", "name": "<session name>" }`
+
+- **`POST /v1/sessions/switch`** - Switch the active session
+  - Body: `{ "sessionId": "<uuid>" }`
+  - Returns: `{ "status": "ok", "sessionId": "<uuid>" }`
 
 - **`PUT /v1/sessions`** - Upload an existing session zip file
   - Content-Type: `application/zip`
-  - Returns: `{ "sessionId": "<uuid>" }`
+  - Optional header: `X-Session-Id: <uuid>` (if omitted, server generates one)
+  - Returns `201`: `{ "sessionId": "<uuid>" }`
+
+- **`GET /v1/sessions`** - List sessions
+  - Returns: `{ "sessions": [...], "currentSessionId": "<uuid>" }`
+
+- **`GET /v1/sessions/current`** - Get current session metadata
+  - Returns: `{ "id": "<uuid>", "name": "...", "created": <epochMs>, "modified": <epochMs> }`
+
+- **`GET /v1/sessions/{sessionId}`** - Download a session zip
+  - Returns: `application/zip`
+
+### Context & Task List (Authenticated)
+
+- **`GET /v1/context`** - Get live context summary
+  - Optional query: `tokens=true|1` to include token estimates
+  - Response includes:
+    - `totalCost` (number): cumulative cost in USD for the current session, based on the sum of COST notifications for that session.
+
+- **`GET /v1/context/fragments/{fragmentId}`** - Get one context fragment's content
+
+- **`GET /v1/context/conversation`** - Get conversation/task-history entries
+
+- **`POST /v1/context/drop`** - Drop fragments by ID
+  - Body: `{ "fragmentIds": ["..."] }`
+
+- **`POST /v1/context/pin`** - Set pin state on a fragment
+  - Body: `{ "fragmentId": "...", "pinned": true|false }`
+
+- **`POST /v1/context/readonly`** - Set readonly state on an editable fragment
+  - Body: `{ "fragmentId": "...", "readonly": true|false }`
+
+- **`POST /v1/context/compress-history`** - Trigger async history compression
+
+- **`POST /v1/context/clear-history`** - Clear context history
+
+- **`POST /v1/context/drop-all`** - Drop all context fragments
+
+- **`POST /v1/context/files`** - Add files to context
+  - Body: `{ "relativePaths": ["path/from/workspace/root"] }`
+
+- **`POST /v1/context/classes`** - Add class summaries to context
+  - Body: `{ "classNames": ["com.example.MyClass"] }`
+
+- **`POST /v1/context/methods`** - Add method sources to context
+  - Body: `{ "methodNames": ["com.example.MyClass.myMethod"] }`
+
+- **`POST /v1/context/text`** - Add free-form text to context
+  - Body: `{ "text": "..." }` (max 1 MiB UTF-8)
 
 - **`GET /v1/tasklist`** (Authenticated) - Get current task list content
   - Returns the structured content of the current active task list.
@@ -629,6 +410,42 @@ Once running, the executor exposes the following endpoints:
     }
     ```
 
+- **`POST /v1/tasklist`** - Replace current task list content
+  - Body: `{ "bigPicture": "<optional>", "tasks": [ ... ] }`
+
+### Activity (Authenticated)
+
+- **`GET /v1/activity`** - Get grouped activity/history timeline
+
+- **`GET /v1/activity/diff?contextId=<uuid>`** - Get per-fragment diff for a context snapshot
+
+- **`POST /v1/activity/undo`** - Undo to a specific context
+  - Body: `{ "contextId": "<uuid>" }`
+
+- **`POST /v1/activity/undo-step`** - Undo one step
+
+- **`POST /v1/activity/redo`** - Redo one step
+
+- **`POST /v1/activity/copy-context`** - Reset current context to a snapshot (without history)
+  - Body: `{ "contextId": "<uuid>" }`
+
+- **`POST /v1/activity/copy-context-history`** - Reset current context to a snapshot including history
+  - Body: `{ "contextId": "<uuid>" }`
+
+- **`POST /v1/activity/new-session`** - Create a new session from a context snapshot
+  - Body: `{ "contextId": "<uuid>", "name": "<optional>" }`
+
+### Models & Completions (Authenticated)
+
+- **`GET /v1/models`** - List available models and capabilities
+
+- **`GET /v1/completions`** - File/symbol completions for mention UX
+  - Query params:
+    - `query` (required for non-empty results)
+    - `limit` (optional, clamped to 1..50; default 20)
+
+- **`GET /v1/favorites`** - List favorite model configs
+
 ### Job Management (Authenticated)
 
 - **`POST /v1/jobs`** - Create and execute a job
@@ -645,6 +462,18 @@ Once running, the executor exposes the following endpoints:
   - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags. ISSUE-mode jobs may include an optional top-level boolean field `skipVerification` in the job JSON; when present and `true` the executor will run the ISSUE quick (skip-verification) flow (see ISSUE Mode section for details). This field is only honored for jobs whose `tags.mode == "ISSUE"`; other modes ignore it.
   - **ISSUE_WRITER mode**: Set `"tags": { "mode": "ISSUE_WRITER" }` to discover evidence in the repo and create a GitHub issue (requires github_token, repo_owner, repo_name in tags).
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
+
+### Observability and Model Controls (0.23.0.beta9)
+
+Version 0.23.0.beta9 introduces refined controls for LLM reasoning and structured cost reporting.
+
+#### Cost Reporting
+The executor emits structured `NOTIFICATION` events with a `level: "COST"` and a numeric `cost` field representing USD. These notifications include per-turn cost deltas.
+
+The executor also maintains a per-session cumulative `totalCost` and exposes it from `/v1/context` so clients can display lifetime session costs across restarts.
+
+#### Reasoning Levels
+Models supporting "Reasoning Effort" (like OpenAI o1/o3) can be controlled via `reasoningLevel`.
 
 #### Job-level model overrides (optional)
 
@@ -679,30 +508,7 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
   - Must be between `0.0` and `2.0` (inclusive).
   - If omitted or null, the executor uses the model/service default temperature for the code model.
 
-##### Example: ARCHITECT with reasoningLevel + temperature
-
-```bash
-curl -sS -X POST "http://localhost:8080/v1/jobs" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: architect-overrides-001" \
-  --data @- <<'JSON'
-{
-  "taskInput": "Refactor the auth module to improve logging and error messages.",
-  "autoCommit": true,
-  "autoCompress": true,
-  "plannerModel": "gpt-5",
-  "codeModel": "gpt-5-mini",
-  "reasoningLevel": "HIGH",
-  "reasoningLevelCode": "MEDIUM",
-  "temperature": 0.2,
-  "temperatureCode": 0.0,
-  "tags": {
-    "mode": "ARCHITECT"
-  }
-}
-JSON
-```
+#### Convenience endpoints and job inspection
 
 - **`POST /v1/jobs/issue`** - Create an issue resolution job (convenience endpoint)
   - Requires `Idempotency-Key` header
@@ -734,13 +540,14 @@ JSON
 
 - **`GET /v1/jobs/{jobId}/events`** - Get job events (supports polling)
   - Query params: `?after={seq}&limit={n}`
-  - Returns: Array of `JobEvent` objects
+  - Returns: `{ "events": [ ... ], "nextAfter": <seq> }`
 
 - **`POST /v1/jobs/{jobId}/cancel`** - Cancel a running job
-  - Returns: Updated `JobStatus`
+  - Returns: `202 Accepted` with empty body
 
 - **`GET /v1/jobs/{jobId}/diff`** - Get git diff of job changes
-  - Returns: Plain text diff
+  - Returns: Plain text diff (`text/plain; charset=UTF-8`)
+  - If git is unavailable, returns `409` with `NO_GIT`
 
 ### Authentication
 
@@ -763,12 +570,28 @@ Build the shadow JAR:
 Run the JAR:
 
 ```bash
-java -cp app/build/libs/brokk-<version>.jar \
+java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
+  -cp app/build/libs/brokk-0.23.0.beta9.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \
   --auth-token my-secret-token \
-  --workspace-dir /path/to/workspace
+  --workspace-dir /path/to/workspace \
+  --vendor Anthropic
 ```
 
-**Note:** The JAR requires the fully-qualified main class (`ai.brokk.executor.HeadlessExecutorMain`) as the first argument.
+Headless JVM flags:
+
+- `-Djava.awt.headless=true` — Recommended and safe on all platforms; forces the JVM into headless mode so no AWT native UI is initialized.
+- `-Dapple.awt.UIElement=true` — Hides the Java process from the Dock and app switcher on macOS. This flag is effectively ignored on non-macOS platforms, so it is safe to include cross-platform.
+
+When launching via **jbang**, pass these flags via `-R` to ensure they are passed to the JVM:
+
+```bash
+jbang -Djava.awt.headless=true -Dapple.awt.UIElement=true \
+  --java 21 \
+  -R "-Djava.awt.headless=true -Dapple.awt.UIElement=true --enable-native-access=ALL-UNNAMED" \
+  brokk-headless@brokkai/brokk-releases [args]
+```
+
+**Note:** The JAR requires the fully-qualified main class (`ai.brokk.executor.HeadlessExecutorMain`) as the first argument. Brokk clients (such as the Python TUI and VS Code extension) automatically include these JVM flags when managing the executor lifecycle.
