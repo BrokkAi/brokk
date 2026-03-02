@@ -11,11 +11,13 @@ from brokk_code.acp_server import (
     _build_available_models,
     _extract_session_id_for_cancel,
     _fetch_normalized_catalog_with_retries,
+    _known_session_ids,
     _model_variants_for_model,
     _normalize_model_catalog,
     _parse_model_selection,
     _reasoning_options_for_model,
     _sanitize_reasoning_level_for_model,
+    conversation_payload_to_session_updates,
     extract_prompt_text,
     map_executor_event_to_session_update,
     normalize_mode,
@@ -405,11 +407,76 @@ def test_map_executor_tool_output_fallback() -> None:
     assert "[TOOL ERROR]" in update["text"]
 
 
+def test_conversation_payload_to_session_updates_replays_user_assistant_and_reasoning() -> None:
+    conversation_data = {
+        "entries": [
+            {
+                "messages": [
+                    {"role": "user", "text": "Hello"},
+                    {"role": "assistant", "reasoning": "Thinking...", "text": "Hi there"},
+                    {"role": "tool", "text": "Tool output"},
+                    {"role": "assistant", "text": "   "},
+                ]
+            },
+            {"summary": "Condensed summary"},
+        ]
+    }
+
+    def _user_update(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "user_message_chunk", "text": text}
+
+    def _agent_update(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_message_chunk", "text": text}
+
+    def _thought_update(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_thought_chunk", "text": text}
+
+    updates = conversation_payload_to_session_updates(
+        conversation_data,
+        update_user_message_text=_user_update,
+        update_agent_message_text=_agent_update,
+        update_agent_thought_text=_thought_update,
+    )
+
+    assert updates == [
+        {"sessionUpdate": "user_message_chunk", "text": "Hello"},
+        {"sessionUpdate": "agent_thought_chunk", "text": "Thinking..."},
+        {"sessionUpdate": "agent_message_chunk", "text": "Hi there"},
+        {"sessionUpdate": "agent_message_chunk", "text": "Tool output"},
+        {"sessionUpdate": "agent_message_chunk", "text": "Condensed summary"},
+    ]
+
+
+def test_conversation_payload_to_session_updates_handles_missing_entries() -> None:
+    updates = conversation_payload_to_session_updates(
+        {"entries": "bad"},
+        update_user_message_text=_text_block,
+        update_agent_message_text=_thought_block,
+    )
+    assert updates == []
+
+
 def test_extract_session_id_for_cancel() -> None:
     assert _extract_session_id_for_cancel((), {"session_id": "abc"}) == "abc"
     assert _extract_session_id_for_cancel(({"sessionId": "def"},), {}) == "def"
     assert _extract_session_id_for_cancel((), {"params": {"sessionId": "ghi"}}) == "ghi"
     assert _extract_session_id_for_cancel((), {}) is None
+
+
+def test_known_session_ids_collects_ids_without_leaking_names() -> None:
+    entries = [
+        {"id": "session-a"},
+        {"sessionId": "session-b"},
+        {"session_id": "session-c"},
+        {"id": ""},
+        {},
+    ]
+    assert _known_session_ids(entries) == {"session-a", "session-b", "session-c"}
+
+
+def test_known_session_ids_handles_bad_payload() -> None:
+    assert _known_session_ids(None) == set()
+    assert _known_session_ids("bad") == set()
 
 
 async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
