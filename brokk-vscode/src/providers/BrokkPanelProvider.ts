@@ -173,7 +173,7 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
     this.contextRefreshInFlight = true;
     try {
       const ctx = await this.client.getContext();
-      const fp = this.fingerprint(ctx.usedTokens, ctx.fragments.length, ctx.fragments.map(f => f.id));
+      const fp = this.fingerprint(ctx.usedTokens, ctx.fragments.length, ctx.fragments.map(f => `${f.id}:${f.tokens}`));
       if (fp !== this.lastContextJson) {
         this.log?.(`[Context] refresh: ${ctx.fragments.length} fragments, ${ctx.usedTokens} tokens`);
         this.lastContextJson = fp;
@@ -248,7 +248,7 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
         this.client.getCurrentSession(),
         this.client.getActivity(),
       ]);
-      const fp = this.fingerprint(session?.id, activity.groups.length, activity.groups.map(g => g.key));
+      const fp = this.fingerprint(session?.id, activity.groups.length, activity.groups.map(g => `${g.key}:${g.entries.length}`));
       if (fp !== this.lastActivityJson) {
         this.log?.(`[Activity] refresh: ${activity.groups.length} groups`);
         this.lastActivityJson = fp;
