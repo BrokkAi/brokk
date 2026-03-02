@@ -213,3 +213,71 @@ async def test_switch_to_worktree_failure_not_cached():
             assert mock_make.call_count == 1
             assert app.executor == mock_success_exec
             assert app._worktree_executors[resolved_target] == mock_success_exec
+
+
+@pytest.mark.asyncio
+async def test_switch_to_worktree_clears_ui_before_replay():
+    """
+    Integration test ensuring _switch_to_worktree clears existing chat content
+    before fetching and replaying the new worktree's conversation.
+    """
+    app = BrokkApp(workspace_dir=Path("/repo/main"))
+    app._refresh_context_panel = AsyncMock()
+    app._refresh_worktree_name = MagicMock()
+
+    # Target worktree setup
+    target_path = Path("/repo/new_feat")
+    resolved_target = Path("/repo/new_feat")
+    resolved_main = Path("/repo/main")
+
+    mock_new_exec = MagicMock(spec=ExecutorManager)
+    mock_new_exec.workspace_dir = target_path
+    mock_new_exec.start = AsyncMock()
+    mock_new_exec.create_session = AsyncMock()
+    mock_new_exec.wait_ready = AsyncMock(return_value=True)
+
+    # Prepare a conversation to replay so we can see it's not empty at the end
+    mock_new_exec.get_conversation = AsyncMock(
+        return_value={
+            "entries": [
+                {"messages": [{"role": "ai", "text": "new content"}]}
+            ]
+        }
+    )
+
+    async with app.run_test() as pilot:
+        chat = app._maybe_chat()
+        assert chat is not None
+        log = chat.query_one("#chat-log", RichLog)
+
+        # 1. Populate "old" content
+        chat.add_markdown("old content")
+        chat._message_history.append({"kind": "AI", "content": "old content"})
+        assert len(chat._message_history) == 1
+
+        # 2. We want to assert that things are cleared DURING the switch.
+        # We'll wrap _replay_conversation_entries to check the state before it runs.
+        original_replay = app._replay_conversation_entries
+        cleared_before_replay = False
+
+        def wrapped_replay(data):
+            nonlocal cleared_before_replay
+            # Check that history is empty and log has been cleared
+            # (RichLog.clear() is async-queued in Textual, but _message_history is immediate)
+            if len(chat._message_history) == 0:
+                cleared_before_replay = True
+            return original_replay(data)
+
+        app._replay_conversation_entries = MagicMock(side_effect=wrapped_replay)
+
+        # 3. Execute the switch
+        with patch.object(
+            Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]
+        ):
+            with patch.object(app, "_make_executor", return_value=mock_new_exec):
+                await app._switch_to_worktree(target_path)
+
+        # 4. Final assertions
+        assert cleared_before_replay, "Message history should be cleared before replaying new entries"
+        assert len(chat._message_history) == 1
+        assert chat._message_history[0]["content"] == "new content"
