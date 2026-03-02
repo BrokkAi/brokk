@@ -12,6 +12,8 @@ const cancelBtn = document.getElementById("cancel-btn");
 // ── Chat State ───────────────────────────────────────
 
 let isRunning = false;
+const SCROLL_THRESHOLD = 100; // px from bottom
+let scrollPending = false;
 let currentAssistantEl = null;
 let currentContentEl = null;
 let currentReasoningEl = null;
@@ -663,7 +665,14 @@ export function addCommandResult(msg) {
 }
 
 export function scrollToBottom() {
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  if (scrollPending) return;
+  const distFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+  if (distFromBottom > SCROLL_THRESHOLD) return; // user scrolled up — don't steal focus
+  scrollPending = true;
+  requestAnimationFrame(() => {
+    scrollPending = false;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  });
 }
 
 /**
