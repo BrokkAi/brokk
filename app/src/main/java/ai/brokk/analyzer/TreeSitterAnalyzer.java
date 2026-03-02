@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -101,15 +102,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         return parser;
     });
-    private final ThreadLocal<TSQuery> query;
+
+    public enum QueryType {
+        DEFINITIONS,
+        IMPORTS
+    }
+
+    private final ThreadLocal<Map<QueryType, TSQuery>> queries;
 
     /**
-     * Gets the thread-local query for use in subclass overrides.
+     * Gets the thread-local query for the specified type.
      *
-     * @return the thread-local query instance
+     * @param type the type of query to retrieve
+     * @return the thread-local query instance, or null if not available for the given type
+     */
+    protected @Nullable TSQuery getThreadLocalQuery(QueryType type) {
+        return queries.get().get(type);
+    }
+
+    /**
+     * Gets the thread-local DEFINITIONS query for use in subclass overrides.
+     *
+     * @return the thread-local definitions query instance
      */
     protected TSQuery getThreadLocalQuery() {
-        return query.get();
+        return Objects.requireNonNull(getThreadLocalQuery(QueryType.DEFINITIONS));
     }
 
     // transferable snapshot of analyzer state
@@ -353,19 +370,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         progressListener = listener;
         this.cache = new AnalyzerCache();
 
-        // Initialize query using a ThreadLocal for thread safety
-        // The supplier will use the appropriate getQueryResource() from the subclass
-        // and getTSLanguage() for the current thread.
-        this.query = ThreadLocal.withInitial(() -> {
-            String rawQueryString = loadResource(getQueryResource());
-            return new TSQuery(getTSLanguage(), rawQueryString);
+        // Initialize queries using a ThreadLocal for thread safety.
+        // The supplier will use getQueryResource(type) from the subclass.
+        this.queries = ThreadLocal.withInitial(() -> {
+            Map<QueryType, TSQuery> map = new EnumMap<>(QueryType.class);
+            for (QueryType type : QueryType.values()) {
+                getQueryResource(type).ifPresent(path -> {
+                    String rawQueryString = loadResource(path);
+                    map.put(type, new TSQuery(getTSLanguage(), rawQueryString));
+                });
+            }
+            return map;
         });
 
         // Debug log using SLF4J
         log.debug(
                 "Initializing TreeSitterAnalyzer for language: {}, query resource: {}",
                 this.language,
-                getQueryResource());
+                getQueryResource(QueryType.DEFINITIONS));
 
         var validExtensions = this.language.getExtensions();
         log.trace("Filtering project files for extensions: {}", validExtensions);
@@ -578,9 +600,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         this.progressListener = listener;
         this.cache = prebuiltCache != null ? prebuiltCache : new AnalyzerCache();
 
-        this.query = ThreadLocal.withInitial(() -> {
-            String rawQueryString = loadResource(getQueryResource());
-            return new TSQuery(getTSLanguage(), rawQueryString);
+        this.queries = ThreadLocal.withInitial(() -> {
+            Map<QueryType, TSQuery> map = new EnumMap<>(QueryType.class);
+            for (QueryType type : QueryType.values()) {
+                getQueryResource(type).ifPresent(path -> {
+                    String rawQueryString = loadResource(path);
+                    map.put(type, new TSQuery(getTSLanguage(), rawQueryString));
+                });
+            }
+            return map;
         });
 
         this.state = prebuiltState;
@@ -1359,7 +1387,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Class-path resource for the query (e.g. {@code "treesitter/python.scm"}).
      */
-    protected abstract String getQueryResource();
+    protected abstract Optional<String> getQueryResource(QueryType type);
 
     /**
      * Defines the general type of skeleton that should be built for a given capture.
@@ -1973,10 +2001,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         log.trace("Root node type for {}: {}", file, rootNode.getType());
 
-        Map<TSNode, DefinitionInfoRecord> declarationNodes =
+        // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
+        TSQuery importsQuery = getThreadLocalQuery(QueryType.IMPORTS);
+        if (importsQuery != null) {
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(importsQuery, rootNode);
+            TSQueryMatch match = new TSQueryMatch();
+            while (cursor.nextMatch(match)) {
+                Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
+                    TSNode node = capture.getNode();
+                    if (node != null && !node.isNull()) {
+                        capturedNodesForMatch.putIfAbsent(captureName, node);
+                    }
+                }
+                extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+            }
+        }
+
+        // Phase 2: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
+        List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
                 collectDefinitions(file, rootNode, sourceContent, localImportInfos);
 
-        List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries = declarationNodes.entrySet().stream()
+        List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries = declarationNodes.stream()
                 .sorted(Comparator.comparingInt(entry -> entry.getKey().getStartByte()))
                 .toList();
 
@@ -2160,9 +2208,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 containsTests);
     }
 
-    private Map<TSNode, DefinitionInfoRecord> collectDefinitions(
+    private List<Map.Entry<TSNode, DefinitionInfoRecord>> collectDefinitions(
             ProjectFile file, TSNode rootNode, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
-        Map<TSNode, DefinitionInfoRecord> declarationNodes = new HashMap<>();
+        List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes = new ArrayList<>();
         TSQueryCursor cursor = new TSQueryCursor();
         TSQuery currentThreadQuery = getThreadLocalQuery();
         cursor.exec(currentThreadQuery, rootNode);
@@ -2195,7 +2243,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     .toList();
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
-            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+
+            // Backward Compatibility: Only run extractImports during definition pass
+            // if a dedicated IMPORTS query is NOT provided.
+            if (getThreadLocalQuery(QueryType.IMPORTS) == null) {
+                extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+            }
 
             for (var captureEntry : capturedNodesForMatch.entrySet()) {
                 String captureName = captureEntry.getKey();
@@ -2206,14 +2259,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             resolveSimpleName(captureName, definitionNode, capturedNodesForMatch, sourceContent, file);
                     if (simpleNameOpt.isPresent() && !simpleNameOpt.get().isBlank()) {
                         String simpleName = simpleNameOpt.get();
-                        declarationNodes.putIfAbsent(
+                        declarationNodes.add(Map.entry(
                                 definitionNode,
                                 new DefinitionInfoRecord(
                                         captureName,
                                         simpleName,
                                         sortedModifierStrings,
                                         decoratorNodesForMatch,
-                                        definitionNode.getParent()));
+                                        definitionNode.getParent())));
                     }
                 }
             }

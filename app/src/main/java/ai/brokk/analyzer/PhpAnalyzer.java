@@ -90,8 +90,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/php.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/php.scm") : Optional.empty();
     }
 
     @Override

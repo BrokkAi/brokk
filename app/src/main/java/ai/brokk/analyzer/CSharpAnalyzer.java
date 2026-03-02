@@ -79,10 +79,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getQueryResource() {
-        var resource = "treesitter/c_sharp.scm";
-        log.trace("CSharpAnalyzer: getQueryResource() returning: {}", resource);
-        return resource;
+    protected Optional<String> getQueryResource(QueryType type) {
+        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/c_sharp.scm") : Optional.empty();
     }
 
     @Override

@@ -70,8 +70,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/rust.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/rust.scm") : Optional.empty();
     }
 
     @Override

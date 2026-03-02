@@ -99,8 +99,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/python.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/python.scm") : Optional.empty();
     }
 
     /**

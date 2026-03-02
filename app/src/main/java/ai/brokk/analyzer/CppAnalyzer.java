@@ -191,8 +191,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/cpp.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/cpp.scm") : Optional.empty();
     }
 
     @Override

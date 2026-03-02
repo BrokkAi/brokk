@@ -149,8 +149,8 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/typescript.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/typescript.scm") : Optional.empty();
     }
 
     @Override

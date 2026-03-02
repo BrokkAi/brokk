@@ -50,8 +50,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/scala.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/scala.scm") : Optional.empty();
     }
 
     @Override

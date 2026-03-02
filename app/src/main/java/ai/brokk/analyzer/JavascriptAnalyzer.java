@@ -73,8 +73,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/javascript.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/javascript.scm") : Optional.empty();
     }
 
     @Override

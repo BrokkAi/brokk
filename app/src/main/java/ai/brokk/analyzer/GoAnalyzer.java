@@ -106,8 +106,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/go.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/go.scm") : Optional.empty();
     }
 
     @Override
