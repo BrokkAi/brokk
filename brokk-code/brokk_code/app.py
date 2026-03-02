@@ -15,13 +15,13 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
-from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.git_worktrees import (
     WorktreeInfo,
     get_worktree_display_name,
     list_worktrees,
     remove_worktree,
 )
+from brokk_code.prompt_history import append_prompt, clear_history, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
     Settings,

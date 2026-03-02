@@ -1,5 +1,7 @@
-import pytest
 from pathlib import Path
+
+import pytest
+
 from brokk_code.app import BrokkApp, WorktreeSelectModal
 from brokk_code.git_worktrees import WorktreeInfo
 
@@ -50,7 +52,7 @@ async def test_worktree_select_modal_compose():
         )
     ]
     app = BrokkApp()
-    async with app.run_test() as pilot:
+    async with app.run_test():
         modal = WorktreeSelectModal(sample_worktrees)
         # Just ensure it can be pushed and composed without crashing
         await app.push_screen(modal)
