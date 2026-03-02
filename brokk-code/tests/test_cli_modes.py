@@ -76,16 +76,14 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
 
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["executor_snapshot"] is False
-    assert captured["kwargs"]["ide"] == "intellij"
     assert captured["kwargs"]["vendor"] == "Gemini"
 
 
-def test_main_acp_routes_to_server_with_ide(monkeypatch, tmp_path) -> None:
-    captured: dict[str, Any] = {}
+def test_main_acp_routes_to_server_rejects_removed_ide_flag(monkeypatch, tmp_path) -> None:
     fake_acp_module = ModuleType("brokk_code.acp_server")
 
     async def fake_run_acp_server(**kwargs: Any) -> None:
-        captured["kwargs"] = kwargs
+        pass
 
     fake_acp_module.run_acp_server = fake_run_acp_server
     monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
@@ -95,10 +93,10 @@ def test_main_acp_routes_to_server_with_ide(monkeypatch, tmp_path) -> None:
         ["brokk", "acp", "--workspace", str(tmp_path), "--ide", "zed"],
     )
 
-    main_module.main()
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
 
-    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
-    assert captured["kwargs"]["ide"] == "zed"
+    assert exc.value.code == 2
 
 
 def test_main_acp_rejects_extra_positional(monkeypatch, tmp_path) -> None:

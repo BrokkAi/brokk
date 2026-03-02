@@ -41,9 +41,7 @@ class ClientProfile:
     supports_terminal: bool = False
 
 
-def resolve_client_profile(
-    client_capabilities: Any, client_info: Any, fallback_ide: str = "intellij"
-) -> ClientProfile:
+def resolve_client_profile(client_capabilities: Any, client_info: Any) -> ClientProfile:
     """Derives a ClientProfile from ACP initialize inputs."""
     client_name = ""
     if hasattr(client_info, "name"):
@@ -60,11 +58,6 @@ def resolve_client_profile(
         supports_terminal = bool(client_capabilities.terminal)
     elif isinstance(client_capabilities, dict):
         supports_terminal = bool(client_capabilities.get("terminal"))
-
-    # If the client is unknown, we use the fallback_ide (from CLI) as a hint,
-    # but eventually we want to rely entirely on capabilities.
-    if not client_name and fallback_ide == "zed":
-        is_zed = True
 
     if is_zed:
         return ClientProfile(
@@ -966,7 +959,6 @@ async def run_acp_server(
     jar_path: Optional[Path],
     executor_version: Optional[str],
     executor_snapshot: bool,
-    ide: str = "intellij",
     vendor: Optional[str] = None,
 ) -> None:
     try:
@@ -1019,8 +1011,7 @@ async def run_acp_server(
         ) from e
 
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-    ide_profile = ide.strip().lower() if isinstance(ide, str) else "intellij"
-    logger.info("Starting ACP server with IDE hint: %s", ide_profile)
+    logger.info("Starting ACP server")
 
     # Note: The ExecutorManager launches the Java HeadlessExecutorMain with a dedicated
     # stdin pipe. HeadlessExecutorMain monitors System.in for EOF and will initiate a
@@ -1035,7 +1026,7 @@ async def run_acp_server(
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
         vendor=vendor,
-        exit_on_stdin_eof=ide_profile == "intellij",
+        exit_on_stdin_eof=True,
         brokk_api_key=settings.get_brokk_api_key(),
     )
     bridge = BrokkAcpBridge(executor)
@@ -1073,7 +1064,7 @@ async def run_acp_server(
             self._cwd_by_session: dict[str, str] = {}
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
             self._catalog_is_fallback_by_session: dict[str, bool] = {}
-            self._profile = resolve_client_profile(None, None, fallback_ide=ide_profile)
+            self._profile = resolve_client_profile(None, None)
 
             # Load ACP defaults once on agent init
             acp_defaults = load_acp_defaults()
@@ -1277,9 +1268,7 @@ async def run_acp_server(
             client_info: Any = None,
             **kwargs: Any,
         ) -> InitializeResponse:
-            self._profile = resolve_client_profile(
-                client_capabilities, client_info, fallback_ide=ide_profile
-            )
+            self._profile = resolve_client_profile(client_capabilities, client_info)
             logger.info("ACP Client Profile resolved: %s", self._profile)
 
             return InitializeResponse(
