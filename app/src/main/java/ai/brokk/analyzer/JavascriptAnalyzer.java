@@ -24,7 +24,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             Set.of(VARIABLE_DECLARATOR),
             Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
             Set.of(),
-            IMPORT_DECLARATION,
+            CaptureNames.IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName
             "parameters", // parametersFieldName
@@ -74,7 +74,10 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
     @Override
     protected Optional<String> getQueryResource(QueryType type) {
-        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/javascript.scm") : Optional.empty();
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/javascript/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/javascript/imports.scm");
+        };
     }
 
     @Override
@@ -546,8 +549,12 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                 (import_specifier name: (identifier) @import.id)
                 (import_specifier alias: (identifier) @import.alias)
                 (namespace_import (identifier) @import.alias)
-                (variable_declarator name: (identifier) @import.id value: (call_expression function: (identifier) @func (#eq? @func "require")))
-                (variable_declarator name: (object_pattern (shorthand_property_identifier_pattern) @import.id) value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                (variable_declarator
+                  name: [
+                    (identifier) @import.id
+                    (object_pattern (shorthand_property_identifier_pattern) @import.id)
+                  ]
+                  value: (call_expression function: (identifier) @import.require_func))
                 """;
 
             TSQuery query = new TSQuery(getTSLanguage(), queryStr);
@@ -556,12 +563,25 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             TSQueryMatch match = new TSQueryMatch();
 
             while (cursor.nextMatch(match)) {
+                TSNode requireFunc = null;
+                TSNode importId = null;
+
                 for (TSQueryCapture capture : match.getCaptures()) {
                     String captureName = query.getCaptureNameForId(capture.getIndex());
-                    if (captureName.startsWith("import.")) {
-                        TSNode node = capture.getNode();
-                        identifiers.add(sourceContent.substringFrom(node));
+                    if (captureName.equals("import.id")) {
+                        importId = capture.getNode();
+                    } else if (captureName.equals("import.require_func")) {
+                        requireFunc = capture.getNode();
                     }
+                }
+
+                if (requireFunc != null
+                        && !sourceContent.substringFrom(requireFunc).equals("require")) {
+                    continue;
+                }
+
+                if (importId != null) {
+                    identifiers.add(sourceContent.substringFrom(importId).strip());
                 }
             }
         } catch (Exception e) {

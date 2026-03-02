@@ -21,8 +21,6 @@ import org.treesitter.TSParser;
 import org.treesitter.TreeSitterTypescript;
 
 public final class TypescriptAnalyzer extends JsTsAnalyzer {
-    private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
-
     // Compiled regex patterns for memory efficiency
     private static final Pattern TRAILING_SEMICOLON = Pattern.compile(";\\s*$");
     private static final Pattern ENUM_COMMA_CLEANUP = Pattern.compile(",\\s*\\r?\\n(\\s*})");
@@ -72,7 +70,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             // decoratorNodeTypes
             Set.of(DECORATOR),
             // imports
-            IMPORT_DECLARATION,
+            CaptureNames.IMPORT_DECLARATION,
             // identifierFieldName
             "name",
             // bodyFieldName
@@ -144,13 +142,11 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected TSLanguage getTSLanguage() {
-        return TS_LANGUAGE;
-    }
-
-    @Override
     protected Optional<String> getQueryResource(QueryType type) {
-        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/typescript.scm") : Optional.empty();
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/typescript/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/typescript/imports.scm");
+        };
     }
 
     @Override
@@ -1101,8 +1097,12 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 (import_specifier name: (identifier) @import.id)
                 (import_specifier alias: (identifier) @import.alias)
                 (namespace_import (identifier) @import.alias)
-                (variable_declarator name: (identifier) @import.id value: (call_expression function: (identifier) @func (#eq? @func "require")))
-                (variable_declarator name: (object_pattern (shorthand_property_identifier_pattern) @import.id) value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                (variable_declarator
+                  name: [
+                    (identifier) @import.id
+                    (object_pattern (shorthand_property_identifier_pattern) @import.id)
+                  ]
+                  value: (call_expression function: (identifier) @import.require_func))
                 """;
 
             org.treesitter.TSQuery query = new org.treesitter.TSQuery(getTSLanguage(), queryStr);
@@ -1111,9 +1111,25 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
 
             while (cursor.nextMatch(match)) {
+                TSNode requireFunc = null;
+                TSNode importId = null;
+
                 for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    identifiers.add(sourceContent.substringFrom(node));
+                    String captureName = query.getCaptureNameForId(capture.getIndex());
+                    if (captureName.equals("import.id")) {
+                        importId = capture.getNode();
+                    } else if (captureName.equals("import.require_func")) {
+                        requireFunc = capture.getNode();
+                    }
+                }
+
+                if (requireFunc != null
+                        && !sourceContent.substringFrom(requireFunc).equals("require")) {
+                    continue;
+                }
+
+                if (importId != null) {
+                    identifiers.add(sourceContent.substringFrom(importId).strip());
                 }
             }
         } catch (Exception e) {

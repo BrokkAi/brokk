@@ -94,17 +94,22 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     public abstract Set<String> extractIdentifiersFromImport(String importStatement);
 
-    @Override
     public abstract Set<String> extractTypeIdentifiers(String source);
 
     @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
-        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        // Handle ES6 imports
+        TSNode importNode = capturedNodesForMatch.get(CaptureNames.IMPORT_DECLARATION);
+
         if (importNode != null && !importNode.isNull()) {
-            String rawSnippet = sourceContent.substringFrom(importNode);
-            localImportInfos.add(new ImportInfo(rawSnippet, false, null, null));
+            String rawSnippet = sourceContent.substringFrom(importNode).strip();
+            if (!rawSnippet.isEmpty()) {
+                localImportInfos.add(new ImportInfo(rawSnippet, false, null, null));
+            }
         }
+
+        // CommonJS require extraction
         extractCommonJsRequireImport(capturedNodesForMatch, sourceContent, localImportInfos);
     }
 
@@ -317,29 +322,62 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     protected static void extractCommonJsRequireImport(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        // Check for both legacy and new split-query capture names
         TSNode requireCallNode = capturedNodesForMatch.get(REQUIRE_CALL_CAPTURE_NAME);
-        TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
-        if (requireCallNode != null
-                && !requireCallNode.isNull()
-                && requireFuncNode != null
-                && !requireFuncNode.isNull()) {
-            String funcName = sourceContent.substringFrom(requireFuncNode).strip();
-            if ("require".equals(funcName)) {
-                TSNode nodeToCapture = requireCallNode;
-                TSNode parent = requireCallNode.getParent();
-                if (parent != null && "variable_declarator".equals(parent.getType())) {
-                    TSNode decl = parent.getParent();
-                    if (decl != null
-                            && ("lexical_declaration".equals(decl.getType())
-                                    || "variable_declaration".equals(decl.getType()))) {
-                        nodeToCapture = decl;
-                    }
-                }
+        if (requireCallNode == null) {
+            requireCallNode = capturedNodesForMatch.get("module.require_call");
+        }
 
-                String requireText = sourceContent.substringFrom(nodeToCapture).strip();
-                if (!requireText.isEmpty()) {
-                    localImportInfos.add(new ImportInfo(requireText, false, "", ""));
+        if (requireCallNode == null || requireCallNode.isNull()) {
+            return;
+        }
+
+        // Identify the require function identifier to verify it's a 'require' call
+        TSNode requireFuncNode = capturedNodesForMatch.get(REQUIRE_FUNC_CAPTURE_NAME);
+        if (requireFuncNode == null) {
+            requireFuncNode = capturedNodesForMatch.get("_require_func");
+        }
+        if (requireFuncNode == null) {
+            requireFuncNode = capturedNodesForMatch.get("require_func");
+        }
+
+        boolean isRequire = false;
+        if (requireFuncNode != null && !requireFuncNode.isNull()) {
+            String funcName = sourceContent.substringFrom(requireFuncNode).strip();
+            isRequire = "require".equals(funcName);
+        } else {
+            String text = sourceContent.substringFrom(requireCallNode).trim();
+            isRequire = text.startsWith("require") || text.contains("require(");
+        }
+
+        if (isRequire) {
+            TSNode nodeToCapture = requireCallNode;
+
+            // Search upwards for the containing statement to capture the full 'require' assignment/usage
+            TSNode current = requireCallNode;
+            while (current != null && !current.isNull()) {
+                String type = current.getType();
+                if ("lexical_declaration".equals(type)
+                        || "variable_declaration".equals(type)
+                        || "expression_statement".equals(type)
+                        || "variable_declarator".equals(type)) {
+                    nodeToCapture = current;
+                    // If we found a declarator, try one more step for the full declaration
+                    TSNode parent = current.getParent();
+                    if (parent != null && !parent.isNull() && (parent.getType().contains("declaration"))) {
+                        nodeToCapture = parent;
+                    }
+                    break;
                 }
+                if ("program".equals(type)) {
+                    break;
+                }
+                current = current.getParent();
+            }
+
+            String requireText = sourceContent.substringFrom(nodeToCapture).strip();
+            if (!requireText.isEmpty()) {
+                localImportInfos.add(new ImportInfo(requireText, false, null, null));
             }
         }
     }
