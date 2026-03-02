@@ -372,11 +372,10 @@ def test_map_executor_tool_call_structured() -> None:
 
 
 def test_map_executor_tool_call_fallback() -> None:
-    # No ID or no callbacks
+    # No ID or no callbacks -> now returns None instead of a text prefix
     event = {"type": "TOOL_CALL", "data": {"name": "read_file", "arguments": "{}"}}
     update = map_executor_event_to_session_update(event, _text_block)
-    assert update["sessionUpdate"] == "agent_message_chunk"
-    assert "[CALLING TOOL] read_file({})" in update["text"]
+    assert update is None
 
 
 def test_map_executor_tool_output_structured() -> None:
@@ -421,7 +420,7 @@ def test_map_executor_tool_calls_title_only_mode() -> None:
         _text_block_helper,
         tool_call_titles_only=True,
     )
-    assert start_update == {"sessionUpdate": "agent_message_chunk", "text": "\n[TOOL] read_file\n"}
+    assert start_update is None
 
     output_event = {"type": "TOOL_OUTPUT", "data": {"status": "SUCCESS", "id": "call-1"}}
     assert (
@@ -436,10 +435,7 @@ def test_map_executor_tool_call_title_only_sanitizes_title() -> None:
         "data": {"name": " read_file  \n  {json-ish}", "id": "call-1"},
     }
     update = map_executor_event_to_session_update(event, _text_block, tool_call_titles_only=True)
-    assert update == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n[TOOL] read_file {json-ish}\n",
-    }
+    assert update is None
 
 
 def test_extract_session_id_for_cancel() -> None:

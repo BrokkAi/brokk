@@ -467,12 +467,7 @@ def map_executor_event_to_session_update(
         )
 
         if tool_call_titles_only:
-            raw_title = str(name or "tool")
-            safe_title = " ".join(raw_title.split())
-            if not safe_title:
-                safe_title = "tool"
-            safe_title = safe_title[:120]
-            return update_agent_message_text(f"\n[TOOL] {safe_title}\n")
+            return None
 
         if start_tool_call and tool_call_id:
             content = None
@@ -485,7 +480,7 @@ def map_executor_event_to_session_update(
                 content=content,
             )
 
-        return update_agent_message_text(f"\n[CALLING TOOL] {name}({args})\n")
+        return None
 
     if event_type == "TOOL_OUTPUT":
         if tool_call_titles_only:
