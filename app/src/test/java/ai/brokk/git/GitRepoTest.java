@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
+import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RepositoryState;
@@ -2326,6 +2327,73 @@ public class GitRepoTest {
 
         assertEquals("committed", diff.oldText());
         assertEquals("working changes", diff.newText());
+    }
+
+    @Test
+    void testGetDiff_EmptyTreeToFirstCommit() throws Exception {
+        // This tests the fix for diffing against the empty tree (root commit scenario).
+        // When explaining a root commit, GitTools falls back to Constants.EMPTY_TREE_ID.getName()
+        // as the "parent" revision. Previously this would fail because resolveToCommit cannot
+        // resolve a tree ID.
+
+        // The setUp already creates an initial commit with README.md
+        String firstCommitSha = repo.getCurrentCommitId();
+
+        // Diff from empty tree to first commit should show all files as added
+        String diff = repo.getDiff(Constants.EMPTY_TREE_ID.getName(), firstCommitSha);
+
+        assertNotNull(diff, "Diff should not be null");
+        assertFalse(diff.isEmpty(), "Diff should not be empty for a commit that adds files");
+        assertTrue(diff.contains("README.md"), "Diff should mention the added file");
+        assertTrue(diff.contains("+Initial commit file."), "Diff should show the added content");
+    }
+
+    @Test
+    void testGetDiff_EmptyTreeToFirstCommit_MultipleFiles() throws Exception {
+        // Create a fresh repo with multiple files in the first commit
+        Path multiFileRepo = tempDir.resolve("multiFileRepo");
+        Files.createDirectories(multiFileRepo);
+
+        try (Git git = Git.init().setDirectory(multiFileRepo.toFile()).call()) {
+            Files.writeString(multiFileRepo.resolve("file1.txt"), "Content of file 1");
+            Files.writeString(multiFileRepo.resolve("file2.txt"), "Content of file 2");
+            git.add().addFilepattern(".").call();
+            git.commit()
+                    .setMessage("Initial commit with multiple files")
+                    .setAuthor("Test User", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        var multiRepo = new GitRepo(multiFileRepo);
+        try {
+            String firstCommitSha = multiRepo.getCurrentCommitId();
+
+            String diff = multiRepo.getDiff(Constants.EMPTY_TREE_ID.getName(), firstCommitSha);
+
+            assertNotNull(diff);
+            assertFalse(diff.isEmpty());
+            assertTrue(diff.contains("file1.txt"), "Diff should include file1.txt");
+            assertTrue(diff.contains("file2.txt"), "Diff should include file2.txt");
+            assertTrue(diff.contains("+Content of file 1"), "Diff should show file1 content as added");
+            assertTrue(diff.contains("+Content of file 2"), "Diff should show file2 content as added");
+        } finally {
+            GitTestCleanupUtil.cleanupGitResources(multiRepo);
+        }
+    }
+
+    @Test
+    void testGetDiff_EmptyTreeWithFileFilter() throws Exception {
+        // Test that single-file diff also works with empty tree
+        String firstCommitSha = repo.getCurrentCommitId();
+        ProjectFile readme = new ProjectFile(projectRoot, "README.md");
+
+        String diff = repo.getDiff(readme, Constants.EMPTY_TREE_ID.getName(), firstCommitSha);
+
+        assertNotNull(diff);
+        assertFalse(diff.isEmpty());
+        assertTrue(diff.contains("README.md"));
+        assertTrue(diff.contains("+Initial commit file."));
     }
 
     @Test

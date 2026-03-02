@@ -20,9 +20,12 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
+import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
@@ -426,10 +429,15 @@ public class GitRepoData {
     }
 
     /** Prepares an AbstractTreeIterator for the given commit-ish string. */
-    public @Nullable CanonicalTreeParser prepareTreeParser(String objectId) throws GitAPIException {
+    public @Nullable AbstractTreeIterator prepareTreeParser(String objectId) throws GitAPIException {
         if (objectId.isBlank()) {
             logger.warn("prepareTreeParser called with blank ref. Returning null iterator.");
             return null;
+        }
+
+        // Handle the special empty tree ID (used when diffing root commits)
+        if (Constants.EMPTY_TREE_ID.getName().equals(objectId)) {
+            return new EmptyTreeIterator();
         }
 
         var objId = repo.resolveToCommit(objectId);
