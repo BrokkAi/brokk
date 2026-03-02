@@ -104,3 +104,50 @@ def test_brokk_app_cost_malformed_events(mock_executor):
         {"type": "NOTIFICATION", "data": {"level": "COST", "message": "bad cost", "cost": "free"}}
     )
     assert app.current_job_cost == 0.0
+
+
+@pytest.mark.asyncio
+async def test_brokk_app_session_cost_seeded_from_context(mock_executor):
+    """Verify that session_total_cost is seeded from context and increments correctly."""
+    mock_executor.get_context = AsyncMock(
+        return_value={
+            "branch": "main",
+            "totalCost": 1.234,
+        }
+    )
+    app = BrokkApp(executor=mock_executor)
+
+    # Manually trigger refresh
+    app._executor_ready = True
+    await app._refresh_context_panel()
+
+    assert app.session_total_cost == pytest.approx(1.234, rel=1e-6)
+    assert app.current_job_cost == 0.0
+
+    # Simulate a COST event incrementing from the seed
+    event = {
+        "type": "NOTIFICATION",
+        "data": {"level": "COST", "message": "Cost: $0.10", "cost": 0.10},
+    }
+    app._handle_event(event)
+
+    assert app.current_job_cost == 0.10
+    assert app.session_total_cost == pytest.approx(1.334, rel=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_brokk_app_session_cost_ignores_missing_or_bad_total_cost(mock_executor):
+    """Verify that missing or non-numeric totalCost in context doesn't reset or crash the app."""
+    app = BrokkApp(executor=mock_executor)
+    app.session_total_cost = 0.5
+
+    # Case 1: Missing totalCost
+    mock_executor.get_context = AsyncMock(return_value={"branch": "main"})
+    app._executor_ready = True
+    await app._refresh_context_panel()
+    assert app.session_total_cost == 0.5
+
+    # Case 2: Malformed totalCost
+    mock_executor.get_context = AsyncMock(return_value={"branch": "main", "totalCost": "expensive"})
+    await app._refresh_context_panel()
+    assert app.session_total_cost == 0.5

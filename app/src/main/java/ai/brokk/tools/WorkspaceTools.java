@@ -11,6 +11,7 @@ import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HtmlToMarkdown;
+import ai.brokk.util.Lines;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -147,6 +148,59 @@ public class WorkspaceTools {
 
         String report = reporter.report();
         return report.isEmpty() ? "No changes." : report;
+    }
+
+    @Tool(
+            """
+            Add a specific line range from a project file to the Workspace as an editable fragment.
+            Lines are stored with line numbers and the requested range is capped at 200 lines.
+            For source code navigation, prefer addClassesToWorkspace/addMethodsToWorkspace when those can identify the exact code unit you need.
+            """)
+    public String addLineRangeToWorkspace(
+            @P("The filename relative to project root.") String filename,
+            @P("The 1-based start line number (inclusive).") int startLine,
+            @P("The 1-based end line number (inclusive). Maximum 200 lines from start.") int endLine) {
+        String normalized = filename.strip();
+        if (normalized.isEmpty()) {
+            return "Filename cannot be empty.";
+        }
+
+        final ProjectFile file;
+        try {
+            file = context.getContextManager().toFile(normalized);
+        } catch (IllegalArgumentException e) {
+            return "Invalid path: `%s`.".formatted(filename);
+        }
+
+        if (!file.exists()) {
+            return "File not found: " + normalized;
+        }
+        if (file.isDirectory()) {
+            return "File path `%s` is a directory; only normal files may be added.".formatted(normalized);
+        }
+
+        var contentOpt = file.read();
+        if (contentOpt.isEmpty()) {
+            return "Could not read file: " + normalized;
+        }
+
+        int effectiveStart = Math.max(1, startLine);
+        int requestedEnd = Math.max(effectiveStart, Math.min(endLine, effectiveStart + 199));
+
+        var rangeResult = Lines.range(contentOpt.get(), effectiveStart, requestedEnd);
+        if (rangeResult.lineCount() == 0) {
+            return "No lines found in range %d-%d for file %s".formatted(effectiveStart, requestedEnd, normalized);
+        }
+
+        int actualEnd = effectiveStart + rangeResult.lineCount() - 1;
+        var fragment =
+                new ContextFragments.LineRangeFragment(context.getContextManager(), file, effectiveStart, requestedEnd);
+        if (context.contains(fragment)) {
+            return "Already present (no-op): %s:%d-%d".formatted(normalized, effectiveStart, actualEnd);
+        }
+
+        context = context.addFragments(fragment);
+        return "Added: %s (lines %d-%d)".formatted(normalized, effectiveStart, actualEnd);
     }
 
     @Tool(

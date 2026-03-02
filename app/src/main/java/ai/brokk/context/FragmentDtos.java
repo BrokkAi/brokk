@@ -45,6 +45,7 @@ public class FragmentDtos {
                     PasteImageFragmentDto,
                     StacktraceFragmentDto,
                     CodeFragmentDto,
+                    LineRangeFragmentDto,
                     BuildFragmentDto,
                     FrozenFragmentDto {
         String id();
@@ -217,6 +218,23 @@ public class FragmentDtos {
     /** DTO for CodeFragment - contains the fully qualified name of the code unit. */
     public record CodeFragmentDto(String id, String fullyQualifiedName, @Nullable String snapshotText)
             implements VirtualFragmentDto { // id changed to String
+    }
+
+    /** DTO for LineRangeFragment - contains file path and selected line range. */
+    public record LineRangeFragmentDto(
+            String id, String relPath, int startLine, int endLine, @Nullable String snapshotText)
+            implements VirtualFragmentDto {
+        public LineRangeFragmentDto {
+            if (relPath.isEmpty()) {
+                throw new IllegalArgumentException("relPath cannot be null or empty");
+            }
+            if (startLine < 1) {
+                throw new IllegalArgumentException("startLine must be >= 1");
+            }
+            if (endLine < startLine) {
+                throw new IllegalArgumentException("endLine must be >= startLine");
+            }
+        }
     }
 
     /** DTO for BuildFragment - contains build output text. */

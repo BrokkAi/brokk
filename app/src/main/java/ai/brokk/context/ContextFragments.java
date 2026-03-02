@@ -24,6 +24,7 @@ import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.git.GitRepo;
 import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.ImageUtil;
+import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
@@ -1678,6 +1679,107 @@ public class ContextFragments {
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
             return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager);
+        }
+    }
+
+    public static class LineRangeFragment extends AbstractComputedFragment {
+        private final ProjectFile file;
+        private final int startLine;
+        private final int endLine;
+
+        public LineRangeFragment(IContextManager contextManager, ProjectFile file, int startLine, int endLine) {
+            this(UUID.randomUUID().toString(), contextManager, file, startLine, endLine, null);
+        }
+
+        public LineRangeFragment(
+                String id,
+                IContextManager contextManager,
+                ProjectFile file,
+                int startLine,
+                int endLine,
+                @Nullable String snapshotText) {
+            super(
+                    id,
+                    contextManager,
+                    computeDescription(file, startLine, endLine),
+                    computeShortDescription(file, startLine, endLine),
+                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                    snapshotText == null ? null : ContentSnapshot.textSnapshot(snapshotText, Set.of(), Set.of(file)),
+                    snapshotText == null ? () -> computeSnapshotFor(file, startLine, endLine) : null);
+            if (startLine < 1) {
+                throw new IllegalArgumentException("startLine must be >= 1");
+            }
+            if (endLine < startLine) {
+                throw new IllegalArgumentException("endLine must be >= startLine");
+            }
+            this.file = file;
+            this.startLine = startLine;
+            this.endLine = endLine;
+        }
+
+        private static String computeDescription(ProjectFile file, int startLine, int endLine) {
+            return "Line range %s:%d-%d".formatted(file.toString(), startLine, endLine);
+        }
+
+        private static String computeShortDescription(ProjectFile file, int startLine, int endLine) {
+            return "%s:%d-%d".formatted(file.getFileName(), startLine, endLine);
+        }
+
+        private static ContentSnapshot computeSnapshotFor(ProjectFile file, int startLine, int endLine) {
+            if (startLine < 1 || endLine < startLine) {
+                return new ContentSnapshot("", Set.of(), Set.of(file), (List<Byte>) null, false);
+            }
+            if (!file.exists()) {
+                return new ContentSnapshot("", Set.of(), Set.of(file), (List<Byte>) null, false);
+            }
+            var contentOpt = file.read();
+            if (contentOpt.isEmpty()) {
+                return new ContentSnapshot("", Set.of(), Set.of(file), (List<Byte>) null, false);
+            }
+            var range = Lines.range(contentOpt.get(), startLine, endLine);
+            if (range.lineCount() == 0) {
+                return new ContentSnapshot(
+                        "No lines found in range %d-%d for file %s".formatted(startLine, endLine, file.toString()),
+                        Set.of(),
+                        Set.of(file),
+                        (List<Byte>) null,
+                        true);
+            }
+            int actualEnd = startLine + range.lineCount() - 1;
+            String text = "File: %s (lines %d-%d)\n%s".formatted(file.toString(), startLine, actualEnd, range.text());
+            return new ContentSnapshot(text, Set.of(), Set.of(file), (List<Byte>) null, true);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.LINE_RANGE;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> sourceFiles() {
+            return referencedFiles();
+        }
+
+        @Override
+        public String repr() {
+            return "LineRange('%s', %d, %d)".formatted(file.toString(), startLine, endLine);
+        }
+
+        public ProjectFile file() {
+            return file;
+        }
+
+        public int startLine() {
+            return startLine;
+        }
+
+        public int endLine() {
+            return endLine;
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new LineRangeFragment(id, contextManager, file, startLine, endLine, null);
         }
     }
 

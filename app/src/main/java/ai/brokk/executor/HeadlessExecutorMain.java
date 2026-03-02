@@ -4,7 +4,6 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
-import ai.brokk.SessionManager;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
@@ -58,7 +57,6 @@ public final class HeadlessExecutorMain {
     private final ContextManager contextManager;
     private final JobStore jobStore;
     private final JobRunner jobRunner;
-    private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
     private final Thread initThread;
     private final CompletableFuture<Void> headlessInit = new CompletableFuture<>();
@@ -235,9 +233,8 @@ public final class HeadlessExecutorMain {
         // Ensure sessions directory exists
         Files.createDirectories(sessionsDir);
 
-        // Initialize JobStore and SessionManager
+        // Initialize JobStore
         this.jobStore = new JobStore(workspaceDir.resolve(".brokk"));
-        this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
         // Pass false to resume the last active session from workspace.properties
@@ -265,8 +262,10 @@ public final class HeadlessExecutorMain {
         this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
         this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
 
-        var sessionsRouter =
-                new SessionsRouter(this.contextManager, this.sessionManager, val -> this.sessionLoaded = val);
+        var sessionsRouter = new SessionsRouter(
+                this.contextManager,
+                this.contextManager.getProject().getSessionManager(),
+                val -> this.sessionLoaded = val);
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
         this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
@@ -377,11 +376,6 @@ public final class HeadlessExecutorMain {
             this.contextManager.close();
         } catch (Exception e) {
             logger.warn("Error closing ContextManager", e);
-        }
-        try {
-            this.sessionManager.close();
-        } catch (Exception e) {
-            logger.warn("Error closing SessionManager", e);
         }
         this.server.stop(delaySeconds);
         logger.info("HeadlessExecutorMain stopped");
