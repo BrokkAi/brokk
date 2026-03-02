@@ -62,12 +62,37 @@ class BuildAgentTest {
                         new BuildAgent.ModuleBuildEntry("a", "a", "mvn compile -a", "mvn test -a", "", "JAVA"),
                         new BuildAgent.ModuleBuildEntry("ab", "a/b", "mvn compile -ab", "mvn test -ab", "", "JAVA")));
 
-        // File is in a/b/c/File.java, which matches root (""), a ("a"), and ab ("a/b").
-        // "a/b" is the longest match.
+        // File is in a/b/c/File.java, which matches root ("."), a ("a/"), and ab ("a/b/").
+        // "a/b/" is the longest match.
         var testFile = new ai.brokk.analyzer.ProjectFile(tempDir, "a/b/c/File.java");
         String cmd = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(testFile));
 
         assertEquals("mvn test -ab", cmd);
+    }
+
+    @Test
+    void testResolveModule_preventsSubstringCollision(@TempDir Path tempDir) throws Exception {
+        var project = MainProject.forTests(tempDir);
+        var cm = new ai.brokk.testutil.TestContextManager(project);
+
+        var details = new BuildAgent.BuildDetails(
+                "mvn compile",
+                "mvn test",
+                "",
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(
+                        new BuildAgent.ModuleBuildEntry("app", "app", "lint-app", "test-app", "", "JAVA"),
+                        new BuildAgent.ModuleBuildEntry("root", ".", "lint-root", "test-root", "", "JAVA")));
+
+        // "appendix/File.java" should NOT match module "app" because of the directory boundary
+        var testFile = new ai.brokk.analyzer.ProjectFile(tempDir, "appendix/File.java");
+        String cmd = BuildAgent.getBuildLintSomeCommand(cm, details, List.of(testFile));
+
+        // Should fall back to root module
+        assertEquals("test-root", cmd);
     }
 
     @Test

@@ -840,7 +840,14 @@ public class BuildAgent {
                 @JsonProperty("testSomeCommand") String testSomeCommand,
                 @JsonProperty("language") String language) {
             this.alias = alias;
-            this.relativePath = relativePath.replace('\\', '/');
+            // Normalize path segments and ensure consistent forward slashes
+            String normalized = toUnixPath(Paths.get(relativePath).normalize());
+            if (normalized.equals(".") || normalized.isEmpty() || normalized.equals("/")) {
+                this.relativePath = ".";
+            } else {
+                // Ensure non-root paths end with / to prevent substring collisions (e.g., "app" vs "appendix")
+                this.relativePath = normalized.endsWith("/") ? normalized : normalized + "/";
+            }
             this.buildLintCommand = buildLintCommand;
             this.testAllCommand = testAllCommand;
             this.testSomeCommand = testSomeCommand;
@@ -1029,14 +1036,16 @@ public class BuildAgent {
         return modules.stream()
                 .filter(m -> {
                     String modulePath = m.relativePath();
-                    if (modulePath.equals(".") || modulePath.isEmpty()) {
+                    if (modulePath.equals(".")) {
                         return true;
                     }
+                    // Constructor ensures modulePath ends with / for directory matching
                     return relPath.startsWith(modulePath);
                 })
                 .max(Comparator.comparingInt(m -> {
                     String mp = m.relativePath();
-                    return (mp.equals(".") || mp.isEmpty()) ? 0 : mp.length();
+                    // Longest prefix match; root "." is the fallback (score 0)
+                    return mp.equals(".") ? 0 : mp.length();
                 }))
                 .orElse(null);
     }
