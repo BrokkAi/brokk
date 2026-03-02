@@ -5,6 +5,7 @@ import { escapeHtml } from "./util.js";
 // ── DOM Elements ─────────────────────────────────────
 
 const messagesEl = document.getElementById("messages");
+const MAX_MESSAGES = 200;
 const statusBar = document.getElementById("status-bar");
 const submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById("submit-btn"));
 const cancelBtn = document.getElementById("cancel-btn");
@@ -338,6 +339,17 @@ export function setStateHint(text) {
   if (jobStartTime) updateElapsedDisplay();
 }
 
+function pruneOldMessages() {
+  while (messagesEl.childElementCount > MAX_MESSAGES) {
+    const first = messagesEl.firstElementChild;
+    if (first && first !== currentAssistantEl) {
+      first.remove();
+    } else {
+      break; // don't remove the active streaming element
+    }
+  }
+}
+
 function updateElapsedDisplay() {
   if (!jobStartTime) return;
   const elapsed = Math.floor((Date.now() - jobStartTime) / 1000);
@@ -385,6 +397,7 @@ export function startAssistantMessage() {
   currentAssistantEl.appendChild(currentContentEl);
 
   messagesEl.appendChild(currentAssistantEl);
+  pruneOldMessages();
 
   accumulatedContent = "";
   accumulatedReasoning = "";
@@ -614,6 +627,7 @@ export function addMessage(role, content) {
   el.appendChild(contentEl);
 
   messagesEl.appendChild(el);
+  pruneOldMessages();
   scrollToBottom();
 }
 
@@ -623,6 +637,7 @@ export function addNotification(text) {
   el.className = "notification";
   el.textContent = text;
   messagesEl.appendChild(el);
+  pruneOldMessages();
   scrollToBottom();
 }
 
@@ -661,6 +676,7 @@ export function addCommandResult(msg) {
   }
 
   messagesEl.appendChild(wrapper);
+  pruneOldMessages();
   scrollToBottom();
 }
 
