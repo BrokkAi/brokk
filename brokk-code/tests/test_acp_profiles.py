@@ -53,3 +53,6 @@ def test_resolve_profile_uses_fallback_ide_hint_when_info_missing() -> None:
         client_capabilities={}, client_info=None, fallback_ide="intellij"
     )
     assert profile.is_zed is False
+    assert profile.tool_call_titles_only is True
+    assert profile.emit_token_bar is False
+    assert profile.use_short_description_context is True

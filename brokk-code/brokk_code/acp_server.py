@@ -785,12 +785,11 @@ class BrokkAcpBridge:
         tool_content: Optional[Callable[[Any], Any]] = None,
         text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
-        use_short_description_context: bool = False,
-        emit_token_bar: bool = True,
-        tool_call_titles_only: bool = False,
+        profile: Optional[ClientProfile] = None,
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
+        p = profile or ClientProfile()
         executor_session_id = await self._ensure_session(session_id)
         await self._switch_executor_session(executor_session_id)
 
@@ -839,7 +838,7 @@ class BrokkAcpBridge:
                     update_tool_call=update_tool_call,
                     tool_content=tool_content,
                     text_block=text_block,
-                    tool_call_titles_only=tool_call_titles_only,
+                    tool_call_titles_only=p.tool_call_titles_only,
                 )
                 if update:
                     await send_update(session_id, update)
@@ -881,7 +880,7 @@ class BrokkAcpBridge:
                     # Some ACP clients (e.g. IntelliJ) render data URI markdown images
                     # as literal text, so only emit the token bar where supported.
                     used_tokens_raw = context_data.get("usedTokens")
-                    if emit_token_bar and used_tokens_raw is not None:
+                    if p.emit_token_bar and used_tokens_raw is not None:
                         used_tokens_local = int(used_tokens_raw or 0)
                         fragments = context_data.get("fragments", [])
                         bar_md = get_token_bar_markdown(
@@ -906,7 +905,7 @@ class BrokkAcpBridge:
                     is_resource_list_kind = kind in {"EDIT", "SUMMARY"}
                     snapshot_text = (
                         str(block["short_description"])
-                        if use_short_description_context or is_brokk_context
+                        if p.use_short_description_context or is_brokk_context
                         else str(block["text"])
                     )
                     if is_resource_list_kind and not _is_discarded_context(block):
@@ -1020,8 +1019,8 @@ async def run_acp_server(
         ) from e
 
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-    logger.info("Starting ACP server with IDE profile: %s", ide)
     ide_profile = ide.strip().lower() if isinstance(ide, str) else "intellij"
+    logger.info("Starting ACP server with IDE hint: %s", ide_profile)
 
     # Note: The ExecutorManager launches the Java HeadlessExecutorMain with a dedicated
     # stdin pipe. HeadlessExecutorMain monitors System.in for EOF and will initiate a
@@ -1609,6 +1608,20 @@ async def run_acp_server(
             )
             if not self.client:
                 raise ExecutorError("ACP client connection not established.")
+
+            def build_context_snapshot_update(uri: str, mime_type: str, text: str) -> Any:
+                if self._profile.is_zed:
+                    return update_agent_message(
+                        resource_block(
+                            embedded_text_resource(
+                                uri=uri,
+                                text=text,
+                                mime_type=mime_type,
+                            )
+                        )
+                    )
+                return update_agent_message_text(text)
+
             await bridge.prompt(
                 prompt=prompt,
                 session_id=session_id,
@@ -1621,28 +1634,12 @@ async def run_acp_server(
                 send_update=self.client.session_update,
                 update_agent_message_text=update_agent_message_text,
                 update_agent_thought_text=update_agent_thought_text,
-                build_context_snapshot_update=(
-                    (lambda uri, mime_type, text: update_agent_message_text(text))
-                    if ide_profile == "intellij"
-                    else (
-                        lambda uri, mime_type, text: update_agent_message(
-                            resource_block(
-                                embedded_text_resource(
-                                    uri=uri,
-                                    text=text,
-                                    mime_type=mime_type,
-                                )
-                            )
-                        )
-                    )
-                ),
+                build_context_snapshot_update=build_context_snapshot_update,
                 start_tool_call=start_tool_call,
                 update_tool_call=update_tool_call,
                 tool_content=tool_content,
                 text_block=text_block,
-                use_short_description_context=self._profile.use_short_description_context,
-                emit_token_bar=self._profile.emit_token_bar,
-                tool_call_titles_only=self._profile.tool_call_titles_only,
+                profile=self._profile,
             )
             return PromptResponse(stop_reason="end_turn")
 
