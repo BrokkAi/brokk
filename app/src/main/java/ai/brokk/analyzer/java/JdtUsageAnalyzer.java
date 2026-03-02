@@ -147,8 +147,9 @@ public class JdtUsageAnalyzer {
 
         try {
             parser.createASTs(sourceFiles, null, new String[0], collector, null);
-        } catch (Exception e) {
-            log.error("JDT analysis failed for {}", target.fqName(), e);
+        } catch (Throwable t) {
+            log.error("JDT analysis failed for {}", target.fqName(), t);
+            throw new RuntimeException("Failed to analyze usages for " + target.fqName() + " using JDT", t);
         }
 
         return collector.getHits();
