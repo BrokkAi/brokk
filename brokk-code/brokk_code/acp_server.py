@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from brokk_code import __version__
 from brokk_code.executor import ExecutorError, ExecutorManager
@@ -353,30 +353,52 @@ def extract_resource_file_paths(prompt: Any, cwd: str) -> list[str]:
         return []
     cwd_path = Path(cwd) if cwd else None
     paths: list[str] = []
+
+    def _get_attr_or_key(obj: Any, key: str) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key, None)
+
+    def _resource_uri(resource: Any) -> Optional[str]:
+        uri = _get_attr_or_key(resource, "uri")
+        if isinstance(uri, str):
+            return uri
+        nested = _get_attr_or_key(resource, "resource")
+        if nested is None:
+            return None
+        nested_uri = _get_attr_or_key(nested, "uri")
+        if isinstance(nested_uri, str):
+            return nested_uri
+        return None
+
     for block in prompt:
-        block_type = getattr(block, "type", None)
-        if isinstance(block, dict):
-            block_type = block.get("type")
+        block_type = _get_attr_or_key(block, "type")
         uri: Optional[str] = None
-        if block_type == "embedded_resource":
-            resource = getattr(block, "resource", None)
-            if isinstance(block, dict):
-                resource = block.get("resource")
+        if block_type in {"embedded_resource", "resource"}:
+            resource = _get_attr_or_key(block, "resource")
             if resource is not None:
-                uri = getattr(resource, "uri", None)
-                if isinstance(resource, dict):
-                    uri = resource.get("uri")
+                uri = _resource_uri(resource)
         elif block_type == "resource_link":
-            uri = getattr(block, "uri", None)
-            if isinstance(block, dict):
-                uri = block.get("uri")
+            uri = _get_attr_or_key(block, "uri")
         if not isinstance(uri, str):
             continue
+        uri = uri.strip()
+        if not uri:
+            continue
+
         parsed = urlparse(uri)
-        if parsed.scheme != "file":
+        file_path: Optional[Path] = None
+        if parsed.scheme == "file":
+            file_path = Path(unquote(parsed.path))
+        elif parsed.scheme == "":
+            rel_path = Path(unquote(uri))
+            if rel_path.is_absolute():
+                file_path = rel_path
+            elif cwd_path is not None:
+                file_path = cwd_path / rel_path
+        if file_path is None:
             continue
         try:
-            file_path = Path(parsed.path)
             if cwd_path:
                 paths.append(str(file_path.relative_to(cwd_path)))
             else:

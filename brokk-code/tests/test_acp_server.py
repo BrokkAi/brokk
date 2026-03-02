@@ -19,6 +19,7 @@ from brokk_code.acp_server import (
     _sanitize_reasoning_level_for_model,
     conversation_payload_to_session_updates,
     extract_prompt_text,
+    extract_resource_file_paths,
     map_executor_event_to_session_update,
     normalize_mode,
     resolve_model_selection,
@@ -241,6 +242,33 @@ def test_extract_prompt_text_from_blocks() -> None:
 
 def test_extract_prompt_text_from_string() -> None:
     assert extract_prompt_text("  direct prompt  ") == "direct prompt"
+
+
+def test_extract_resource_file_paths_supports_zed_resource_shape_and_relative_links() -> None:
+    prompt = [
+        {
+            "type": "resource",
+            "resource": {"resource": {"uri": "file:///workspace/src/main.py"}},
+        },
+        {
+            "type": "embedded_resource",
+            "resource": {"uri": "file:///workspace/README.md"},
+        },
+        {"type": "resource_link", "uri": "src/utils.py"},
+        {"type": "resource_link", "uri": "https://example.com/docs"},
+        {"type": "resource", "resource": {"uri": "zed:///agent/diagnostics"}},
+    ]
+
+    assert extract_resource_file_paths(prompt, "/workspace") == [
+        "src/main.py",
+        "README.md",
+        "src/utils.py",
+    ]
+
+
+def test_extract_resource_file_paths_ignores_relative_links_without_cwd() -> None:
+    prompt = [{"type": "resource_link", "uri": "src/utils.py"}]
+    assert extract_resource_file_paths(prompt, "") == []
 
 
 def test_map_executor_token_event() -> None:
