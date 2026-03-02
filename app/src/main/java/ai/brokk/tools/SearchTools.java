@@ -637,7 +637,7 @@ public class SearchTools {
             org.jsoup.nodes.Element parent = e.parent();
             if (parent != null) {
                 for (org.jsoup.nodes.Element sib : parent.children()) {
-                    if (sib == e) break;
+                    if (sib.equals(e)) break;
                     if (sib.tagName().equals(tagName)) idx++;
                 }
             }
