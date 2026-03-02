@@ -256,8 +256,7 @@ public class JdtUsageAnalyzer {
                     String fqn = JdtUsageAnalyzer.getFqn(binding);
                     if (target.fqName().equals(fqn)) {
                         if (target.hasSignature() && binding instanceof IMethodBinding mb) {
-                            // Ensure we use the original declaration for signature matching
-                            String foundSig = JdtUsageAnalyzer.extractMethodSignature(mb.getMethodDeclaration());
+                            String foundSig = JdtUsageAnalyzer.extractMethodSignature(mb);
                             if (!Objects.equals(target.signature(), foundSig)) {
                                 log.debug(
                                         "Signature Mismatch for {}: Target='{}' vs Found='{}'",
