@@ -20,7 +20,6 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
-import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.AbstractTreeIterator;
@@ -167,7 +166,7 @@ public class GitRepoData {
 
         try (var out = new ByteArrayOutputStream()) {
             var pathFilter = PathFilter.create(repo.toRepoRelativePath(file));
-            if ("WORKING".equals(newRev)) {
+            if (GitRefs.WORKING.equals(newRev)) {
                 git.diff()
                         .setOldTree(oldTreeIter)
                         .setNewTree(null) // Working tree
@@ -281,7 +280,7 @@ public class GitRepoData {
      * of renames and file status tracking.
      */
     public List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
-        if ("WORKING".equals(commitId)) {
+        if (GitRefs.WORKING.equals(commitId)) {
             return listFilesChangedBetweenCommits("HEAD", "WORKING");
         }
 
@@ -320,7 +319,7 @@ public class GitRepoData {
         var oldTreeIter = prepareTreeParser(oldRef);
         if (oldTreeIter == null) return List.of();
 
-        if (!"WORKING".equals(newRef)) {
+        if (!GitRefs.WORKING.equals(newRef)) {
             try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
                 diffFormatter.setRepository(repository);
                 diffFormatter.setDetectRenames(true);
@@ -428,7 +427,7 @@ public class GitRepoData {
     }
 
     public String getRefContent(String ref, ProjectFile file) throws GitAPIException {
-        if ("WORKING".equals(ref)) {
+        if (GitRefs.WORKING.equals(ref)) {
             return file.read().orElse("");
         }
         try {
@@ -447,7 +446,7 @@ public class GitRepoData {
         }
 
         // Handle the special empty tree ID (used when diffing root commits)
-        if (Constants.EMPTY_TREE_ID.getName().equals(objectId)) {
+        if (GitRefs.EMPTY_TREE.equals(objectId)) {
             return new EmptyTreeIterator();
         }
 

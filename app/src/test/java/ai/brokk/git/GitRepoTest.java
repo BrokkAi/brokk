@@ -14,7 +14,6 @@ import java.util.stream.Collectors;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
-import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RepositoryState;
@@ -2199,12 +2198,12 @@ public class GitRepoTest {
         assertEquals("", diffHead, "Diff against HEAD should be empty as they are the same commit");
 
         // 4. Diff against WORKING (the special token) should show the filesystem changes
-        String diffWorking = repo.getDiff(initialCommit, "WORKING");
+        String diffWorking = repo.getDiff(initialCommit, GitRefs.WORKING);
         assertTrue(diffWorking.contains("+Modified content"), "Diff against WORKING should show working tree changes");
 
         // 5. Verify single file diff also works with WORKING
         ProjectFile pf = new ProjectFile(projectRoot, "working_test.txt");
-        String fileDiffWorking = repo.getDiff(pf, initialCommit, "WORKING");
+        String fileDiffWorking = repo.getDiff(pf, initialCommit, GitRefs.WORKING);
         assertTrue(fileDiffWorking.contains("+Modified content"), "File diff against WORKING should show changes");
     }
 
@@ -2250,8 +2249,8 @@ public class GitRepoTest {
         Files.writeString(projectRoot.resolve("file1.txt"), "modified content");
         Files.writeString(projectRoot.resolve("file2.txt"), "new content");
 
-        // 3. List changes using "WORKING"
-        var result = repo.listFilesChangedBetweenCommits(initialCommit, "WORKING");
+        // 3. List changes using WORKING
+        var result = repo.listFilesChangedBetweenCommits(initialCommit, GitRefs.WORKING);
 
         var modified = result.stream()
                 .filter(f -> f.file().getFileName().equals("file1.txt"))
@@ -2332,7 +2331,7 @@ public class GitRepoTest {
     @Test
     void testGetDiff_EmptyTreeToFirstCommit() throws Exception {
         // This tests the fix for diffing against the empty tree (root commit scenario).
-        // When explaining a root commit, GitTools falls back to Constants.EMPTY_TREE_ID.getName()
+        // When explaining a root commit, GitTools falls back to GitRefs.EMPTY_TREE
         // as the "parent" revision. Previously this would fail because resolveToCommit cannot
         // resolve a tree ID.
 
@@ -2340,7 +2339,7 @@ public class GitRepoTest {
         String firstCommitSha = repo.getCurrentCommitId();
 
         // Diff from empty tree to first commit should show all files as added
-        String diff = repo.getDiff(Constants.EMPTY_TREE_ID.getName(), firstCommitSha);
+        String diff = repo.getDiff(GitRefs.EMPTY_TREE, firstCommitSha);
 
         assertNotNull(diff, "Diff should not be null");
         assertFalse(diff.isEmpty(), "Diff should not be empty for a commit that adds files");
@@ -2369,7 +2368,7 @@ public class GitRepoTest {
         try {
             String firstCommitSha = multiRepo.getCurrentCommitId();
 
-            String diff = multiRepo.getDiff(Constants.EMPTY_TREE_ID.getName(), firstCommitSha);
+            String diff = multiRepo.getDiff(GitRefs.EMPTY_TREE, firstCommitSha);
 
             assertNotNull(diff);
             assertFalse(diff.isEmpty());
@@ -2388,7 +2387,7 @@ public class GitRepoTest {
         String firstCommitSha = repo.getCurrentCommitId();
         ProjectFile readme = new ProjectFile(projectRoot, "README.md");
 
-        String diff = repo.getDiff(readme, Constants.EMPTY_TREE_ID.getName(), firstCommitSha);
+        String diff = repo.getDiff(readme, GitRefs.EMPTY_TREE, firstCommitSha);
 
         assertNotNull(diff);
         assertFalse(diff.isEmpty());
