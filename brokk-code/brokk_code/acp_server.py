@@ -400,9 +400,9 @@ def extract_resource_file_paths(prompt: Any, cwd: str) -> list[str]:
             continue
         try:
             if cwd_path:
-                paths.append(str(file_path.relative_to(cwd_path)))
+                paths.append(file_path.relative_to(cwd_path).as_posix())
             else:
-                paths.append(str(file_path))
+                paths.append(file_path.as_posix())
         except (ValueError, TypeError):
             logger.debug("Could not make %s relative to %s", uri, cwd)
     return list(dict.fromkeys(paths))
