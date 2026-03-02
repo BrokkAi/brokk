@@ -2548,13 +2548,7 @@ public class SearchTools {
 
                     org.jsoup.nodes.Document doc = Jsoup.parse(contentOpt.get());
 
-                    org.jsoup.select.Elements elements;
-                    try {
-                        elements = doc.select(cssSelector);
-                    } catch (Selector.SelectorParseException e) {
-                        String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                        return new IndexedResult<>(idx, null, file + ": Invalid CSS selector: " + message);
-                    }
+                    org.jsoup.select.Elements elements = doc.select(cssSelector);
 
                     int total = elements.size();
                     if (total == 0) return new IndexedResult<>(idx, null, null);
