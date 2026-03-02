@@ -5,6 +5,8 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
+
+import java.nio.file.Files;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.eclipse.jdt.core.JavaCore;
@@ -46,6 +48,7 @@ public class JdtUsageAnalyzer {
         if (paramTypes.length == 0) {
             return "()";
         }
+        // Use getName() to match the simple name convention used by Tree-sitter signatures.
         return Arrays.stream(paramTypes).map(t -> t.getErasure().getName()).collect(Collectors.joining(", ", "(", ")"));
     }
 
@@ -156,21 +159,20 @@ public class JdtUsageAnalyzer {
     }
 
     private static String[] inferSourceRoots(IProject project) {
-        // We include the project root to ensure we don't filter out any source files or test directories,
-        // regardless of layout.
         Set<String> roots = new HashSet<>();
         roots.add(project.getRoot().toAbsolutePath().toString());
 
-        // We also add standard directory heuristics. While the root covers everything,
-        // explicitly providing known source roots can help JDT's resolution performance
-        // and package name mapping in some nested scenarios.
-        String[] standardPaths = {"src/main/java", "src/test/java", "src/main/kotlin", "src/test/kotlin"};
-
-        for (String path : standardPaths) {
-            java.nio.file.Path sourcePath = project.getRoot().resolve(path);
-            if (java.nio.file.Files.exists(sourcePath)) {
-                roots.add(sourcePath.toAbsolutePath().toString());
-            }
+        // Heuristically find directories that look like source roots (containing 'java' or 'kotlin')
+        // to improve JDT resolution.
+        try (var stream = Files.walk(project.getRoot(), 5)) {
+            stream.filter(Files::isDirectory)
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        return name.equals("java") || name.equals("kotlin") || name.equals("src");
+                    })
+                    .forEach(p -> roots.add(p.toAbsolutePath().toString()));
+        } catch (Exception e) {
+            log.debug("Error traversing for source roots", e);
         }
 
         return roots.toArray(String[]::new);

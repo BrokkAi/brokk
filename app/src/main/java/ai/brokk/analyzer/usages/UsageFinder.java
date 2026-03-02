@@ -119,8 +119,17 @@ public final class UsageFinder {
         }
 
         FuzzyResult result = config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
-        if (result instanceof FuzzyResult.Failure && config.usageAnalyzer() instanceof JdtUsageAnalyzerStrategy) {
-            log.warn("JDT usage analysis failed for {}, falling back to fuzzy analyzer", target.fqName());
+        // Fallback if JDT fails, or if it finds 0 hits for a method/constructor (suggesting a signature mismatch we
+        // couldn't resolve)
+        boolean jdtEmptySuccess = result instanceof FuzzyResult.Success s
+                && s.hits().isEmpty()
+                && (target.isFunction() || target.isClass());
+
+        if ((result instanceof FuzzyResult.Failure || result instanceof FuzzyResult.TooManyCallsites || jdtEmptySuccess)
+                && config.usageAnalyzer() instanceof JdtUsageAnalyzerStrategy) {
+            log.warn(
+                    "JDT usage analysis failed, exceeded limits, or found no hits for {}, falling back to fuzzy analyzer",
+                    target.fqName());
             config = new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
             candidateFiles = config.candidateProvider().findCandidates(target, analyzer);
             if (fileFilter != null) {
