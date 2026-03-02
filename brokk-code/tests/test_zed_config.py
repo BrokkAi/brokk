@@ -16,7 +16,7 @@ def test_configure_zed_acp_settings_creates_file(tmp_path) -> None:
     assert written_path == settings_path
     data = json.loads(settings_path.read_text(encoding="utf-8"))
     assert data["agent_servers"]["Brokk Code"]["command"] == "brokk"
-    assert data["agent_servers"]["Brokk Code"]["args"] == ["acp", "--ide", "zed"]
+    assert data["agent_servers"]["Brokk Code"]["args"] == ["acp"]
 
 
 def test_configure_zed_acp_settings_merges_existing_values(tmp_path) -> None:
@@ -85,7 +85,7 @@ def test_configure_zed_acp_settings_force_overwrites_existing_brokk_code(tmp_pat
 
     data = json.loads(settings_path.read_text(encoding="utf-8"))
     assert data["agent_servers"]["Brokk Code"]["command"] == "brokk"
-    assert data["agent_servers"]["Brokk Code"]["args"] == ["acp", "--ide", "zed"]
+    assert data["agent_servers"]["Brokk Code"]["args"] == ["acp"]
 
 
 def test_configure_zed_acp_settings_preserves_existing_permissions(tmp_path) -> None:

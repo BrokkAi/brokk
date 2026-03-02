@@ -1073,7 +1073,7 @@ async def run_acp_server(
             self._cwd_by_session: dict[str, str] = {}
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
             self._catalog_is_fallback_by_session: dict[str, bool] = {}
-            self._profile = ClientProfile(is_zed=(ide_profile == "zed"))
+            self._profile = resolve_client_profile(None, None, fallback_ide=ide_profile)
 
             # Load ACP defaults once on agent init
             acp_defaults = load_acp_defaults()

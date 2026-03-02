@@ -325,7 +325,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         choices=["intellij", "zed"],
         default="intellij",
-        help="ACP client profile to target (default: intellij)",
+        help="Fallback ACP client profile hint (default: intellij)",
     )
 
     install_parser = subparsers.add_parser("install", help="Install integration settings")
