@@ -17,7 +17,6 @@ import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
 import com.github.mustachejava.util.DecoratedCollection;
-import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
 import java.io.StringReader;
@@ -224,17 +223,34 @@ public class BuildTools {
     }
 
     public static Optional<Path> extractRunnerAnchorFromCommands(Path projectRoot, List<String> commands) {
+        // Regex to match either:
+        // 1. Quoted strings (handling escaped quotes)
+        // 2. Non-whitespace strings (ignoring characters like &&, ||, ;)
+        Pattern pattern = Pattern.compile("\"([^\"]*)\"|'([^']*)'|([^\\s&&[^;&|]]+)");
+
         for (String cmd : commands) {
             if (cmd.isBlank()) continue;
-            Iterable<String> tokens = Splitter.on(Pattern.compile("\\s+")).split(cmd);
-            for (String t : tokens) {
-                if (!t.endsWith(".py")) continue;
-                String cleaned = t.replaceAll("^[\"']|[\"']$", "");
-                Path candidate = projectRoot.resolve(cleaned).normalize();
+
+            var matcher = pattern.matcher(cmd);
+            while (matcher.find()) {
+                // Determine which group matched (1=double-quote, 2=single-quote, 3=unquoted)
+                String token = matcher.group(1) != null
+                        ? matcher.group(1)
+                        : matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
+
+                if (token == null || token.isBlank()) continue;
+                if (token.startsWith("-") || token.contains("=")) continue;
+                if (!token.endsWith(".py")) continue;
+
+                Path candidate = projectRoot.resolve(token).normalize();
                 if (!Files.exists(candidate)) {
-                    Path p = Path.of(cleaned);
-                    if (Files.exists(p)) candidate = p.normalize();
+                    try {
+                        Path p = Path.of(token);
+                        if (p.isAbsolute() && Files.exists(p)) candidate = p.normalize();
+                    } catch (Exception ignored) {
+                    }
                 }
+
                 if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
                     Path parent = candidate.getParent();
                     if (parent != null && Files.isDirectory(parent)) return Optional.of(parent);
