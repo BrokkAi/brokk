@@ -491,6 +491,7 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
             mode: str = "LUTZ",
             session_id: str | None = None,
         ) -> str:
+            assert session_id == "session-1"
             return "job-1"
 
         async def stream_events(self, job_id: str):
