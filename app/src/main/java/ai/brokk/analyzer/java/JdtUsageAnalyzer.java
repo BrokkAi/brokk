@@ -48,14 +48,18 @@ public class JdtUsageAnalyzer {
         if (paramTypes.length == 0) {
             return "()";
         }
-        return Arrays.stream(paramTypes)
-                .map(t -> {
-                    if (t.isTypeVariable()) {
-                        return t.getName();
-                    }
-                    return t.getErasure().getName();
-                })
-                .collect(Collectors.joining(", ", "(", ")"));
+        return Arrays.stream(paramTypes).map(JdtUsageAnalyzer::getTypeName).collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    private static String getTypeName(ITypeBinding type) {
+        if (type.isArray()) {
+            return getTypeName(type.getElementType()) + "[]".repeat(type.getDimensions());
+        }
+        if (type.isTypeVariable()) {
+            return type.getName();
+        }
+        // For Parameterized Types (List<String>), use erasure (List) to match Tree-sitter's behavior.
+        return type.getErasure().getName();
     }
 
     /**
@@ -252,7 +256,8 @@ public class JdtUsageAnalyzer {
                     String fqn = JdtUsageAnalyzer.getFqn(binding);
                     if (target.fqName().equals(fqn)) {
                         if (target.hasSignature() && binding instanceof IMethodBinding mb) {
-                            String foundSig = JdtUsageAnalyzer.extractMethodSignature(mb);
+                            // Ensure we use the original declaration for signature matching
+                            String foundSig = JdtUsageAnalyzer.extractMethodSignature(mb.getMethodDeclaration());
                             if (!Objects.equals(target.signature(), foundSig)) {
                                 log.debug(
                                         "Signature Mismatch for {}: Target='{}' vs Found='{}'",
