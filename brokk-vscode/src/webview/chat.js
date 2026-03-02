@@ -5,6 +5,7 @@ import { escapeHtml } from "./util.js";
 // ── DOM Elements ─────────────────────────────────────
 
 const messagesEl = document.getElementById("messages");
+const MAX_MESSAGES = 200;
 const statusBar = document.getElementById("status-bar");
 const submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById("submit-btn"));
 const cancelBtn = document.getElementById("cancel-btn");
@@ -12,7 +13,10 @@ const cancelBtn = document.getElementById("cancel-btn");
 // ── Chat State ───────────────────────────────────────
 
 let isRunning = false;
+const SCROLL_THRESHOLD = 100; // px from bottom
+let scrollPending = false;
 let currentAssistantEl = null;
+let replayGeneration = 0;
 let currentContentEl = null;
 let currentReasoningEl = null;
 let reasoningHeader = null;
@@ -336,6 +340,17 @@ export function setStateHint(text) {
   if (jobStartTime) updateElapsedDisplay();
 }
 
+function pruneOldMessages() {
+  while (messagesEl.childElementCount > MAX_MESSAGES) {
+    const first = messagesEl.firstElementChild;
+    if (first && first !== currentAssistantEl) {
+      first.remove();
+    } else {
+      break; // don't remove the active streaming element
+    }
+  }
+}
+
 function updateElapsedDisplay() {
   if (!jobStartTime) return;
   const elapsed = Math.floor((Date.now() - jobStartTime) / 1000);
@@ -383,6 +398,7 @@ export function startAssistantMessage() {
   currentAssistantEl.appendChild(currentContentEl);
 
   messagesEl.appendChild(currentAssistantEl);
+  pruneOldMessages();
 
   accumulatedContent = "";
   accumulatedReasoning = "";
@@ -497,76 +513,81 @@ export function resetChat(message) {
  */
 export function replayConversation(entries) {
   resetChat();
+  const myGeneration = ++replayGeneration;
   if (!entries || entries.length === 0) return;
 
   dismissWelcome();
 
+  const tasks = [];
+
   for (const entry of entries) {
     if (entry.isCompressed && entry.summary) {
-      const summaryEl = document.createElement("div");
-      summaryEl.className = "message message-assistant";
+      tasks.push(() => {
+        const summaryEl = document.createElement("div");
+        summaryEl.className = "message message-assistant";
 
-      const label = document.createElement("div");
-      label.className = "message-label";
-      label.textContent = entry.taskType ? `Brokk (${entry.taskType})` : "Brokk";
-      summaryEl.appendChild(label);
+        const label = document.createElement("div");
+        label.className = "message-label";
+        label.textContent = entry.taskType ? `Brokk (${entry.taskType})` : "Brokk";
+        summaryEl.appendChild(label);
 
-      const contentEl = document.createElement("div");
-      contentEl.className = "message-content";
-      contentEl.innerHTML = renderMarkdownFast(entry.summary);
-      summaryEl.appendChild(contentEl);
+        const contentEl = document.createElement("div");
+        contentEl.className = "message-content";
+        contentEl.innerHTML = renderMarkdownFast(entry.summary);
+        summaryEl.appendChild(contentEl);
 
-      messagesEl.appendChild(summaryEl);
+        messagesEl.appendChild(summaryEl);
+      });
     } else if (entry.messages) {
       for (const msg of entry.messages) {
         if (msg.role === "user") {
-          addMessage("user", msg.text);
+          tasks.push(() => {
+            const el = document.createElement("div");
+            el.className = "message message-user";
+
+            const label = document.createElement("div");
+            label.className = "message-label";
+            label.textContent = "You";
+            el.appendChild(label);
+
+            const contentEl = document.createElement("div");
+            contentEl.className = "message-content";
+            contentEl.textContent = msg.text;
+            el.appendChild(contentEl);
+
+            messagesEl.appendChild(el);
+          });
         } else if (msg.role === "ai") {
-          const el = document.createElement("div");
-          el.className = "message message-assistant";
-
-          const label = document.createElement("div");
-          label.className = "message-label";
-          label.textContent = entry.taskType ? `Brokk (${entry.taskType})` : "Brokk";
-          el.appendChild(label);
-
-          if (msg.reasoning) {
-            const reasoningWrap = document.createElement("div");
-            reasoningWrap.className = "reasoning";
-
-            const rHeader = document.createElement("div");
-            rHeader.className = "reasoning-header clickable";
-            rHeader.textContent = "Reasoning";
-            reasoningWrap.appendChild(rHeader);
-
-            const rContent = document.createElement("div");
-            rContent.className = "reasoning-content collapsed";
-            rContent.innerHTML = renderMarkdownFast(msg.reasoning);
-            reasoningWrap.appendChild(rContent);
-
-            rHeader.addEventListener("click", () => {
-              rContent.classList.toggle("collapsed");
-              rHeader.classList.toggle("expanded");
-            });
-
-            el.appendChild(reasoningWrap);
-          }
-
-          const contentEl = document.createElement("div");
-          contentEl.className = "message-content";
-          contentEl.innerHTML = renderMarkdownFast(msg.text);
-          el.appendChild(contentEl);
-
-          messagesEl.appendChild(el);
-        } else if (msg.role === "custom") {
-          if (msg.text) {
+          tasks.push(() => {
             const el = document.createElement("div");
             el.className = "message message-assistant";
 
             const label = document.createElement("div");
             label.className = "message-label";
-            label.textContent = "Brokk";
+            label.textContent = entry.taskType ? `Brokk (${entry.taskType})` : "Brokk";
             el.appendChild(label);
+
+            if (msg.reasoning) {
+              const reasoningWrap = document.createElement("div");
+              reasoningWrap.className = "reasoning";
+
+              const rHeader = document.createElement("div");
+              rHeader.className = "reasoning-header clickable";
+              rHeader.textContent = "Reasoning";
+              reasoningWrap.appendChild(rHeader);
+
+              const rContent = document.createElement("div");
+              rContent.className = "reasoning-content collapsed";
+              rContent.innerHTML = renderMarkdownFast(msg.reasoning);
+              reasoningWrap.appendChild(rContent);
+
+              rHeader.addEventListener("click", () => {
+                rContent.classList.toggle("collapsed");
+                rHeader.classList.toggle("expanded");
+              });
+
+              el.appendChild(reasoningWrap);
+            }
 
             const contentEl = document.createElement("div");
             contentEl.className = "message-content";
@@ -574,13 +595,45 @@ export function replayConversation(entries) {
             el.appendChild(contentEl);
 
             messagesEl.appendChild(el);
+          });
+        } else if (msg.role === "custom") {
+          if (msg.text) {
+            tasks.push(() => {
+              const el = document.createElement("div");
+              el.className = "message message-assistant";
+
+              const label = document.createElement("div");
+              label.className = "message-label";
+              label.textContent = "Brokk";
+              el.appendChild(label);
+
+              const contentEl = document.createElement("div");
+              contentEl.className = "message-content";
+              contentEl.innerHTML = renderMarkdownFast(msg.text);
+              el.appendChild(contentEl);
+
+              messagesEl.appendChild(el);
+            });
           }
         }
       }
     }
   }
 
-  scrollToBottom();
+  const CHUNK_SIZE = 20;
+  function flushChunk(index) {
+    if (myGeneration !== replayGeneration) return;
+    const end = Math.min(index + CHUNK_SIZE, tasks.length);
+    for (let i = index; i < end; i++) {
+      tasks[i]();
+    }
+    if (end < tasks.length) {
+      setTimeout(() => flushChunk(end), 0);
+    } else {
+      forceScrollToBottom();
+    }
+  }
+  flushChunk(0);
 }
 
 export function dismissWelcome() {
@@ -612,6 +665,7 @@ export function addMessage(role, content) {
   el.appendChild(contentEl);
 
   messagesEl.appendChild(el);
+  pruneOldMessages();
   scrollToBottom();
 }
 
@@ -621,6 +675,7 @@ export function addNotification(text) {
   el.className = "notification";
   el.textContent = text;
   messagesEl.appendChild(el);
+  pruneOldMessages();
   scrollToBottom();
 }
 
@@ -659,11 +714,26 @@ export function addCommandResult(msg) {
   }
 
   messagesEl.appendChild(wrapper);
+  pruneOldMessages();
   scrollToBottom();
 }
 
 export function scrollToBottom() {
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  if (scrollPending) return;
+  const distFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+  if (distFromBottom > SCROLL_THRESHOLD) return; // user scrolled up — don't steal focus
+  scrollPending = true;
+  requestAnimationFrame(() => {
+    scrollPending = false;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  });
+}
+
+/** Bypasses threshold and pending guards to ensure the view scrolls to the end. */
+export function forceScrollToBottom() {
+  requestAnimationFrame(() => {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  });
 }
 
 /**
