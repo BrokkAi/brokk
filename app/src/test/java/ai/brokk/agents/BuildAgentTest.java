@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -15,6 +16,8 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.tools.ToolExecutionResult;
+import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
@@ -316,6 +319,59 @@ class BuildAgentTest {
     }
 
     @Test
+    void testInterpolateDotSyntaxRendersRawStrings() {
+        // Regression test: {{.}} should render the raw string value, not Element@...
+        String template = "pytest {{#files}}{{.}}{{/files}}";
+        List<String> files = List.of("tests/test_foo.py", "tests/test_bar.py");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
+
+        // Must contain actual file paths
+        assertTrue(result.contains("tests/test_foo.py"), "Result should contain first file path");
+        assertTrue(result.contains("tests/test_bar.py"), "Result should contain second file path");
+        // Must NOT contain Element@ toString representation
+        assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
+    }
+
+    @Test
+    void testInterpolateDotSyntaxWithSeparator() {
+        // Regression test: {{.}} with {{^last}} separator should work correctly
+        String template = "go test -run '{{#classes}}{{.}}{{^last}}|{{/last}}{{/classes}}'";
+        List<String> classes = List.of("TestFoo", "TestBar", "TestBaz");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
+
+        // Should produce pipe-separated list without trailing separator
+        assertEquals("go test -run 'TestFoo|TestBar|TestBaz'", result);
+        // Must NOT contain Element@ toString representation
+        assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
+    }
+
+    @Test
+    void testInterpolateDotSyntaxSingleItem() {
+        // Regression test: {{.}} with single item should work and not have trailing separator
+        String template = "mvn test -Dtest={{#classes}}{{.}}{{^last}},{{/last}}{{/classes}}";
+        List<String> classes = List.of("MyTest");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
+
+        assertEquals("mvn test -Dtest=MyTest", result);
+        assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
+    }
+
+    @Test
+    void testInterpolateDotSyntaxWithSpaceSeparator() {
+        // Regression test: common pattern for file-based test runners
+        String template = "jest {{#files}}{{.}}{{^last}} {{/last}}{{/files}}";
+        List<String> files = List.of("src/app.test.js", "src/util.test.js");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
+
+        assertEquals("jest src/app.test.js src/util.test.js", result);
+        assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
+    }
+
+    @Test
     void testReportBuildDetailsPreservesExistingPatterns(@TempDir Path tempDir) throws Exception {
         // Create a project with existing exclusion patterns
         Files.createDirectory(tempDir.resolve("src"));
@@ -544,6 +600,205 @@ class BuildAgentTest {
 
         assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
         assertTrue(io.getOutputLog().contains("No explicit command specified, skipping."), "Should log skip message");
+    }
+
+    @Test
+    void testInterpolateMustacheTemplateThrowsOnUnsupportedTag() {
+        // Template with unsupported variable {{python_version}} instead of {{pyver}}
+        String template = "pytest --python={{python_version}}";
+
+        var ex = assertThrows(IllegalArgumentException.class, () -> {
+            BuildAgent.interpolateMustacheTemplate(template, List.of(), "files");
+        });
+
+        assertTrue(ex.getMessage().contains("python_version"), "Error should mention the unsupported tag");
+        assertTrue(ex.getMessage().contains("Allowed"), "Error should mention allowed tags");
+    }
+
+    @Test
+    void testInterpolateMustacheTemplateThrowsOnUnsupportedSectionTag() {
+        // Template with unsupported section {{#targets}} instead of {{#files}}, {{#classes}}, etc.
+        String template = "pytest {{#targets}}{{value}}{{/targets}}";
+
+        var ex = assertThrows(IllegalArgumentException.class, () -> {
+            BuildAgent.interpolateMustacheTemplate(template, List.of(), "files");
+        });
+
+        assertTrue(ex.getMessage().contains("targets"), "Error should mention the unsupported tag");
+        assertTrue(ex.getMessage().contains("Allowed"), "Error should mention allowed tags");
+    }
+
+    @Test
+    void testInterpolateMustacheTemplateAllowsValidTags() {
+        // All these should NOT throw - they use valid tags
+        // Test with files section
+        String result1 = BuildAgent.interpolateMustacheTemplate(
+                "pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}", List.of("a.py", "b.py"), "files");
+        assertEquals("pytest a.py b.py", result1);
+
+        // Test with pyver
+        String result2 =
+                BuildAgent.interpolateMustacheTemplate("python{{pyver}} -m pytest", List.of(), "modules", "3.11");
+        assertEquals("python3.11 -m pytest", result2);
+
+        // Test with dot syntax
+        String result3 = BuildAgent.interpolateMustacheTemplate(
+                "go test {{#classes}}{{.}}{{/classes}}", List.of("TestFoo"), "classes");
+        assertEquals("go test TestFoo", result3);
+
+        // Test with index, first, last
+        String result4 = BuildAgent.interpolateMustacheTemplate(
+                "{{#modules}}{{index}}:{{value}}{{^last}},{{/last}}{{/modules}}", List.of("a", "b"), "modules");
+        assertEquals("0:a,1:b", result4);
+    }
+
+    @Test
+    void testReportBuildDetailsThrowsToolCallExceptionOnUnsupportedTag(@TempDir Path tempDir) throws Exception {
+        Files.createDirectory(tempDir.resolve("src"));
+        var testProject = new TestProject(tempDir);
+
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
+
+        // testSomeCommand with unsupported {{python_version}} tag
+        var ex = assertThrows(ToolRegistry.ToolCallException.class, () -> {
+            agent.reportBuildDetails(
+                    "mvn compile",
+                    "mvn test",
+                    "pytest --python={{python_version}} {{#files}}{{value}}{{/files}}",
+                    List.of(),
+                    List.of());
+        });
+
+        assertEquals(ToolExecutionResult.Status.REQUEST_ERROR, ex.status(), "Should be REQUEST_ERROR status");
+        assertTrue(ex.getMessage().contains("testSomeCommand"), "Error should mention the field name");
+        assertTrue(ex.getMessage().contains("python_version"), "Error should mention the unsupported tag");
+        assertTrue(ex.getMessage().contains("Allowed"), "Error should mention allowed tags");
+    }
+
+    @Test
+    void testReportBuildDetailsThrowsOnUnsupportedSectionInTestAll(@TempDir Path tempDir) throws Exception {
+        Files.createDirectory(tempDir.resolve("src"));
+        var testProject = new TestProject(tempDir);
+
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
+
+        // testAllCommand with unsupported {{#targets}} section
+        var ex = assertThrows(ToolRegistry.ToolCallException.class, () -> {
+            agent.reportBuildDetails(
+                    "mvn compile",
+                    "mvn test {{#targets}}{{value}}{{/targets}}",
+                    "mvn test -Dtest={{#classes}}{{value}}{{/classes}}",
+                    List.of(),
+                    List.of());
+        });
+
+        assertEquals(ToolExecutionResult.Status.REQUEST_ERROR, ex.status());
+        assertTrue(ex.getMessage().contains("testAllCommand"), "Error should mention the field name");
+        assertTrue(ex.getMessage().contains("targets"), "Error should mention the unsupported tag");
+    }
+
+    @Test
+    void testReportBuildDetailsAcceptsValidTemplates(@TempDir Path tempDir) throws Exception {
+        Files.createDirectory(tempDir.resolve("src"));
+        var testProject = new TestProject(tempDir);
+
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
+
+        // Should not throw - all tags are valid
+        String result = agent.reportBuildDetails(
+                "mvn compile",
+                "mvn test",
+                "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}",
+                List.of(),
+                List.of());
+
+        assertEquals("Build details report received and processed.", result);
+    }
+
+    @Test
+    void testExtractMustacheTagsHandlesVariousForms() {
+        // Test various Mustache tag forms
+        var tags1 = BuildAgent.extractMustacheTags("{{name}} {{{triple}}} {{#section}}{{/section}} {{^inverted}}");
+        assertTrue(tags1.contains("name"));
+        assertTrue(tags1.contains("triple"));
+        assertTrue(tags1.contains("section"));
+        assertTrue(tags1.contains("inverted"));
+
+        // Test with whitespace
+        var tags2 = BuildAgent.extractMustacheTags("{{ name }} {{# section }}{{/ section }}");
+        assertTrue(tags2.contains("name"));
+        assertTrue(tags2.contains("section"));
+
+        // Test partials and comments are marked as unsupported
+        var tags3 = BuildAgent.extractMustacheTags("{{>partial}} {{!comment}}");
+        assertTrue(tags3.contains(">partial"), "Partial should be marked with prefix");
+        assertTrue(tags3.contains("!comment"), "Comment should be marked with prefix");
+
+        // Test empty template
+        var tags4 = BuildAgent.extractMustacheTags("");
+        assertTrue(tags4.isEmpty());
+
+        // Test template with no tags
+        var tags5 = BuildAgent.extractMustacheTags("plain text without mustache");
+        assertTrue(tags5.isEmpty());
+
+        // Test delimiter-change tags are detected
+        var tags6 = BuildAgent.extractMustacheTags("{{= <% %> =}}<%name%>{{other}}");
+        assertTrue(tags6.stream().anyMatch(t -> t.startsWith("=")), "Delimiter change should be detected");
+        assertTrue(tags6.contains("other"), "Regular tags should still be found");
+
+        // Test empty delimiter change
+        var tags7 = BuildAgent.extractMustacheTags("{{==}}");
+        assertTrue(tags7.stream().anyMatch(t -> t.startsWith("=")), "Empty delimiter change should be detected");
+    }
+
+    @Test
+    void testInterpolateMustacheTemplateThrowsOnDelimiterChangeTag() {
+        // Template with delimiter-change tag {{= <% %> =}} should be rejected
+        String template = "{{= <% %> =}}<%#files%><%value%><%/files%>";
+
+        var ex = assertThrows(IllegalArgumentException.class, () -> {
+            BuildAgent.interpolateMustacheTemplate(template, List.of("a.py"), "files");
+        });
+
+        assertTrue(ex.getMessage().contains("="), "Error should mention the delimiter change tag");
+        assertTrue(ex.getMessage().contains("Allowed"), "Error should mention allowed tags");
+    }
+
+    @Test
+    void testInterpolateMustacheTemplateAllowsSpecificListKeyEvenIfNotCanonical() {
+        // Regression test: interpolateCommandWithPythonVersion uses listKey="unused"
+        // The validator must allow the specific listKey passed to the method, not just canonical ones
+        String template = "cmd {{#unused}}{{.}}{{/unused}}";
+        List<String> items = List.of("x");
+
+        // Should NOT throw - "unused" is the listKey for this call, so it must be allowed
+        String result = BuildAgent.interpolateMustacheTemplate(template, items, "unused", null);
+
+        assertEquals("cmd x", result);
+    }
+
+    @Test
+    void testReportBuildDetailsThrowsOnDelimiterChangeTag(@TempDir Path tempDir) throws Exception {
+        Files.createDirectory(tempDir.resolve("src"));
+        var testProject = new TestProject(tempDir);
+
+        var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
+
+        // testSomeCommand with delimiter-change tag
+        var ex = assertThrows(ToolRegistry.ToolCallException.class, () -> {
+            agent.reportBuildDetails(
+                    "mvn compile",
+                    "mvn test",
+                    "{{= <% %> =}}mvn test -Dtest=<%#classes%><%value%><%/classes%>",
+                    List.of(),
+                    List.of());
+        });
+
+        assertEquals(ToolExecutionResult.Status.REQUEST_ERROR, ex.status(), "Should be REQUEST_ERROR status");
+        assertTrue(ex.getMessage().contains("testSomeCommand"), "Error should mention the field name");
+        assertTrue(ex.getMessage().contains("="), "Error should mention the delimiter change");
+        assertTrue(ex.getMessage().contains("Allowed"), "Error should mention allowed tags");
     }
 
     @Test
