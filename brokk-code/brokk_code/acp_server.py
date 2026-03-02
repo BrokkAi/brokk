@@ -30,6 +30,62 @@ MODEL_DISCOVERY_RECOVERY_ATTEMPTS = 2
 MODEL_DISCOVERY_INITIAL_BACKOFF_SECONDS = 0.2
 
 
+@dataclass(frozen=True)
+class ClientProfile:
+    """Runtime configuration derived from ACP client capabilities and info."""
+
+    is_zed: bool = False
+    use_short_description_context: bool = False
+    emit_token_bar: bool = True
+    tool_call_titles_only: bool = False
+    supports_terminal: bool = False
+
+
+def resolve_client_profile(
+    client_capabilities: Any, client_info: Any, fallback_ide: str = "intellij"
+) -> ClientProfile:
+    """Derives a ClientProfile from ACP initialize inputs."""
+    client_name = ""
+    if hasattr(client_info, "name"):
+        client_name = str(client_info.name).lower()
+    elif isinstance(client_info, dict):
+        client_name = str(client_info.get("name", "")).lower()
+
+    # Identify Zed specifically for its unique Markdown/Rich rendering capabilities.
+    is_zed = "zed" in client_name
+
+    # Determine terminal support from capabilities.
+    supports_terminal = False
+    if hasattr(client_capabilities, "terminal"):
+        supports_terminal = bool(client_capabilities.terminal)
+    elif isinstance(client_capabilities, dict):
+        supports_terminal = bool(client_capabilities.get("terminal"))
+
+    # If the client is unknown, we use the fallback_ide (from CLI) as a hint,
+    # but eventually we want to rely entirely on capabilities.
+    if not client_name and fallback_ide == "zed":
+        is_zed = True
+
+    if is_zed:
+        return ClientProfile(
+            is_zed=True,
+            use_short_description_context=False,
+            emit_token_bar=True,
+            tool_call_titles_only=False,
+            supports_terminal=supports_terminal,
+        )
+
+    # Default/IntelliJ-like behavior: conservative rendering, no token bars (images),
+    # and short descriptions for resources to avoid huge text blocks in UI lists.
+    return ClientProfile(
+        is_zed=False,
+        use_short_description_context=True,
+        emit_token_bar=False,
+        tool_call_titles_only=True,
+        supports_terminal=supports_terminal,
+    )
+
+
 # ACP persistence dataclass and helpers. Persisted in ~/.brokk/acp_settings.json
 @dataclass
 class AcpDefaults:
@@ -1018,7 +1074,7 @@ async def run_acp_server(
             self._cwd_by_session: dict[str, str] = {}
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
             self._catalog_is_fallback_by_session: dict[str, bool] = {}
-            self._is_zed = ide_profile == "zed"
+            self._profile = ClientProfile(is_zed=(ide_profile == "zed"))
 
             # Load ACP defaults once on agent init
             acp_defaults = load_acp_defaults()
@@ -1091,7 +1147,7 @@ async def run_acp_server(
         def _model_state_for_session(self, session_id: str) -> SessionModelState:
             catalog = self._catalog_for_session(session_id)
             current_model = self._current_model_selection(session_id)
-            if self._is_zed:
+            if self._profile.is_zed:
                 variants = _model_options(catalog)
                 if not variants:
                     variants = [(DEFAULT_MODEL_SELECTION, DEFAULT_MODEL_SELECTION)]
@@ -1133,7 +1189,7 @@ async def run_acp_server(
                     }
                 ),
             ]
-            if self._is_zed:
+            if self._profile.is_zed:
                 current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
                 current_reasoning = self._reasoning_by_session.get(
                     session_id, DEFAULT_REASONING_LEVEL
@@ -1222,6 +1278,11 @@ async def run_acp_server(
             client_info: Any = None,
             **kwargs: Any,
         ) -> InitializeResponse:
+            self._profile = resolve_client_profile(
+                client_capabilities, client_info, fallback_ide=ide_profile
+            )
+            logger.info("ACP Client Profile resolved: %s", self._profile)
+
             return InitializeResponse(
                 protocol_version=protocol_version,
                 agent_info=Implementation(name="brokk", version=__version__),
@@ -1449,7 +1510,7 @@ async def run_acp_server(
 
             if selected_reasoning:
                 self._reasoning_by_session[session_id] = selected_reasoning
-            elif not self._is_zed:
+            elif not self._profile.is_zed:
                 self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
             return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
 
@@ -1579,9 +1640,9 @@ async def run_acp_server(
                 update_tool_call=update_tool_call,
                 tool_content=tool_content,
                 text_block=text_block,
-                use_short_description_context=(ide_profile == "intellij"),
-                emit_token_bar=(ide_profile != "intellij"),
-                tool_call_titles_only=(ide_profile == "intellij"),
+                use_short_description_context=self._profile.use_short_description_context,
+                emit_token_bar=self._profile.emit_token_bar,
+                tool_call_titles_only=self._profile.tool_call_titles_only,
             )
             return PromptResponse(stop_reason="end_turn")
 
