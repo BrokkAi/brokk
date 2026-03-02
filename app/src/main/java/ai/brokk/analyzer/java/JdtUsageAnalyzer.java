@@ -42,11 +42,24 @@ public class JdtUsageAnalyzer {
      * Package-private for testing.
      */
     static String extractMethodSignature(IMethodBinding mb) {
-        ITypeBinding[] paramTypes = mb.getParameterTypes();
+        // Use the method declaration to get the original generic types (e.g., T instead of String/Object)
+        IMethodBinding decl = mb.getMethodDeclaration();
+        ITypeBinding[] paramTypes = decl.getParameterTypes();
         if (paramTypes.length == 0) {
             return "()";
         }
-        return Arrays.stream(paramTypes).map(t -> t.getErasure().getName()).collect(Collectors.joining(", ", "(", ")"));
+        return Arrays.stream(paramTypes).map(JdtUsageAnalyzer::getTypeName).collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    private static String getTypeName(ITypeBinding type) {
+        if (type.isArray()) {
+            return getTypeName(type.getElementType()) + "[]".repeat(type.getDimensions());
+        }
+        if (type.isTypeVariable()) {
+            return type.getName();
+        }
+        // For Parameterized Types (List<String>), use erasure (List) to match Tree-sitter's behavior.
+        return type.getErasure().getName();
     }
 
     /**
