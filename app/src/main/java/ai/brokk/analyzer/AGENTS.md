@@ -31,3 +31,12 @@
 ### 5. Expanding Analyzer Capabilities
 1. **Default Implementations**: When adding a new `IAnalyzer` API or capability, add it with a default implementation so that the project compiles.
 1. **Incremental Implementation**: Plan tasks to handle each subclass one at a time. Bringing all subclasses into the context at once will fill up the context and result in either exceeding model context or general context confusion.
+
+### 6. Tree-sitter Query Architecture
+1. **Multi-Query Structure**: Monolithic `.scm` files (e.g., `treesitter/java.scm`) are being deprecated in favor of a directory-based multi-query structure:
+   - `resources/treesitter/<language>/definitions.scm`
+   - `resources/treesitter/<language>/imports.scm`
+1. **QueryType Enum**:
+   - `DEFINITIONS`: Primary query for capturing classes, functions, and fields. This is **compulsory** for every analyzer.
+   - `IMPORTS`: Specific query for capturing import statements and related symbols. This is **optional**; if not provided, the analyzer will skip import-specific AST passes.
+1. **Resource Loading**: The `TreeSitterAnalyzer` base class handles the discovery and loading of these queries based on the language name and `QueryType`. Analyzers should transition away from the single `getQueryResource()` string toward this structured multi-query approach.
