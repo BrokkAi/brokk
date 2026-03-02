@@ -32,7 +32,6 @@ class ClientProfile:
     """Runtime configuration derived from ACP client capabilities and info."""
 
     is_zed: bool = False
-    tool_call_titles_only: bool = False
     supports_terminal: bool = False
 
 
@@ -57,14 +56,12 @@ def resolve_client_profile(client_capabilities: Any, client_info: Any) -> Client
     if is_zed:
         return ClientProfile(
             is_zed=True,
-            tool_call_titles_only=False,
             supports_terminal=supports_terminal,
         )
 
     # Default/IntelliJ-like behavior: conservative rendering.
     return ClientProfile(
         is_zed=False,
-        tool_call_titles_only=True,
         supports_terminal=supports_terminal,
     )
 
@@ -415,7 +412,6 @@ def map_executor_event_to_session_update(
     update_tool_call: Optional[Callable[..., Any]] = None,
     tool_content: Optional[Callable[[Any], Any]] = None,
     text_block: Optional[Callable[[str], Any]] = None,
-    tool_call_titles_only: bool = False,
 ) -> Optional[Any]:
     event_type = event.get("type")
     data = event.get("data", {})
@@ -466,9 +462,6 @@ def map_executor_event_to_session_update(
             or data.get("callId")
         )
 
-        if tool_call_titles_only:
-            return None
-
         if start_tool_call and tool_call_id:
             content = None
             if args and text_block and tool_content:
@@ -483,9 +476,6 @@ def map_executor_event_to_session_update(
         return None
 
     if event_type == "TOOL_OUTPUT":
-        if tool_call_titles_only:
-            return None
-
         status_raw = str(data.get("status", "SUCCESS")).upper()
         # Map executor status to ACP ToolCallStatus: "pending", "in_progress", "completed", "failed"
         acp_status = "completed" if status_raw == "SUCCESS" else "failed"
@@ -633,11 +623,9 @@ class BrokkAcpBridge:
         tool_content: Optional[Callable[[Any], Any]] = None,
         text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
-        profile: Optional[ClientProfile] = None,
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
-        p = profile or ClientProfile()
         executor_session_id = await self._ensure_session(session_id)
         await self._switch_executor_session(executor_session_id)
 
@@ -686,7 +674,6 @@ class BrokkAcpBridge:
                     update_tool_call=update_tool_call,
                     tool_content=tool_content,
                     text_block=text_block,
-                    tool_call_titles_only=p.tool_call_titles_only,
                 )
                 if update:
                     await send_update(session_id, update)
@@ -1362,7 +1349,6 @@ async def run_acp_server(
                 update_tool_call=update_tool_call,
                 tool_content=tool_content,
                 text_block=text_block,
-                profile=self._profile,
             )
             return PromptResponse(stop_reason="end_turn")
 
