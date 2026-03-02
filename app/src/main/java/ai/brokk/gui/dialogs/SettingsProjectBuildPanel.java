@@ -8,6 +8,7 @@ import ai.brokk.analyzer.JvmBasedAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
@@ -1180,8 +1181,11 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void scheduleJdkControlsUpdate() {
-        ai.brokk.concurrent.LoggingFuture.supplyAsync(() -> {
-                    boolean hasJvmModule = modulesList.stream()
+        // Create a defensive copy of modulesList as it may be modified on the EDT
+        // while this background task is running.
+        List<BuildAgent.ModuleBuildEntry> modulesCopy = List.copyOf(modulesList);
+        LoggingFuture.supplyAsync(() -> {
+                    boolean hasJvmModule = modulesCopy.stream()
                             .map(m -> Languages.ALL_LANGUAGES.stream()
                                     .filter(l -> l.name().equalsIgnoreCase(m.language()))
                                     .findFirst()
