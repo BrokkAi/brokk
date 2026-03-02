@@ -2698,7 +2698,7 @@ class BrokkApp(App):
 
                     async def on_branch_name(branch: str | None) -> None:
                         if branch:
-                            await self.run_worker(self._create_worktree_and_switch(branch))
+                            self.run_worker(self._create_worktree_and_switch(branch))
 
                     self.push_screen(TaskTitleModalScreen("New Worktree Branch"), on_branch_name)
                 elif selected.startswith("delete:"):
