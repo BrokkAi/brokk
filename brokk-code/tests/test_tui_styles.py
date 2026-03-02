@@ -331,3 +331,26 @@ def test_api_key_modal_dimensions_regression():
     assert "height: 1fr" in scroll_body, (
         "#api-key-modal-scroll should use height: 1fr to fill available space"
     )
+
+
+def test_modal_widths_regression():
+    """
+    Regression test for modal container widths.
+    1. #model-select-container, #reasoning-select-container should have width: 60.
+    2. #worktree-select-container should have width: 80.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    # Check model/reasoning select container width
+    # Note: Using re.escape for the selector but allowing for whitespace/ordering variations if needed.
+    # The current CSS uses: #model-select-container, #reasoning-select-container
+    m_r_pattern = r"#model-select-container,\s*#reasoning-select-container\s*\{([^}]*)\}"
+    m_r_match = re.search(m_r_pattern, css_content)
+    assert m_r_match, "Could not find #model-select-container, #reasoning-select-container rule"
+    assert "width: 60;" in m_r_match.group(1), "Model/Reasoning modals should have width: 60"
+
+    # Check worktree select container width
+    wt_pattern = r"#worktree-select-container\s*\{([^}]*)\}"
+    wt_match = re.search(wt_pattern, css_content)
+    assert wt_match, "Could not find #worktree-select-container rule"
+    assert "width: 80;" in wt_match.group(1), "#worktree-select-container should have width: 80"
