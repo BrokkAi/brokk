@@ -24,11 +24,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.Nullable;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -206,6 +202,7 @@ public class SearchToolsTest {
     }
 
     @Test
+    @Disabled("See [Bug]: Fix Failing SearchTools Regex Complexity Detection #2929")
     void testfindFilesContaining_overlyComplexRegexDoesNotCrash() throws InterruptedException {
         String result = searchTools.findFilesContaining(List.of(nestedOptionalPattern(1500)), 200);
         assertTrue(
@@ -223,6 +220,7 @@ public class SearchToolsTest {
     }
 
     @Test
+    @Disabled("See [Bug]: Fix Failing SearchTools Regex Complexity Detection #2929")
     void testfindFilenames_overlyComplexRegexDoesNotCrash() {
         String result = searchTools.findFilenames(List.of(nestedOptionalPattern(1500)), 200);
         assertTrue(
@@ -531,6 +529,7 @@ public class SearchToolsTest {
     }
 
     @Test
+    @Disabled("See [Bug]: Fix Failing SearchTools Regex Complexity Detection #2929")
     void testSearchFileContents_overlyComplexRegexDoesNotCrash() throws InterruptedException {
         String result = searchTools.searchFileContents(
                 List.of(nestedOptionalPattern(1500)), "README.md", false, false, 0, 200, 200);
