@@ -16,6 +16,7 @@ let isRunning = false;
 const SCROLL_THRESHOLD = 100; // px from bottom
 let scrollPending = false;
 let currentAssistantEl = null;
+let replayGeneration = 0;
 let currentContentEl = null;
 let currentReasoningEl = null;
 let reasoningHeader = null;
@@ -512,6 +513,7 @@ export function resetChat(message) {
  */
 export function replayConversation(entries) {
   resetChat();
+  const myGeneration = ++replayGeneration;
   if (!entries || entries.length === 0) return;
 
   dismissWelcome();
@@ -620,6 +622,7 @@ export function replayConversation(entries) {
 
   const CHUNK_SIZE = 20;
   function flushChunk(index) {
+    if (myGeneration !== replayGeneration) return;
     const end = Math.min(index + CHUNK_SIZE, tasks.length);
     for (let i = index; i < end; i++) {
       tasks[i]();
