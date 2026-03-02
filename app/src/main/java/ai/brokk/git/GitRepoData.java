@@ -159,19 +159,30 @@ public class GitRepoData {
 
     /** Show diff for a specific file between two commits. */
     public String getDiff(ProjectFile file, String oldRev, String newRev) throws GitAPIException {
+        var oldTreeIter = prepareTreeParser(oldRev);
+        if (oldTreeIter == null) {
+            logger.warn("Old commit/tree {} not found. Returning empty diff.", oldRev);
+            return "";
+        }
+
         try (var out = new ByteArrayOutputStream()) {
             var pathFilter = PathFilter.create(repo.toRepoRelativePath(file));
             if ("WORKING".equals(newRev)) {
                 git.diff()
-                        .setOldTree(prepareTreeParser(oldRev))
+                        .setOldTree(oldTreeIter)
                         .setNewTree(null) // Working tree
                         .setPathFilter(pathFilter)
                         .setOutputStream(out)
                         .call();
             } else {
+                var newTreeIter = prepareTreeParser(newRev);
+                if (newTreeIter == null) {
+                    logger.warn("New commit/tree {} not found. Returning empty diff.", newRev);
+                    return "";
+                }
                 git.diff()
-                        .setOldTree(prepareTreeParser(oldRev))
-                        .setNewTree(prepareTreeParser(newRev))
+                        .setOldTree(oldTreeIter)
+                        .setNewTree(newTreeIter)
                         .setPathFilter(pathFilter)
                         .setOutputStream(out)
                         .call();
