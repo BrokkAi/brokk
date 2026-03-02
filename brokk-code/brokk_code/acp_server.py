@@ -30,6 +30,55 @@ MODEL_DISCOVERY_RECOVERY_ATTEMPTS = 2
 MODEL_DISCOVERY_INITIAL_BACKOFF_SECONDS = 0.2
 
 
+@dataclass(frozen=True)
+class ClientProfile:
+    """Runtime configuration derived from ACP client capabilities and info."""
+
+    is_zed: bool = False
+    use_short_description_context: bool = False
+    emit_token_bar: bool = True
+    tool_call_titles_only: bool = False
+    supports_terminal: bool = False
+
+
+def resolve_client_profile(client_capabilities: Any, client_info: Any) -> ClientProfile:
+    """Derives a ClientProfile from ACP initialize inputs."""
+    client_name = ""
+    if hasattr(client_info, "name"):
+        client_name = str(client_info.name).lower()
+    elif isinstance(client_info, dict):
+        client_name = str(client_info.get("name", "")).lower()
+
+    # Identify Zed specifically for its unique Markdown/Rich rendering capabilities.
+    is_zed = "zed" in client_name
+
+    # Determine terminal support from capabilities.
+    supports_terminal = False
+    if hasattr(client_capabilities, "terminal"):
+        supports_terminal = bool(client_capabilities.terminal)
+    elif isinstance(client_capabilities, dict):
+        supports_terminal = bool(client_capabilities.get("terminal"))
+
+    if is_zed:
+        return ClientProfile(
+            is_zed=True,
+            use_short_description_context=False,
+            emit_token_bar=True,
+            tool_call_titles_only=False,
+            supports_terminal=supports_terminal,
+        )
+
+    # Default/IntelliJ-like behavior: conservative rendering, no token bars (images),
+    # and short descriptions for resources to avoid huge text blocks in UI lists.
+    return ClientProfile(
+        is_zed=False,
+        use_short_description_context=True,
+        emit_token_bar=False,
+        tool_call_titles_only=True,
+        supports_terminal=supports_terminal,
+    )
+
+
 # ACP persistence dataclass and helpers. Persisted in ~/.brokk/acp_settings.json
 @dataclass
 class AcpDefaults:
@@ -729,12 +778,11 @@ class BrokkAcpBridge:
         tool_content: Optional[Callable[[Any], Any]] = None,
         text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
-        use_short_description_context: bool = False,
-        emit_token_bar: bool = True,
-        tool_call_titles_only: bool = False,
+        profile: Optional[ClientProfile] = None,
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
+        p = profile or ClientProfile()
         executor_session_id = await self._ensure_session(session_id)
         await self._switch_executor_session(executor_session_id)
 
@@ -783,7 +831,7 @@ class BrokkAcpBridge:
                     update_tool_call=update_tool_call,
                     tool_content=tool_content,
                     text_block=text_block,
-                    tool_call_titles_only=tool_call_titles_only,
+                    tool_call_titles_only=p.tool_call_titles_only,
                 )
                 if update:
                     await send_update(session_id, update)
@@ -825,7 +873,7 @@ class BrokkAcpBridge:
                     # Some ACP clients (e.g. IntelliJ) render data URI markdown images
                     # as literal text, so only emit the token bar where supported.
                     used_tokens_raw = context_data.get("usedTokens")
-                    if emit_token_bar and used_tokens_raw is not None:
+                    if p.emit_token_bar and used_tokens_raw is not None:
                         used_tokens_local = int(used_tokens_raw or 0)
                         fragments = context_data.get("fragments", [])
                         bar_md = get_token_bar_markdown(
@@ -850,7 +898,7 @@ class BrokkAcpBridge:
                     is_resource_list_kind = kind in {"EDIT", "SUMMARY"}
                     snapshot_text = (
                         str(block["short_description"])
-                        if use_short_description_context or is_brokk_context
+                        if p.use_short_description_context or is_brokk_context
                         else str(block["text"])
                     )
                     if is_resource_list_kind and not _is_discarded_context(block):
@@ -911,7 +959,6 @@ async def run_acp_server(
     jar_path: Optional[Path],
     executor_version: Optional[str],
     executor_snapshot: bool,
-    ide: str = "intellij",
     vendor: Optional[str] = None,
 ) -> None:
     try:
@@ -921,7 +968,6 @@ async def run_acp_server(
             LoadSessionResponse,
             NewSessionResponse,
             PromptResponse,
-            ResumeSessionResponse,
             SetSessionModelResponse,
             SetSessionModeResponse,
             embedded_text_resource,
@@ -944,6 +990,7 @@ async def run_acp_server(
             ListSessionsResponse,
             ModelInfo,
             PromptCapabilities,
+            ResumeSessionResponse,
             SessionCapabilities,
             SessionConfigOption,
             SessionConfigSelectOption,
@@ -964,8 +1011,7 @@ async def run_acp_server(
         ) from e
 
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-    logger.info("Starting ACP server with IDE profile: %s", ide)
-    ide_profile = ide.strip().lower() if isinstance(ide, str) else "intellij"
+    logger.info("Starting ACP server")
 
     # Note: The ExecutorManager launches the Java HeadlessExecutorMain with a dedicated
     # stdin pipe. HeadlessExecutorMain monitors System.in for EOF and will initiate a
@@ -980,7 +1026,7 @@ async def run_acp_server(
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
         vendor=vendor,
-        exit_on_stdin_eof=ide_profile == "intellij",
+        exit_on_stdin_eof=True,
         brokk_api_key=settings.get_brokk_api_key(),
     )
     bridge = BrokkAcpBridge(executor)
@@ -1018,7 +1064,7 @@ async def run_acp_server(
             self._cwd_by_session: dict[str, str] = {}
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
             self._catalog_is_fallback_by_session: dict[str, bool] = {}
-            self._is_zed = ide_profile == "zed"
+            self._profile = resolve_client_profile(None, None)
 
             # Load ACP defaults once on agent init
             acp_defaults = load_acp_defaults()
@@ -1091,7 +1137,7 @@ async def run_acp_server(
         def _model_state_for_session(self, session_id: str) -> SessionModelState:
             catalog = self._catalog_for_session(session_id)
             current_model = self._current_model_selection(session_id)
-            if self._is_zed:
+            if self._profile.is_zed:
                 variants = _model_options(catalog)
                 if not variants:
                     variants = [(DEFAULT_MODEL_SELECTION, DEFAULT_MODEL_SELECTION)]
@@ -1133,7 +1179,7 @@ async def run_acp_server(
                     }
                 ),
             ]
-            if self._is_zed:
+            if self._profile.is_zed:
                 current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
                 current_reasoning = self._reasoning_by_session.get(
                     session_id, DEFAULT_REASONING_LEVEL
@@ -1222,6 +1268,9 @@ async def run_acp_server(
             client_info: Any = None,
             **kwargs: Any,
         ) -> InitializeResponse:
+            self._profile = resolve_client_profile(client_capabilities, client_info)
+            logger.info("ACP Client Profile resolved: %s", self._profile)
+
             return InitializeResponse(
                 protocol_version=protocol_version,
                 agent_info=Implementation(name="brokk", version=__version__),
@@ -1449,7 +1498,7 @@ async def run_acp_server(
 
             if selected_reasoning:
                 self._reasoning_by_session[session_id] = selected_reasoning
-            elif not self._is_zed:
+            elif not self._profile.is_zed:
                 self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
             return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
 
@@ -1548,6 +1597,20 @@ async def run_acp_server(
             )
             if not self.client:
                 raise ExecutorError("ACP client connection not established.")
+
+            def build_context_snapshot_update(uri: str, mime_type: str, text: str) -> Any:
+                if self._profile.is_zed:
+                    return update_agent_message(
+                        resource_block(
+                            embedded_text_resource(
+                                uri=uri,
+                                text=text,
+                                mime_type=mime_type,
+                            )
+                        )
+                    )
+                return update_agent_message_text(text)
+
             await bridge.prompt(
                 prompt=prompt,
                 session_id=session_id,
@@ -1560,28 +1623,12 @@ async def run_acp_server(
                 send_update=self.client.session_update,
                 update_agent_message_text=update_agent_message_text,
                 update_agent_thought_text=update_agent_thought_text,
-                build_context_snapshot_update=(
-                    (lambda uri, mime_type, text: update_agent_message_text(text))
-                    if ide_profile == "intellij"
-                    else (
-                        lambda uri, mime_type, text: update_agent_message(
-                            resource_block(
-                                embedded_text_resource(
-                                    uri=uri,
-                                    text=text,
-                                    mime_type=mime_type,
-                                )
-                            )
-                        )
-                    )
-                ),
+                build_context_snapshot_update=build_context_snapshot_update,
                 start_tool_call=start_tool_call,
                 update_tool_call=update_tool_call,
                 tool_content=tool_content,
                 text_block=text_block,
-                use_short_description_context=(ide_profile == "intellij"),
-                emit_token_bar=(ide_profile != "intellij"),
-                tool_call_titles_only=(ide_profile == "intellij"),
+                profile=self._profile,
             )
             return PromptResponse(stop_reason="end_turn")
 
