@@ -8,13 +8,8 @@
      private static final Pattern WILDCARD_IMPORT_PATTERN = Pattern.compile("^from\\s+(.+?)\\s+import\\s+\\*");
      ```
 
-### 2. Tree-sitter Query Predicate Limitations
-1. **No predicates**: Our Tree-sitter Java binding does NOT support query predicates such as `#eq?`, `#any-of?`, `#match?`, or `#is?`.
-1. **Java-side filtering**: If you need to filter nodes by exact literal values (e.g., match only nodes where the text equals a specific string), perform this filtering in Java code after executing the query.
-   - Example: Instead of `(identifier) @id (#eq? @id "foo")` in the query, use `(identifier) @id` and filter in Java:
-     ```java
-     if (sourceContent.substringFrom(node).equals("foo")) { ... }
-     ```
+### 2. Tree-sitter Query Predicates
+1. **Predicates supported**: Our Tree-sitter Java binding supports query predicates such as `#eq?`, `#any-of?`, `#match?`, and `#is?`.
 
 ### 3. Working with SourceContent
 1. **Creation**: Use `SourceContent.of(String source)` to create a content wrapper that handles UTF-8 byte offset conversions.
