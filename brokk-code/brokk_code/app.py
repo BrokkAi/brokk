@@ -1669,7 +1669,7 @@ class BrokkApp(App):
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
-        except BaseException as e:
+        except Exception as e:
             if (
                 self.current_job_id is None
                 and attached_fragment_ids
