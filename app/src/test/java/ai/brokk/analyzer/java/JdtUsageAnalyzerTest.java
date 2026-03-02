@@ -611,4 +611,68 @@ public class JdtUsageAnalyzerTest {
             assertTrue(hits.iterator().next().snippet().contains("run(\"hello\")"));
         }
     }
+
+    @Test
+    public void testParameterizedTypeUsageMatching() throws Exception {
+        String boxSource =
+                """
+                package com.example;
+                public class Box<T> {
+                    private T value;
+                }
+                """;
+        String consumerSource =
+                """
+                package com.consumer;
+                import java.util.List;
+                import java.util.ArrayList;
+                import com.example.Box;
+                public class Consumer {
+                    private List<String> names = new ArrayList<>();
+                    private Box<Integer> integerBox = new Box<>();
+
+                    public void use() {
+                        List<Integer> numbers = new ArrayList<>();
+                        Box<String> stringBox = new Box<>();
+                    }
+                }
+                """;
+
+        try (IProject project = InlineTestProjectCreator.code(boxSource, "com/example/Box.java")
+                .addFileContents(consumerSource, "com/consumer/Consumer.java")
+                .build()) {
+
+            ProjectFile consumerFile = project.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().contains("Consumer.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            // 1. Test java.util.List (Standard Library Parameterized Type)
+            // Note: In a test environment, JDT might not resolve java.util.List without a full classpath,
+            // but if it does, we expect it to match List<String> and List<Integer>.
+            CodeUnit listTarget = new CodeUnit(null, CodeUnitType.CLASS, "java.util", "List");
+            Set<UsageHit> listHits = JdtUsageAnalyzer.findUsages(listTarget, Set.of(consumerFile), project);
+
+            // Expecting 2 hits: List<String> and List<Integer>
+            assertEquals(2, listHits.size(), "Should find 2 usages of java.util.List");
+
+            // 2. Test com.example.Box (Project-defined Parameterized Type)
+            ProjectFile boxFile = project.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().contains("Box.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            CodeUnit boxTarget = new CodeUnit(boxFile, CodeUnitType.CLASS, "com.example", "Box");
+            Set<UsageHit> boxHits = JdtUsageAnalyzer.findUsages(boxTarget, Set.of(consumerFile), project);
+
+            // Expecting 4 hits:
+            // - private Box<Integer> integerBox (Type)
+            // - = new Box<>() (Constructor/ClassInstanceCreation)
+            // - Box<String> stringBox (Type)
+            // - = new Box<>() (Constructor/ClassInstanceCreation)
+            assertEquals(4, boxHits.size(), "Should find 4 usages of com.example.Box");
+            assertTrue(boxHits.stream().anyMatch(h -> h.snippet().contains("Box<Integer>")));
+            assertTrue(boxHits.stream().anyMatch(h -> h.snippet().contains("Box<String>")));
+        }
+    }
 }
