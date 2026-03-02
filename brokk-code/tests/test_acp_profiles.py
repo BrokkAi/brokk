@@ -13,8 +13,6 @@ def test_resolve_profile_zed_by_name() -> None:
     profile = resolve_client_profile(client_capabilities={}, client_info=client_info)
 
     assert profile.is_zed is True
-    assert profile.emit_token_bar is True
-    assert profile.use_short_description_context is False
     assert profile.tool_call_titles_only is False
 
 
@@ -29,8 +27,6 @@ def test_resolve_profile_unknown_falls_back_to_intellij_behavior() -> None:
     profile = resolve_client_profile(client_capabilities={}, client_info=None)
 
     assert profile.is_zed is False
-    assert profile.emit_token_bar is False
-    assert profile.use_short_description_context is True
     assert profile.tool_call_titles_only is True
 
 
