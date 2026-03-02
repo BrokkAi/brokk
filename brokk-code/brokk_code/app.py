@@ -2783,6 +2783,7 @@ class BrokkApp(App):
                 await new_exec.start()
                 await new_exec.create_session()
                 await new_exec.wait_ready()
+                self._executor_ready = True
 
             # Swap active executor
             self.executor = self._worktree_executors[resolved_path]
