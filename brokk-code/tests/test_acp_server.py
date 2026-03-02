@@ -302,11 +302,16 @@ def test_map_executor_unknown_event() -> None:
     assert map_executor_event_to_session_update(event, _text_block) is None
 
 
-def test_map_executor_notification_event_surfaces_as_message() -> None:
+def test_map_executor_info_notification_event_is_suppressed() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_error_notification_event_surfaces_as_message() -> None:
+    event = {"type": "NOTIFICATION", "data": {"level": "ERROR", "message": "critical failure"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
         "sessionUpdate": "agent_message_chunk",
-        "text": "\n\n[INFO] planning\n",
+        "text": "\n\n[ERROR] critical failure\n",
     }
 
 

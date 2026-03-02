@@ -19,7 +19,7 @@ MODE_OPTIONS = ("LUTZ", "CODE", "ASK")
 BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
 DEFAULT_MODEL_SELECTION = "gpt-5.2"
-DEFAULT_REASONING_LEVEL = "low"
+DEFAULT_REASONING_LEVEL = "medium"
 THOUGHT_LEVEL_CONFIG_ID = "thought_level"
 DEFAULT_VARIANT_VALUE = "default"
 MODEL_DISCOVERY_INITIAL_ATTEMPTS = 4
@@ -445,9 +445,9 @@ def map_executor_event_to_session_update(
         if not msg:
             return None
         normalized_level = str(level).strip().upper()
-        # CONFIRM is an internal headless prompt outcome and should not be appended
-        # to persistent chat output.
-        if normalized_level in {"COST", "CONFIRM"}:
+        # INFO/COST/CONFIRM are internal or high-volume and should not be
+        # appended to persistent chat output.
+        if normalized_level in {"COST", "CONFIRM", "INFO"}:
             return None
         return update_agent_message_text(_format_notification_line(level, msg))
 
