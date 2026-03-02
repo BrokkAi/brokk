@@ -870,6 +870,242 @@ public class SearchToolsTest {
         assertTrue(result.contains("attrs={id=\"a\"}"), "Should include attrs. Result:\n" + result);
     }
 
+    @Test
+    void testHtmlSelect_TextMode() throws Exception {
+        Path html = projectRoot.resolve("test.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="content">Hello World</div>
+                  <div class="content">Goodbye World</div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test.html"));
+
+        String result = searchTools.htmlSelect("test.html", "div.content", "TEXT", "", 10, 10);
+
+        assertTrue(result.contains("File: test.html (2 matches)"), "Should show file header. Result:\n" + result);
+        assertTrue(result.contains("Hello World"), "Should extract text from first div. Result:\n" + result);
+        assertTrue(result.contains("Goodbye World"), "Should extract text from second div. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_AttrMode() throws Exception {
+        Path html = projectRoot.resolve("links.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <a href="https://example.com" id="link1">Example</a>
+                  <a href="https://test.org" id="link2">Test</a>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "links.html"));
+
+        String result = searchTools.htmlSelect("links.html", "a", "ATTR", "href", 10, 10);
+
+        assertTrue(result.contains("File: links.html (2 matches)"), "Should show file header. Result:\n" + result);
+        assertTrue(
+                result.contains("@href=\"https://example.com\""),
+                "Should extract href from first link. Result:\n" + result);
+        assertTrue(
+                result.contains("@href=\"https://test.org\""),
+                "Should extract href from second link. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_AttrsMode() throws Exception {
+        Path html = projectRoot.resolve("attrs.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <input type="text" name="username" class="form-control" />
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "attrs.html"));
+
+        String result = searchTools.htmlSelect("attrs.html", "input", "ATTRS", "", 10, 10);
+
+        assertTrue(result.contains("File: attrs.html (1 match)"), "Should show file header. Result:\n" + result);
+
+        ObjectMapper mapper = new ObjectMapper();
+        List<String> jsonLines = result.lines().filter(l -> l.startsWith("{")).toList();
+        assertFalse(jsonLines.isEmpty(), "Should contain JSONL lines. Result:\n" + result);
+
+        JsonNode node = mapper.readTree(jsonLines.getFirst());
+        assertEquals("input", node.get("name").asText());
+        assertEquals("text", node.get("attrs").get("type").asText());
+        assertEquals("username", node.get("attrs").get("name").asText());
+        assertEquals("form-control", node.get("attrs").get("class").asText());
+    }
+
+    @Test
+    void testHtmlSelect_InvalidSelector() throws Exception {
+        Path html = projectRoot.resolve("invalid_selector.html");
+        Files.writeString(html, "<html><body><div>Test</div></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "invalid_selector.html"));
+
+        String result = searchTools.htmlSelect("invalid_selector.html", "[[invalid", "TEXT", "", 10, 10);
+
+        assertTrue(result.contains("Invalid CSS selector"), "Should report selector error. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_PathMode() throws Exception {
+        Path html = projectRoot.resolve("path.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div><span>First</span></div>
+                  <div><span>Second</span></div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "path.html"));
+
+        String result = searchTools.htmlSelect("path.html", "span", "PATH", "", 10, 10);
+
+        assertTrue(
+                result.contains("/html[1]/body[1]/div[1]/span[1]"),
+                "Should show path for first span. Result:\n" + result);
+        assertTrue(
+                result.contains("/html[1]/body[1]/div[2]/span[1]"),
+                "Should show path for second span. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_HtmlMode() throws Exception {
+        Path html = projectRoot.resolve("html_mode.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="small"><b>Bold</b></div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "html_mode.html"));
+
+        String result = searchTools.htmlSelect("html_mode.html", "div.small", "HTML", "", 10, 10);
+
+        assertTrue(result.contains("<div class=\"small\">"), "Should contain outer HTML. Result:\n" + result);
+        assertTrue(result.contains("<b>Bold</b>"), "Should contain inner HTML. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_HtmlModeFallsBackToSkimWhenTooLarge() throws Exception {
+        Path html = projectRoot.resolve("big.html");
+        String bigText = "a".repeat(2100);
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="big">%s</div>
+                </body>
+                </html>
+                """
+                        .stripIndent()
+                        .formatted(bigText));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "big.html"));
+
+        String result = searchTools.htmlSelect("big.html", "div.big", "HTML", "", 10, 10);
+
+        assertTrue(result.contains("[HTML_TOO_LARGE]"), "Should indicate HTML was too large. Result:\n" + result);
+        assertTrue(result.contains("textLen="), "Fallback skim should include textLen. Result:\n" + result);
+        assertFalse(result.contains("a".repeat(200)), "Should not dump the huge text content. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_NameMode() throws Exception {
+        Path html = projectRoot.resolve("name.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <article>Content</article>
+                  <section>More</section>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "name.html"));
+
+        String result = searchTools.htmlSelect("name.html", "body > *", "NAME", "", 10, 10);
+
+        assertTrue(result.contains(": article"), "Should show article tag name. Result:\n" + result);
+        assertTrue(result.contains(": section"), "Should show section tag name. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_NoFilesFound() throws Exception {
+        String result = searchTools.htmlSelect("nonexistent.html", "div", "TEXT", "", 10, 10);
+        assertTrue(result.contains("No HTML files found matching"), "Should report no files found. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_NoMatches() throws Exception {
+        Path html = projectRoot.resolve("no_match.html");
+        Files.writeString(html, "<html><body><div>Test</div></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "no_match.html"));
+
+        String result = searchTools.htmlSelect("no_match.html", "span.nonexistent", "TEXT", "", 10, 10);
+        assertTrue(result.contains("No results for htmlSelect"), "Should report no matches. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_HtmExtension() throws Exception {
+        Path htm = projectRoot.resolve("test.htm");
+        Files.writeString(htm, "<html><body><p>Paragraph</p></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test.htm"));
+
+        String result = searchTools.htmlSelect("test.htm", "p", "TEXT", "", 10, 10);
+
+        assertTrue(result.contains("File: test.htm"), "Should find .htm files. Result:\n" + result);
+        assertTrue(result.contains("Paragraph"), "Should extract text. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_GlobPattern() throws Exception {
+        Path html1 = projectRoot.resolve("page1.html");
+        Path html2 = projectRoot.resolve("page2.html");
+        Files.writeString(html1, "<html><body><h1>Page 1</h1></body></html>");
+        Files.writeString(html2, "<html><body><h1>Page 2</h1></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page1.html"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page2.html"));
+
+        String result = searchTools.htmlSelect("*.html", "h1", "TEXT", "", 10, 10);
+
+        assertTrue(result.contains("page1.html"), "Should find page1.html. Result:\n" + result);
+        assertTrue(result.contains("page2.html"), "Should find page2.html. Result:\n" + result);
+        assertTrue(result.contains("Page 1"), "Should extract text from page1. Result:\n" + result);
+        assertTrue(result.contains("Page 2"), "Should extract text from page2. Result:\n" + result);
+    }
+
     private static int countOccurrences(String text, String substring) {
         int count = 0;
         int idx = 0;

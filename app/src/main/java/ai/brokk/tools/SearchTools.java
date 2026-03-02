@@ -79,6 +79,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
+import org.jsoup.Jsoup;
+import org.jsoup.select.Selector;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NamedNodeMap;
@@ -611,6 +613,100 @@ public class SearchTools {
             sb.append('/').append(name).append('[').append(idx).append(']');
         }
         return sb.toString();
+    }
+
+    private static boolean isHtmlExtension(String ext) {
+        return "html".equalsIgnoreCase(ext) || "htm".equalsIgnoreCase(ext);
+    }
+
+    private static String computeHtmlElementPath(org.jsoup.nodes.Element elem) {
+        List<org.jsoup.nodes.Element> ancestors = new ArrayList<>();
+        org.jsoup.nodes.Element cur = elem;
+        while (cur != null) {
+            ancestors.add(cur);
+            cur = cur.parent();
+        }
+        if (ancestors.isEmpty()) return "/";
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = ancestors.size() - 1; i >= 0; i--) {
+            org.jsoup.nodes.Element e = ancestors.get(i);
+            String tagName = e.tagName();
+
+            int idx = 1;
+            org.jsoup.nodes.Element parent = e.parent();
+            if (parent != null) {
+                for (org.jsoup.nodes.Element sib : parent.children()) {
+                    if (sib == e) break;
+                    if (sib.tagName().equals(tagName)) idx++;
+                }
+            }
+            sb.append('/').append(tagName).append('[').append(idx).append(']');
+        }
+        return sb.toString();
+    }
+
+    private static String htmlSkimBfs(org.jsoup.nodes.Element root, int totalBudgetChars) {
+        int budget = max(1, totalBudgetChars);
+        ArrayDeque<org.jsoup.nodes.Element> q = new ArrayDeque<>();
+        q.add(root);
+
+        List<String> lines = new ArrayList<>();
+        int used = 0;
+        boolean truncated = false;
+
+        while (!q.isEmpty()) {
+            org.jsoup.nodes.Element e = q.removeFirst();
+
+            String path = computeHtmlElementPath(e);
+
+            Map<String, Integer> childHist = new HashMap<>();
+            for (org.jsoup.nodes.Element child : e.children()) {
+                childHist.merge(child.tagName(), 1, Integer::sum);
+            }
+            String histText = childHist.isEmpty()
+                    ? "children={}"
+                    : "children={%s}"
+                            .formatted(childHist.entrySet().stream()
+                                    .sorted(Map.Entry.comparingByKey())
+                                    .map(entry -> "%s:%d".formatted(entry.getKey(), entry.getValue()))
+                                    .collect(Collectors.joining(", ")));
+
+            int textLen = e.ownText().strip().length();
+
+            String attrsText = "";
+            if (!e.attributes().isEmpty()) {
+                Map<String, String> attrMap = new LinkedHashMap<>();
+                for (org.jsoup.nodes.Attribute attr : e.attributes()) {
+                    attrMap.put(attr.getKey(), capXmlAttrValue(attr.getValue()));
+                }
+                attrsText = " attrs={%s}"
+                        .formatted(attrMap.entrySet().stream()
+                                .map(entry -> "%s=\"%s\"".formatted(entry.getKey(), entry.getValue()))
+                                .collect(Collectors.joining(", ")));
+            }
+
+            String line = "%s <%s> textLen=%d %s%s".formatted(path, e.tagName(), textLen, histText, attrsText);
+            line = truncateLine(line, 0, line.length());
+
+            if (used + line.length() + 1 > budget) {
+                truncated = true;
+                break;
+            }
+
+            lines.add(line);
+            used += line.length() + 1;
+
+            for (org.jsoup.nodes.Element child : e.children()) {
+                q.add(child);
+            }
+        }
+
+        if (truncated) {
+            lines.add("TRUNCATED: reached output budget");
+        }
+
+        return String.join("\n", lines);
     }
 
     private static String xmlSkimBfs(Node root, int totalBudgetChars) {
@@ -2261,6 +2357,179 @@ public class SearchTools {
                                 batchResult.errors().getFirst());
             }
             return "No results for xmlSelect.";
+        }
+
+        String outResult = String.join("\n", batchResult.results()).trim();
+        if (batchResult.truncatedByMaxFiles()) {
+            outResult += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
+        }
+        if (!batchResult.errors().isEmpty()) {
+            outResult += "\n\nWARNINGS: errors occurred in %d files; first: %s"
+                    .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
+        }
+
+        return recordResearchTokens(outResult);
+    }
+
+    @Tool(
+            """
+            Selects elements from HTML files using a CSS selector (Jsoup), then extracts a specific view of each match.
+
+            Output modes (output parameter):
+            - TEXT: plain text content (element.text().strip())
+            - NAME: element tag name
+            - PATH: computed element path with sibling indexes (e.g., /html[1]/body[1]/div[2])
+            - ATTR: plain text single attribute value (requires attrName)
+            - ATTRS: JSONL; one JSON object per match with {path, name, attrs}
+            - HTML: outer HTML (element.outerHtml()). If the outer HTML is longer than MAX_CHARS_PER_LINE, a BFS skim of that subtree
+              is returned instead (capped at MAX_CHARS_PER_LINE).
+
+            Notes:
+            - maxFiles and matchesPerFile are capped at 500 each.
+            - maxFiles * matchesPerFile is forced to be <= 500.
+            """)
+    public String htmlSelect(
+            @P("File path or glob pattern (e.g., 'index.html', '**/*.html').") String filepath,
+            @P("CSS selector (Jsoup syntax, e.g., 'div.content', '#main a').") String cssSelector,
+            @P("Extraction mode: TEXT, NAME, PATH, ATTR, ATTRS, HTML.") String output,
+            @P("Attribute name (required when output=ATTR; ignored otherwise).") String attrName,
+            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
+            @P("Maximum number of matches to return per file. Capped at 500.") int matchesPerFile)
+            throws InterruptedException {
+        var project = contextManager.getProject();
+        var files = Completions.expandPath(project, filepath).stream()
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .filter(ProjectFile::isText)
+                .filter(pf -> isHtmlExtension(pf.extension()))
+                .sorted()
+                .toList();
+
+        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
+            files = Completions.expandPath(project, filepath.substring(3)).stream()
+                    .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
+                    .filter(ProjectFile::isText)
+                    .filter(pf -> isHtmlExtension(pf.extension()))
+                    .sorted()
+                    .toList();
+        }
+
+        if (files.isEmpty()) {
+            return "No HTML files found matching: " + filepath;
+        }
+
+        if (cssSelector.isBlank()) {
+            throw new IllegalArgumentException("Cannot htmlSelect: cssSelector is empty");
+        }
+
+        String mode = output.strip().toUpperCase(Locale.ROOT);
+        if ("ATTR".equals(mode) && attrName.isBlank()) {
+            throw new IllegalArgumentException("Cannot htmlSelect: attrName is required when output=ATTR");
+        }
+
+        EffectiveLimits limits = clampMaxFilesAndMatchesPerFile(maxFiles, matchesPerFile);
+
+        BatchResult<String> batchResult;
+        try {
+            batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
+                try {
+                    var contentOpt = file.read();
+                    if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
+
+                    org.jsoup.nodes.Document doc = Jsoup.parse(contentOpt.get());
+
+                    org.jsoup.select.Elements elements;
+                    try {
+                        elements = doc.select(cssSelector);
+                    } catch (Selector.SelectorParseException e) {
+                        String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                        return new IndexedResult<>(idx, null, file + ": Invalid CSS selector: " + message);
+                    }
+
+                    int total = elements.size();
+                    if (total == 0) return new IndexedResult<>(idx, null, null);
+
+                    int toTake = min(total, limits.matchesPerFile());
+                    boolean hitLimit = total > toTake;
+                    String matchCountLabel = hitLimit
+                            ? "first %d matches".formatted(toTake)
+                            : "%d %s".formatted(toTake, toTake == 1 ? "match" : "matches");
+
+                    List<String> outLines = new ArrayList<>(toTake + 1);
+                    outLines.add("File: %s (%s)".formatted(file.toString().replace('\\', '/'), matchCountLabel));
+
+                    var mapper = jqMappers.get();
+
+                    for (int i = 0; i < toTake; i++) {
+                        org.jsoup.nodes.Element elem = elements.get(i);
+
+                        String path = computeHtmlElementPath(elem);
+                        String name = elem.tagName();
+
+                        switch (mode) {
+                            case "TEXT" -> {
+                                String text = elem.text().strip();
+                                String line = "%s: %s".formatted(path, text);
+                                outLines.add(truncateLine(line, 0, line.length()));
+                            }
+                            case "NAME" -> outLines.add("%s: %s".formatted(path, name));
+                            case "PATH" -> outLines.add(path);
+                            case "ATTR" -> {
+                                String value = elem.hasAttr(attrName) ? elem.attr(attrName) : "";
+                                String line = "%s @%s=\"%s\"".formatted(path, attrName, value);
+                                outLines.add(truncateLine(line, 0, line.length()));
+                            }
+                            case "ATTRS" -> {
+                                Map<String, String> attrs = Map.of();
+                                if (!elem.attributes().isEmpty()) {
+                                    Map<String, String> m = new LinkedHashMap<>();
+                                    for (org.jsoup.nodes.Attribute attr : elem.attributes()) {
+                                        m.put(attr.getKey(), capXmlAttrValue(attr.getValue()));
+                                    }
+                                    attrs = Map.copyOf(m);
+                                }
+                                Map<String, Object> obj = Map.of("path", path, "name", name, "attrs", attrs);
+                                outLines.add(mapper.writeValueAsString(obj));
+                            }
+                            case "HTML" -> {
+                                String outerHtml = elem.outerHtml();
+                                if (outerHtml.length() > XML_MAX_CHARS_PER_NODE) {
+                                    outLines.add("%s: [HTML_TOO_LARGE]".formatted(path));
+                                    String skim = htmlSkimBfs(elem, XML_MAX_CHARS_PER_NODE);
+                                    outLines.addAll(List.of(skim.split("\n", -1)));
+                                } else {
+                                    String line = "%s: %s".formatted(path, outerHtml);
+                                    outLines.add(truncateLine(line, 0, line.length()));
+                                }
+                            }
+                            default -> throw new IllegalArgumentException("Invalid output mode: " + mode);
+                        }
+                    }
+
+                    return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
+                } catch (Exception e) {
+                    String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                    return new IndexedResult<>(idx, null, file + ": " + message);
+                }
+            });
+        } catch (RuntimeException e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            logger.error("Error executing htmlSelect", e);
+            return "htmlSelect failed: " + message;
+        }
+
+        if (batchResult.results().isEmpty()) {
+            if (!batchResult.errors().isEmpty()) {
+                // Check if any error is specifically about invalid CSS selector
+                var firstError = batchResult.errors().getFirst();
+                if (firstError.contains("Invalid CSS selector")) {
+                    return "Invalid CSS selector: " + cssSelector;
+                }
+                return "htmlSelect produced errors in %d of %d files: %s"
+                        .formatted(batchResult.errors().size(), files.size(), firstError);
+            }
+            return "No results for htmlSelect.";
         }
 
         String outResult = String.join("\n", batchResult.results()).trim();
