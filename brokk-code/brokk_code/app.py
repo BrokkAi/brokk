@@ -16,7 +16,12 @@ from textual.widgets import Button, Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
-from brokk_code.git_worktrees import get_worktree_display_name, list_worktrees
+from brokk_code.git_worktrees import (
+    WorktreeInfo,
+    get_worktree_display_name,
+    list_worktrees,
+    remove_worktree,
+)
 from brokk_code.settings import (
     DEFAULT_THEME,
     Settings,
@@ -373,6 +378,64 @@ class ModeSelectModal(ModalScreen[str]):
         mode = self._item_id_to_mode.get(message.item.id)
         if mode:
             self.dismiss(mode)
+
+
+class WorktreeSelectModal(ModalScreen[str]):
+    """A modal for selecting and managing git worktrees."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+        Binding("n", "new_worktree", "New", show=False),
+        Binding("d", "delete_worktree", "Delete", show=False),
+        Binding("x", "delete_worktree", "Delete", show=False),
+    ]
+
+    def __init__(self, worktrees: List[WorktreeInfo]) -> None:
+        super().__init__()
+        self.worktrees = worktrees
+        self._item_id_to_path: Dict[str, Path] = {
+            f"wt-{idx}": wt.path for idx, wt in enumerate(worktrees)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="worktree-select-container"):
+            yield Static("Select Git Worktree", id="worktree-select-title")
+            with VerticalScroll(id="worktree-select-list-wrap"):
+                items = []
+                for idx, wt in enumerate(self.worktrees):
+                    current_marker = "[*]" if wt.is_current else "[ ]"
+                    name = get_worktree_display_name(wt)
+                    path_str = str(wt.path)
+                    if len(path_str) > 40:
+                        path_str = "..." + path_str[-37:]
+
+                    label = f"{current_marker} {name:<20} {path_str}"
+                    items.append(ListItem(Static(label, markup=False), id=f"wt-{idx}"))
+                yield ListView(*items, id="worktree-select-list")
+            yield Static(
+                "Enter: Switch  [bold]N[/]: New  [bold]D[/]: Delete  Esc: Cancel",
+                id="worktree-select-footer",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#worktree-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        path = self._item_id_to_path.get(message.item.id)
+        if path:
+            self.dismiss(str(path))
+
+    def action_new_worktree(self) -> None:
+        self.dismiss("new")
+
+    def action_delete_worktree(self) -> None:
+        list_view = self.query_one("#worktree-select-list", ListView)
+        if list_view.highlighted_child and list_view.highlighted_child.id:
+            path = self._item_id_to_path.get(list_view.highlighted_child.id)
+            if path:
+                self.dismiss(f"delete:{path}")
 
 
 class SessionSelectModal(ModalScreen[str]):
@@ -1936,6 +1999,7 @@ class BrokkApp(App):
             {"command": "/history-clear", "description": "Clear prompt history"},
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
+            {"command": "/worktrees", "description": "List and switch between git worktrees"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
@@ -2111,6 +2175,8 @@ class BrokkApp(App):
             self.action_toggle_tasklist()
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
+        elif base == "/worktrees":
+            self.run_worker(self._show_worktrees())
         elif base == "/help":
             commands = self.get_slash_commands()
             # Calculate padding based on longest command
@@ -2596,6 +2662,83 @@ class BrokkApp(App):
         except Exception as e:
             if chat:
                 chat.add_system_message(f"Failed to delete session: {e}", level="ERROR")
+
+    async def _show_worktrees(self) -> None:
+        chat = self._maybe_chat()
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot list worktrees.", level="ERROR"
+                )
+            return
+
+        try:
+            worktrees = await asyncio.to_thread(list_worktrees, self.executor.workspace_dir)
+
+            def on_selected(selected: str | None) -> None:
+                if not selected:
+                    return
+                if selected == "new":
+
+                    def on_branch_name(branch: str | None) -> None:
+                        if branch:
+                            # Placeholder for actual implementation method defined in instructions
+                            # Note: instructions mention calling _create_worktree_and_switch(branch)
+                            self.run_worker(self._create_worktree_and_switch(branch))
+
+                    self.push_screen(TaskTitleModalScreen("New Worktree Branch"), on_branch_name)
+                elif selected.startswith("delete:"):
+                    path_str = selected.split(":", 1)[1]
+                    self.run_worker(self._remove_worktree(Path(path_str)))
+                else:
+                    self.run_worker(self._switch_to_worktree(Path(selected)))
+
+            self.push_screen(WorktreeSelectModal(worktrees), on_selected)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to list worktrees: {e}", level="ERROR")
+
+    async def _create_worktree_and_switch(self, branch: str) -> None:
+        from brokk_code.git_worktrees import add_worktree, next_worktree_path
+
+        chat = self._maybe_chat()
+        try:
+            new_path = await asyncio.to_thread(next_worktree_path, self.executor.workspace_dir)
+            if chat:
+                chat.add_system_message(f"Creating worktree for branch '{branch}' at {new_path}...")
+            await asyncio.to_thread(add_worktree, self.executor.workspace_dir, branch, new_path)
+            await self._switch_to_worktree(new_path)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to create worktree: {e}", level="ERROR")
+
+    async def _remove_worktree(self, path: Path) -> None:
+        chat = self._maybe_chat()
+        try:
+            await asyncio.to_thread(remove_worktree, self.executor.workspace_dir, path)
+            if chat:
+                chat.add_system_message(f"Removed worktree: {path}")
+            await self._refresh_context_panel()
+            self._refresh_worktree_name()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to remove worktree: {e}", level="ERROR")
+
+    async def _switch_to_worktree(self, path: Path) -> None:
+        chat = self._maybe_chat()
+        if chat:
+            chat.add_system_message(f"Switching workspace to: {path}...")
+        try:
+            # Update the executor manager's workspace directory
+            self.executor.workspace_dir = path
+            # Restart the executor to point to the new workspace
+            await self._shutdown_once(show_message=False)
+            self._executor_started = False
+            self._executor_ready = False
+            self.run_worker(self._start_executor())
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to switch worktree: {e}", level="ERROR")
 
     async def _switch_to_session(self, session_id: str) -> None:
         from brokk_code.session_persistence import save_last_session_id
