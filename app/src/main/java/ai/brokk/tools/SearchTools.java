@@ -19,7 +19,6 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.AbstractProject;
-import ai.brokk.util.BuildTools;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -56,7 +55,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.xml.XMLConstants;
@@ -177,11 +175,6 @@ public class SearchTools {
             this.pattern = pattern;
         }
 
-        private static RegexMatchOverflowException fromPattern(String originalPattern, StackOverflowError cause) {
-            String truncated = BuildTools.truncatePatternForDiagnostics(originalPattern);
-            return new RegexMatchOverflowException(truncated, cause);
-        }
-
         private String pattern() {
             return pattern;
         }
@@ -215,10 +208,6 @@ public class SearchTools {
         return syms.stream()
                 .map(sym -> STRIP_PARAMS_PATTERN.matcher(sym).replaceFirst(""))
                 .toList();
-    }
-
-    private static List<String> truncatePatternsForDiagnostics(List<String> patterns) {
-        return patterns.stream().map(BuildTools::truncatePatternForDiagnostics).toList();
     }
 
     private IAnalyzer getAnalyzer() {
@@ -699,7 +688,40 @@ public class SearchTools {
     }
 
     public static List<Pattern> compilePatterns(List<String> patterns) {
-        return compilePatternsWithFlags(patterns, 0);
+        List<String> nonBlank = patterns.stream().filter(p -> !p.isBlank()).toList();
+        if (nonBlank.isEmpty()) {
+            return List.of();
+        }
+
+        Cache<String, Pattern> cache = searchPatterns.get();
+
+        List<Pattern> compiled = new ArrayList<>(nonBlank.size());
+        List<String> errors = new ArrayList<>();
+
+        for (String pat : nonBlank) {
+            try {
+                Pattern cached = cache.getIfPresent(pat);
+                if (cached != null) {
+                    compiled.add(cached);
+                    continue;
+                }
+
+                Pattern newlyCompiled = Pattern.compile(pat);
+                cache.put(pat, newlyCompiled);
+                compiled.add(newlyCompiled);
+            } catch (StackOverflowError e) {
+                errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
+            } catch (RuntimeException e) {
+                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                errors.add("'%s': %s".formatted(pat, message));
+            }
+        }
+
+        if (!errors.isEmpty()) {
+            throw new IllegalArgumentException("Invalid regex pattern(s): " + String.join("; ", errors));
+        }
+
+        return List.copyOf(compiled);
     }
 
     private static List<Pattern> compilePatternsWithFlags(List<String> patterns, int flags) {
@@ -715,7 +737,7 @@ public class SearchTools {
 
         for (String pat : nonBlank) {
             try {
-                String cacheKey = flags == 0 ? pat : pat + "::flags=" + flags;
+                String cacheKey = pat + "::flags=" + flags;
 
                 Pattern cached = cache.getIfPresent(cacheKey);
                 if (cached != null) {
@@ -727,14 +749,10 @@ public class SearchTools {
                 cache.put(cacheKey, newlyCompiled);
                 compiled.add(newlyCompiled);
             } catch (StackOverflowError e) {
-                String truncated = BuildTools.truncatePatternForDiagnostics(pat);
-                errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(truncated));
-            } catch (PatternSyntaxException pse) {
-                String truncated = BuildTools.truncatePatternForDiagnostics(pat);
-                errors.add("'%s': %s".formatted(truncated, pse.getMessage()));
-            } catch (Throwable t) {
-                String message = t.getMessage() == null ? t.toString() : t.getMessage();
-                errors.add("'%s': %s".formatted(BuildTools.truncatePatternForDiagnostics(pat), message));
+                errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
+            } catch (RuntimeException e) {
+                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                errors.add("'%s': %s".formatted(pat, message));
             }
         }
 
@@ -1777,7 +1795,7 @@ public class SearchTools {
                     }
                 }
             } catch (StackOverflowError e) {
-                throw RegexMatchOverflowException.fromPattern(pattern.pattern(), e);
+                throw new RegexMatchOverflowException(pattern.pattern(), e);
             }
         }
 
@@ -2270,7 +2288,7 @@ public class SearchTools {
             throw new IllegalArgumentException("Cannot search filenames: patterns list is empty");
         }
 
-        logger.debug("Searching filenames for patterns: {}", truncatePatternsForDiagnostics(patterns));
+        logger.debug("Searching filenames for patterns: {}", patterns);
 
         final List<Pattern> compiledPatterns;
         try {
@@ -2301,9 +2319,8 @@ public class SearchTools {
                     .sorted()
                     .toList();
         } catch (RegexMatchOverflowException e) {
-            var truncatedPatterns=  String.join(", ", truncatePatternsForDiagnostics(List.of(e.pattern())));
-            logger.warn("Regex stack overflow while searching filenames with pattern {}", truncatedPatterns, e);
-            return "Regex pattern '%s' caused StackOverflowError during filename search".formatted(truncatedPatterns);
+            logger.warn("Regex stack overflow while searching filenames with pattern {}", e.pattern(), e);
+            return "Regex pattern '%s' caused StackOverflowError during filename search".formatted(e.pattern());
         }
 
         int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
@@ -2311,7 +2328,7 @@ public class SearchTools {
         var matchingFiles = allMatches.stream().limit(effectiveLimit).toList();
 
         if (matchingFiles.isEmpty()) {
-            return "No filenames found matching patterns: " + String.join(", ", truncatePatternsForDiagnostics(patterns));
+            return "No filenames found matching patterns: " + String.join(", ", patterns);
         }
 
         String prefix = "";
@@ -2327,7 +2344,7 @@ public class SearchTools {
         try {
             return pattern.matcher(input).find();
         } catch (StackOverflowError e) {
-            throw RegexMatchOverflowException.fromPattern(pattern.pattern(), e);
+            throw new RegexMatchOverflowException(pattern.pattern(), e);
         }
     }
 
@@ -2385,7 +2402,7 @@ public class SearchTools {
     }
 
     /**
-     * Formats files in a directory as a comma-separated string, including immediate subdirectories.
+     * Formats files in a directory as a comma-separated string.
      * Public static to allow reuse by BuildAgent.
      */
     public static String formatFilesInDirectory(
@@ -2397,40 +2414,11 @@ public class SearchTools {
                 .map(ProjectFile::toString)
                 .collect(Collectors.joining(", "));
 
-        var subDirs = allFiles.stream()
-                .parallel()
-                .filter(file -> {
-                    Path rel = file.getRelPath();
-                    if (normalizedDirectoryPath.toString().isEmpty() || normalizedDirectoryPath.equals(Path.of("."))) {
-                        return rel.getNameCount() > 1;
-                    }
-                    return rel.startsWith(normalizedDirectoryPath)
-                            && !file.getParent().equals(normalizedDirectoryPath);
-                })
-                .map(file -> {
-                    Path rel = file.getRelPath();
-                    int index = (normalizedDirectoryPath.toString().isEmpty()
-                                    || normalizedDirectoryPath.equals(Path.of(".")))
-                            ? 0
-                            : normalizedDirectoryPath.getNameCount();
-                    return rel.getName(index).toString() + "/";
-                })
-                .distinct()
-                .sorted()
-                .collect(Collectors.joining(", "));
-
-        if (files.isEmpty() && subDirs.isEmpty()) {
+        if (files.isEmpty()) {
             return "No files found in directory: " + originalDirectoryPath;
         }
 
-        StringBuilder sb = new StringBuilder("Files in ")
-                .append(originalDirectoryPath)
-                .append(": ")
-                .append(files);
-        if (!subDirs.isEmpty()) {
-            sb.append("\nSubdirectories: ").append(subDirs);
-        }
-        return sb.toString();
+        return "Files in " + originalDirectoryPath + ": " + files;
     }
 
     // Only includes project files. Is this what we want?
