@@ -11,11 +11,13 @@ from brokk_code.acp_server import (
     _build_available_models,
     _extract_session_id_for_cancel,
     _fetch_normalized_catalog_with_retries,
+    _known_session_ids,
     _model_variants_for_model,
     _normalize_model_catalog,
     _parse_model_selection,
     _reasoning_options_for_model,
     _sanitize_reasoning_level_for_model,
+    conversation_payload_to_session_updates,
     extract_prompt_text,
     map_executor_event_to_session_update,
     normalize_mode,
@@ -302,11 +304,16 @@ def test_map_executor_unknown_event() -> None:
     assert map_executor_event_to_session_update(event, _text_block) is None
 
 
-def test_map_executor_notification_event_surfaces_as_message() -> None:
+def test_map_executor_info_notification_event_is_suppressed() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_error_notification_event_surfaces_as_message() -> None:
+    event = {"type": "NOTIFICATION", "data": {"level": "ERROR", "message": "critical failure"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
         "sessionUpdate": "agent_message_chunk",
-        "text": "\n\n[INFO] planning\n",
+        "text": "\n\n[ERROR] critical failure\n",
     }
 
 
@@ -367,11 +374,10 @@ def test_map_executor_tool_call_structured() -> None:
 
 
 def test_map_executor_tool_call_fallback() -> None:
-    # No ID or no callbacks
+    # No ID or no callbacks -> now returns None instead of a text prefix
     event = {"type": "TOOL_CALL", "data": {"name": "read_file", "arguments": "{}"}}
     update = map_executor_event_to_session_update(event, _text_block)
-    assert update["sessionUpdate"] == "agent_message_chunk"
-    assert "[CALLING TOOL] read_file({})" in update["text"]
+    assert update is None
 
 
 def test_map_executor_tool_output_structured() -> None:
@@ -397,44 +403,56 @@ def test_map_executor_tool_output_structured() -> None:
 def test_map_executor_tool_output_fallback() -> None:
     event = {"type": "TOOL_OUTPUT", "data": {"status": "ERROR"}}
     update = map_executor_event_to_session_update(event, _text_block)
-    assert update["sessionUpdate"] == "agent_message_chunk"
-    assert "[TOOL ERROR]" in update["text"]
+    assert update is None
 
 
-def test_map_executor_tool_calls_title_only_mode() -> None:
-    start_event = {
-        "type": "TOOL_CALL",
-        "data": {"name": "read_file", "arguments": '{"path":"foo.py"}', "id": "call-1"},
+def test_conversation_payload_to_session_updates_replays_user_assistant_and_reasoning() -> None:
+    conversation_data = {
+        "entries": [
+            {
+                "messages": [
+                    {"role": "user", "text": "Hello"},
+                    {"role": "assistant", "reasoning": "Thinking...", "text": "Hi there"},
+                    {"role": "tool", "text": "Tool output"},
+                    {"role": "assistant", "text": "   "},
+                ]
+            },
+            {"summary": "Condensed summary"},
+        ]
     }
-    start_update = map_executor_event_to_session_update(
-        start_event,
-        _text_block,
-        _thought_block,
-        _start_tool_call,
-        _update_tool_call,
-        _tool_content,
-        _text_block_helper,
-        tool_call_titles_only=True,
+
+    def _user_update(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "user_message_chunk", "text": text}
+
+    def _agent_update(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_message_chunk", "text": text}
+
+    def _thought_update(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_thought_chunk", "text": text}
+
+    updates = conversation_payload_to_session_updates(
+        conversation_data,
+        update_user_message_text=_user_update,
+        update_agent_message_text=_agent_update,
+        update_agent_thought_text=_thought_update,
     )
-    assert start_update == {"sessionUpdate": "agent_message_chunk", "text": "\n[TOOL] read_file\n"}
 
-    output_event = {"type": "TOOL_OUTPUT", "data": {"status": "SUCCESS", "id": "call-1"}}
-    assert (
-        map_executor_event_to_session_update(output_event, _text_block, tool_call_titles_only=True)
-        is None
+    assert updates == [
+        {"sessionUpdate": "user_message_chunk", "text": "Hello"},
+        {"sessionUpdate": "agent_thought_chunk", "text": "Thinking..."},
+        {"sessionUpdate": "agent_message_chunk", "text": "Hi there"},
+        {"sessionUpdate": "agent_message_chunk", "text": "Tool output"},
+        {"sessionUpdate": "agent_message_chunk", "text": "Condensed summary"},
+    ]
+
+
+def test_conversation_payload_to_session_updates_handles_missing_entries() -> None:
+    updates = conversation_payload_to_session_updates(
+        {"entries": "bad"},
+        update_user_message_text=_text_block,
+        update_agent_message_text=_thought_block,
     )
-
-
-def test_map_executor_tool_call_title_only_sanitizes_title() -> None:
-    event = {
-        "type": "TOOL_CALL",
-        "data": {"name": " read_file  \n  {json-ish}", "id": "call-1"},
-    }
-    update = map_executor_event_to_session_update(event, _text_block, tool_call_titles_only=True)
-    assert update == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n[TOOL] read_file {json-ish}\n",
-    }
+    assert updates == []
 
 
 def test_extract_session_id_for_cancel() -> None:
@@ -442,6 +460,22 @@ def test_extract_session_id_for_cancel() -> None:
     assert _extract_session_id_for_cancel(({"sessionId": "def"},), {}) == "def"
     assert _extract_session_id_for_cancel((), {"params": {"sessionId": "ghi"}}) == "ghi"
     assert _extract_session_id_for_cancel((), {}) is None
+
+
+def test_known_session_ids_collects_ids_without_leaking_names() -> None:
+    entries = [
+        {"id": "session-a"},
+        {"sessionId": "session-b"},
+        {"session_id": "session-c"},
+        {"id": ""},
+        {},
+    ]
+    assert _known_session_ids(entries) == {"session-a", "session-b", "session-c"}
+
+
+def test_known_session_ids_handles_bad_payload() -> None:
+    assert _known_session_ids(None) == set()
+    assert _known_session_ids("bad") == set()
 
 
 async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:

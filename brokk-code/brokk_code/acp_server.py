@@ -19,7 +19,7 @@ MODE_OPTIONS = ("LUTZ", "CODE", "ASK")
 BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
 DEFAULT_MODEL_SELECTION = "gpt-5.2"
-DEFAULT_REASONING_LEVEL = "low"
+DEFAULT_REASONING_LEVEL = "medium"
 THOUGHT_LEVEL_CONFIG_ID = "thought_level"
 DEFAULT_VARIANT_VALUE = "default"
 MODEL_DISCOVERY_INITIAL_ATTEMPTS = 4
@@ -32,7 +32,6 @@ class ClientProfile:
     """Runtime configuration derived from ACP client capabilities and info."""
 
     is_zed: bool = False
-    tool_call_titles_only: bool = False
     supports_terminal: bool = False
 
 
@@ -57,14 +56,12 @@ def resolve_client_profile(client_capabilities: Any, client_info: Any) -> Client
     if is_zed:
         return ClientProfile(
             is_zed=True,
-            tool_call_titles_only=False,
             supports_terminal=supports_terminal,
         )
 
     # Default/IntelliJ-like behavior: conservative rendering.
     return ClientProfile(
         is_zed=False,
-        tool_call_titles_only=True,
         supports_terminal=supports_terminal,
     )
 
@@ -415,7 +412,6 @@ def map_executor_event_to_session_update(
     update_tool_call: Optional[Callable[..., Any]] = None,
     tool_content: Optional[Callable[[Any], Any]] = None,
     text_block: Optional[Callable[[str], Any]] = None,
-    tool_call_titles_only: bool = False,
 ) -> Optional[Any]:
     event_type = event.get("type")
     data = event.get("data", {})
@@ -445,9 +441,9 @@ def map_executor_event_to_session_update(
         if not msg:
             return None
         normalized_level = str(level).strip().upper()
-        # CONFIRM is an internal headless prompt outcome and should not be appended
-        # to persistent chat output.
-        if normalized_level in {"COST", "CONFIRM"}:
+        # INFO/COST/CONFIRM are internal or high-volume and should not be
+        # appended to persistent chat output.
+        if normalized_level in {"COST", "CONFIRM", "INFO"}:
             return None
         return update_agent_message_text(_format_notification_line(level, msg))
 
@@ -466,14 +462,6 @@ def map_executor_event_to_session_update(
             or data.get("callId")
         )
 
-        if tool_call_titles_only:
-            raw_title = str(name or "tool")
-            safe_title = " ".join(raw_title.split())
-            if not safe_title:
-                safe_title = "tool"
-            safe_title = safe_title[:120]
-            return update_agent_message_text(f"\n[TOOL] {safe_title}\n")
-
         if start_tool_call and tool_call_id:
             content = None
             if args and text_block and tool_content:
@@ -485,12 +473,9 @@ def map_executor_event_to_session_update(
                 content=content,
             )
 
-        return update_agent_message_text(f"\n[CALLING TOOL] {name}({args})\n")
+        return None
 
     if event_type == "TOOL_OUTPUT":
-        if tool_call_titles_only:
-            return None
-
         status_raw = str(data.get("status", "SUCCESS")).upper()
         # Map executor status to ACP ToolCallStatus: "pending", "in_progress", "completed", "failed"
         acp_status = "completed" if status_raw == "SUCCESS" else "failed"
@@ -514,9 +499,57 @@ def map_executor_event_to_session_update(
                 content=content,
             )
 
-        return update_agent_message_text(f"[TOOL {status_raw}]\n")
+        return None
 
     return None
+
+
+def conversation_payload_to_session_updates(
+    conversation_data: dict[str, Any],
+    update_user_message_text: Callable[[str], Any],
+    update_agent_message_text: Callable[[str], Any],
+    update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+) -> list[Any]:
+    """Map executor conversation payload into ACP session updates for replay."""
+    entries = conversation_data.get("entries")
+    if not isinstance(entries, list):
+        return []
+
+    updates: list[Any] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+
+        messages = entry.get("messages")
+        if isinstance(messages, list):
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+
+                role = str(msg.get("role", "")).strip().lower()
+                text = msg.get("text")
+                if not isinstance(text, str):
+                    text = ""
+
+                reasoning = msg.get("reasoning")
+                if update_agent_thought_text and isinstance(reasoning, str) and reasoning.strip():
+                    updates.append(update_agent_thought_text(reasoning.strip()))
+
+                stripped_text = text.strip()
+                if not stripped_text:
+                    continue
+
+                if role == "user":
+                    updates.append(update_user_message_text(text))
+                else:
+                    updates.append(update_agent_message_text(text))
+            continue
+
+        summary = entry.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            updates.append(update_agent_message_text(summary))
+
+    return updates
 
 
 def _normalize_status_token(token: str) -> str:
@@ -580,6 +613,17 @@ def _session_id_from_entry(entry: Any) -> Optional[str]:
     return sid or None
 
 
+def _known_session_ids(entries: Any) -> set[str]:
+    if not isinstance(entries, list):
+        return set()
+    ids: set[str] = set()
+    for entry in entries:
+        sid = _session_id_from_entry(entry)
+        if sid:
+            ids.add(sid)
+    return ids
+
+
 class BrokkAcpBridge:
     def __init__(self, executor: ExecutorManager):
         self.executor = executor
@@ -638,11 +682,9 @@ class BrokkAcpBridge:
         tool_content: Optional[Callable[[Any], Any]] = None,
         text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
-        profile: Optional[ClientProfile] = None,
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
-        p = profile or ClientProfile()
         executor_session_id = await self._ensure_session(session_id)
         await self._switch_executor_session(executor_session_id)
 
@@ -691,7 +733,6 @@ class BrokkAcpBridge:
                     update_tool_call=update_tool_call,
                     tool_content=tool_content,
                     text_block=text_block,
-                    tool_call_titles_only=p.tool_call_titles_only,
                 )
                 if update:
                     await send_update(session_id, update)
@@ -733,6 +774,7 @@ async def run_acp_server(
             update_agent_message_text,
             update_agent_thought_text,
             update_tool_call,
+            update_user_message_text,
         )
         from acp.agent import connection as acp_agent_connection
         from acp.agent import router as acp_agent_router
@@ -818,6 +860,7 @@ async def run_acp_server(
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
             self._catalog_is_fallback_by_session: dict[str, bool] = {}
             self._profile = resolve_client_profile(None, None)
+            self._replay_tasks: set[asyncio.Task[Any]] = set()
 
             # Load ACP defaults once on agent init
             acp_defaults = load_acp_defaults()
@@ -995,6 +1038,51 @@ async def run_acp_server(
                 }
             }
 
+        async def _replay_loaded_session(self, session_id: str) -> None:
+            if not self.client:
+                return
+            try:
+                conversation_data = await bridge.executor.get_conversation()
+            except Exception:
+                logger.warning(
+                    "Failed to fetch conversation replay for session %s",
+                    session_id,
+                    exc_info=True,
+                )
+                return
+
+            updates = conversation_payload_to_session_updates(
+                conversation_data,
+                update_user_message_text=update_user_message_text,
+                update_agent_message_text=update_agent_message_text,
+                update_agent_thought_text=update_agent_thought_text,
+            )
+            logger.info("Replaying %s ACP chat updates for session %s", len(updates), session_id)
+            for update in updates:
+                await self.client.session_update(session_id, update)
+
+        def _schedule_replay_loaded_session(self, session_id: str) -> None:
+            async def _run() -> None:
+                # Yield so the load/resume response can be delivered first.
+                await asyncio.sleep(0)
+                await self._replay_loaded_session(session_id)
+
+            task = asyncio.create_task(_run())
+            self._replay_tasks.add(task)
+
+            def _done_callback(done: asyncio.Task[Any]) -> None:
+                self._replay_tasks.discard(done)
+                try:
+                    done.result()
+                except Exception:
+                    logger.warning(
+                        "Session replay task failed for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+
+            task.add_done_callback(_done_callback)
+
         def _ensure_session_defaults(self, session_id: str, cwd: Optional[str] = None) -> None:
             if session_id not in self._mode_by_session:
                 self._mode_by_session[session_id] = "LUTZ"
@@ -1120,17 +1208,16 @@ async def run_acp_server(
         ) -> Optional[LoadSessionResponse]:
             del mcp_servers, kwargs
             await bridge.ensure_ready()
+            requested_session_id = session_id
             sessions_payload = await bridge.executor.list_sessions()
-            sessions = sessions_payload.get("sessions", [])
-            known_session_ids = {
-                session_id for entry in sessions if (session_id := _session_id_from_entry(entry))
-            }
-            if session_id not in known_session_ids:
+            known_session_ids = _known_session_ids(sessions_payload.get("sessions", []))
+            if requested_session_id not in known_session_ids:
                 return None
-            await bridge.executor.switch_session(session_id)
-            self._ensure_session_defaults(session_id, cwd)
-            await self._refresh_model_catalog(session_id)
-            model_state = self._model_state_for_session(session_id)
+            await bridge.executor.switch_session(requested_session_id)
+            self._ensure_session_defaults(requested_session_id, cwd)
+            await self._refresh_model_catalog(requested_session_id)
+            self._schedule_replay_loaded_session(requested_session_id)
+            model_state = self._model_state_for_session(requested_session_id)
             return LoadSessionResponse(
                 modes=SessionModeState(
                     available_modes=[
@@ -1138,11 +1225,11 @@ async def run_acp_server(
                         SessionMode(id="CODE", name="CODE"),
                         SessionMode(id="ASK", name="ASK"),
                     ],
-                    current_mode_id=self._mode_by_session.get(session_id, "LUTZ"),
+                    current_mode_id=self._mode_by_session.get(requested_session_id, "LUTZ"),
                 ),
                 models=model_state,
-                config_options=self._config_options_for_session(session_id),
-                _meta=self._variant_meta_for_session(session_id),
+                config_options=self._config_options_for_session(requested_session_id),
+                _meta=self._variant_meta_for_session(requested_session_id),
             )
 
         async def resume_session(
@@ -1367,7 +1454,6 @@ async def run_acp_server(
                 update_tool_call=update_tool_call,
                 tool_content=tool_content,
                 text_block=text_block,
-                profile=self._profile,
             )
             return PromptResponse(stop_reason="end_turn")
 
