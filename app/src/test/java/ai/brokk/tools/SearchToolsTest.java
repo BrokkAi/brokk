@@ -93,13 +93,13 @@ public class SearchToolsTest {
     }
 
     private static String nestedOptionalPattern(int depth) {
-        StringBuilder builder = new StringBuilder(depth * 2 + 1);
+        StringBuilder builder = new StringBuilder(depth * 3 + 1);
         for (int i = 0; i < depth; i++) {
-            builder.append('(');
+            builder.append("(a?");
         }
         builder.append("a");
         for (int i = 0; i < depth; i++) {
-            builder.append(")?");
+            builder.append(")");
         }
         return builder.toString();
     }
@@ -207,7 +207,7 @@ public class SearchToolsTest {
 
     @Test
     void testfindFilesContaining_overlyComplexRegexDoesNotCrash() throws InterruptedException {
-        String result = searchTools.findFilesContaining(List.of(nestedOptionalPattern(10000)), 200);
+        String result = searchTools.findFilesContaining(List.of(nestedOptionalPattern(20000)), 200);
         assertTrue(
                 result.contains("is too complex") || result.contains("StackOverflowError"),
                 "Expected complexity error message but got: " + result);
@@ -222,7 +222,7 @@ public class SearchToolsTest {
 
     @Test
     void testfindFilenames_overlyComplexRegexDoesNotCrash() {
-        String result = searchTools.findFilenames(List.of(nestedOptionalPattern(10000)), 200);
+        String result = searchTools.findFilenames(List.of(nestedOptionalPattern(20000)), 200);
         assertTrue(
                 result.contains("is too complex") || result.contains("StackOverflowError"),
                 "Expected complexity error message but got: " + result);
@@ -530,7 +530,7 @@ public class SearchToolsTest {
     void testSearchFileContents_overlyComplexRegexDoesNotCrash() throws InterruptedException {
         // Use a deeper pattern to ensure failure even if README.md contains small 'a' sequences
         String result = searchTools.searchFileContents(
-                List.of(nestedOptionalPattern(10000)), "README.md", false, false, 0, 200, 200);
+                List.of(nestedOptionalPattern(20000)), "README.md", false, false, 0, 200, 200);
         assertTrue(
                 result.contains("is too complex") || result.contains("StackOverflowError"),
                 "Expected complexity error message but got: " + result);
