@@ -688,40 +688,7 @@ public class SearchTools {
     }
 
     public static List<Pattern> compilePatterns(List<String> patterns) {
-        List<String> nonBlank = patterns.stream().filter(p -> !p.isBlank()).toList();
-        if (nonBlank.isEmpty()) {
-            return List.of();
-        }
-
-        Cache<String, Pattern> cache = searchPatterns.get();
-
-        List<Pattern> compiled = new ArrayList<>(nonBlank.size());
-        List<String> errors = new ArrayList<>();
-
-        for (String pat : nonBlank) {
-            try {
-                Pattern cached = cache.getIfPresent(pat);
-                if (cached != null) {
-                    compiled.add(cached);
-                    continue;
-                }
-
-                Pattern newlyCompiled = Pattern.compile(pat);
-                cache.put(pat, newlyCompiled);
-                compiled.add(newlyCompiled);
-            } catch (StackOverflowError e) {
-                errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
-            } catch (RuntimeException e) {
-                String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                errors.add("'%s': %s".formatted(pat, message));
-            }
-        }
-
-        if (!errors.isEmpty()) {
-            throw new IllegalArgumentException("Invalid regex pattern(s): " + String.join("; ", errors));
-        }
-
-        return List.copyOf(compiled);
+        return compilePatternsWithFlags(patterns, 0);
     }
 
     private static List<Pattern> compilePatternsWithFlags(List<String> patterns, int flags) {
@@ -737,7 +704,7 @@ public class SearchTools {
 
         for (String pat : nonBlank) {
             try {
-                String cacheKey = pat + "::flags=" + flags;
+                String cacheKey = flags == 0 ? pat : pat + "::flags=" + flags;
 
                 Pattern cached = cache.getIfPresent(cacheKey);
                 if (cached != null) {
@@ -750,8 +717,8 @@ public class SearchTools {
                 compiled.add(newlyCompiled);
             } catch (StackOverflowError e) {
                 errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
-            } catch (RuntimeException e) {
-                String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            } catch (Throwable t) {
+                String message = t.getMessage() == null ? t.toString() : t.getMessage();
                 errors.add("'%s': %s".formatted(pat, message));
             }
         }

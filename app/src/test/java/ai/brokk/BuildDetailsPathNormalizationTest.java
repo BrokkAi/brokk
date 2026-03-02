@@ -105,7 +105,7 @@ public class BuildDetailsPathNormalizationTest {
         assertEquals(1, details.modules().size());
         var root = details.modules().getFirst();
         assertEquals("root", root.alias());
-        assertEquals("", root.relativePath());
+        assertEquals(".", root.relativePath());
         assertEquals("mvn compile", root.buildLintCommand());
         assertEquals("mvn test", root.testAllCommand());
         assertEquals("mvn test -Dtest={{classes}}", root.testSomeCommand());

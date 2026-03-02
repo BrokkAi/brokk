@@ -253,7 +253,8 @@ public class BuildTools {
                         if (p.isAbsolute() && Files.exists(p)) {
                             candidate = p.normalize();
                         }
-                    } catch (Exception ignored) {
+                    } catch (java.nio.file.InvalidPathException e) {
+                        // Ignore tokens that are not valid paths
                     }
                 }
 
@@ -300,9 +301,12 @@ public class BuildTools {
     }
 
     private static Optional<Path> inferImportRoot(Path absFile) {
-        if (!Files.isRegularFile(absFile)) return Optional.empty();
+        if (!Files.isRegularFile(absFile)) {
+            return Optional.empty();
+        }
         Path p = absFile.getParent();
         Path lastWithInit = null;
+        // Search upwards for the top-most package directory containing __init__.py
         while (p != null && Files.isRegularFile(p.resolve("__init__.py"))) {
             lastWithInit = p;
             p = p.getParent();
@@ -436,6 +440,7 @@ public class BuildTools {
         try {
             Files.createDirectories(lockDir);
         } catch (IOException e) {
+            // Cannot create lock directory, proceed without lock
             return null;
         }
         var repoNameForLock = getOriginRepositoryName(cm);
