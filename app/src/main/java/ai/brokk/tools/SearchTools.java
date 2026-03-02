@@ -2531,6 +2531,14 @@ public class SearchTools {
 
         EffectiveLimits limits = clampMaxFilesAndMatchesPerFile(maxFiles, matchesPerFile);
 
+        // Validate CSS selector once before scanning any files
+        try {
+            Jsoup.parse("").select(cssSelector);
+        } catch (Selector.SelectorParseException e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            return "Invalid CSS selector: " + message;
+        }
+
         BatchResult<String> batchResult;
         try {
             batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
@@ -2622,13 +2630,11 @@ public class SearchTools {
 
         if (batchResult.results().isEmpty()) {
             if (!batchResult.errors().isEmpty()) {
-                // Check if any error is specifically about invalid CSS selector
-                var firstError = batchResult.errors().getFirst();
-                if (firstError.contains("Invalid CSS selector")) {
-                    return "Invalid CSS selector: " + cssSelector;
-                }
                 return "htmlSelect produced errors in %d of %d files: %s"
-                        .formatted(batchResult.errors().size(), files.size(), firstError);
+                        .formatted(
+                                batchResult.errors().size(),
+                                files.size(),
+                                batchResult.errors().getFirst());
             }
             return "No results for htmlSelect.";
         }
