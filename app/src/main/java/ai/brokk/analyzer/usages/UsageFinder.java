@@ -18,12 +18,15 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A usage finder facade that delegates to language-specific strategies (e.g., JDT for Java, LLM/Fuzzy for others).
  */
 public final class UsageFinder {
 
+    private static final Logger log = LoggerFactory.getLogger(UsageFinder.class);
     private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
     public static final int DEFAULT_MAX_FILES = 1000;
     public static final int DEFAULT_MAX_USAGES = 1000;
@@ -115,7 +118,22 @@ public final class UsageFinder {
             return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
         }
 
-        return config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
+        FuzzyResult result = config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
+        if (result instanceof FuzzyResult.Failure && config.usageAnalyzer() instanceof JdtUsageAnalyzerStrategy) {
+            log.warn("JDT usage analysis failed for {}, falling back to fuzzy analyzer", target.fqName());
+            config = new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
+            candidateFiles = config.candidateProvider().findCandidates(target, analyzer);
+            if (fileFilter != null) {
+                candidateFiles = candidateFiles.stream().filter(fileFilter).collect(Collectors.toSet());
+            }
+
+            if (maxFiles < candidateFiles.size()) {
+                return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
+            }
+            return config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
+        }
+
+        return result;
     }
 
     public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) throws InterruptedException {
