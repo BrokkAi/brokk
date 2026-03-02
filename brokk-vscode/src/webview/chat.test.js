@@ -71,4 +71,36 @@ describe('Chat WebView Regression Test', () => {
         expect(messagesEl.scrollTop).to.be.at.least(expectedMinScroll, 
             "The view should have scrolled to the bottom after the final chunk was rendered.");
     });
+
+    it('should only show messages from the latest replay when called multiple times rapidly', async () => {
+        // Set A: 5 messages
+        const setA = Array.from({ length: 5 }, (_, i) => ({
+            sequence: i,
+            isCompressed: false,
+            messages: [{ role: 'user', text: `Set A - ${i}` }]
+        }));
+
+        // Set B: 3 messages
+        const setB = Array.from({ length: 3 }, (_, i) => ({
+            sequence: i,
+            isCompressed: false,
+            messages: [{ role: 'user', text: `Set B - ${i}` }]
+        }));
+
+        // Call A immediately followed by B (synchronously)
+        replayConversation(setA);
+        replayConversation(setB);
+
+        // Wait for all async chunks to flush
+        await flushMacrotasks();
+
+        // Check the final message count and content
+        // Without the generation check, Set A chunks would still execute and append to the list.
+        const messageTexts = Array.from(messagesEl.querySelectorAll('.message-content'))
+            .map(el => el.textContent);
+
+        expect(messageTexts).to.have.lengthOf(3, "Should only have messages from the most recent set.");
+        expect(messageTexts.every(t => t.startsWith("Set B"))).to.be.true;
+        expect(messageTexts).to.not.any.satisfy(t => t.startsWith("Set A"));
+    });
 });
