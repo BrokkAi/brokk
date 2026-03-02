@@ -322,6 +322,10 @@ public class BrokkExternalMcpServer {
         var allFiles = cm.getProject().getAllFiles();
         boolean hasXml = allFiles.stream().anyMatch(f -> f.toString().endsWith(".xml"));
         boolean hasJson = allFiles.stream().anyMatch(f -> f.toString().endsWith(".json"));
+        boolean hasHtml = allFiles.stream().anyMatch(f -> {
+            String path = f.toString();
+            return path.endsWith(".html") || path.endsWith(".htm");
+        });
 
         if (hasXml) {
             toolNames.add("xpathQuery");
@@ -329,6 +333,10 @@ public class BrokkExternalMcpServer {
 
         if (hasJson && !isJqOnPath()) {
             toolNames.add("jq");
+        }
+
+        if (hasHtml) {
+            toolNames.add("htmlSelect");
         }
 
         return toolSpecificationsFrom(cm, registry, toolNames, mcpToolCallHistoryWriter);

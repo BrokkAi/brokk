@@ -258,6 +258,12 @@ public class SearchAgent {
         if (allFiles.stream().anyMatch(f -> f.extension().equals("json"))) {
             tools.add("jq");
         }
+        if (allFiles.stream().anyMatch(f -> {
+            String ext = f.extension();
+            return ext.equals("html") || ext.equals("htm");
+        })) {
+            tools.add("htmlSelect");
+        }
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
