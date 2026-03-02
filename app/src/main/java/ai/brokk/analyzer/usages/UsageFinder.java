@@ -159,16 +159,17 @@ public final class UsageFinder {
         var overloads = List.copyOf(definitions);
         var result = findUsages(overloads, maxFiles, maxUsages);
 
-        Map<CodeUnit, Set<UsageHit>> allHitsByOverload =
-                switch (result) {
-                    case FuzzyResult.Success success -> success.hitsByOverload();
-                    case FuzzyResult.Ambiguous ambiguous -> ambiguous.hitsByOverload();
-                    case FuzzyResult.TooManyCallsites tooMany -> Map.of();
-                    case FuzzyResult.Failure failure -> Map.of();
-                };
-
-        var filteredHitsByOverload = LlmUsageAnalyzer.filterByConfidence(allHitsByOverload);
-        return new FuzzyResult.Success(filteredHitsByOverload);
+        return switch (result) {
+            case FuzzyResult.Success success ->
+                new FuzzyResult.Success(LlmUsageAnalyzer.filterByConfidence(success.hitsByOverload()));
+            case FuzzyResult.Ambiguous ambiguous ->
+                new FuzzyResult.Ambiguous(
+                        ambiguous.shortName(),
+                        ambiguous.candidateTargets(),
+                        LlmUsageAnalyzer.filterByConfidence(ambiguous.hitsByOverload()));
+            case FuzzyResult.TooManyCallsites tooMany -> tooMany;
+            case FuzzyResult.Failure failure -> failure;
+        };
     }
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {
