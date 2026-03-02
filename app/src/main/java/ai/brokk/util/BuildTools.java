@@ -223,7 +223,7 @@ public class BuildTools {
         return Optional.empty();
     }
 
-    private static Optional<Path> extractRunnerAnchorFromCommands(Path projectRoot, List<String> commands) {
+    public static Optional<Path> extractRunnerAnchorFromCommands(Path projectRoot, List<String> commands) {
         for (String cmd : commands) {
             if (cmd.isBlank()) continue;
             Iterable<String> tokens = Splitter.on(Pattern.compile("\\s+")).split(cmd);

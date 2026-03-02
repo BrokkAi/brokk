@@ -42,7 +42,6 @@ import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
 import com.github.mustachejava.util.DecoratedCollection;
-import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -66,7 +65,6 @@ import java.util.*;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -1309,47 +1307,12 @@ public class BuildAgent {
         String testAll = details.testAllCommand();
         String testSome = details.testSomeCommand();
 
-        Optional<Path> fromRunner = extractRunnerAnchorFromCommands(projectRoot, List.of(testAll, testSome));
+        Optional<Path> fromRunner = BuildTools.extractRunnerAnchorFromCommands(projectRoot, List.of(testAll, testSome));
         if (fromRunner.isPresent()) return fromRunner;
 
         Path tests = projectRoot.resolve("tests");
         if (Files.isDirectory(tests)) return Optional.of(tests);
 
-        return Optional.empty();
-    }
-
-    /**
-     * Parse the given commands for tokens that look like "something.py".
-     * If that file exists within the project, return its parent as the module anchor.
-     * This supports commands like:
-     *   "uv run tests/runtests.py {{#modules}}...{{/modules}}"
-     *   "python foo/bar/run_tests.py"
-     */
-    private static Optional<Path> extractRunnerAnchorFromCommands(Path projectRoot, List<String> commands) {
-        for (String cmd : commands) {
-            if (cmd.isBlank()) continue;
-
-            Iterable<String> tokens = Splitter.on(Pattern.compile("\\s+")).split(cmd);
-            for (String t : tokens) {
-                if (!t.endsWith(".py")) continue;
-
-                String cleaned = t.replaceAll("^[\"']|[\"']$", "");
-                Path candidate = projectRoot.resolve(cleaned).normalize();
-
-                if (!Files.exists(candidate)) {
-                    // Try without projectRoot if the token is absolute
-                    Path p = Path.of(cleaned);
-                    if (Files.exists(p)) candidate = p.normalize();
-                }
-
-                if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
-                    Path parent = candidate.getParent();
-                    if (parent != null && Files.isDirectory(parent)) {
-                        return Optional.of(parent);
-                    }
-                }
-            }
-        }
         return Optional.empty();
     }
 
