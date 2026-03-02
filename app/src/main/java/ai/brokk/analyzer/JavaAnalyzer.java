@@ -68,7 +68,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected Optional<String> getQueryResource(QueryType type) {
-        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/java.scm") : Optional.empty();
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/java/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/java/imports.scm");
+        };
     }
 
     private static final LanguageSyntaxProfile JAVA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
