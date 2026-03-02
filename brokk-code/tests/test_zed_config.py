@@ -17,6 +17,8 @@ def test_configure_zed_acp_settings_creates_file(tmp_path) -> None:
     data = json.loads(settings_path.read_text(encoding="utf-8"))
     assert data["agent_servers"]["Brokk Code"]["command"] == "brokk"
     assert data["agent_servers"]["Brokk Code"]["args"] == ["acp"]
+    # Ensure no stale --ide flags are injected
+    assert "--ide" not in data["agent_servers"]["Brokk Code"]["args"]
 
 
 def test_configure_zed_acp_settings_merges_existing_values(tmp_path) -> None:

@@ -77,6 +77,8 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["executor_snapshot"] is False
     assert captured["kwargs"]["vendor"] == "Gemini"
+    # Ensure no residual ide parameter is passed from CLI to run_acp_server
+    assert "ide" not in captured["kwargs"]
 
 
 
