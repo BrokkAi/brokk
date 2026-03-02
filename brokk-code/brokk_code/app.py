@@ -2795,6 +2795,7 @@ class BrokkApp(App):
                 conversation_data = await self.executor.get_conversation()
                 self._replay_conversation_entries(conversation_data)
 
+                # Refresh state in one pass
                 await self._refresh_context_panel()
                 self._refresh_worktree_name()
                 self._update_statusline()
