@@ -2373,6 +2373,107 @@ public class SearchTools {
 
     @Tool(
             """
+            Skims HTML files by walking the document breadth-first (BFS) and emitting compact structural summaries
+            until an output budget is reached.
+
+            Output is grouped by file:
+            <file path="path/to/file.html">
+            /html[1]/body[1] <body> textLen=0 children={div:2, nav:1} attrs={class="main"}
+            /html[1]/body[1]/div[1] <div> textLen=5 children={} attrs={id="header"}
+            </file>
+
+            Notes:
+            - Output is capped to a per-file budget of 10 * MAX_CHARS_PER_LINE characters.
+            - Individual lines are capped to MAX_CHARS_PER_LINE.
+            - Handles malformed HTML gracefully (Jsoup parses leniently).
+            """)
+    public String htmlSkim(
+            @P("File path or glob pattern (e.g., 'index.html', '**/*.html').") String filepath,
+            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles)
+            throws InterruptedException {
+        var project = contextManager.getProject();
+        var files = Completions.expandPath(project, filepath).stream()
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .filter(ProjectFile::isText)
+                .filter(pf -> isHtmlExtension(pf.extension()))
+                .sorted()
+                .toList();
+
+        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
+            files = Completions.expandPath(project, filepath.substring(3)).stream()
+                    .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
+                    .filter(ProjectFile::isText)
+                    .filter(pf -> isHtmlExtension(pf.extension()))
+                    .sorted()
+                    .toList();
+        }
+
+        if (files.isEmpty()) {
+            return "No HTML files found matching: " + filepath;
+        }
+
+        int effectiveMaxFiles = max(
+                1,
+                min(
+                        maxFiles <= 0 ? SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT : maxFiles,
+                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+
+        BatchResult<String> batchResult;
+        try {
+            batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
+                try {
+                    var contentOpt = file.read();
+                    if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
+
+                    org.jsoup.nodes.Document doc = Jsoup.parse(contentOpt.get());
+                    org.jsoup.nodes.Element root = doc.body();
+                    if (root == null) {
+                        root = doc.children().first();
+                    }
+                    if (root == null) return new IndexedResult<>(idx, null, null);
+
+                    String skim = htmlSkimBfs(root, XML_SKIM_TOTAL_BUDGET_CHARS);
+                    String block = "<file path=\"%s\">\n%s\n</file>"
+                            .formatted(file.toString().replace('\\', '/'), skim);
+                    return new IndexedResult<>(idx, block, null);
+                } catch (Exception e) {
+                    String message = e.getMessage() == null ? e.toString() : e.getMessage();
+                    return new IndexedResult<>(idx, null, file + ": " + message);
+                }
+            });
+        } catch (RuntimeException e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            logger.error("Error executing htmlSkim", e);
+            return "htmlSkim failed: " + message;
+        }
+
+        if (batchResult.results().isEmpty()) {
+            if (!batchResult.errors().isEmpty()) {
+                return "htmlSkim produced errors in %d of %d files: %s"
+                        .formatted(
+                                batchResult.errors().size(),
+                                files.size(),
+                                batchResult.errors().getFirst());
+            }
+            return "No results for htmlSkim.";
+        }
+
+        String output = String.join("\n\n", batchResult.results()).trim();
+        if (batchResult.truncatedByMaxFiles()) {
+            output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles);
+        }
+        if (!batchResult.errors().isEmpty()) {
+            output += "\n\nWARNINGS: errors occurred in %d files; first: %s"
+                    .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
+        }
+
+        return recordResearchTokens(output);
+    }
+
+    @Tool(
+            """
             Selects elements from HTML files using a CSS selector (Jsoup), then extracts a specific view of each match.
 
             Output modes (output parameter):

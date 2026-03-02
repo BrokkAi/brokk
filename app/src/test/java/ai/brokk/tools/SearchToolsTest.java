@@ -1118,6 +1118,95 @@ public class SearchToolsTest {
         assertTrue(result.contains("found me"), "Should extract text from the element. Result:\n" + result);
     }
 
+    @Test
+    void testHtmlSkim_Basic() throws Exception {
+        Path html = projectRoot.resolve("skim.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div id="header">Header</div>
+                  <div id="content">
+                    <p>Paragraph 1</p>
+                    <p>Paragraph 2</p>
+                  </div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "skim.html"));
+
+        String result = searchTools.htmlSkim("skim.html", 10);
+
+        assertTrue(result.contains("<file path=\"skim.html\">"), "Should include file wrapper. Result:\n" + result);
+        assertTrue(result.contains("<body>"), "Should include body element. Result:\n" + result);
+        assertTrue(result.contains("children={div:2}"), "Should include child histogram for body. Result:\n" + result);
+        assertTrue(result.contains("textLen="), "Should include textLen. Result:\n" + result);
+        assertTrue(result.contains("attrs={id=\"header\"}"), "Should include attrs. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_HtmExtension() throws Exception {
+        Path htm = projectRoot.resolve("skim.htm");
+        Files.writeString(htm, "<html><body><p>Test</p></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "skim.htm"));
+
+        String result = searchTools.htmlSkim("skim.htm", 10);
+
+        assertTrue(result.contains("<file path=\"skim.htm\">"), "Should find .htm files. Result:\n" + result);
+        assertTrue(result.contains("<body>"), "Should include body. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_NoFilesFound() throws Exception {
+        String result = searchTools.htmlSkim("nonexistent.html", 10);
+        assertTrue(result.contains("No HTML files found matching"), "Should report no files found. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_PathRetry() throws Exception {
+        Path rootHtml = projectRoot.resolve("root_skim.html");
+        Files.writeString(rootHtml, "<html><body><div>Test</div></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "root_skim.html"));
+
+        String result = searchTools.htmlSkim("**/root_skim.html", 10);
+        assertTrue(
+                result.contains("root_skim.html"), "Should find file at root even with **/ prefix. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_MalformedHtml() throws Exception {
+        Path html = projectRoot.resolve("malformed.html");
+        Files.writeString(html, "<div><p>Unclosed tags<span>more");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "malformed.html"));
+
+        String result = searchTools.htmlSkim("malformed.html", 10);
+
+        assertTrue(
+                result.contains("<file path=\"malformed.html\">"),
+                "Should handle malformed HTML gracefully. Result:\n" + result);
+        assertTrue(
+                result.contains("<div>") || result.contains("<body>"),
+                "Should still parse elements. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_GlobPattern() throws Exception {
+        Path html1 = projectRoot.resolve("page1_skim.html");
+        Path html2 = projectRoot.resolve("page2_skim.html");
+        Files.writeString(html1, "<html><body><h1>Page 1</h1></body></html>");
+        Files.writeString(html2, "<html><body><h1>Page 2</h1></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page1_skim.html"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page2_skim.html"));
+
+        String result = searchTools.htmlSkim("*_skim.html", 10);
+
+        assertTrue(result.contains("page1_skim.html"), "Should find page1. Result:\n" + result);
+        assertTrue(result.contains("page2_skim.html"), "Should find page2. Result:\n" + result);
+    }
+
     private static int countOccurrences(String text, String substring) {
         int count = 0;
         int idx = 0;
