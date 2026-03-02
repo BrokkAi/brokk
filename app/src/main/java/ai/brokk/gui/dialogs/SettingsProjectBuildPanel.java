@@ -676,13 +676,18 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void verifyBuildConfiguration() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Capture UI state on EDT before background task starts
+        var envVars = computeEnvFromUi();
+        boolean buildEnabled = buildCleanCommandCheck.isSelected();
+        String buildCmd = buildCleanCommandField.getText().trim();
+        boolean testEnabled = allTestsCommandCheck.isSelected();
+        String testAllCmd = allTestsCommandField.getText().trim();
+        List<BuildAgent.ModuleBuildEntry> modulesSnapshot = List.copyOf(modulesList);
+
         runVerificationUI(parentDialog, "Verifying Build Configuration", publish -> {
-            var envVars = computeEnvFromUi();
-
             // Step 1: Build/Lint command
-            boolean buildEnabled = buildCleanCommandCheck.isSelected();
-            String buildCmd = buildCleanCommandField.getText().trim();
-
             if (buildEnabled && !buildCmd.isEmpty()) {
                 publish.accept("--- Verifying Build/Lint Command ---\n");
                 publish.accept("$ " + buildCmd + "\n");
@@ -702,9 +707,6 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (Thread.interrupted()) return "Cancelled";
 
             // Step 2: Test All command
-            boolean testEnabled = allTestsCommandCheck.isSelected();
-            String testAllCmd = allTestsCommandField.getText().trim();
-
             if (testEnabled && !testAllCmd.isEmpty()) {
                 publish.accept("--- Verifying Test All Command ---\n");
                 publish.accept("$ " + testAllCmd + "\n");
@@ -724,8 +726,8 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (Thread.interrupted()) return "Cancelled";
 
             // Step 3: Verify Modules
-            if (!modulesList.isEmpty()) {
-                for (var module : modulesList) {
+            if (!modulesSnapshot.isEmpty()) {
+                for (var module : modulesSnapshot) {
                     if (Thread.interrupted()) return "Cancelled";
                     publish.accept("--- Verifying Module: [" + module.alias() + "] ---\n");
 
