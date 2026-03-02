@@ -2620,34 +2620,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 String classSignatureText;
                 if (bodyNode != null && !bodyNode.isNull()) {
                     // If unwrapped from export, slice from original node to include any prefix text up to body.
-                    if (nodeForSignature != nodeForContent) {
-                        int startByte = nodeForSignature.getStartByte();
-                        int endByte = bodyNode.getStartByte();
-                        classSignatureText = sourceContent
-                                .substringFromBytes(startByte, endByte)
-                                .stripTrailing();
+                    int startByte;
+                    if (!Objects.equals(nodeForSignature, nodeForContent)) {
+                        startByte = nodeForSignature.getStartByte();
                     } else {
-                        int startByte = nodeForContent.getStartByte();
-                        int endByte = bodyNode.getStartByte();
-                        classSignatureText = sourceContent
-                                .substringFromBytes(startByte, endByte)
-                                .stripTrailing();
+                        startByte = nodeForContent.getStartByte();
                     }
+                    int endByte = bodyNode.getStartByte();
+                    classSignatureText =
+                            sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
                 } else {
                     // No explicit body node - slice entire node
-                    if (nodeForSignature != nodeForContent) {
-                        int startByte = nodeForSignature.getStartByte();
-                        int endByte = nodeForSignature.getEndByte();
-                        classSignatureText = sourceContent
-                                .substringFromBytes(startByte, endByte)
-                                .stripTrailing();
+                    int startByte;
+                    int endByte;
+                    if (!Objects.equals(nodeForSignature, nodeForContent)) {
+                        startByte = nodeForSignature.getStartByte();
+                        endByte = nodeForSignature.getEndByte();
                     } else {
-                        int startByte = nodeForContent.getStartByte();
-                        int endByte = nodeForContent.getEndByte();
-                        classSignatureText = sourceContent
-                                .substringFromBytes(startByte, endByte)
-                                .stripTrailing();
+                        startByte = nodeForContent.getStartByte();
+                        endByte = nodeForContent.getEndByte();
                     }
+                    classSignatureText =
+                            sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
                     // Remove trailing "{" or ";" if present for cleaner header
                     if (classSignatureText.endsWith("{")) {
                         classSignatureText = classSignatureText
