@@ -630,7 +630,7 @@ export function replayConversation(entries) {
     if (end < tasks.length) {
       setTimeout(() => flushChunk(end), 0);
     } else {
-      scrollToBottom();
+      forceScrollToBottom();
     }
   }
   flushChunk(0);
@@ -725,6 +725,13 @@ export function scrollToBottom() {
   scrollPending = true;
   requestAnimationFrame(() => {
     scrollPending = false;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  });
+}
+
+/** Bypasses threshold and pending guards to ensure the view scrolls to the end. */
+export function forceScrollToBottom() {
+  requestAnimationFrame(() => {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   });
 }
