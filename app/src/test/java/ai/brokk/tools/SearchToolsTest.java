@@ -1106,6 +1106,18 @@ public class SearchToolsTest {
         assertTrue(result.contains("Page 2"), "Should extract text from page2. Result:\n" + result);
     }
 
+    @Test
+    void testHtmlSelect_PathRetry() throws Exception {
+        Path rootHtml = projectRoot.resolve("root.html");
+        Files.writeString(rootHtml, "<html><body><p>found me</p></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "root.html"));
+
+        // Verify that **/root.html matches a file at the project root via the retry logic
+        String result = searchTools.htmlSelect("**/root.html", "p", "TEXT", "", 10, 10);
+        assertTrue(result.contains("root.html"), "Should find file at root even with **/ prefix. Result:\n" + result);
+        assertTrue(result.contains("found me"), "Should extract text from the element. Result:\n" + result);
+    }
+
     private static int countOccurrences(String text, String substring) {
         int count = 0;
         int idx = 0;
