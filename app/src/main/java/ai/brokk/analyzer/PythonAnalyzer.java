@@ -100,7 +100,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     protected Optional<String> getQueryResource(QueryType type) {
-        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/python.scm") : Optional.empty();
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/python/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/python/imports.scm");
+        };
     }
 
     /**
@@ -776,7 +779,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             var tree = parser.parseString(null, importLine);
             var rootNode = tree.getRootNode();
 
-            var query = getThreadLocalQuery();
+            var query = getThreadLocalQuery(QueryType.IMPORTS);
+            if (query == null) continue;
+
             var cursor = new TSQueryCursor();
             cursor.exec(query, rootNode);
 
@@ -789,6 +794,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
             // Collect all captures from this import statement
             while (cursor.nextMatch(match)) {
+                // Reset per-match state
+                currentModule = null;
+                wildcardModule = null;
+
                 for (var cap : match.getCaptures()) {
                     var capName = query.getCaptureNameForId(cap.getIndex());
                     var node = cap.getNode();
@@ -817,26 +826,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                     var decls = getDeclarations(moduleFile);
                                     for (CodeUnit child : decls) {
                                         // Import public classes and functions (no underscore prefix)
-                                        // TODO: Consider including public top-level constants (fields)
                                         if ((child.isClass() || child.isFunction())
                                                 && !child.identifier().startsWith("_")) {
                                             resolvedByName.put(child.identifier(), child);
                                         }
                                     }
-                                } else {
-                                    log.trace("Could not find module file for wildcard import: {}", wildcardModule);
                                 }
                             }
                         }
                         case IMPORT_NAME -> {
-                            // For "from X import Y" style, we need the module
                             if (currentModule != null) {
-                                // In Python, modules (files) don't add a level to class FQNs
-                                // "from package.module import Class" means:
-                                //   - Look for Class in file package/module.py or package/__init__.py
-                                //   - The FQN will be package.Class, not package.module.Class
-
-                                // Try to find the symbol in the module file
+                                // from X import Y
                                 var moduleFile = resolveModuleFile(currentModule);
                                 if (moduleFile != null) {
                                     var decls = getDeclarations(moduleFile);
@@ -845,11 +845,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                                     cu.identifier().equals(text) && (cu.isClass() || cu.isFunction()))
                                             .findFirst()
                                             .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                                } else {
-                                    log.trace("Could not find module file for import: {}", currentModule);
                                 }
-                            } else if (currentModule == null && wildcardModule == null) {
-                                // For "import X" style (no module context)
+                            } else if (wildcardModule == null) {
+                                // import X
                                 var definitions = getDefinitions(text);
                                 definitions.stream()
                                         .filter(cu -> cu.isClass() || cu.isFunction())
@@ -857,8 +855,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                         .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                             }
                         }
-                            // Note: IMPORT_ALIAS captures the alias name, but we don't need it
-                            // for resolution - we only care about the original name
                     }
                 }
             }
@@ -962,7 +958,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             if (nameNode != null && !nameNode.isNull()) {
                 identifier = sourceContent.substringFrom(nameNode).strip();
             } else {
-                // For "import module" style, check import.module
+                // For "import module" style (import pkg.mod), check import.module or import.relative
                 TSNode moduleNode = capturedNodesForMatch.get(IMPORT_MODULE);
                 if (moduleNode == null || moduleNode.isNull()) {
                     moduleNode = capturedNodesForMatch.get(IMPORT_RELATIVE);
@@ -970,10 +966,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
                 if (moduleNode != null && !moduleNode.isNull()) {
                     String modulePath = sourceContent.substringFrom(moduleNode).strip();
-                    // For 'import a.b.c', the identifier used in code is 'a'
-                    // For 'from a.b import c', identifier is 'c' (handled above in nameNode block)
+                    // For 'import a.b.c', the identifier available in the namespace is 'a'
                     int dotIdx = modulePath.indexOf('.');
-                    identifier = dotIdx != -1 ? modulePath.substring(0, dotIdx) : modulePath;
+                    // Strip leading dots for relative imports before finding first segment
+                    String cleanPath = modulePath.replaceFirst("^\\.+", "");
+                    int cleanDotIdx = cleanPath.indexOf('.');
+                    identifier = cleanDotIdx != -1 ? cleanPath.substring(0, cleanDotIdx) : cleanPath;
                 }
             }
         }
