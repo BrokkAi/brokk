@@ -224,8 +224,8 @@ public class BuildTools {
 
     public static Optional<Path> extractRunnerAnchorFromCommands(Path projectRoot, List<String> commands) {
         // Regex to match either:
-        // 1. Quoted strings (handling escaped quotes)
-        // 2. Non-whitespace strings (ignoring characters like &&, ||, ;)
+        // 1. Quoted strings: "..." or '...'
+        // 2. Non-whitespace strings, excluding shell operators like ;, &, |
         Pattern pattern = Pattern.compile("\"([^\"]*)\"|'([^']*)'|([^\\s&&[^;&|]]+)");
 
         for (String cmd : commands) {
@@ -239,21 +239,29 @@ public class BuildTools {
                         : matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
 
                 if (token == null || token.isBlank()) continue;
+
+                // Filter out flags and assignments
                 if (token.startsWith("-") || token.contains("=")) continue;
+
+                // We are looking for Python test runners
                 if (!token.endsWith(".py")) continue;
 
                 Path candidate = projectRoot.resolve(token).normalize();
                 if (!Files.exists(candidate)) {
                     try {
                         Path p = Path.of(token);
-                        if (p.isAbsolute() && Files.exists(p)) candidate = p.normalize();
+                        if (p.isAbsolute() && Files.exists(p)) {
+                            candidate = p.normalize();
+                        }
                     } catch (Exception ignored) {
                     }
                 }
 
                 if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
                     Path parent = candidate.getParent();
-                    if (parent != null && Files.isDirectory(parent)) return Optional.of(parent);
+                    if (parent != null && Files.isDirectory(parent)) {
+                        return Optional.of(parent);
+                    }
                 }
             }
         }
