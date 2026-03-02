@@ -571,4 +571,44 @@ public class JdtUsageAnalyzerTest {
             assertEquals(1, hits.size(), "Should find 1 usage despite presence of non-Java files");
         }
     }
+
+    @Test
+    public void testGenericMethodUsageSignatureMatching() throws Exception {
+        String targetSource =
+                """
+                package com.example;
+                public class GenericTarget {
+                    public <T> void run(T input) {}
+                }
+                """;
+        String consumerSource =
+                """
+                package com.consumer;
+                import com.example.GenericTarget;
+                public class Consumer {
+                    public void use() {
+                        new GenericTarget().run("hello");
+                    }
+                }
+                """;
+
+        try (IProject project = InlineTestProjectCreator.code(targetSource, "com/example/GenericTarget.java")
+                .addFileContents(consumerSource, "com/consumer/Consumer.java")
+                .build()) {
+
+            ProjectFile targetFile = project.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().contains("GenericTarget.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            // CodeUnit with generic signature (T) as would be captured by Tree-sitter
+            CodeUnit targetUnit =
+                    new CodeUnit(targetFile, CodeUnitType.FUNCTION, "com.example", "GenericTarget.run", "(T)");
+
+            Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(targetUnit, project.getAllFiles(), project);
+
+            assertEquals(1, hits.size(), "Should find usage of generic method via signature (T)");
+            assertTrue(hits.iterator().next().snippet().contains("run(\"hello\")"));
+        }
+    }
 }
