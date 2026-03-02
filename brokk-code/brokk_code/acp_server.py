@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import re
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,8 +11,6 @@ from urllib.parse import urlparse
 from brokk_code import __version__
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.settings import Settings
-from brokk_code.token_format import format_token_count
-from brokk_code.widgets.token_bar import get_token_bar_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +32,6 @@ class ClientProfile:
     """Runtime configuration derived from ACP client capabilities and info."""
 
     is_zed: bool = False
-    use_short_description_context: bool = False
-    emit_token_bar: bool = True
     tool_call_titles_only: bool = False
     supports_terminal: bool = False
 
@@ -62,18 +57,13 @@ def resolve_client_profile(client_capabilities: Any, client_info: Any) -> Client
     if is_zed:
         return ClientProfile(
             is_zed=True,
-            use_short_description_context=False,
-            emit_token_bar=True,
             tool_call_titles_only=False,
             supports_terminal=supports_terminal,
         )
 
-    # Default/IntelliJ-like behavior: conservative rendering, no token bars (images),
-    # and short descriptions for resources to avoid huge text blocks in UI lists.
+    # Default/IntelliJ-like behavior: conservative rendering.
     return ClientProfile(
         is_zed=False,
-        use_short_description_context=True,
-        emit_token_bar=False,
         tool_call_titles_only=True,
         supports_terminal=supports_terminal,
     )
@@ -563,96 +553,6 @@ def _extract_session_id_for_cancel(args: tuple[Any, ...], kwargs: dict[str, Any]
     return None
 
 
-def _format_chip(fragment: dict[str, Any]) -> str:
-    chip_kind = str(fragment.get("chip_kind", fragment.get("chipKind", "OTHER")))
-    description = str(fragment.get("shortDescription", "Unknown"))
-    text = f"{chip_kind} {description}"
-
-    tokens = fragment.get("tokens", 0)
-    if isinstance(tokens, int) and tokens > 0:
-        text += f" {format_token_count(tokens)}t"
-    if fragment.get("pinned"):
-        text += " [PIN]"
-    return text
-
-
-def _estimate_chip_width(fragment: dict[str, Any]) -> int:
-    # Matches the simple width estimation behavior used by the TUI context panel.
-    return len(_format_chip(fragment)) + 4
-
-
-def _chip_kind(fragment: dict[str, Any]) -> str:
-    return str(fragment.get("chip_kind", fragment.get("chipKind", "OTHER"))).upper()
-
-
-def _chip_kind_rank(kind: str) -> int:
-    ranks = {
-        "EDIT": 0,
-        "SUMMARY": 1,
-        "HISTORY": 2,
-        "TASK_LIST": 3,
-        "OTHER": 4,
-        "INVALID": 5,
-    }
-    return ranks.get(kind, 99)
-
-
-def _chip_kind_label(kind: str) -> str:
-    labels = {
-        "EDIT": "Editable Context",
-        "SUMMARY": "Summaries",
-        "HISTORY": "History",
-        "TASK_LIST": "Task List",
-        "OTHER": "Other Context",
-        "INVALID": "Invalid Context",
-    }
-    return labels.get(kind, kind.title())
-
-
-def _chip_kind_purpose(kind: str) -> str:
-    purposes = {
-        "EDIT": "Directly editable source/context",
-        "SUMMARY": "Read-only summaries for reference",
-        "HISTORY": "Prior conversation and run history",
-        "TASK_LIST": "Structured plan/checklist context",
-        "OTHER": "Additional supporting context",
-        "INVALID": "Stale or invalid fragments",
-    }
-    return purposes.get(kind, "Context fragments")
-
-
-def _is_discarded_context(block: dict[str, Any]) -> bool:
-    description = str(block.get("short_description", "")).strip().lower()
-    return description == "discarded context"
-
-
-def _discarded_context_markdown(block: dict[str, Any]) -> str:
-    payload = {
-        "title": block.get("short_description", "Discarded Context"),
-        "chipKind": block.get("chip_kind", "OTHER"),
-        "content": block.get("text", ""),
-    }
-    return "```json\n" + json.dumps(payload, indent=2) + "\n```\n"
-
-
-def _display_uri(uri: str, fragment: dict[str, Any]) -> str:
-    if not uri.startswith("brokk://context/fragment/"):
-        return uri
-
-    short_description = str(fragment.get("shortDescription", "")).strip()
-    if not short_description:
-        return uri
-
-    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", short_description).strip("-").lower()
-    if not slug:
-        return uri
-    return f"brokk://context/{slug}"
-
-
-def _is_brokk_context_uri(uri: str) -> bool:
-    return uri.startswith("brokk://context/")
-
-
 def _to_iso8601_utc(value: Any) -> Optional[str]:
     if isinstance(value, str):
         stripped = value.strip()
@@ -678,45 +578,6 @@ def _session_id_from_entry(entry: Any) -> Optional[str]:
         return None
     sid = str(raw).strip()
     return sid or None
-
-
-def build_context_chip_blocks(
-    context_data: dict[str, Any], fragment_resources: dict[str, dict[str, Any]]
-) -> list[dict[str, Any]]:
-    fragments = context_data.get("fragments", [])
-    blocks_with_rank: list[tuple[int, int, dict[str, Any]]] = []
-    if not isinstance(fragments, list) or not fragments:
-        return []
-
-    for i, fragment in enumerate(fragments):
-        fragment_id = fragment.get("id")
-        kind = _chip_kind(fragment)
-        if isinstance(fragment_id, str) and fragment_id:
-            payload = fragment_resources.get(fragment_id)
-            if isinstance(payload, dict):
-                uri = payload.get("uri")
-                mime_type = payload.get("mimeType")
-                text = payload.get("text")
-                if isinstance(uri, str) and isinstance(mime_type, str) and isinstance(text, str):
-                    blocks_with_rank.append(
-                        (
-                            _chip_kind_rank(kind),
-                            i,
-                            {
-                                "uri": _display_uri(uri, fragment),
-                                "mime_type": mime_type,
-                                "text": text,
-                                "chip_kind": kind,
-                                "short_description": str(
-                                    fragment.get("shortDescription", "Unknown")
-                                ),
-                                "tokens": int(fragment.get("tokens", 0) or 0),
-                            },
-                        )
-                    )
-
-    blocks_with_rank.sort(key=lambda item: (item[0], item[1]))
-    return [item[2] for item in blocks_with_rank]
 
 
 class BrokkAcpBridge:
@@ -772,7 +633,6 @@ class BrokkAcpBridge:
         send_update: Callable[[str, Any], Awaitable[Any]],
         update_agent_message_text: Callable[[str], Any],
         update_agent_thought_text: Optional[Callable[[str], Any]] = None,
-        build_context_snapshot_update: Optional[Callable[[str, str, str], Any]] = None,
         start_tool_call: Optional[Callable[..., Any]] = None,
         update_tool_call: Optional[Callable[..., Any]] = None,
         tool_content: Optional[Callable[[Any], Any]] = None,
@@ -835,110 +695,6 @@ class BrokkAcpBridge:
                 )
                 if update:
                     await send_update(session_id, update)
-            try:
-                context_data = await self.executor.get_context()
-                fragment_resources: dict[str, dict[str, Any]] = {}
-                fragments = context_data.get("fragments", [])
-                if isinstance(fragments, list):
-                    fragment_ids = [
-                        fragment.get("id")
-                        for fragment in fragments
-                        if isinstance(fragment, dict) and isinstance(fragment.get("id"), str)
-                    ]
-                    if fragment_ids:
-                        results = await asyncio.gather(
-                            *[
-                                self.executor.get_context_fragment(fragment_id)
-                                for fragment_id in fragment_ids
-                            ],
-                            return_exceptions=True,
-                        )
-                        for fragment_id, result in zip(fragment_ids, results):
-                            if isinstance(result, dict):
-                                fragment_resources[fragment_id] = result
-                blocks = build_context_chip_blocks(context_data, fragment_resources)
-                if blocks:
-                    used_tokens = int(context_data.get("usedTokens", 0) or 0)
-                    max_tokens = int(context_data.get("maxTokens", 0) or 0)
-                    await send_update(
-                        session_id,
-                        update_agent_message_text(
-                            "\n\n### Context Snapshot\n"
-                            f"{len(blocks)} resources | "
-                            f"{format_token_count(used_tokens)}/"
-                            f"{format_token_count(max_tokens)} tokens\n"
-                        ),
-                    )
-
-                    # Some ACP clients (e.g. IntelliJ) render data URI markdown images
-                    # as literal text, so only emit the token bar where supported.
-                    used_tokens_raw = context_data.get("usedTokens")
-                    if p.emit_token_bar and used_tokens_raw is not None:
-                        used_tokens_local = int(used_tokens_raw or 0)
-                        fragments = context_data.get("fragments", [])
-                        bar_md = get_token_bar_markdown(
-                            used_tokens=used_tokens_local,
-                            max_tokens=int(max_tokens),
-                            fragments=fragments if isinstance(fragments, list) else [],
-                        )
-                        if bar_md:
-                            await send_update(session_id, update_agent_message_text(bar_md + "\n"))
-
-                current_kind: Optional[str] = None
-                for block in blocks:
-                    kind = str(block["chip_kind"])
-                    block_uri = str(block["uri"])
-                    is_brokk_context = _is_brokk_context_uri(block_uri)
-                    if kind != current_kind:
-                        current_kind = kind
-                        await send_update(
-                            session_id,
-                            update_agent_message_text(f"\n#### {_chip_kind_label(kind)}\n"),
-                        )
-                    is_resource_list_kind = kind in {"EDIT", "SUMMARY"}
-                    snapshot_text = (
-                        str(block["short_description"])
-                        if p.use_short_description_context or is_brokk_context
-                        else str(block["text"])
-                    )
-                    if is_resource_list_kind and not _is_discarded_context(block):
-                        await send_update(session_id, update_agent_message_text("- "))
-                        if is_brokk_context:
-                            await send_update(session_id, update_agent_message_text(snapshot_text))
-                        else:
-                            await send_update(
-                                session_id,
-                                build_context_snapshot_update(
-                                    block_uri,
-                                    str(block["mime_type"]),
-                                    snapshot_text,
-                                ),
-                            )
-                        await send_update(
-                            session_id,
-                            update_agent_message_text(f" | {int(block['tokens'])}\n"),
-                        )
-                        continue
-                    await send_update(
-                        session_id,
-                        update_agent_message_text(_discarded_context_markdown(block))
-                        if _is_discarded_context(block)
-                        else (
-                            update_agent_message_text(snapshot_text)
-                            if is_brokk_context
-                            else build_context_snapshot_update(
-                                block_uri,
-                                str(block["mime_type"]),
-                                snapshot_text,
-                            )
-                        ),
-                    )
-                    await send_update(session_id, update_agent_message_text("\n"))
-            except Exception as e:
-                await send_update(
-                    session_id,
-                    update_agent_message_text(f"[INFO] Context snapshot unavailable: {e}"),
-                )
         finally:
             active = self._active_job_by_session.get(session_id)
             if active == job_id:
@@ -970,13 +726,10 @@ async def run_acp_server(
             PromptResponse,
             SetSessionModelResponse,
             SetSessionModeResponse,
-            embedded_text_resource,
-            resource_block,
             run_agent,
             start_tool_call,
             text_block,
             tool_content,
-            update_agent_message,
             update_agent_message_text,
             update_agent_thought_text,
             update_tool_call,
@@ -1598,19 +1351,6 @@ async def run_acp_server(
             if not self.client:
                 raise ExecutorError("ACP client connection not established.")
 
-            def build_context_snapshot_update(uri: str, mime_type: str, text: str) -> Any:
-                if self._profile.is_zed:
-                    return update_agent_message(
-                        resource_block(
-                            embedded_text_resource(
-                                uri=uri,
-                                text=text,
-                                mime_type=mime_type,
-                            )
-                        )
-                    )
-                return update_agent_message_text(text)
-
             await bridge.prompt(
                 prompt=prompt,
                 session_id=session_id,
@@ -1623,7 +1363,6 @@ async def run_acp_server(
                 send_update=self.client.session_update,
                 update_agent_message_text=update_agent_message_text,
                 update_agent_thought_text=update_agent_thought_text,
-                build_context_snapshot_update=build_context_snapshot_update,
                 start_tool_call=start_tool_call,
                 update_tool_call=update_tool_call,
                 tool_content=tool_content,
