@@ -531,12 +531,15 @@ class SessionSelectModal(ModalScreen[str]):
                 if not new_name or not new_name.strip() or self._on_rename is None:
                     return
                 clean_name = new_name.strip()
+                # Capture variables for the closure
+                target_sid = session_id
+                rename_fn = self._on_rename
 
                 async def do_rename() -> None:
-                    renamed = await self._on_rename(session_id, clean_name)
+                    renamed = await rename_fn(target_sid, clean_name)
                     if not renamed:
                         return
-                    self._update_session_name(session_id, clean_name)
+                    self._update_session_name(target_sid, clean_name)
 
                 self.app.run_worker(do_rename())
 
@@ -723,6 +726,9 @@ class BrokkApp(App):
                 exit_on_stdin_eof=True,
                 brokk_api_key=self.settings.get_brokk_api_key(),
             )
+        self._worktree_executors: dict[Path, ExecutorManager] = {
+            Path(self.executor.workspace_dir).resolve(): self.executor
+        }
         self.requested_session_id = session_id
         self.resume_session = resume_session
         self._set_theme(self.settings.theme)
@@ -2536,6 +2542,11 @@ class BrokkApp(App):
             # ExecutorManager.stop is idempotent.
             try:
                 await self.executor.stop()
+                # Stop all other pooled executors
+                current_resolved = Path(self.executor.workspace_dir).resolve()
+                for path, exec_mgr in self._worktree_executors.items():
+                    if Path(exec_mgr.workspace_dir).resolve() != current_resolved:
+                        await exec_mgr.stop()
             except Exception:
                 logger.debug("Executor.stop encountered an error during shutdown", exc_info=True)
                 self._shutting_down = False
@@ -2584,7 +2595,9 @@ class BrokkApp(App):
                     sid = selected_id.split(":", 1)[1]
                     self.run_worker(self._delete_session_workflow(sid))
                 elif selected_id != current_id:
-                    self.run_worker(self._switch_to_session(selected_id))
+                    # Capture local for worker
+                    target_sid = selected_id
+                    self.run_worker(self._switch_to_session(target_sid))
 
             async def on_rename(session_id: str, new_name: str) -> bool:
                 return await self._rename_session(session_id, new_name)
@@ -2642,9 +2655,11 @@ class BrokkApp(App):
         def on_rename_submitted(new_name: Optional[str]) -> None:
             if not new_name or not new_name.strip():
                 return
+            target_sid = session_id
+            clean_name = new_name.strip()
 
             async def do_rename():
-                await self._rename_session(session_id, new_name.strip())
+                await self._rename_session(target_sid, clean_name)
 
             self.run_worker(do_rename())
 
@@ -2698,45 +2713,99 @@ class BrokkApp(App):
             if chat:
                 chat.add_system_message(f"Failed to list worktrees: {e}", level="ERROR")
 
+    def _make_executor(self, workspace_dir: Path) -> ExecutorManager:
+        """Constructs a new ExecutorManager with settings matching the initial one."""
+        return ExecutorManager(
+            workspace_dir=workspace_dir,
+            jar_path=self.executor.jar_override,
+            executor_version=self.executor.executor_version,
+            executor_snapshot=self.executor.use_snapshot,
+            vendor=self.executor.vendor,
+            exit_on_stdin_eof=True,
+            brokk_api_key=self.settings.get_brokk_api_key(),
+        )
+
     async def _create_worktree_and_switch(self, branch: str) -> None:
-        from brokk_code.git_worktrees import add_worktree, next_worktree_path
+        from brokk_code.git_worktrees import (
+            add_worktree,
+            get_main_worktree_path,
+            next_worktree_path,
+        )
 
         chat = self._maybe_chat()
         try:
-            new_path = await asyncio.to_thread(next_worktree_path, self.executor.workspace_dir)
+            main_path = await asyncio.to_thread(get_main_worktree_path, self.executor.workspace_dir)
+            new_path = await asyncio.to_thread(next_worktree_path, main_path)
             if chat:
                 chat.add_system_message(f"Creating worktree for branch '{branch}' at {new_path}...")
             await asyncio.to_thread(add_worktree, self.executor.workspace_dir, branch, new_path)
             await self._switch_to_worktree(new_path)
         except Exception as e:
+            logger.exception("Failed to create worktree")
             if chat:
                 chat.add_system_message(f"Failed to create worktree: {e}", level="ERROR")
 
     async def _remove_worktree(self, path: Path) -> None:
         chat = self._maybe_chat()
+        resolved_path = path.resolve()
+        if resolved_path == Path(self.executor.workspace_dir).resolve():
+            if chat:
+                chat.add_system_message("Cannot remove the active worktree.", level="ERROR")
+            return
+
         try:
+            if resolved_path in self._worktree_executors:
+                exec_mgr = self._worktree_executors.pop(resolved_path)
+                await exec_mgr.stop()
+
             await asyncio.to_thread(remove_worktree, self.executor.workspace_dir, path)
             if chat:
                 chat.add_system_message(f"Removed worktree: {path}")
             await self._refresh_context_panel()
             self._refresh_worktree_name()
         except Exception as e:
+            logger.exception("Failed to remove worktree")
             if chat:
                 chat.add_system_message(f"Failed to remove worktree: {e}", level="ERROR")
 
-    async def _switch_to_worktree(self, path: Path) -> None:
+    async def _switch_to_worktree(self, worktree_path: Path) -> None:
         chat = self._maybe_chat()
-        if chat:
-            chat.add_system_message(f"Switching workspace to: {path}...")
+        resolved_path = worktree_path.resolve()
+        if resolved_path == Path(self.executor.workspace_dir).resolve():
+            if chat:
+                chat.add_system_message(f"Already in worktree: {worktree_path}")
+            return
+
         try:
-            # Update the executor manager's workspace directory
-            self.executor.workspace_dir = path
-            # Restart the executor to point to the new workspace
-            await self._shutdown_once(show_message=False)
-            self._executor_started = False
-            self._executor_ready = False
-            self.run_worker(self._start_executor())
+            if resolved_path not in self._worktree_executors:
+                new_exec = self._make_executor(worktree_path)
+                self._worktree_executors[resolved_path] = new_exec
+                await new_exec.start()
+                await new_exec.create_session()
+                await new_exec.wait_ready()
+
+            # Swap active executor
+            self.executor = self._worktree_executors[resolved_path]
+
+            # Refresh internal state
+            await self._refresh_context_panel()
+            self._refresh_worktree_name()
+
+            # Clear UI and history
+            if chat:
+                chat._message_history.clear()
+                log = chat.query_one("#chat-log")
+                await log.query("*").remove()
+
+                # Replay
+                conversation_data = await self.executor.get_conversation()
+                self._replay_conversation_entries(conversation_data)
+
+                await self._refresh_context_panel()
+                self._update_statusline()
+                chat.add_system_message(f"Switched to worktree: {self.current_worktree_name}")
         except Exception as e:
+            logger.exception("Failed to switch worktree")
             if chat:
                 chat.add_system_message(f"Failed to switch worktree: {e}", level="ERROR")
 
