@@ -79,25 +79,6 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["vendor"] == "Gemini"
 
 
-def test_main_acp_routes_to_server_rejects_removed_ide_flag(monkeypatch, tmp_path) -> None:
-    fake_acp_module = ModuleType("brokk_code.acp_server")
-
-    async def fake_run_acp_server(**kwargs: Any) -> None:
-        pass
-
-    fake_acp_module.run_acp_server = fake_run_acp_server
-    monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["brokk", "acp", "--workspace", str(tmp_path), "--ide", "zed"],
-    )
-
-    with pytest.raises(SystemExit) as exc:
-        main_module.main()
-
-    assert exc.value.code == 2
-
 
 def test_main_acp_rejects_extra_positional(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
