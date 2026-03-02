@@ -249,13 +249,9 @@ public class BuildTools {
 
                 Path candidate = projectRoot.resolve(token).normalize();
                 if (!Files.exists(candidate)) {
-                    try {
-                        Path p = Path.of(token);
-                        if (p.isAbsolute() && Files.exists(p)) {
-                            candidate = p.normalize();
-                        }
-                    } catch (java.nio.file.InvalidPathException e) {
-                        // Ignore tokens that are not valid paths
+                    Path p = Path.of(token);
+                    if (p.isAbsolute() && Files.exists(p)) {
+                        candidate = p.normalize();
                     }
                 }
 
