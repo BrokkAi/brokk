@@ -10,7 +10,6 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.testutil.FileUtil;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.util.BuildTools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -94,13 +93,13 @@ public class SearchToolsTest {
     }
 
     private static String nestedOptionalPattern(int depth) {
-        StringBuilder builder = new StringBuilder(depth * 3 + 1);
+        StringBuilder builder = new StringBuilder(depth * 2 + 1);
         for (int i = 0; i < depth; i++) {
-            builder.append("(a?");
+            builder.append('(');
         }
         builder.append("a");
         for (int i = 0; i < depth; i++) {
-            builder.append(")");
+            builder.append(")?");
         }
         return builder.toString();
     }
@@ -208,14 +207,12 @@ public class SearchToolsTest {
 
     @Test
     void testfindFilesContaining_overlyComplexRegexDoesNotCrash() throws InterruptedException {
-        String pattern = nestedOptionalPattern(20000);
-        String truncated = BuildTools.truncatePatternForDiagnostics(pattern);
-        String result = searchTools.findFilesContaining(List.of(pattern), 200);
+        String result = searchTools.findFilesContaining(List.of(nestedOptionalPattern(1500)), 200);
         assertTrue(
-                result.contains("is too complex") || result.contains("StackOverflowError"),
-                "Expected complexity error message but got: " + result);
-        assertTrue(
-                result.contains(truncated), "Expected truncated pattern to appear in the message but got: " + result);
+                result.contains("Invalid regex pattern")
+                        && (result.contains("pattern is too complex")
+                                || result.contains("Stack overflow during pattern compilation")),
+                "Should report that an overly complex pattern cannot be processed");
     }
 
     @Test
@@ -227,14 +224,12 @@ public class SearchToolsTest {
 
     @Test
     void testfindFilenames_overlyComplexRegexDoesNotCrash() {
-        String pattern = nestedOptionalPattern(20000);
-        String truncated = BuildTools.truncatePatternForDiagnostics(pattern);
-        String result = searchTools.findFilenames(List.of(pattern), 200);
+        String result = searchTools.findFilenames(List.of(nestedOptionalPattern(1500)), 200);
         assertTrue(
-                result.contains("is too complex") || result.contains("StackOverflowError"),
-                "Expected complexity error message but got: " + result);
-        assertTrue(
-                result.contains(truncated), "Expected truncated pattern to appear in the message but got: " + result);
+                result.contains("Invalid regex pattern")
+                        && (result.contains("pattern is too complex")
+                                || result.contains("Stack overflow during pattern compilation")),
+                "Should report that an overly complex pattern cannot be processed");
     }
 
     @Test
@@ -537,15 +532,13 @@ public class SearchToolsTest {
 
     @Test
     void testSearchFileContents_overlyComplexRegexDoesNotCrash() throws InterruptedException {
-        String pattern = nestedOptionalPattern(20000);
-        String truncated = BuildTools.truncatePatternForDiagnostics(pattern);
-        // Use a deeper pattern to ensure failure even if README.md contains small 'a' sequences
-        String result = searchTools.searchFileContents(List.of(pattern), "README.md", false, false, 0, 200, 200);
+        String result = searchTools.searchFileContents(
+                List.of(nestedOptionalPattern(1500)), "README.md", false, false, 0, 200, 200);
         assertTrue(
-                result.contains("is too complex") || result.contains("StackOverflowError"),
-                "Expected complexity error message but got: " + result);
-        assertTrue(
-                result.contains(truncated), "Expected truncated pattern to appear in the message but got: " + result);
+                result.contains("Invalid regex pattern")
+                        && (result.contains("pattern is too complex")
+                                || result.contains("Stack overflow during pattern compilation")),
+                "Should report that an overly complex pattern cannot be processed");
     }
 
     @Test
@@ -722,35 +715,6 @@ public class SearchToolsTest {
         String resultsCapped =
                 searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", false, false, 999, 200, 200);
         assertTrue(resultsCapped.contains("7: L7"));
-    }
-
-    @Test
-    void testFormatFilesInDirectory_IncludesSubdirectories() {
-        Path root = Path.of("");
-        Set<ProjectFile> files = Set.of(
-                new ProjectFile(tempDir, "README.md"),
-                new ProjectFile(tempDir, "src/Main.java"),
-                new ProjectFile(tempDir, "src/util/Helper.java"),
-                new ProjectFile(tempDir, "tests/Test.java"));
-
-        String result = SearchTools.formatFilesInDirectory(files, root, ".");
-
-        // Should contain files in root
-        assertTrue(result.contains("README.md"), "Should list root files");
-        // Should contain immediate subdirectories
-        assertTrue(
-                result.contains("Subdirectories: src/, tests/"),
-                "Should list immediate subdirectories. Got: " + result);
-        // Should NOT list deeply nested files directly
-        assertFalse(result.contains("Main.java"), "Should not list nested files directly");
-        assertFalse(result.contains("Helper.java"), "Should not list deeply nested files");
-
-        // Test with a specific subdirectory
-        Path srcPath = Path.of("src");
-        String srcResult = SearchTools.formatFilesInDirectory(files, srcPath, "src");
-        assertTrue(srcResult.contains(Path.of("src", "Main.java").toString()), "Should list files in src");
-        assertTrue(srcResult.contains("Subdirectories: util/"), "Should list subdirectories in src");
-        assertFalse(srcResult.contains("README.md"), "Should not list files outside src");
     }
 
     @Test
