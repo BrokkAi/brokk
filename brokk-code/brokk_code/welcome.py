@@ -56,7 +56,6 @@ def build_welcome_message(commands: List[Dict[str, str]]) -> str:
         "immediately attach that entity to your context."
     )
 
-    # Optional help hint
     has_help = any(c.get("command") == "/help" for c in commands)
     help_hint = (
         "\n\nType **`/help`** to see the full list of available commands." if has_help else ""
