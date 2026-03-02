@@ -183,7 +183,9 @@ async def test_switch_to_worktree_failure_not_cached():
     mock_fail_exec = MagicMock(spec=ExecutorManager)
     mock_fail_exec.start = AsyncMock(side_effect=Exception("Crash on start"))
 
-    with patch.object(Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]):
+    with patch.object(
+        Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]
+    ):
         with patch.object(app, "_make_executor", return_value=mock_fail_exec) as mock_make:
             await app._switch_to_worktree(target)
 
@@ -205,7 +207,9 @@ async def test_switch_to_worktree_failure_not_cached():
     mock_success_exec.wait_ready = AsyncMock(return_value=True)
     mock_success_exec.get_conversation = AsyncMock(return_value={"entries": []})
 
-    with patch.object(Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]):
+    with patch.object(
+        Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]
+    ):
         with patch.object(app, "_make_executor", return_value=mock_success_exec) as mock_make:
             await app._switch_to_worktree(target)
 
@@ -238,21 +242,18 @@ async def test_switch_to_worktree_clears_ui_before_replay():
 
     # Prepare a conversation to replay so we can see it's not empty at the end
     mock_new_exec.get_conversation = AsyncMock(
-        return_value={
-            "entries": [
-                {"messages": [{"role": "ai", "text": "new content"}]}
-            ]
-        }
+        return_value={"entries": [{"messages": [{"role": "ai", "text": "new content"}]}]}
     )
 
-    async with app.run_test() as pilot:
+    async with app.run_test():
         chat = app._maybe_chat()
         assert chat is not None
-        log = chat.query_one("#chat-log", RichLog)
+        chat.query_one("#chat-log", RichLog)
 
         # 1. Populate "old" content
+        chat._message_history.clear()  # Clear initial welcome/system messages
         chat.add_markdown("old content")
-        chat._message_history.append({"kind": "AI", "content": "old content"})
+        # ChatPanel.add_markdown adds to _message_history, no need to append manually
         assert len(chat._message_history) == 1
 
         # 2. We want to assert that things are cleared DURING the switch.
@@ -278,6 +279,10 @@ async def test_switch_to_worktree_clears_ui_before_replay():
                 await app._switch_to_worktree(target_path)
 
         # 4. Final assertions
-        assert cleared_before_replay, "Message history should be cleared before replaying new entries"
-        assert len(chat._message_history) == 1
+        assert cleared_before_replay, (
+            "Message history should be cleared before replaying new entries"
+        )
+        # 2 messages: "new content" and then "Switched to worktree: ..."
+        assert len(chat._message_history) == 2
         assert chat._message_history[0]["content"] == "new content"
+        assert "Switched to worktree" in chat._message_history[1]["content"]

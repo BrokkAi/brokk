@@ -2598,7 +2598,8 @@ class BrokkApp(App):
                     sid = selected_id.split(":", 1)[1]
                     self.run_worker(self._delete_session_workflow(sid))
                 elif selected_id != current_id:
-                    await self._switch_to_session(selected_id)
+                    target_sid = selected_id
+                    self.run_worker(self._switch_to_session(target_sid))
 
             async def on_rename(session_id: str, new_name: str) -> bool:
                 return await self._rename_session(session_id, new_name)

@@ -342,7 +342,8 @@ def test_modal_widths_regression():
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
 
     # Check model/reasoning select container width
-    # Note: Using re.escape for the selector but allowing for whitespace/ordering variations if needed.
+    # Note: Using re.escape for the selector but allowing for whitespace/ordering
+    # variations if needed.
     # The current CSS uses: #model-select-container, #reasoning-select-container
     m_r_pattern = r"#model-select-container,\s*#reasoning-select-container\s*\{([^}]*)\}"
     m_r_match = re.search(m_r_pattern, css_content)

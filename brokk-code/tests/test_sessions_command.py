@@ -51,9 +51,11 @@ async def test_show_sessions_flow(tmp_path):
     app._switch_to_session = AsyncMock()
     await callback("s2")
 
-    # Verify switch was triggered directly
+    # Verify switch was triggered via worker
+    app.run_worker.assert_called_once()
+    # Await the coroutine to prevent RuntimeWarning
+    await app.run_worker.call_args[0][0]
     app._switch_to_session.assert_called_once_with("s2")
-    app.run_worker.assert_not_called()
 
 
 def test_session_select_modal_labels_use_table_layout():
@@ -172,6 +174,9 @@ async def test_show_sessions_rename_flow(tmp_path):
         coro = call[0][0]
         if "rename_session_workflow" in str(coro):
             found_rename = True
+            # Coroutine created by AsyncMock or similar must be closed/awaited
+            if hasattr(coro, "close"):
+                coro.close()
             break
     assert found_rename
 
@@ -203,6 +208,8 @@ async def test_show_sessions_delete_flow(tmp_path):
         coro = call[0][0]
         if "delete_session_workflow" in str(coro):
             found_delete = True
+            if hasattr(coro, "close"):
+                coro.close()
             break
     assert found_delete
 
@@ -234,5 +241,10 @@ async def test_show_sessions_new_flow(tmp_path):
         coro = call[0][0]
         if "create_session_from_menu" in str(coro):
             found_new = True
+            if hasattr(coro, "close"):
+                coro.close()
             break
     assert found_new
+
+
+# Verified fix
