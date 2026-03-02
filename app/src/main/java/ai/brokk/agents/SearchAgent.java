@@ -209,6 +209,10 @@ public class SearchAgent {
         this.searchTools = new SearchTools(cm);
     }
 
+    private static boolean isHtmlExtension(@Nullable String ext) {
+        return ext != null && (ext.equalsIgnoreCase("html") || ext.equalsIgnoreCase("htm"));
+    }
+
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
         var mcpConfig = project.getMcpConfig();
         var tools = new ArrayList<McpPrompts.McpTool>();
@@ -220,10 +224,6 @@ public class SearchAgent {
             }
         }
         return tools;
-    }
-
-    private static boolean isHtmlExtension(@Nullable String ext) {
-        return ext != null && (ext.equalsIgnoreCase("html") || ext.equalsIgnoreCase("htm"));
     }
 
     private static List<String> initStaticTools(IProject project, List<McpPrompts.McpTool> mcpTools) {
