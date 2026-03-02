@@ -31,7 +31,7 @@ public final class JdtUsageAnalyzerStrategy implements UsageAnalyzer {
         try {
             Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, candidateFiles, project);
             return new FuzzyResult.Success(Map.of(target, hits));
-        } catch (Throwable e) {
+        } catch (Exception e) {
             return new FuzzyResult.Failure(target.fqName(), e.getMessage() != null ? e.getMessage() : e.toString());
         }
     }

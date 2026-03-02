@@ -149,7 +149,7 @@ public class JdtUsageAnalyzer {
 
         try {
             parser.createASTs(sourceFiles, null, new String[0], collector, null);
-        } catch (Throwable t) {
+        } catch (AssertionError | Exception t) {
             log.error("JDT analysis failed for {}", target.fqName(), t);
             throw new RuntimeException("Failed to analyze usages for " + target.fqName() + " using JDT", t);
         }
