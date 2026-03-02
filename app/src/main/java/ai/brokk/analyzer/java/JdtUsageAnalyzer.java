@@ -5,7 +5,6 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
-
 import java.nio.file.Files;
 import java.util.*;
 import java.util.stream.Collectors;
