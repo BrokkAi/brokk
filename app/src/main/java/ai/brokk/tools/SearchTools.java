@@ -19,6 +19,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -55,6 +56,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.xml.XMLConstants;
@@ -175,6 +177,11 @@ public class SearchTools {
             this.pattern = pattern;
         }
 
+        private static RegexMatchOverflowException fromPattern(String originalPattern, StackOverflowError cause) {
+            String truncated = BuildTools.truncatePatternForDiagnostics(originalPattern);
+            return new RegexMatchOverflowException(truncated, cause);
+        }
+
         private String pattern() {
             return pattern;
         }
@@ -208,6 +215,10 @@ public class SearchTools {
         return syms.stream()
                 .map(sym -> STRIP_PARAMS_PATTERN.matcher(sym).replaceFirst(""))
                 .toList();
+    }
+
+    private static List<String> truncatePatternsForDiagnostics(List<String> patterns) {
+        return patterns.stream().map(BuildTools::truncatePatternForDiagnostics).toList();
     }
 
     private IAnalyzer getAnalyzer() {
@@ -716,10 +727,14 @@ public class SearchTools {
                 cache.put(cacheKey, newlyCompiled);
                 compiled.add(newlyCompiled);
             } catch (StackOverflowError e) {
-                errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(pat));
+                String truncated = BuildTools.truncatePatternForDiagnostics(pat);
+                errors.add("'%s': pattern is too complex (StackOverflowError)".formatted(truncated));
+            } catch (PatternSyntaxException pse) {
+                String truncated = BuildTools.truncatePatternForDiagnostics(pat);
+                errors.add("'%s': %s".formatted(truncated, pse.getMessage()));
             } catch (Throwable t) {
                 String message = t.getMessage() == null ? t.toString() : t.getMessage();
-                errors.add("'%s': %s".formatted(pat, message));
+                errors.add("'%s': %s".formatted(BuildTools.truncatePatternForDiagnostics(pat), message));
             }
         }
 
@@ -1762,7 +1777,7 @@ public class SearchTools {
                     }
                 }
             } catch (StackOverflowError e) {
-                throw new RegexMatchOverflowException(pattern.pattern(), e);
+                throw RegexMatchOverflowException.fromPattern(pattern.pattern(), e);
             }
         }
 
@@ -2255,7 +2270,7 @@ public class SearchTools {
             throw new IllegalArgumentException("Cannot search filenames: patterns list is empty");
         }
 
-        logger.debug("Searching filenames for patterns: {}", patterns);
+        logger.debug("Searching filenames for patterns: {}", truncatePatternsForDiagnostics(patterns));
 
         final List<Pattern> compiledPatterns;
         try {
@@ -2286,8 +2301,9 @@ public class SearchTools {
                     .sorted()
                     .toList();
         } catch (RegexMatchOverflowException e) {
-            logger.warn("Regex stack overflow while searching filenames with pattern {}", e.pattern(), e);
-            return "Regex pattern '%s' caused StackOverflowError during filename search".formatted(e.pattern());
+            var truncatedPatterns=  String.join(", ", truncatePatternsForDiagnostics(List.of(e.pattern())));
+            logger.warn("Regex stack overflow while searching filenames with pattern {}", truncatedPatterns, e);
+            return "Regex pattern '%s' caused StackOverflowError during filename search".formatted(truncatedPatterns);
         }
 
         int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
@@ -2295,7 +2311,7 @@ public class SearchTools {
         var matchingFiles = allMatches.stream().limit(effectiveLimit).toList();
 
         if (matchingFiles.isEmpty()) {
-            return "No filenames found matching patterns: " + String.join(", ", patterns);
+            return "No filenames found matching patterns: " + String.join(", ", truncatePatternsForDiagnostics(patterns));
         }
 
         String prefix = "";
@@ -2311,7 +2327,7 @@ public class SearchTools {
         try {
             return pattern.matcher(input).find();
         } catch (StackOverflowError e) {
-            throw new RegexMatchOverflowException(pattern.pattern(), e);
+            throw RegexMatchOverflowException.fromPattern(pattern.pattern(), e);
         }
     }
 

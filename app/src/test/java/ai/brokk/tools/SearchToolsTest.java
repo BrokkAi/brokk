@@ -10,6 +10,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.testutil.FileUtil;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.BuildTools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -207,10 +208,14 @@ public class SearchToolsTest {
 
     @Test
     void testfindFilesContaining_overlyComplexRegexDoesNotCrash() throws InterruptedException {
-        String result = searchTools.findFilesContaining(List.of(nestedOptionalPattern(20000)), 200);
+        String pattern = nestedOptionalPattern(20000);
+        String truncated = BuildTools.truncatePatternForDiagnostics(pattern);
+        String result = searchTools.findFilesContaining(List.of(pattern), 200);
         assertTrue(
                 result.contains("is too complex") || result.contains("StackOverflowError"),
                 "Expected complexity error message but got: " + result);
+        assertTrue(
+                result.contains(truncated), "Expected truncated pattern to appear in the message but got: " + result);
     }
 
     @Test
@@ -222,10 +227,14 @@ public class SearchToolsTest {
 
     @Test
     void testfindFilenames_overlyComplexRegexDoesNotCrash() {
-        String result = searchTools.findFilenames(List.of(nestedOptionalPattern(20000)), 200);
+        String pattern = nestedOptionalPattern(20000);
+        String truncated = BuildTools.truncatePatternForDiagnostics(pattern);
+        String result = searchTools.findFilenames(List.of(pattern), 200);
         assertTrue(
                 result.contains("is too complex") || result.contains("StackOverflowError"),
                 "Expected complexity error message but got: " + result);
+        assertTrue(
+                result.contains(truncated), "Expected truncated pattern to appear in the message but got: " + result);
     }
 
     @Test
@@ -528,12 +537,15 @@ public class SearchToolsTest {
 
     @Test
     void testSearchFileContents_overlyComplexRegexDoesNotCrash() throws InterruptedException {
+        String pattern = nestedOptionalPattern(20000);
+        String truncated = BuildTools.truncatePatternForDiagnostics(pattern);
         // Use a deeper pattern to ensure failure even if README.md contains small 'a' sequences
-        String result = searchTools.searchFileContents(
-                List.of(nestedOptionalPattern(20000)), "README.md", false, false, 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of(pattern), "README.md", false, false, 0, 200, 200);
         assertTrue(
                 result.contains("is too complex") || result.contains("StackOverflowError"),
                 "Expected complexity error message but got: " + result);
+        assertTrue(
+                result.contains(truncated), "Expected truncated pattern to appear in the message but got: " + result);
     }
 
     @Test

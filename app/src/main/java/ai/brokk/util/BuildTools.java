@@ -47,6 +47,7 @@ import org.jetbrains.annotations.Nullable;
 @org.jspecify.annotations.NullMarked
 public class BuildTools {
     private static final Logger logger = LogManager.getLogger(BuildTools.class);
+    private static final int REGEX_PATTERN_DISPLAY_LIMIT = 100;
 
     /** Determine the best verification command using the provided Context. */
     @Blocking
@@ -560,5 +561,15 @@ public class BuildTools {
         if (timeoutSeconds == -1) return Environment.UNLIMITED_TIMEOUT;
         else if (timeoutSeconds <= 0) return Environment.DEFAULT_TIMEOUT;
         else return Duration.ofSeconds(timeoutSeconds);
+    }
+
+    public static String truncatePatternForDiagnostics(@Nullable String pattern) {
+        if (pattern == null) {
+            return "";
+        }
+        if (pattern.length() <= REGEX_PATTERN_DISPLAY_LIMIT) {
+            return pattern;
+        }
+        return pattern.substring(0, REGEX_PATTERN_DISPLAY_LIMIT) + "...[TRUNCATED]";
     }
 }
