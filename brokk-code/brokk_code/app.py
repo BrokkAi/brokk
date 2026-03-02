@@ -16,6 +16,7 @@ from textual.widgets import Button, Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
+from brokk_code.git_worktrees import get_worktree_display_name, list_worktrees
 from brokk_code.settings import (
     DEFAULT_THEME,
     Settings,
@@ -696,6 +697,7 @@ class BrokkApp(App):
             else True
         )
         self.current_branch = "unknown"
+        self.current_worktree_name: str = ""
         self.job_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
@@ -787,6 +789,7 @@ class BrokkApp(App):
                 reasoning=getattr(self, "reasoning_level", None),
                 workspace=workspace,
                 branch=getattr(self, "current_branch", "unknown"),
+                worktree=getattr(self, "current_worktree_name", ""),
                 turn_cost=getattr(self, "current_job_cost", None),
                 session_cost=getattr(self, "session_total_cost", None),
             )
@@ -836,6 +839,16 @@ class BrokkApp(App):
         self.run_worker(self._poll_tasklist())
         self.run_worker(self._poll_context())
         self._update_statusline()
+
+    def _refresh_worktree_name(self) -> None:
+        """Fetches the current worktree name from git."""
+        try:
+            wts = list_worktrees(self.executor.workspace_dir)
+            current_wt = next((wt for wt in wts if wt.is_current), None)
+            if current_wt:
+                self.current_worktree_name = get_worktree_display_name(current_wt)
+        except Exception:
+            logger.debug("Failed to refresh worktree name", exc_info=True)
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
@@ -899,6 +912,7 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
+                self._refresh_worktree_name()
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
 

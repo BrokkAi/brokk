@@ -39,6 +39,7 @@ class StatusLine(Horizontal):
         self._reasoning = "unknown"
         self._workspace = "unknown"
         self._branch = "unknown"
+        self._worktree: Optional[str] = None
         self._turn_cost: Optional[float] = None
         self._session_cost: Optional[float] = None
         self._fragment_description: Optional[str] = None
@@ -111,6 +112,8 @@ class StatusLine(Horizontal):
             workspace_display,
             self._branch,
         ]
+        if self._worktree:
+            parts.append(f"wt:{self._worktree}")
 
         if self._turn_cost is not None and self._turn_cost > 0.000001:
             parts.append(f"${self._turn_cost:.3f} turn")
@@ -142,6 +145,7 @@ class StatusLine(Horizontal):
         reasoning: Optional[str] = None,
         workspace: Optional[str] = None,
         branch: Optional[str] = None,
+        worktree: Optional[str] = None,
         turn_cost: Optional[float] = None,
         session_cost: Optional[float] = None,
     ) -> None:
@@ -156,6 +160,8 @@ class StatusLine(Horizontal):
             self._workspace = str(workspace)
         if branch is not None:
             self._branch = str(branch)
+        if worktree is not None:
+            self._worktree = str(worktree) if str(worktree).strip() else None
         if turn_cost is not None:
             self._turn_cost = turn_cost
         if session_cost is not None:

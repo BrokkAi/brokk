@@ -193,3 +193,30 @@ def test_status_line_cost_rendering():
     # Case 5: Clearing fragment restores cost display
     status.clear_fragment_info()
     mock_metadata.update.assert_called_with(expected_both)
+
+
+def test_status_line_worktree_display():
+    status = StatusLine()
+    mock_metadata = MagicMock()
+    status._metadata = mock_metadata
+
+    # Case 1: worktree name set — should appear as wt:{name} after branch
+    status.update_status(
+        mode="LUTZ",
+        model="gpt-4",
+        reasoning="high",
+        workspace="/work",
+        branch="main",
+        worktree="feature-x",
+    )
+    mock_metadata.update.assert_called_with("LUTZ • gpt-4 (high) • /work • main • wt:feature-x")
+
+    # Case 2: clear worktree with empty string — wt: must NOT appear
+    status.update_status(worktree="")
+    call_text = mock_metadata.update.call_args[0][0]
+    assert "wt:" not in call_text
+
+    # Case 3: worktree=None does not change the field (field stays cleared from case 2)
+    status.update_status(worktree=None)
+    call_text = mock_metadata.update.call_args[0][0]
+    assert "wt:" not in call_text
