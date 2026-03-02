@@ -12,13 +12,16 @@ from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, ListItem, ListView, Static
+from textual.widgets import Button, Input, ListItem, ListView, RichLog, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.git_worktrees import (
     WorktreeInfo,
+    add_worktree,
+    get_main_worktree_path,
     get_worktree_display_name,
     list_worktrees,
+    next_worktree_path,
     remove_worktree,
 )
 from brokk_code.prompt_history import append_prompt, clear_history, load_history
@@ -2583,7 +2586,7 @@ class BrokkApp(App):
                     chat.add_system_message("No sessions found.")
                 return
 
-            def on_selected(selected_id: str | None) -> None:
+            async def on_selected(selected_id: str | None) -> None:
                 if not selected_id:
                     return
                 if selected_id == "new":
@@ -2595,9 +2598,7 @@ class BrokkApp(App):
                     sid = selected_id.split(":", 1)[1]
                     self.run_worker(self._delete_session_workflow(sid))
                 elif selected_id != current_id:
-                    # Capture local for worker
-                    target_sid = selected_id
-                    self.run_worker(self._switch_to_session(target_sid))
+                    await self._switch_to_session(selected_id)
 
             async def on_rename(session_id: str, new_name: str) -> bool:
                 return await self._rename_session(session_id, new_name)
@@ -2695,11 +2696,9 @@ class BrokkApp(App):
                     return
                 if selected == "new":
 
-                    def on_branch_name(branch: str | None) -> None:
+                    async def on_branch_name(branch: str | None) -> None:
                         if branch:
-                            # Placeholder for actual implementation method defined in instructions
-                            # Note: instructions mention calling _create_worktree_and_switch(branch)
-                            self.run_worker(self._create_worktree_and_switch(branch))
+                            await self.run_worker(self._create_worktree_and_switch(branch))
 
                     self.push_screen(TaskTitleModalScreen("New Worktree Branch"), on_branch_name)
                 elif selected.startswith("delete:"):
@@ -2726,12 +2725,6 @@ class BrokkApp(App):
         )
 
     async def _create_worktree_and_switch(self, branch: str) -> None:
-        from brokk_code.git_worktrees import (
-            add_worktree,
-            get_main_worktree_path,
-            next_worktree_path,
-        )
-
         chat = self._maybe_chat()
         try:
             main_path = await asyncio.to_thread(get_main_worktree_path, self.executor.workspace_dir)
@@ -2780,29 +2773,30 @@ class BrokkApp(App):
             if resolved_path not in self._worktree_executors:
                 new_exec = self._make_executor(worktree_path)
                 self._worktree_executors[resolved_path] = new_exec
-                await new_exec.start()
-                await new_exec.create_session()
-                await new_exec.wait_ready()
+                try:
+                    await new_exec.start()
+                    await new_exec.create_session()
+                    await new_exec.wait_ready()
+                except Exception:
+                    self._worktree_executors.pop(resolved_path, None)
+                    raise
                 self._executor_ready = True
 
             # Swap active executor
             self.executor = self._worktree_executors[resolved_path]
 
-            # Refresh internal state
-            await self._refresh_context_panel()
-            self._refresh_worktree_name()
-
             # Clear UI and history
             if chat:
                 chat._message_history.clear()
-                log = chat.query_one("#chat-log")
-                await log.query("*").remove()
+                log = chat.query_one("#chat-log", RichLog)
+                log.clear()
 
                 # Replay
                 conversation_data = await self.executor.get_conversation()
                 self._replay_conversation_entries(conversation_data)
 
                 await self._refresh_context_panel()
+                self._refresh_worktree_name()
                 self._update_statusline()
                 chat.add_system_message(f"Switched to worktree: {self.current_worktree_name}")
         except Exception as e:
@@ -2824,9 +2818,8 @@ class BrokkApp(App):
 
             # Clear UI and history
             chat._message_history.clear()
-            # Clear log container (the ScrollableContainer containing message widgets)
-            log = chat.query_one("#chat-log")
-            await log.query("*").remove()
+            log = chat.query_one("#chat-log", RichLog)
+            log.clear()
 
             # Replay
             conversation_data = await self.executor.get_conversation()

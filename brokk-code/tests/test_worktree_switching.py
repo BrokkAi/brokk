@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from textual.widgets import RichLog
 
 from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorManager
@@ -91,15 +92,21 @@ async def test_switch_to_worktree_cleanup_on_failure():
 
     target = Path("/repo/feat-fail")
     resolved_target = Path("/repo/feat-fail")
+    resolved_main = Path("/repo/main")
 
-    # Mock resolved path for the target
-    with patch.object(Path, "resolve", return_value=resolved_target):
+    # Mock resolved path for the target vs main
+    with patch.object(
+        Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]
+    ):
         # 1. First attempt: Fail during startup
         mock_fail_exec = MagicMock(spec=ExecutorManager)
         mock_fail_exec.start = AsyncMock(side_effect=Exception("Startup failed"))
 
         with patch.object(app, "_make_executor", return_value=mock_fail_exec) as mock_make:
-            await app._switch_to_worktree(target)
+            with patch.object(
+                Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]
+            ):
+                await app._switch_to_worktree(target)
 
             # Assert error message was shown
             args, kwargs = mock_chat.add_system_message.call_args
@@ -126,3 +133,36 @@ async def test_switch_to_worktree_cleanup_on_failure():
             assert mock_make.call_count == 1
             assert app.executor == mock_success_exec
             assert app._worktree_executors[resolved_target] == mock_success_exec
+
+
+@pytest.mark.asyncio
+async def test_rich_log_cleared_on_switch():
+    app = BrokkApp(workspace_dir=Path("/repo/main"))
+    app._refresh_context_panel = AsyncMock()
+    mock_chat = MagicMock()
+    app._maybe_chat = MagicMock(return_value=mock_chat)
+
+    mock_log = MagicMock(spec=RichLog)
+    mock_chat.query_one.return_value = mock_log
+
+    # Setup target worktree
+    target = Path("/repo/other")
+    resolved_target = Path("/repo/other")
+    resolved_main = Path("/repo/main")
+
+    mock_exec = MagicMock(spec=ExecutorManager)
+    mock_exec.workspace_dir = target
+    mock_exec.start = AsyncMock()
+    mock_exec.create_session = AsyncMock()
+    mock_exec.wait_ready = AsyncMock(return_value=True)
+    mock_exec.get_conversation = AsyncMock(return_value={"entries": []})
+
+    with patch.object(
+        Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]
+    ):
+        with patch.object(app, "_make_executor", return_value=mock_exec):
+            await app._switch_to_worktree(target)
+
+    # Verify log was cleared
+    mock_chat.query_one.assert_any_call("#chat-log", RichLog)
+    mock_log.clear.assert_called_once()

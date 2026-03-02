@@ -358,7 +358,17 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     margin-left: 1;
 }
 
-#model-select-container, #reasoning-select-container, #worktree-select-container {
+#model-select-container, #reasoning-select-container {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#worktree-select-container {
     width: 80;
     height: auto;
     max-height: 80%;

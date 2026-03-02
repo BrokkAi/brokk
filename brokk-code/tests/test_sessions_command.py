@@ -48,10 +48,12 @@ async def test_show_sessions_flow(tmp_path):
 
     # Simulate selecting session s2
     app.run_worker = MagicMock()
-    callback("s2")
+    app._switch_to_session = AsyncMock()
+    await callback("s2")
 
-    # Verify switch worker was triggered
-    app.run_worker.assert_called_once()
+    # Verify switch was triggered directly
+    app._switch_to_session.assert_called_once_with("s2")
+    app.run_worker.assert_not_called()
 
 
 def test_session_select_modal_labels_use_table_layout():
@@ -161,7 +163,7 @@ async def test_show_sessions_rename_flow(tmp_path):
     callback = app.push_screen.call_args[0][1]
 
     # Simulate rename signal
-    callback("rename:s1")
+    await callback("rename:s1")
 
     # Verify rename workflow helper was called via run_worker
     # It should be the first call (or only call) to run_worker after the callback
@@ -193,7 +195,7 @@ async def test_show_sessions_delete_flow(tmp_path):
     callback = app.push_screen.call_args[0][1]
 
     # Simulate delete signal
-    callback("delete:s1")
+    await callback("delete:s1")
 
     # Verify delete workflow helper was called via run_worker
     found_delete = False
@@ -224,7 +226,7 @@ async def test_show_sessions_new_flow(tmp_path):
     callback = app.push_screen.call_args[0][1]
 
     # Simulate new-session signal
-    callback("new")
+    await callback("new")
 
     # Verify create-session workflow helper was called via run_worker
     found_new = False
