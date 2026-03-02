@@ -336,6 +336,7 @@ public class BrokkExternalMcpServer {
         }
 
         if (hasHtml) {
+            toolNames.add("htmlSkim");
             toolNames.add("htmlSelect");
         }
 

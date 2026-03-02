@@ -262,6 +262,7 @@ public class SearchAgent {
             String ext = f.extension();
             return ext.equals("html") || ext.equals("htm");
         })) {
+            tools.add("htmlSkim");
             tools.add("htmlSelect");
         }
 

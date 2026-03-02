@@ -99,6 +99,7 @@ public class ToolRegistry {
             Map.entry("searchFileContents", "Searching file contents"),
             Map.entry("xpathQuery", "Running XPath query"),
             Map.entry("jq", "Running jq filter"),
+            Map.entry("htmlSkim", "Skimming HTML structure"),
             Map.entry("htmlSelect", "Selecting HTML elements"),
             Map.entry("dropWorkspaceFragments", "Removing from workspace"),
             Map.entry("recommendContext", "Recommending context"),
