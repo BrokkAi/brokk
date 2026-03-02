@@ -320,6 +320,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     acp_parser = subparsers.add_parser("acp", help="Run in ACP server mode")
     _add_common_runtime_args(acp_parser)
+    acp_parser.add_argument(
+        "--ide",
+        choices=["intellij", "zed"],
+        default=None,
+        help=(
+            "[Deprecated] Legacy IDE hint (no-op). "
+            "ACP behavior is now derived from client capabilities and client_info."
+        ),
+    )
 
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(

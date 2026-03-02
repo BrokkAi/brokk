@@ -81,6 +81,40 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     assert "ide" not in captured["kwargs"]
 
 
+def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+    fake_acp_module = ModuleType("brokk_code.acp_server")
+
+    async def fake_run_acp_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    fake_acp_module.run_acp_server = fake_run_acp_server
+    monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "acp",
+            "--workspace",
+            str(tmp_path),
+            "--executor-stable",
+            "--vendor",
+            "Gemini",
+            "--ide",
+            "zed",
+        ],
+    )
+
+    main_module.main()
+
+    # Still routes correctly
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["executor_snapshot"] is False
+    assert captured["kwargs"]["vendor"] == "Gemini"
+    # Critically: ide is not forwarded to run_acp_server
+    assert "ide" not in captured["kwargs"]
+
 
 def test_main_acp_rejects_extra_positional(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(

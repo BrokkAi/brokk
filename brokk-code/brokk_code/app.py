@@ -1669,7 +1669,7 @@ class BrokkApp(App):
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
-        except Exception as e:
+        except BaseException as e:
             if (
                 self.current_job_id is None
                 and attached_fragment_ids
@@ -1684,9 +1684,13 @@ class BrokkApp(App):
                     )
 
             if chat:
-                chat.add_system_message(f"Job failed or network error: {e}", level="ERROR")
+                err_type = type(e).__name__
+                chat.add_system_message(
+                    f"Job failed or interrupted ({err_type}): {e}",
+                    level="ERROR",
+                )
             else:
-                logger.error("Job failed: %s", e)
+                logger.error("Job failed or interrupted (%s): %s", type(e).__name__, e)
         finally:
             if chat:
                 chat.set_response_finished()
