@@ -168,13 +168,8 @@ public class BrokkExternalMcpServer {
                             : toMcpSchema(spec.parameters());
 
                     boolean destructive = registry.isToolAnnotated(spec.name(), Destructive.class);
-                    McpSchema.ToolAnnotations toolAnnotations = new McpSchema.ToolAnnotations(
-                            null,
-                            destructive ? Boolean.FALSE : Boolean.TRUE,
-                            destructive ? Boolean.TRUE : null,
-                            null,
-                            null,
-                            null);
+                    McpSchema.ToolAnnotations toolAnnotations =
+                            new McpSchema.ToolAnnotations(null, !destructive, destructive, null, null, null);
 
                     McpSchema.Tool mcpTool = McpSchema.Tool.builder()
                             .name(spec.name())
