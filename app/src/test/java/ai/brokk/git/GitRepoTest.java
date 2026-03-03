@@ -2374,7 +2374,7 @@ public class GitRepoTest {
         windowCacheConfig.install();
 
         try {
-            // This should NOT throw LargeObjectException - should return placeholder instead
+            // This should NOT throw LargeObjectException - should successfully stream the content
             var diffs = repo.data().getFileDiffs(firstCommit, secondCommit);
 
             // Verify we got results without exception
@@ -2384,15 +2384,10 @@ public class GitRepoTest {
             assertNotNull(diff.newFile());
             assertEquals("large_test.txt", diff.newFile().getFileName());
 
-            // Content should be placeholders since blobs exceed the (artificially low) threshold
-            assertEquals(
-                    GitRepoData.LARGE_OBJECT_PLACEHOLDER,
-                    diff.oldText(),
-                    "Old text should be placeholder for large object");
-            assertEquals(
-                    GitRepoData.LARGE_OBJECT_PLACEHOLDER,
-                    diff.newText(),
-                    "New text should be placeholder for large object");
+            // Content should be successfully loaded via streaming even for "large" objects
+            // The key fix is that we don't throw LargeObjectException
+            assertEquals(initialContent, diff.oldText(), "Old text should be streamed successfully");
+            assertEquals(modifiedContent, diff.newText(), "New text should be streamed successfully");
         } finally {
             // Restore default WindowCache config to avoid affecting other tests
             var defaultConfig = new WindowCacheConfig();

@@ -20,7 +20,6 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
-import org.eclipse.jgit.errors.LargeObjectException;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
@@ -180,8 +179,11 @@ public class GitRepoData {
         }
     }
 
-    /** Placeholder text returned when a blob exceeds JGit's large-object threshold. */
+    /** Placeholder text returned when a blob exceeds our safe-load threshold. */
     public static final String LARGE_OBJECT_PLACEHOLDER = "[File content too large to display]";
+
+    /** Maximum blob size we'll load into memory (10 MB). */
+    private static final long MAX_BLOB_SIZE = 10 * 1024 * 1024;
 
     /** Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found. */
     public String getFileContent(String commitId, ProjectFile file) throws GitAPIException {
@@ -202,17 +204,44 @@ public class GitRepoData {
                 if (treeWalk.next()) {
                     var blobId = treeWalk.getObjectId(0);
                     var loader = repository.open(blobId);
-                    return new String(loader.getBytes(), StandardCharsets.UTF_8);
+                    return loadBlobContent(loader, file, commitId);
                 }
             }
-        } catch (LargeObjectException e) {
-            logger.debug("File {} at commit {} exceeds large-object threshold, returning placeholder", file, commitId);
-            return LARGE_OBJECT_PLACEHOLDER;
         } catch (IOException e) {
             throw new GitRepo.GitWrappedIOException(e);
         }
 
         throw new GitRepo.GitRepoException("File '%s' not found at commit '%s'".formatted(file, commitId));
+    }
+
+    /**
+     * Safely loads blob content, handling large objects gracefully.
+     * Returns a placeholder for objects exceeding MAX_BLOB_SIZE.
+     */
+    private String loadBlobContent(org.eclipse.jgit.lib.ObjectLoader loader, ProjectFile file, String commitId)
+            throws IOException {
+        long size = loader.getSize();
+
+        if (size > MAX_BLOB_SIZE) {
+            logger.debug(
+                    "File {} at commit {} is {} bytes, exceeds {} byte limit, returning placeholder",
+                    file,
+                    commitId,
+                    size,
+                    MAX_BLOB_SIZE);
+            return "[File too large to load from git: %d bytes]".formatted(size);
+        }
+
+        // For large objects (as determined by JGit's threshold), use streaming to avoid LargeObjectException
+        if (loader.isLarge()) {
+            logger.debug("File {} at commit {} is large ({} bytes), using stream", file, commitId, size);
+            try (var stream = loader.openStream()) {
+                return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            }
+        }
+
+        // For small objects, getBytes() is safe and efficient
+        return new String(loader.getBytes(), StandardCharsets.UTF_8);
     }
 
     /**
