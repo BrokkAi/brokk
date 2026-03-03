@@ -405,8 +405,9 @@ async def test_show_sessions_new_flow(tmp_path):
     # Verify create-session workflow helper was called via run_worker
     found_new = False
     for call in app.run_worker.call_args_list:
-        coro = call[0][0]
-        if "create_session_from_menu" in str(coro):
+        # In the app, this is now a coroutine object self._create_session_from_menu()
+        arg = call[0][0]
+        if "create_session_from_menu" in str(arg):
             found_new = True
             break
     assert found_new
