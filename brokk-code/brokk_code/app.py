@@ -697,6 +697,7 @@ class BrokkApp(App):
         )
         self.current_branch = "unknown"
         self.job_in_progress = False
+        self.session_switch_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
         self._startup_pending_prompt: Optional[str] = None
@@ -711,6 +712,7 @@ class BrokkApp(App):
         self._reported_refresh_errors: set[str] = set()
         self._renamed_sessions: set[str] = set()
         self._rename_session_lock = asyncio.Lock()
+        self._session_switch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
 
         # Accumulators for LLM usage costs (USD).
@@ -2590,8 +2592,17 @@ class BrokkApp(App):
         if not chat:
             return
 
+        async with self._session_switch_lock:
+            if self.session_switch_in_progress:
+                chat.add_system_message("A session switch is already in progress.", level="WARNING")
+                return
+            self.session_switch_in_progress = True
+
         try:
             chat.add_system_message(f"Switching to session {session_id}...")
+            # Set job running to block input UI during switch
+            chat.set_job_running(True)
+
             await self.executor.switch_session(session_id)
             save_last_session_id(self.executor.workspace_dir, session_id)
 
@@ -2611,6 +2622,9 @@ class BrokkApp(App):
         except Exception as e:
             logger.exception("Failed to switch session")
             chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
+        finally:
+            self.session_switch_in_progress = False
+            chat.set_job_running(False)
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""

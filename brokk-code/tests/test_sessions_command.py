@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -52,6 +53,49 @@ async def test_show_sessions_flow(tmp_path):
 
     # Verify switch worker was triggered
     app.run_worker.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_switch_to_session_concurrency_blocking(tmp_path):
+    """Verify that concurrent switch attempts are blocked by session_switch_in_progress."""
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app.executor.workspace_dir = tmp_path
+    app._executor_ready = True
+
+    chat = MagicMock()
+    app._maybe_chat = MagicMock(return_value=chat)
+
+    # Mock switch_session to simulate delay
+    async def slow_switch(*args, **kwargs):
+        await asyncio.sleep(0.1)
+        return {}
+
+    app.executor.switch_session = AsyncMock(side_effect=slow_switch)
+    app.executor.get_conversation = AsyncMock(return_value={"entries": []})
+
+    # Trigger first switch
+    task = asyncio.create_task(app._switch_to_session("s1"))
+    # Wait a tiny bit for the first task to set the flag
+    await asyncio.sleep(0.01)
+    assert app.session_switch_in_progress is True
+
+    # Trigger second switch while first is in progress
+    await app._switch_to_session("s2")
+
+    # Second switch should have bailed and logged a warning
+    any_warning = any(
+        "already in progress" in str(call.args[0])
+        for call in chat.add_system_message.call_args_list
+        if call.kwargs.get("level") == "WARNING"
+    )
+    assert any_warning is True
+
+    # Ensure first switch finishes
+    await task
+    assert app.session_switch_in_progress is False
+    # Only s1 should have been called on executor
+    app.executor.switch_session.assert_called_once_with("s1")
 
 
 def test_session_select_modal_labels_use_table_layout():
