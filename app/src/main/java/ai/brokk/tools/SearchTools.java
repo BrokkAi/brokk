@@ -361,10 +361,6 @@ public class SearchTools {
         return String.join("\n", lines);
     }
 
-    private static boolean isHtmlExtension(@Nullable String ext) {
-        return ext != null && ("html".equalsIgnoreCase(ext) || "htm".equalsIgnoreCase(ext));
-    }
-
     private static boolean isXmlExtension(@Nullable String ext) {
         return ext != null && "xml".equalsIgnoreCase(ext);
     }
@@ -1674,7 +1670,7 @@ public class SearchTools {
             - Most results are returned as compact JSON strings.
             - If a result is a JSON object or array whose rendered JSON would exceed MAX_CHARS_PER_LINE,
               the output falls back to a BFS structural skim of that result (capped to MAX_CHARS_PER_LINE),
-              similar to xmlSkim.
+              similar to markupSkim.
 
             Notes:
             - maxFiles and matchesPerFile are capped at 500 each.
@@ -1801,13 +1797,13 @@ public class SearchTools {
 
             Namespace notes (XML):
             - Jsoup's XML parser preserves namespace prefixes in tag names (e.g., ns:item).
-            - Use CSS selectors like '*|item' (any namespace) or 'ns\\:item' (literal tag) with xmlSelect.
+            - Use CSS selectors like '*|item' (any namespace) or 'ns\\:item' (literal tag) with markupSelect.
 
             Notes:
             - Output is capped to a per-file budget of 10 * MAX_CHARS_PER_LINE characters.
             - Individual lines are capped to MAX_CHARS_PER_LINE.
             """)
-    public String xmlSkim(
+    public String markupSkim(
             @P("File path or glob pattern (e.g., 'index.html', '**/*.xml').") String filepath,
             @P("Maximum number of files to return results for. Capped at 500.") int maxFiles)
             throws InterruptedException {
@@ -1840,19 +1836,19 @@ public class SearchTools {
             });
         } catch (RuntimeException e) {
             String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            logger.error("Error executing xmlSkim", e);
-            return "xmlSkim failed: " + message;
+            logger.error("Error executing markupSkim", e);
+            return "markupSkim failed: " + message;
         }
 
         if (batchResult.results().isEmpty()) {
             if (!batchResult.errors().isEmpty()) {
-                return "xmlSkim produced errors in %d of %d files: %s"
+                return "markupSkim produced errors in %d of %d files: %s"
                         .formatted(
                                 batchResult.errors().size(),
                                 files.size(),
                                 batchResult.errors().getFirst());
             }
-            return "No results for xmlSkim.";
+            return "No results for markupSkim.";
         }
 
         String output = String.join("\n\n", batchResult.results()).trim();
@@ -1890,7 +1886,7 @@ public class SearchTools {
             - maxFiles and matchesPerFile are capped at 500 each.
             - maxFiles * matchesPerFile is forced to be <= 500.
             """)
-    public String xmlSelect(
+    public String markupSelect(
             @P("File path or glob pattern (e.g., 'index.html', '**/*.xml').") String filepath,
             @P("CSS selector (Jsoup syntax, e.g., 'div.content', '*|item').") String cssSelector,
             @P("Extraction mode: TEXT, NAME, PATH, ATTR, ATTRS, MARKUP.") String output,
@@ -1905,12 +1901,12 @@ public class SearchTools {
         }
 
         if (cssSelector.isBlank()) {
-            throw new IllegalArgumentException("Cannot xmlSelect: cssSelector is empty");
+            throw new IllegalArgumentException("Cannot markupSelect: cssSelector is empty");
         }
 
         String mode = output.strip().toUpperCase(Locale.ROOT);
         if ("ATTR".equals(mode) && attrName.isBlank()) {
-            throw new IllegalArgumentException("Cannot xmlSelect: attrName is required when output=ATTR");
+            throw new IllegalArgumentException("Cannot markupSelect: attrName is required when output=ATTR");
         }
 
         EffectiveLimits limits = clampMaxFilesAndMatchesPerFile(maxFiles, matchesPerFile);
@@ -1995,19 +1991,19 @@ public class SearchTools {
             });
         } catch (RuntimeException e) {
             String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            logger.error("Error executing xmlSelect", e);
-            return "xmlSelect failed: " + message;
+            logger.error("Error executing markupSelect", e);
+            return "markupSelect failed: " + message;
         }
 
         if (batchResult.results().isEmpty()) {
             if (!batchResult.errors().isEmpty()) {
-                return "xmlSelect produced errors in %d of %d files: %s"
+                return "markupSelect produced errors in %d of %d files: %s"
                         .formatted(
                                 batchResult.errors().size(),
                                 files.size(),
                                 batchResult.errors().getFirst());
             }
-            return "No results for xmlSelect.";
+            return "No results for markupSelect.";
         }
 
         String outResult = String.join("\n", batchResult.results()).trim();

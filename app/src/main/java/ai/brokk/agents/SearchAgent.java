@@ -252,8 +252,8 @@ public class SearchAgent {
 
         var allFiles = project.getAllFiles();
         if (allFiles.stream().anyMatch(f -> SearchTools.isMarkupExtension(f.extension()))) {
-            tools.add("xmlSkim");
-            tools.add("xmlSelect");
+            tools.add("markupSkim");
+            tools.add("markupSelect");
         }
         if (allFiles.stream().anyMatch(f -> "json".equalsIgnoreCase(f.extension()))) {
             tools.add("jq");
