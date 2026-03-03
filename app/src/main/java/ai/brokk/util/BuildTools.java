@@ -16,7 +16,6 @@ import ai.brokk.project.IProject;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
-import com.github.mustachejava.util.DecoratedCollection;
 import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
@@ -141,75 +140,49 @@ public class BuildTools {
             return details.buildLintCommand();
         }
 
-        boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
-        boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
-        boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
-        boolean isPackagesBased = testSomeTemplate.contains("{{#packages}}");
-
-        if (!isFilesBased && !isClassesBased && !isPackagesBased) {
-            return testSomeTemplate;
-        }
-
         final Path projectRoot = cm.getProject().getRoot();
         String pythonVersion =
                 pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
 
-        List<String> targetItems;
-
         IAnalyzer analyzer = cm.getAnalyzer();
+        Map<String, Object> context = new HashMap<>();
+        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
 
-        Map<String, List<String>> templateData = new HashMap<>();
+        // Always calculate all potential lists to support mixed templates
+        // 1. Packages
+        Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
+        List<String> packages = workspaceTestFiles.stream()
+                .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .sorted()
+                .toList();
 
-        if (isPackagesBased) {
-            // Try anchor-based detection first (e.g. for Python module/package paths)
-            Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
-            List<String> packages = workspaceTestFiles.stream()
-                    .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
-                    .filter(s -> !s.isBlank())
-                    .distinct()
-                    .sorted()
-                    .toList();
-
-            // Fallback to analyzer packages (e.g. Go packages) if anchor-based detection yields nothing
-            if (packages.isEmpty() && !analyzer.isEmpty()) {
-                packages = analyzer.getTestModules(workspaceTestFiles);
-            }
-
-            if (!packages.isEmpty()) {
-                templateData.put("packages", packages);
-            }
+        if (packages.isEmpty() && !analyzer.isEmpty()) {
+            packages = analyzer.getTestModules(workspaceTestFiles);
         }
+        context.put("packages", toStringElementList(packages));
 
-        if (isFilesBased) {
-            templateData.put(
-                    "files",
-                    workspaceTestFiles.stream().map(ProjectFile::toString).toList());
-        }
+        // 2. Files
+        context.put(
+                "files",
+                toStringElementList(
+                        workspaceTestFiles.stream().map(ProjectFile::toString).toList()));
 
-        if (isClassesBased && !analyzer.isEmpty()) {
+        // 3. Classes
+        List<String> fqClasses = List.of();
+        List<String> classes = List.of();
+        if (!analyzer.isEmpty()) {
             var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
-            if (isFqBased) {
-                templateData.put(
-                        "fqclasses",
-                        codeUnits.stream().map(CodeUnit::fqName).sorted().toList());
-            } else {
-                templateData.put(
-                        "classes",
-                        codeUnits.stream().map(CodeUnit::identifier).sorted().toList());
-            }
+            fqClasses = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
+            classes = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
         }
-
-        if (templateData.isEmpty()) {
-            return details.buildLintCommand();
-        }
+        context.put("fqclasses", toStringElementList(fqClasses));
+        context.put("classes", toStringElementList(classes));
 
         // Perform multi-variable interpolation
         MustacheFactory mf = new DefaultMustacheFactory();
         Mustache mustache = mf.compile(new StringReader(testSomeTemplate), "dynamic_template");
-        Map<String, Object> context = new HashMap<>();
-        templateData.forEach(
-                (key, items) -> context.put(key, new com.github.mustachejava.util.DecoratedCollection<>(items)));
-        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
 
         StringWriter writer = new StringWriter();
         mustache.execute(writer, context);
@@ -307,16 +280,70 @@ public class BuildTools {
     public static String interpolateMustacheTemplate(
             String template, List<String> items, String listKey, @Nullable String pythonVersion) {
         if (template.isEmpty()) return "";
-        // Note: Canonical interpolation logic is in BuildAgent.interpolateMustacheTemplate.
-        // This version is a lighter variant for internal tool use.
+        // Use unified interpolation logic compatible with BuildAgent
         MustacheFactory mf = new DefaultMustacheFactory();
         Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
         Map<String, Object> context = new HashMap<>();
-        context.put(listKey, new DecoratedCollection<>(items));
+        context.put(listKey, toStringElementList(items));
         context.put("pyver", pythonVersion == null ? "" : pythonVersion);
         StringWriter writer = new StringWriter();
         mustache.execute(writer, context);
         return writer.toString();
+    }
+
+    /**
+     * Converts a list of strings to StringElement wrappers that support both {{.}} and {{value}}/{{first}}/{{last}}/{{index}}.
+     */
+    private static List<StringElement> toStringElementList(List<String> items) {
+        var result = new java.util.ArrayList<StringElement>(items.size());
+        int size = items.size();
+        for (int i = 0; i < size; i++) {
+            result.add(new StringElement(items.get(i), i, i == 0, i == size - 1));
+        }
+        return result;
+    }
+
+    /**
+     * Wrapper for string values in Mustache templates that supports both implicit iterator {{.}}
+     * (via toString()) and explicit field access ({{value}}, {{first}}, {{last}}, {{index}}).
+     */
+    private static final class StringElement {
+        private final String value;
+        private final int index;
+        private final boolean first;
+        private final boolean last;
+
+        StringElement(String value, int index, boolean first, boolean last) {
+            this.value = value;
+            this.index = index;
+            this.first = first;
+            this.last = last;
+        }
+
+        @SuppressWarnings("unused") // Used by Mustache reflection
+        public String getValue() {
+            return value;
+        }
+
+        @SuppressWarnings("unused") // Used by Mustache reflection
+        public int getIndex() {
+            return index;
+        }
+
+        @SuppressWarnings("unused") // Used by Mustache reflection
+        public boolean isFirst() {
+            return first;
+        }
+
+        @SuppressWarnings("unused") // Used by Mustache reflection
+        public boolean isLast() {
+            return last;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
     }
 
     @Blocking
