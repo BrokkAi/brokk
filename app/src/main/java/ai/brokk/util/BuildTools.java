@@ -213,7 +213,7 @@ public class BuildTools {
         // Regex to match either:
         // 1. Quoted strings: "..." or '...'
         // 2. Non-whitespace strings, excluding shell operators like ;, &, |
-        Pattern pattern = Pattern.compile("\"([^\"]*)\"|'([^']*)'|([^\\s&&[^;&|]]+)");
+        Pattern pattern = Pattern.compile("\"([^\"]*)\"|'([^']*)'|([^\\s;&|]+)");
 
         for (String cmd : commands) {
             if (cmd.isBlank()) continue;

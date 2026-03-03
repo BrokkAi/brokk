@@ -98,4 +98,21 @@ class BuildToolsTest {
         anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("echo hello"));
         assertEquals(null, anchor.orElse(null));
     }
+
+    @Test
+    void testExtractRunnerAnchorWithShellSeparators(@TempDir Path tempDir) throws Exception {
+        Files.createDirectories(tempDir.resolve("scripts"));
+        Path runner = tempDir.resolve("scripts/runner.py");
+        Files.createFile(runner);
+
+        // Verify that tokens adjacent to shell operators are correctly parsed
+        var anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python scripts/runner.py;echo done"));
+        assertEquals(tempDir.resolve("scripts"), anchor.orElse(null));
+
+        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python scripts/runner.py&&echo done"));
+        assertEquals(tempDir.resolve("scripts"), anchor.orElse(null));
+
+        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python scripts/runner.py|grep foo"));
+        assertEquals(tempDir.resolve("scripts"), anchor.orElse(null));
+    }
 }
