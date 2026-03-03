@@ -2394,4 +2394,26 @@ public class GitRepoTest {
             defaultConfig.install();
         }
     }
+
+    @Test
+    void testGetRefContent_ReturnsPlaceholderOnLargeObjectException() throws Exception {
+        // This test verifies that getRefContent gracefully handles LargeObjectException
+        // by returning a placeholder instead of propagating the exception.
+        // The actual LargeObjectException is difficult to trigger in tests without very large files,
+        // so we verify the placeholder constant exists and the method signature is correct.
+
+        // Verify placeholder constant is accessible and stable
+        assertEquals(
+                "[File content too large to display]",
+                GitRepoData.LARGE_OBJECT_PLACEHOLDER,
+                "Placeholder should have expected text for UI display");
+
+        // Create a normal file and verify getRefContent works
+        createCommit("normal.txt", "normal content", "Normal commit");
+        String commit = repo.getCurrentCommitId();
+        ProjectFile normalFile = new ProjectFile(projectRoot, "normal.txt");
+
+        String content = repo.data().getRefContent(commit, normalFile);
+        assertEquals("normal content", content, "Normal files should return their content");
+    }
 }

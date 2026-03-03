@@ -216,7 +216,7 @@ public class GitRepoData {
 
     /**
      * Safely loads blob content, handling large objects gracefully.
-     * Returns a placeholder for objects exceeding MAX_BLOB_SIZE.
+     * Returns a placeholder for objects exceeding MAX_BLOB_SIZE or when JGit cannot load them.
      */
     private String loadBlobContent(org.eclipse.jgit.lib.ObjectLoader loader, ProjectFile file, String commitId)
             throws IOException {
@@ -229,7 +229,7 @@ public class GitRepoData {
                     commitId,
                     size,
                     MAX_BLOB_SIZE);
-            return "[File too large to load from git: %d bytes]".formatted(size);
+            return LARGE_OBJECT_PLACEHOLDER;
         }
 
         // For large objects (as determined by JGit's threshold), use streaming to avoid LargeObjectException
@@ -237,11 +237,20 @@ public class GitRepoData {
             logger.debug("File {} at commit {} is large ({} bytes), using stream", file, commitId, size);
             try (var stream = loader.openStream()) {
                 return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            } catch (org.eclipse.jgit.errors.LargeObjectException e) {
+                logger.debug("File {} at commit {} could not be streamed: {}", file, commitId, e.getMessage());
+                return LARGE_OBJECT_PLACEHOLDER;
             }
         }
 
         // For small objects, getBytes() is safe and efficient
-        return new String(loader.getBytes(), StandardCharsets.UTF_8);
+        try {
+            return new String(loader.getBytes(), StandardCharsets.UTF_8);
+        } catch (org.eclipse.jgit.errors.LargeObjectException e) {
+            logger.debug(
+                    "File {} at commit {} threw LargeObjectException on getBytes: {}", file, commitId, e.getMessage());
+            return LARGE_OBJECT_PLACEHOLDER;
+        }
     }
 
     /**
@@ -458,6 +467,9 @@ public class GitRepoData {
         } catch (GitAPIException e) {
             logger.debug("File {} not found at ref {}, treating as empty", file, ref);
             return "";
+        } catch (org.eclipse.jgit.errors.LargeObjectException e) {
+            logger.debug("File {} at ref {} exceeds size limit, returning placeholder: {}", file, ref, e.getMessage());
+            return LARGE_OBJECT_PLACEHOLDER;
         }
     }
 
