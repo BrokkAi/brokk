@@ -168,6 +168,17 @@ public class InlineTestProjectCreator {
 
         @Override
         public void populate(Path root) throws IOException {
+            // Bypass cache for local file URLs to avoid infinite cache growth (local temp paths change)
+            if (url.startsWith("file:")) {
+                try {
+                    // Clone directly from the file URL
+                    cloneAndCheckout(root, url, ref, depth, () -> "");
+                } catch (GitAPIException e) {
+                    throw new IOException("Failed to clone local repository: " + url, e);
+                }
+                return;
+            }
+
             // Use an empty token for tests to allow cloning public GitHub repos without a configured token
             Supplier<String> noToken = () -> "";
 
@@ -176,26 +187,14 @@ public class InlineTestProjectCreator {
                 Files.createDirectories(CACHE_ROOT);
                 String cacheKey = hash(url + "|" + depth);
                 Path archivePath = CACHE_ROOT.resolve(cacheKey + ".tar.lz4");
-                expandedPath = CACHE_ROOT.resolve(cacheKey + ".expanded");
+                // Option 2: Use per-call temporary expansion directory
+                expandedPath = Files.createTempDirectory(CACHE_ROOT, cacheKey + ".expanded-");
 
                 ensureCachedRepoAvailable(archivePath, expandedPath, noToken);
                 String sourceUrl = expandedPath.toUri().toString();
 
-                // Clone from source (cache or local file) to target root.
-                boolean isSha = ref.matches("^[0-9a-f]{7,40}$");
-                if (!isSha) {
-                    try {
-                        GitRepoFactory.cloneRepo(noToken, sourceUrl, root, depth, ref, true);
-                        return;
-                    } catch (GitAPIException e) {
-                        // Fallback to clone default + checkout
-                    }
-                }
-
-                try (GitRepo ignored = GitRepoFactory.cloneRepo(noToken, sourceUrl, root, depth, null, true)) {
-                    try (Git git = Git.open(root.toFile())) {
-                        git.checkout().setName(ref).call();
-                    }
+                try {
+                    cloneAndCheckout(root, sourceUrl, ref, depth, noToken);
                 } catch (GitAPIException e) {
                     throw new IOException("Failed to clone or checkout ref: " + ref, e);
                 }
@@ -213,6 +212,26 @@ public class InlineTestProjectCreator {
             }
         }
 
+        private void cloneAndCheckout(
+                Path root, String sourceUrl, String ref, int depth, Supplier<String> tokenSupplier)
+                throws GitAPIException, IOException {
+            boolean isSha = ref.matches("^[0-9a-f]{7,40}$");
+            if (!isSha) {
+                try {
+                    GitRepoFactory.cloneRepo(tokenSupplier, sourceUrl, root, depth, ref, true);
+                    return;
+                } catch (GitAPIException e) {
+                    // Fallback to clone default + checkout
+                }
+            }
+
+            try (GitRepo ignored = GitRepoFactory.cloneRepo(tokenSupplier, sourceUrl, root, depth, null, true)) {
+                try (Git git = Git.open(root.toFile())) {
+                    git.checkout().setName(ref).call();
+                }
+            }
+        }
+
         private void ensureCachedRepoAvailable(Path archivePath, Path expandedPath, Supplier<String> noToken)
                 throws IOException {
             synchronized (CACHE_LOCKS.computeIfAbsent(archivePath, k -> new Object())) {
@@ -222,6 +241,7 @@ public class InlineTestProjectCreator {
                         return;
                     } catch (IOException e) {
                         // If extraction fails, archive might be corrupt. Re-clone.
+                        // For Option 2, expandedPath is unique, so we can just clear it and try again.
                         FileUtil.deleteRecursively(expandedPath);
                         Files.deleteIfExists(archivePath);
                     }
@@ -253,10 +273,12 @@ public class InlineTestProjectCreator {
                             }
                         });
 
+                        // Move the fresh clone to expandedPath
+                        // expandedPath (temp dir) might exist empty from createTempDirectory in caller.
+                        // Files.move with REPLACE_EXISTING works if target is empty dir or file.
                         if (Files.exists(expandedPath)) {
                             FileUtil.deleteRecursively(expandedPath);
                         }
-                        Files.createDirectories(expandedPath.getParent());
                         Files.move(tempCloneDir, expandedPath);
                     } catch (GitAPIException | IOException | RuntimeException e) {
                         FileUtil.deleteRecursively(expandedPath);
