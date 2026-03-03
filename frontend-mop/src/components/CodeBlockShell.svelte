@@ -141,16 +141,6 @@
 
     <span class="spacer"></span>
 
-    <button
-      type="button"
-      class="copy-btn"
-      class:copied={copied}
-      on:click|stopPropagation={copyToClipboard}
-      aria-label={copied ? "Copied!" : "Copy code to clipboard"}
-      title={copied ? "Copied!" : "Copy code to clipboard"}
-    >
-      <Icon icon={copied ? "mdi:check" : "mdi:content-copy"} />
-    </button>
     <span class="sr-only" aria-live="polite" role="status">
       {copied ? "Copied to clipboard" : ""}
     </span>
