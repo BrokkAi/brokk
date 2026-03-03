@@ -2714,10 +2714,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @TestOnly
     void createHeadless() {
         createHeadless(true, new HeadlessConsole());
-        var mp = project.getMainProject();
         // configure a placeholder build so awaitBuildDetails() doesn't block indefinitely
-        if (mp.loadBuildDetails().isEmpty()) {
-            mp.setBuildDetails(BuildDetails.EMPTY);
+        if (project.loadBuildDetails().isEmpty()) {
+            project.setBuildDetails(BuildDetails.EMPTY);
         }
     }
 
