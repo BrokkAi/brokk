@@ -159,7 +159,7 @@ public class BuildTools {
         IAnalyzer analyzer = cm.getAnalyzer();
 
         if (isPackagesBased) {
-            // Try anchor-based detection first (e.g. for Python module paths)
+            // Try anchor-based detection first (e.g. for Python module/package paths)
             Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
             targetItems = workspaceTestFiles.stream()
                     .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
@@ -168,7 +168,7 @@ public class BuildTools {
                     .sorted()
                     .toList();
 
-            // Fallback to analyzer modules (e.g. Go packages) if anchor-based detection yields nothing
+            // Fallback to analyzer packages (e.g. Go packages) if anchor-based detection yields nothing
             if (targetItems.isEmpty() && !analyzer.isEmpty()) {
                 targetItems = analyzer.getTestModules(workspaceTestFiles);
             }

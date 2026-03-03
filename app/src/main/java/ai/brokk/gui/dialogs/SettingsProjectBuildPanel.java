@@ -606,6 +606,9 @@ public class SettingsProjectBuildPanel extends JPanel {
                     if (testSomeTemplate.contains("{{#files}}")) {
                         listKey = "files";
                         items = List.of("src/test/java/com/example/Placeholder.java");
+                    } else if (testSomeTemplate.contains("{{#packages}}")) {
+                        listKey = "packages";
+                        items = List.of("com/example/placeholder");
                     } else if (testSomeTemplate.contains("{{#fqclasses}}")) {
                         listKey = "fqclasses";
                         items = List.of("com.example.Placeholder");

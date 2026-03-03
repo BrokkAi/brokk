@@ -430,7 +430,7 @@ public class BuildAgent {
                 - `{{#files}}...{{/files}}` — file paths
                 - `{{#classes}}...{{/classes}}` — simple class names
                 - `{{#fqclasses}}...{{/fqclasses}}` — fully-qualified class names
-                - `{{#packages}}...{{/packages}}` — package paths, modules, or directories
+                - `{{#packages}}...{{/packages}}` — package paths, dotted modules, or directories
 
                 Inside a section, each item exposes:
                 - `{{value}}` or `{{.}}` — the string value
