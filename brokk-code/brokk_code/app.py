@@ -2507,7 +2507,7 @@ class BrokkApp(App):
                 if not selected_id:
                     return
                 if selected_id == "new":
-                    self.run_worker(self._create_session_from_menu())
+                    self.run_worker(self._create_session_from_menu)
                 elif selected_id.startswith("rename:"):
                     sid = selected_id.split(":", 1)[1]
                     self.run_worker(self._rename_session_workflow(sid, sessions))

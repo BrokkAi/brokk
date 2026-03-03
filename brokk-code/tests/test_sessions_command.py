@@ -149,6 +149,9 @@ async def test_prompt_submission_gates_and_queues_during_switch(tmp_path):
     app.on_chat_panel_submitted(msg)
 
     assert app._pending_switch_prompt == "Queued prompt during switch"
+    # Verify no immediate job submission
+    app.executor.submit_job.assert_not_called()
+
     # Verify feedback was given
     any_queued_msg = any(
         "Queuing prompt" in str(call.args[0]) for call in chat.add_system_message.call_args_list
@@ -159,7 +162,7 @@ async def test_prompt_submission_gates_and_queues_during_switch(tmp_path):
     switch_event.set()
     await switch_task
 
-    # Verify switch finished and THEN the job was run
+    # Verify switch finished
     app.executor.switch_session.assert_called_once_with("s-target")
 
     # The switch_task completion triggers run_worker(self._run_job(queued)).
