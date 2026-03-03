@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.cfg.CoercionAction;
 import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
+import java.lang.annotation.Annotation;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -199,6 +200,12 @@ public class ToolRegistry {
         var target = toolMap.get(toolName);
         if (target == null) return Optional.empty();
         return Optional.of(ToolSpecifications.toolSpecificationFrom(target.method()));
+    }
+
+    /** Returns true if the registered tool method is annotated with the given annotation type. */
+    public boolean isToolAnnotated(String toolName, Class<? extends Annotation> annotationType) {
+        var target = toolMap.get(toolName);
+        return target != null && target.method().isAnnotationPresent(annotationType);
     }
 
     /** Returns true if a global tool with the given name is registered. */
