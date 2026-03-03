@@ -161,25 +161,7 @@ public class InlineTestProjectCreator {
             // Use an empty token for tests to allow cloning public GitHub repos without a configured token
             java.util.function.Supplier<String> noToken = () -> "";
 
-            String sourceUrl;
-            if (url.startsWith("file:")) {
-                sourceUrl = url;
-            } else {
-                Files.createDirectories(CACHE_ROOT);
-                String cacheKey = hash(url + "|" + depth);
-                Path cachePath = CACHE_ROOT.resolve(cacheKey);
-
-                try {
-                    synchronized (CACHE_LOCKS.computeIfAbsent(cachePath, k -> new Object())) {
-                        if (!Files.exists(cachePath)) {
-                            GitRepoFactory.cloneRepo(noToken, url, cachePath, depth, true);
-                        }
-                    }
-                } catch (GitAPIException e) {
-                    throw new IOException("Failed to cache repository: " + url, e);
-                }
-                sourceUrl = cachePath.toUri().toString();
-            }
+            String sourceUrl = getEffectiveSourceUrl(noToken);
 
             // Clone from source (cache or local file) to target root.
             // GitRepoFactory.cloneRepo with branch/tag selection works for branches and tags.
@@ -208,6 +190,27 @@ public class InlineTestProjectCreator {
                     s.limit(20).forEach(System.out::println);
                 }
             }
+        }
+
+        private String getEffectiveSourceUrl(java.util.function.Supplier<String> noToken) throws IOException {
+            if (url.startsWith("file:")) {
+                return url;
+            }
+
+            Files.createDirectories(CACHE_ROOT);
+            String cacheKey = hash(url + "|" + depth);
+            Path cachePath = CACHE_ROOT.resolve(cacheKey);
+
+            try {
+                synchronized (CACHE_LOCKS.computeIfAbsent(cachePath, k -> new Object())) {
+                    if (!Files.exists(cachePath)) {
+                        GitRepoFactory.cloneRepo(noToken, url, cachePath, depth, true);
+                    }
+                }
+            } catch (GitAPIException e) {
+                throw new IOException("Failed to cache repository: " + url, e);
+            }
+            return cachePath.toUri().toString();
         }
 
         @Override
