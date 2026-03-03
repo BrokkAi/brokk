@@ -77,7 +77,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/javascript/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/javascript/imports.scm");
-            case IDENTIFIERS -> Optional.empty();
+            case IDENTIFIERS -> Optional.of("treesitter/javascript/identifiers.scm");
         };
     }
 
@@ -602,26 +602,19 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
+        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
+        if (query == null) {
+            return Set.of();
+        }
+
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try {
             SourceContent sourceContent = SourceContent.of(source);
             TSTree tree = parser.parseString(null, source);
             TSNode rootNode = tree.getRootNode();
-            TSLanguage jsLanguage = getTSLanguage();
 
-            // Query for standard identifiers and JSX tag names
-            String queryStr =
-                    """
-                (identifier) @id
-                (jsx_opening_element name: (identifier) @id)
-                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
-                (jsx_self_closing_element name: (identifier) @id)
-                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
-                """;
-
-            try (TSQuery query = new TSQuery(jsLanguage, queryStr);
-                    TSQueryCursor cursor = new TSQueryCursor()) {
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
                 cursor.exec(query, rootNode);
                 TSQueryMatch match = new TSQueryMatch();
 
