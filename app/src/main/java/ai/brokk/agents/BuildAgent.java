@@ -27,6 +27,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.github.mustachejava.DefaultMustacheFactory;
+import com.github.mustachejava.Mustache;
+import com.github.mustachejava.MustacheFactory;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -34,6 +37,8 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.io.IOException;
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,6 +46,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.Locale;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -418,10 +424,27 @@ public class BuildAgent {
                 When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
 
-                The lists are DecoratedCollection instances, so you get first/last/index/value fields.
+                The `testAllCommand` is a plain command that runs the full test suite.
+                The `testSomeCommand` uses **Mustache** template syntax to inject test targets.
+                Use one of these section blocks depending on the build tool:
+                - `{{#files}}...{{/files}}` — file paths
+                - `{{#classes}}...{{/classes}}` — simple class names
+                - `{{#fqclasses}}...{{/fqclasses}}` — fully-qualified class names
+                - `{{#modules}}...{{/modules}}` — dotted module names (e.g. for Python projects)
+                - `{{#packages}}...{{/packages}}` — package paths (e.g. for Go/Rust projects)
 
-                Since the lists are file- and class- oriented, for test environments like `go test` and `cargo test`
-                that are function-oriented, we fall back to running all tests.
+                Inside a section, each item exposes:
+                - `{{value}}` or `{{.}}` — the string value
+                - `{{first}}`, `{{last}}` — booleans for first/last iteration
+                - `{{index}}` — 0-based position
+                - `{{^last}}separator{{/last}}` — render separator between items (not after last)
+
+                Use `{{pyver}}` for the version string when needed (e.g. for Python projects: `python{{pyver}} -m pytest`).
+                Only these variables are supported; do not use other Mustache variables.
+
+                Note: Since the lists are file- and class-oriented, for test environments like `go test` and `cargo test`
+                that are function-oriented, it is acceptable to fall back to running all tests when targeting specific
+                tests is not feasible.
 
                 Examples:
 
@@ -524,6 +547,11 @@ public class BuildAgent {
             @P(
                             "List of file patterns to exclude. Use '*.ext' for extensions (e.g., '*.svg'), literal names for specific files (e.g., 'package-lock.json'). Do NOT use **/ prefix or duplicate directories.")
                     List<String> excludedFilePatterns) {
+        // Validate Mustache templates in command strings before proceeding
+        validateCommandTemplateForTool("buildLintCommand", buildLintCommand);
+        validateCommandTemplateForTool("testAllCommand", testAllCommand);
+        validateCommandTemplateForTool("testSomeCommand", testSomeCommand);
+
         logger.debug("Raw excludedDirectories from LLM: {}", excludedDirectories);
         logger.debug("Raw excludedFilePatterns from LLM: {}", excludedFilePatterns);
         logger.debug("Baseline excludedDirectories (from gitignore, not stored): {}", currentExcludedDirectories);
@@ -774,6 +802,253 @@ public class BuildAgent {
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
                     afterTaskListCommand != null ? afterTaskListCommand : "");
+        }
+    }
+
+    // Regex to detect delimiter-change tags: {{= ... =}}
+    // These are unsupported and should be flagged
+    private static final Pattern DELIMITER_CHANGE_PATTERN = Pattern.compile("\\{\\{=.*?=\\}\\}");
+
+    // Allowed top-level Mustache keys (section variables)
+    private static final Set<String> ALLOWED_TOP_LEVEL_KEYS =
+            Set.of("files", "classes", "fqclasses", "modules", "packages", "pyver");
+
+    // Allowed per-item keys inside sections
+    private static final Set<String> ALLOWED_ITEM_KEYS = Set.of(".", "value", "first", "last", "index");
+
+    // Regex to extract Mustache tags: {{name}}, {{{name}}}, {{#name}}, {{/name}}, {{^name}}, {{>name}}, {{!comment}},
+    // {{=...=}}
+    // Captures the optional prefix character (#, /, ^, >, !) and the tag name
+    private static final Pattern MUSTACHE_TAG_PATTERN =
+            Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}");
+
+    /**
+     * Extracts all Mustache tag names from a template string.
+     * Returns the raw tag names (without prefixes like #, /, ^).
+     * Tags with prefixes like > (partials) or ! (comments) are returned with their prefix
+     * to indicate they are unsupported advanced features.
+     * Delimiter-change tags ({{= ... =}}) are detected separately and returned as "=...".
+     */
+    @VisibleForTesting
+    static Set<String> extractMustacheTags(String template) {
+        if (template.isEmpty()) {
+            return Set.of();
+        }
+        var tags = new LinkedHashSet<String>();
+
+        // First, detect delimiter-change tags which have special syntax {{= ... =}}
+        var delimiterMatcher = DELIMITER_CHANGE_PATTERN.matcher(template);
+        while (delimiterMatcher.find()) {
+            // Extract the content between {{= and =}} to include in the error message
+            String fullMatch = delimiterMatcher.group();
+            // Remove {{= prefix and =}} suffix to get the delimiter specification
+            String delimiterSpec =
+                    fullMatch.substring(3, fullMatch.length() - 3).trim();
+            tags.add("=" + (delimiterSpec.isEmpty() ? "..." : delimiterSpec));
+        }
+
+        var matcher = MUSTACHE_TAG_PATTERN.matcher(template);
+        while (matcher.find()) {
+            String prefix = matcher.group(1);
+            String name = matcher.group(2);
+            // For partials (>) and comments (!), include the prefix to mark them as unsupported
+            if (">".equals(prefix) || "!".equals(prefix)) {
+                tags.add(prefix + name);
+            } else {
+                // For #, /, ^, or no prefix, just use the tag name
+                tags.add(name);
+            }
+        }
+        return tags;
+    }
+
+    /**
+     * Validates that all Mustache tags in a template are in the allowed set.
+     *
+     * @param template the Mustache template string
+     * @param extraAllowedKeys additional keys to allow (e.g., the specific listKey for this call)
+     * @return a set of unsupported tags found, empty if all are valid
+     */
+    @VisibleForTesting
+    static Set<String> findUnsupportedMustacheTags(String template, Set<String> extraAllowedKeys) {
+        var tags = extractMustacheTags(template);
+        if (tags.isEmpty()) {
+            return Set.of();
+        }
+
+        var allAllowed = new HashSet<>(ALLOWED_TOP_LEVEL_KEYS);
+        allAllowed.addAll(ALLOWED_ITEM_KEYS);
+        allAllowed.addAll(extraAllowedKeys);
+
+        var unsupported = new LinkedHashSet<String>();
+        for (String tag : tags) {
+            if (!allAllowed.contains(tag)) {
+                unsupported.add(tag);
+            }
+        }
+        return unsupported;
+    }
+
+    /**
+     * Validates a Mustache template, throwing IllegalArgumentException if unsupported tags are found.
+     *
+     * @param template the template to validate
+     * @param listKey the list key used for this interpolation (added to allowed keys)
+     * @throws IllegalArgumentException if unsupported tags are found
+     */
+    private static void validateMustacheTemplate(String template, String listKey) {
+        if (template.isEmpty()) {
+            return;
+        }
+        var unsupported = findUnsupportedMustacheTags(template, Set.of(listKey));
+        if (!unsupported.isEmpty()) {
+            var allAllowed = new TreeSet<>(ALLOWED_TOP_LEVEL_KEYS);
+            allAllowed.addAll(ALLOWED_ITEM_KEYS);
+            throw new IllegalArgumentException(
+                    "Unsupported Mustache tags: %s. Allowed: %s".formatted(unsupported, allAllowed));
+        }
+    }
+
+    /**
+     * Validates a command template for use in reportBuildDetails tool.
+     * Throws ToolCallException with REQUEST_ERROR status if unsupported tags are found.
+     *
+     * @param fieldName the name of the field being validated (for error messages)
+     * @param template the template to validate
+     * @throws ToolRegistry.ToolCallException if unsupported tags are found
+     */
+    private static void validateCommandTemplateForTool(String fieldName, String template) {
+        if (template.isEmpty()) {
+            return;
+        }
+        // For tool validation, allow all canonical list keys since we don't know which one will be used
+        var unsupported = findUnsupportedMustacheTags(template, Set.of());
+        if (!unsupported.isEmpty()) {
+            var allAllowed = new TreeSet<>(ALLOWED_TOP_LEVEL_KEYS);
+            allAllowed.addAll(ALLOWED_ITEM_KEYS);
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.REQUEST_ERROR,
+                    "%s contains unsupported Mustache tags: %s. Allowed: %s"
+                            .formatted(fieldName, unsupported, allAllowed));
+        }
+    }
+
+    /**
+     * Interpolates a Mustache template with the given list of items and optional Python version.
+     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#modules}}},
+     * and {@code {{pyver}}} variables.
+     *
+     * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
+     * <ul>
+     *   <li>{@code {{.}}}  — the string value (via {@code toString()})</li>
+     *   <li>{@code {{value}}} — the string value (explicit field)</li>
+     *   <li>{@code {{first}}} — boolean, true for the first item</li>
+     *   <li>{@code {{last}}} — boolean, true for the last item</li>
+     *   <li>{@code {{index}}} — 0-based position in the list</li>
+     * </ul>
+     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
+     * constitute an API change and require corresponding test updates.
+     */
+    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
+        return interpolateMustacheTemplate(template, items, listKey, null);
+    }
+
+    /**
+     * Interpolates a Mustache template with the given list of items and optional Python version.
+     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#modules}}},
+     * and {@code {{pyver}}} variables.
+     *
+     * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
+     * <ul>
+     *   <li>{@code {{.}}}  — the string value (via {@code toString()})</li>
+     *   <li>{@code {{value}}} — the string value (explicit field)</li>
+     *   <li>{@code {{first}}} — boolean, true for the first item</li>
+     *   <li>{@code {{last}}} — boolean, true for the last item</li>
+     *   <li>{@code {{index}}} — 0-based position in the list</li>
+     * </ul>
+     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
+     * constitute an API change and require corresponding test updates.
+     */
+    public static String interpolateMustacheTemplate(
+            String template, List<String> items, String listKey, @Nullable String pythonVersion) {
+        if (template.isEmpty()) {
+            return "";
+        }
+
+        // Validate template before compiling
+        validateMustacheTemplate(template, listKey);
+
+        MustacheFactory mf = new DefaultMustacheFactory();
+        // The "templateName" argument to compile is for caching and error reporting, can be arbitrary.
+        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
+
+        Map<String, Object> context = new HashMap<>();
+        // Mustache.java handles empty lists correctly for {{#section}} blocks (renders zero iterations).
+        // Use StringElement wrapper that supports both {{.}} (via toString) and {{value}}/{{first}}/{{last}}/{{index}}
+        context.put(listKey, toStringElementList(items));
+        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
+
+        StringWriter writer = new StringWriter();
+        // This can throw MustacheException, which will propagate as a RuntimeException
+        // as per the project's "let it throw" style.
+        mustache.execute(writer, context);
+
+        return writer.toString();
+    }
+
+    /**
+     * Converts a list of strings to StringElement wrappers that support both {{.}} and {{value}}/{{first}}/{{last}}/{{index}}.
+     */
+    private static List<StringElement> toStringElementList(List<String> items) {
+        var result = new ArrayList<StringElement>(items.size());
+        int size = items.size();
+        for (int i = 0; i < size; i++) {
+            result.add(new StringElement(items.get(i), i, i == 0, i == size - 1));
+        }
+        return result;
+    }
+
+    /**
+     * Wrapper for string values in Mustache templates that supports both implicit iterator {{.}}
+     * (via toString()) and explicit field access ({{value}}, {{first}}, {{last}}, {{index}}).
+     * This fixes the DecoratedCollection bug where {{.}} returns "Element@..." instead of the value.
+     */
+    private static final class StringElement {
+        private final String value;
+        private final int index;
+        private final boolean first;
+        private final boolean last;
+
+        StringElement(String value, int index, boolean first, boolean last) {
+            this.value = value;
+            this.index = index;
+            this.first = first;
+            this.last = last;
+        }
+
+        @SuppressWarnings("unused") // Used by Mustache reflection
+        public String getValue() {
+            return value;
+        }
+
+        @SuppressWarnings("unused") // Used by Mustache reflection
+        public int getIndex() {
+            return index;
+        }
+
+        @SuppressWarnings("unused") // Used by Mustache reflection
+        public boolean isFirst() {
+            return first;
+        }
+
+        @SuppressWarnings("unused") // Used by Mustache reflection
+        public boolean isLast() {
+            return last;
+        }
+
+        @Override
+        public String toString() {
+            return value;
         }
     }
 

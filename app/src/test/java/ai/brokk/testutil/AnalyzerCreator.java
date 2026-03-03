@@ -2,6 +2,7 @@ package ai.brokk.testutil;
 
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
@@ -36,6 +37,51 @@ public class AnalyzerCreator {
      * @param languages the languages to analyze (varargs).
      * @return a MultiAnalyzer wrapping per-language analyzers.
      */
+    /**
+     * Creates an appropriate analyzer for the given project based on its configured languages.
+     *
+     * @param project the project to create an analyzer for.
+     * @return an initialized IAnalyzer (TreeSitter, MultiAnalyzer, or Disabled).
+     */
+    public static IAnalyzer createFor(IProject project) {
+        var languages = project.getAnalyzerLanguages();
+        var activeLanguages =
+                languages.stream().filter(l -> l != Languages.NONE).toList();
+
+        if (activeLanguages.isEmpty()) {
+            return Languages.NONE.createAnalyzer(project);
+        }
+
+        // Set the primary build language if not already set
+        if (project.getBuildLanguage() == Languages.NONE) {
+            project.setBuildLanguage(activeLanguages.getFirst());
+        }
+
+        if (activeLanguages.size() == 1) {
+            return activeLanguages.getFirst().createAnalyzer(project).update();
+        }
+
+        return createMultiAnalyzer(project, activeLanguages.toArray(new Language[0]))
+                .update();
+    }
+
+    /**
+     * Creates an appropriate analyzer for the given project based on the specific languages.
+     *
+     * @param project the project to create an analyzer for.
+     * @param languages the languages to include in the analyzer.
+     * @return an IAnalyzer for the specified languages.
+     */
+    public static IAnalyzer createFor(IProject project, Language... languages) {
+        if (languages.length == 0) {
+            return createFor(project);
+        }
+        if (languages.length == 1) {
+            return languages[0].createAnalyzer(project);
+        }
+        return createMultiAnalyzer(project, languages);
+    }
+
     public static MultiAnalyzer createMultiAnalyzer(IProject project, Language... languages) {
         Map<Language, IAnalyzer> delegates = new HashMap<>();
         for (Language language : languages) {

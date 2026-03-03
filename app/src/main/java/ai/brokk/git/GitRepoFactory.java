@@ -95,7 +95,7 @@ public class GitRepoFactory {
      * automatically append ".git".
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth) throws GitAPIException {
-        return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, null, null);
+        return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, null, null, false);
     }
 
     /**
@@ -103,7 +103,7 @@ public class GitRepoFactory {
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, ProgressMonitor monitor)
             throws GitAPIException {
-        return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, null, monitor);
+        return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, null, monitor, false);
     }
 
     /**
@@ -118,18 +118,35 @@ public class GitRepoFactory {
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
-        return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag, null);
+        return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag, null, false);
     }
 
     public static GitRepo cloneRepo(Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
             throws GitAPIException {
-        return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, null, null);
+        return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, null, null, false);
+    }
+
+    public static GitRepo cloneRepo(
+            Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, boolean allowUnauthenticated)
+            throws GitAPIException {
+        return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, null, null, allowUnauthenticated);
     }
 
     public static GitRepo cloneRepo(
             Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
-        return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, branchOrTag, null);
+        return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, branchOrTag, null, false);
+    }
+
+    public static GitRepo cloneRepo(
+            Supplier<String> tokenSupplier,
+            String remoteUrl,
+            Path directory,
+            int depth,
+            @Nullable String branchOrTag,
+            boolean allowUnauthenticated)
+            throws GitAPIException {
+        return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, branchOrTag, null, allowUnauthenticated);
     }
 
     private static GitRepo cloneRepoInternal(
@@ -138,7 +155,8 @@ public class GitRepoFactory {
             Path directory,
             int depth,
             @Nullable String branchOrTag,
-            @Nullable ProgressMonitor monitor)
+            @Nullable ProgressMonitor monitor,
+            boolean allowUnauthenticated)
             throws GitAPIException {
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
@@ -165,9 +183,9 @@ public class GitRepoFactory {
                 var token = tokenSupplier.get();
                 if (!token.trim().isEmpty()) {
                     cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
-                } else {
-                    throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
-                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
+                } else if (!allowUnauthenticated) {
+                    throw new GitHubAuthenticationException(
+                            "GitHub token required for HTTPS authentication. Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
                 }
             }
 
