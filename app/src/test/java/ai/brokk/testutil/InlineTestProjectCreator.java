@@ -250,8 +250,6 @@ public class InlineTestProjectCreator {
                                         tarOut.closeArchiveEntry();
                                     }
                                 }
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
                             }
                         });
 
