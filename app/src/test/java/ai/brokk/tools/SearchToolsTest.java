@@ -42,7 +42,7 @@ public class SearchToolsTest {
     Path tempDir;
 
     private Path projectRoot;
-    private GitRepo repo;
+    private @Nullable GitRepo repo;
     private SearchTools searchTools;
     /** mutable set returned from the project-proxy's getAllFiles() */
     private Set<ProjectFile> mockProjectFiles;
@@ -95,23 +95,9 @@ public class SearchToolsTest {
     @BeforeEach
     void setUp() throws Exception {
         projectRoot = tempDir.resolve("testRepo");
+        Files.createDirectories(projectRoot);
         mockProjectFiles = new HashSet<>();
-        try (Git git = Git.init().setDirectory(projectRoot.toFile()).call()) {
-            // initial commit
-            Path readme = projectRoot.resolve("README.md");
-            Files.writeString(readme, "Initial commit file");
-            git.add().addFilepattern("README.md").call();
-            git.commit().setMessage("Initial commit").setSign(false).call();
-
-            // commit that will be matched by substring fallback
-            git.commit()
-                    .setAllowEmpty(true)
-                    .setMessage("Commit with [[ pattern")
-                    .setSign(false)
-                    .call();
-        }
-
-        repo = new GitRepo(projectRoot);
+        repo = null;
 
         /*
          * Create a minimal IContextManager mock/stub that only needs to return
@@ -144,7 +130,10 @@ public class SearchToolsTest {
                 getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
                     return switch (method.getName()) {
                         case "getProject" -> projectProxy;
-                        case "getRepo" -> repo;
+                        case "getRepo" -> {
+                            ensureGitRepoInitialized();
+                            yield repo;
+                        }
                         case "getAnalyzerUninterrupted", "getAnalyzer" ->
                             Proxy.newProxyInstance(
                                     getClass().getClassLoader(),
@@ -167,11 +156,39 @@ public class SearchToolsTest {
 
     @AfterEach
     void tearDown() {
-        repo.close();
+        if (repo != null) {
+            repo.close();
+        }
+    }
+
+    /**
+     * Lazily initializes the Git repository only when needed.
+     * This avoids the cost of git init + commits for tests that don't use git features.
+     */
+    private void ensureGitRepoInitialized() throws Exception {
+        if (repo != null) {
+            return;
+        }
+        try (Git git = Git.init().setDirectory(projectRoot.toFile()).call()) {
+            // initial commit
+            Path readme = projectRoot.resolve("README.md");
+            Files.writeString(readme, "Initial commit file");
+            git.add().addFilepattern("README.md").call();
+            git.commit().setMessage("Initial commit").setSign(false).call();
+
+            // commit that will be matched by substring fallback
+            git.commit()
+                    .setAllowEmpty(true)
+                    .setMessage("Commit with [[ pattern")
+                    .setSign(false)
+                    .call();
+        }
+        repo = new GitRepo(projectRoot);
     }
 
     @Test
-    void testSearchGitCommitMessages_invalidRegexFallback() {
+    void testSearchGitCommitMessages_invalidRegexFallback() throws Exception {
+        ensureGitRepoInitialized();
         String result = searchTools.searchGitCommitMessages("[[", 200);
 
         // We should get the commit we added that contains the substring "[["
@@ -406,6 +423,7 @@ public class SearchToolsTest {
 
     @Test
     void testGetGitLog_limitEnforced() throws Exception {
+        ensureGitRepoInitialized();
         // Create several commits
         try (Git git = Git.open(projectRoot.toFile())) {
             for (int i = 1; i <= 5; i++) {
@@ -493,9 +511,14 @@ public class SearchToolsTest {
 
     @Test
     void testSearchFileContents_invalidRegexThrows() throws Exception {
+        // Create a file so the tool attempts regex compilation
+        Path readme = projectRoot.resolve("README.md");
+        Files.writeString(readme, "test content");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "README.md"));
+
         // "[[" is invalid regex, should return error message
         String result = searchTools.searchFileContents(List.of("[["), "README.md", false, false, 0, 200, 200);
-        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
+        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error. Result:\n" + result);
     }
 
     @Test
@@ -597,6 +620,7 @@ public class SearchToolsTest {
 
     @Test
     void testGetGitLog_RenameTracking() throws Exception {
+        ensureGitRepoInitialized();
         Path oldPath = projectRoot.resolve("old_name.txt");
         Files.writeString(oldPath, "original content");
 
