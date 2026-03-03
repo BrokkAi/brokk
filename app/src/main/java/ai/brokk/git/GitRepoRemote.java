@@ -4,12 +4,14 @@ import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.IOException;
 import java.util.*;
+import java.util.Collection;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ProgressMonitor;
+import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.transport.PushResult;
@@ -549,7 +551,14 @@ public class GitRepoRemote {
             // Don't throw if token is empty - allow graceful failure for public repos
         }
 
-        var remoteRefs = lsRemote.call();
+        Collection<Ref> remoteRefs;
+        try {
+            remoteRefs = lsRemote.call();
+        } catch (RuntimeException e) {
+            // JGit's SSH transport can throw RuntimeException (e.g., IllegalThreadStateException)
+            // instead of GitAPIException. Wrap it so callers only need to handle GitAPIException.
+            throw new GitRepo.GitRepoException("Failed to list remote refs for " + url, e);
+        }
 
         var branches = new ArrayList<String>();
         var tags = new ArrayList<String>();
