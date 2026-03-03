@@ -2,7 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.java.JavaSourceRootScanner;
+import ai.brokk.analyzer.SourceRootScanner;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
@@ -76,7 +76,7 @@ public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         MaterialButton autoDetectButton = new MaterialButton("Auto-detect");
         autoDetectButton.setIcon(Icons.SEARCH);
         autoDetectButton.addActionListener(e -> {
-            List<String> detected = JavaSourceRootScanner.scan(project);
+            List<String> detected = SourceRootScanner.scan(project, language);
             List<String> current = getRootsFromTable();
             for (String path : detected) {
                 if (!current.contains(path)) {

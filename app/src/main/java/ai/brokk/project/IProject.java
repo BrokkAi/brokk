@@ -595,7 +595,7 @@ public interface IProject extends AutoCloseable {
      */
     @Blocking
     default List<String> getJavaSourceRoots() {
-        return ai.brokk.analyzer.java.JavaSourceRootScanner.scan(this);
+        return ai.brokk.analyzer.SourceRootScanner.scan(this, ai.brokk.analyzer.Languages.JAVA);
     }
 
     /**
