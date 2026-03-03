@@ -276,39 +276,43 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        if (!hasQuery(QueryType.DEFINITIONS)) return false;
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, tree.getRootNode());
-            TSQueryMatch match = new TSQueryMatch();
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
+            if (query != null) {
+                try (TSQueryCursor cursor = new TSQueryCursor()) {
+                    cursor.exec(query, tree.getRootNode());
+                    TSQueryMatch match = new TSQueryMatch();
 
-            Set<String> testAttributes =
-                    Set.of("Test", "Fact", "Theory", "TestCase", "TestMethod", "DataTestMethod", "SetUp", "TearDown");
+                    Set<String> testAttributes = Set.of(
+                            "Test", "Fact", "Theory", "TestCase", "TestMethod", "DataTestMethod", "SetUp", "TearDown");
 
-            while (cursor.nextMatch(match)) {
-                boolean hasTestMarker = false;
-                String capturedAttrName = null;
+                    while (cursor.nextMatch(match)) {
+                        boolean hasTestMarker = false;
+                        String capturedAttrName = null;
 
-                for (var capture : match.getCaptures()) {
-                    String captureName = query.getCaptureNameForId(capture.getIndex());
-                    if (TEST_MARKER.equals(captureName)) {
-                        hasTestMarker = true;
-                    } else if ("test_attr".equals(captureName)) {
-                        // Attribute names in C# often include the "Attribute" suffix or dots.
-                        // We extract the full text and check if it ends with or matches our known markers.
-                        capturedAttrName = sourceContent.substringFrom(capture.getNode());
-                    }
-                }
+                        for (var capture : match.getCaptures()) {
+                            String captureName = query.getCaptureNameForId(capture.getIndex());
+                            TSNode node = capture.getNode();
+                            if (node == null || node.isNull()) continue;
 
-                if (hasTestMarker && capturedAttrName != null) {
-                    String normalizedName = capturedAttrName;
-                    if (normalizedName.endsWith("Attribute")) {
-                        normalizedName = normalizedName.substring(0, normalizedName.length() - "Attribute".length());
-                    }
-                    final String finalName = normalizedName;
-                    if (testAttributes.stream()
-                            .anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
-                        return true;
+                            if (TEST_MARKER.equals(captureName)) {
+                                hasTestMarker = true;
+                            } else if ("test_attr".equals(captureName)) {
+                                capturedAttrName = sourceContent.substringFrom(node);
+                            }
+                        }
+
+                        if (hasTestMarker && capturedAttrName != null) {
+                            String normalizedName = capturedAttrName;
+                            if (normalizedName.endsWith("Attribute")) {
+                                normalizedName =
+                                        normalizedName.substring(0, normalizedName.length() - "Attribute".length());
+                            }
+                            final String finalName = normalizedName;
+                            if (testAttributes.stream()
+                                    .anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
+                                return true;
+                            }
+                        }
                     }
                 }
             }

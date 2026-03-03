@@ -1147,10 +1147,6 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
-        if (!hasQuery(QueryType.IDENTIFIERS)) {
-            return Set.of();
-        }
-
         Set<String> identifiers = new HashSet<>();
         try (TSTree tree = getTSParser().parseString(null, source)) {
             if (tree == null || tree.getRootNode().isNull()) {
@@ -1159,15 +1155,20 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             SourceContent sourceContent = SourceContent.of(source);
             TSNode rootNode = tree.getRootNode();
 
-            try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
-                    TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(query, rootNode);
-                TSQueryMatch match = new TSQueryMatch();
+            try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
+                if (query != null) {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, rootNode);
+                        TSQueryMatch match = new TSQueryMatch();
 
-                while (cursor.nextMatch(match)) {
-                    for (TSQueryCapture capture : match.getCaptures()) {
-                        TSNode node = capture.getNode();
-                        identifiers.add(sourceContent.substringFrom(node));
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    identifiers.add(sourceContent.substringFrom(node));
+                                }
+                            }
+                        }
                     }
                 }
             }

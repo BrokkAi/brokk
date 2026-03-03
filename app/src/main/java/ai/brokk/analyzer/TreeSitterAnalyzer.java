@@ -2015,20 +2015,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
         if (hasQuery(QueryType.IMPORTS)) {
-            try (TSQuery importsQuery = createQuery(QueryType.IMPORTS);
-                    TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(importsQuery, rootNode);
-                TSQueryMatch match = new TSQueryMatch();
-                while (cursor.nextMatch(match)) {
-                    Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
-                    for (TSQueryCapture capture : match.getCaptures()) {
-                        String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
-                        TSNode node = capture.getNode();
-                        if (node != null && !node.isNull()) {
-                            capturedNodesForMatch.putIfAbsent(captureName, node);
+            try (TSQuery importsQuery = createQuery(QueryType.IMPORTS)) {
+                if (importsQuery != null) {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(importsQuery, rootNode);
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    capturedNodesForMatch.putIfAbsent(captureName, node);
+                                }
+                            }
+                            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
                         }
                     }
-                    extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
                 }
             }
         }

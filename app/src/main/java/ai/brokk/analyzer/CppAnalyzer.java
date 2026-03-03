@@ -1429,10 +1429,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
-        if (!hasQuery(QueryType.IDENTIFIERS)) {
-            return Set.of();
-        }
-
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try (TSTree tree = parser.parseString(null, source)) {
@@ -1440,23 +1436,29 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 return identifiers;
             }
 
-            try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
-                    TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(query, tree.getRootNode());
+            try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
+                if (query != null) {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-                SourceContent sourceContent = SourceContent.of(source);
-                TSQueryMatch match = new TSQueryMatch();
-                while (cursor.nextMatch(match)) {
-                    for (TSQueryCapture capture : match.getCaptures()) {
-                        String text =
-                                sourceContent.substringFrom(capture.getNode()).strip();
-                        if (text.isEmpty()) continue;
+                        SourceContent sourceContent = SourceContent.of(source);
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    String text =
+                                            sourceContent.substringFrom(node).strip();
+                                    if (text.isEmpty()) continue;
 
-                        // For qualified identifiers (e.g., std::string), split into parts
-                        List<String> parts = Splitter.on("::").splitToList(text);
-                        for (String part : parts) {
-                            if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
-                                identifiers.add(part);
+                                    // For qualified identifiers (e.g., std::string), split into parts
+                                    List<String> parts = Splitter.on("::").splitToList(text);
+                                    for (String part : parts) {
+                                        if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
+                                            identifiers.add(part);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

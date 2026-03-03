@@ -320,26 +320,27 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        if (!hasQuery(QueryType.DEFINITIONS)) return false;
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, tree.getRootNode());
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
+            if (query == null) return false;
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, tree.getRootNode());
 
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = query.getCaptureNameForId(capture.getIndex());
-                    if (TEST_MARKER.equals(captureName)) {
-                        TSNode node = capture.getNode();
-                        String rawName = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                        String simpleName = rawName.strip();
-                        int lastDot = simpleName.lastIndexOf('.');
-                        if (lastDot >= 0) {
-                            simpleName = simpleName.substring(lastDot + 1);
-                        }
+                TSQueryMatch match = new TSQueryMatch();
+                while (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(capture.getIndex());
+                        if (TEST_MARKER.equals(captureName)) {
+                            TSNode node = capture.getNode();
+                            String rawName = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                            String simpleName = rawName.strip();
+                            int lastDot = simpleName.lastIndexOf('.');
+                            if (lastDot >= 0) {
+                                simpleName = simpleName.substring(lastDot + 1);
+                            }
 
-                        if (TEST_ANNOTATIONS.contains(simpleName)) {
-                            return true;
+                            if (TEST_ANNOTATIONS.contains(simpleName)) {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -860,31 +861,32 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     private Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
-        if (root == null || root.isNull() || !hasQuery(QueryType.IDENTIFIERS)) {
+        if (root == null || root.isNull()) {
             return Set.of();
         }
 
-        try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
-                TSQueryCursor cursor = new TSQueryCursor()) {
+        try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
             if (query == null) return Set.of();
-            cursor.exec(query, root);
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, root);
 
-            SourceContent sourceContent = SourceContent.of(source);
-            Set<String> identifiers = new HashSet<>();
-            TSQueryMatch match = new TSQueryMatch();
+                SourceContent sourceContent = SourceContent.of(source);
+                Set<String> identifiers = new HashSet<>();
+                TSQueryMatch match = new TSQueryMatch();
 
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    if (node != null && !node.isNull()) {
-                        String text = sourceContent.substringFrom(node);
-                        if (!text.isEmpty()) {
-                            identifiers.add(text);
+                while (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        TSNode node = capture.getNode();
+                        if (node != null && !node.isNull()) {
+                            String text = sourceContent.substringFrom(node);
+                            if (!text.isEmpty()) {
+                                identifiers.add(text);
+                            }
                         }
                     }
                 }
+                return identifiers;
             }
-            return identifiers;
         }
     }
 

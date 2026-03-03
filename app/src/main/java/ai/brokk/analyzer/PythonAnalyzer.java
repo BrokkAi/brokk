@@ -388,44 +388,45 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        if (!hasQuery(QueryType.DEFINITIONS)) return false;
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, tree.getRootNode());
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
+            if (query == null) return false;
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, tree.getRootNode());
 
-            var match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (var cap : match.getCaptures()) {
-                    String captureName = query.getCaptureNameForId(cap.getIndex());
-                    if (!TEST_MARKER.equals(captureName)) {
-                        continue;
-                    }
+                var match = new TSQueryMatch();
+                while (cursor.nextMatch(match)) {
+                    for (var cap : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(cap.getIndex());
+                        if (!TEST_MARKER.equals(captureName)) {
+                            continue;
+                        }
 
-                    TSNode node = cap.getNode();
-                    if (node == null || node.isNull()) {
-                        continue;
-                    }
+                        TSNode node = cap.getNode();
+                        if (node == null || node.isNull()) {
+                            continue;
+                        }
 
-                    // Case A: Function name starting with test_
-                    if (IDENTIFIER.equals(node.getType())) {
-                        TSNode parent = node.getParent();
-                        if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
-                            TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
-                            if (nameNode != null
-                                    && nameNode.getStartByte() == node.getStartByte()
-                                    && nameNode.getEndByte() == node.getEndByte()) {
-                                String text = sourceContent.substringFrom(node);
-                                if (text.startsWith("test_")) {
-                                    return true;
+                        // Case A: Function name starting with test_
+                        if (IDENTIFIER.equals(node.getType())) {
+                            TSNode parent = node.getParent();
+                            if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
+                                TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
+                                if (nameNode != null
+                                        && nameNode.getStartByte() == node.getStartByte()
+                                        && nameNode.getEndByte() == node.getEndByte()) {
+                                    String text = sourceContent.substringFrom(node);
+                                    if (text.startsWith("test_")) {
+                                        return true;
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    // Case B: Pytest marks
-                    if (DECORATOR.equals(node.getType())) {
-                        if (isPytestMark(node, sourceContent)) {
-                            return true;
+                        // Case B: Pytest marks
+                        if (DECORATOR.equals(node.getType())) {
+                            if (isPytestMark(node, sourceContent)) {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -781,80 +782,82 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             var tree = parser.parseString(null, importLine);
             var rootNode = tree.getRootNode();
 
-            if (!hasQuery(QueryType.IMPORTS)) continue;
+            try (TSQuery query = createQuery(QueryType.IMPORTS)) {
+                if (query == null) continue;
+                try (var cursor = new TSQueryCursor()) {
+                    cursor.exec(query, rootNode);
 
-            try (TSQuery query = createQuery(QueryType.IMPORTS);
-                    var cursor = new TSQueryCursor()) {
-                cursor.exec(query, rootNode);
+                    var match = new TSQueryMatch();
+                    String currentModule = null;
+                    String wildcardModule = null;
 
-                var match = new TSQueryMatch();
-                String currentModule = null;
-                String wildcardModule = null;
+                    // Prepare SourceContent for this import line to use textSlice overloads
+                    SourceContent importSc = SourceContent.of(importLine);
 
-                // Prepare SourceContent for this import line to use textSlice overloads
-                SourceContent importSc = SourceContent.of(importLine);
+                    // Collect all captures from this import statement
+                    while (cursor.nextMatch(match)) {
+                        // Reset per-match state
+                        currentModule = null;
+                        wildcardModule = null;
 
-                // Collect all captures from this import statement
-                while (cursor.nextMatch(match)) {
-                    // Reset per-match state
-                    currentModule = null;
-                    wildcardModule = null;
+                        for (var cap : match.getCaptures()) {
+                            var capName = query.getCaptureNameForId(cap.getIndex());
+                            var node = cap.getNode();
+                            if (node == null || node.isNull()) continue;
 
-                    for (var cap : match.getCaptures()) {
-                        var capName = query.getCaptureNameForId(cap.getIndex());
-                        var node = cap.getNode();
-                        if (node == null || node.isNull()) continue;
+                            var text = importSc.substringFromBytes(node.getStartByte(), node.getEndByte());
 
-                        var text = importSc.substringFromBytes(node.getStartByte(), node.getEndByte());
-
-                        switch (capName) {
-                            case IMPORT_MODULE -> currentModule = text;
-                            case IMPORT_RELATIVE -> {
-                                // Resolve relative import to absolute package path
-                                var absolutePath = resolveRelativeImport(file, text);
-                                currentModule = absolutePath.orElse(null);
-                            }
-                            case IMPORT_MODULE_WILDCARD -> wildcardModule = text;
-                            case IMPORT_RELATIVE_WILDCARD -> {
-                                // Resolve relative wildcard import to absolute package path
-                                var absolutePath = resolveRelativeImport(file, text);
-                                wildcardModule = absolutePath.orElse(null);
-                            }
-                            case IMPORT_WILDCARD -> {
-                                // Wildcard import - expand and add all public symbols (may overwrite previous imports)
-                                if (wildcardModule != null && !wildcardModule.isEmpty()) {
-                                    var moduleFile = resolveModuleFile(wildcardModule);
-                                    if (moduleFile != null) {
-                                        var decls = getDeclarations(moduleFile);
-                                        for (CodeUnit child : decls) {
-                                            // Import public classes and functions (no underscore prefix)
-                                            if ((child.isClass() || child.isFunction())
-                                                    && !child.identifier().startsWith("_")) {
-                                                resolvedByName.put(child.identifier(), child);
+                            switch (capName) {
+                                case IMPORT_MODULE -> currentModule = text;
+                                case IMPORT_RELATIVE -> {
+                                    // Resolve relative import to absolute package path
+                                    var absolutePath = resolveRelativeImport(file, text);
+                                    currentModule = absolutePath.orElse(null);
+                                }
+                                case IMPORT_MODULE_WILDCARD -> wildcardModule = text;
+                                case IMPORT_RELATIVE_WILDCARD -> {
+                                    // Resolve relative wildcard import to absolute package path
+                                    var absolutePath = resolveRelativeImport(file, text);
+                                    wildcardModule = absolutePath.orElse(null);
+                                }
+                                case IMPORT_WILDCARD -> {
+                                    // Wildcard import - expand and add all public symbols (may overwrite previous
+                                    // imports)
+                                    if (wildcardModule != null && !wildcardModule.isEmpty()) {
+                                        var moduleFile = resolveModuleFile(wildcardModule);
+                                        if (moduleFile != null) {
+                                            var decls = getDeclarations(moduleFile);
+                                            for (CodeUnit child : decls) {
+                                                // Import public classes and functions (no underscore prefix)
+                                                if ((child.isClass() || child.isFunction())
+                                                        && !child.identifier().startsWith("_")) {
+                                                    resolvedByName.put(child.identifier(), child);
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                            case IMPORT_NAME -> {
-                                if (currentModule != null) {
-                                    // from X import Y
-                                    var moduleFile = resolveModuleFile(currentModule);
-                                    if (moduleFile != null) {
-                                        var decls = getDeclarations(moduleFile);
-                                        decls.stream()
-                                                .filter(cu -> cu.identifier().equals(text)
-                                                        && (cu.isClass() || cu.isFunction()))
+                                case IMPORT_NAME -> {
+                                    if (currentModule != null) {
+                                        // from X import Y
+                                        var moduleFile = resolveModuleFile(currentModule);
+                                        if (moduleFile != null) {
+                                            var decls = getDeclarations(moduleFile);
+                                            decls.stream()
+                                                    .filter(cu ->
+                                                            cu.identifier().equals(text)
+                                                                    && (cu.isClass() || cu.isFunction()))
+                                                    .findFirst()
+                                                    .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
+                                        }
+                                    } else if (wildcardModule == null) {
+                                        // import X
+                                        var definitions = getDefinitions(text);
+                                        definitions.stream()
+                                                .filter(cu -> cu.isClass() || cu.isFunction())
                                                 .findFirst()
                                                 .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                                     }
-                                } else if (wildcardModule == null) {
-                                    // import X
-                                    var definitions = getDefinitions(text);
-                                    definitions.stream()
-                                            .filter(cu -> cu.isClass() || cu.isFunction())
-                                            .findFirst()
-                                            .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                                 }
                             }
                         }
@@ -1091,23 +1094,22 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             return identifiers;
         }
 
-        if (!hasQuery(QueryType.IDENTIFIERS)) {
-            return identifiers;
-        }
+        try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
+            if (query != null) {
+                try (TSQueryCursor cursor = new TSQueryCursor()) {
+                    cursor.exec(query, rootNode);
 
-        try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, rootNode);
-
-            SourceContent sc = SourceContent.of(source);
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    if (node != null && !node.isNull()) {
-                        String text = sc.substringFrom(node).strip();
-                        if (!text.isEmpty()) {
-                            identifiers.add(text);
+                    SourceContent sc = SourceContent.of(source);
+                    TSQueryMatch match = new TSQueryMatch();
+                    while (cursor.nextMatch(match)) {
+                        for (TSQueryCapture capture : match.getCaptures()) {
+                            TSNode node = capture.getNode();
+                            if (node != null && !node.isNull()) {
+                                String text = sc.substringFrom(node).strip();
+                                if (!text.isEmpty()) {
+                                    identifiers.add(text);
+                                }
+                            }
                         }
                     }
                 }
