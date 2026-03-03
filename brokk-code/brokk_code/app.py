@@ -712,6 +712,7 @@ class BrokkApp(App):
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
         self._renamed_sessions: set[str] = set()
+        self._auto_rename_eligible_sessions: set[str] = set()
         self._rename_session_lock = asyncio.Lock()
         self._session_switch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
@@ -895,7 +896,9 @@ class BrokkApp(App):
                         logger.warning("Failed to resume session %s: %s", session_to_resume, e)
 
             if not resumed:
-                await self.executor.create_session()
+                sid = await self.executor.create_session()
+                if sid:
+                    self._auto_rename_eligible_sessions.add(sid)
 
             if self.executor.session_id:
                 save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
@@ -1619,7 +1622,7 @@ class BrokkApp(App):
     async def _maybe_rename_session(self, first_prompt: str) -> None:
         """Asynchronously renames the session if it's new/unnamed."""
         session_id = self.executor.session_id
-        if not session_id:
+        if not session_id or session_id not in self._auto_rename_eligible_sessions:
             return
 
         async with self._rename_session_lock:
@@ -2547,6 +2550,7 @@ class BrokkApp(App):
         try:
             chat.add_system_message("Creating new session...")
             session_id = await self.executor.create_session()
+            self._auto_rename_eligible_sessions.add(session_id)
             save_last_session_id(self.executor.workspace_dir, session_id)
 
             chat._message_history.clear()

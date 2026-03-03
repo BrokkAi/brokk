@@ -33,6 +33,7 @@ async def test_auto_rename_on_first_prompt(tmp_path):
     stub = AutonameStubExecutor()
     app.executor = stub
     app._executor_ready = True
+    app._auto_rename_eligible_sessions.add("test-session-123")
 
     chat = MagicMock()
     app._maybe_chat = MagicMock(return_value=chat)
@@ -50,6 +51,28 @@ async def test_auto_rename_on_first_prompt(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_auto_rename_skipped_after_manual_switch(tmp_path):
+    """Switching to an existing session should not trigger auto-rename on first prompt."""
+    app = BrokkApp(workspace_dir=tmp_path)
+    stub = AutonameStubExecutor()
+    app.executor = stub
+    app._executor_ready = True
+    app._maybe_chat = MagicMock(return_value=MagicMock())
+
+    # Simulate switching to an existing session
+    # (We don't add it to _auto_rename_eligible_sessions)
+    app.executor.session_id = "switched-session"
+
+    # Submit prompt
+    await app._run_job("Prompt in switched session")
+    await asyncio.sleep(0.1)
+
+    # Should NOT rename
+    stub.rename_session.assert_not_called()
+    assert "switched-session" not in app._renamed_sessions
+
+
+@pytest.mark.asyncio
 async def test_auto_rename_skips_if_not_default(tmp_path):
     app = BrokkApp(workspace_dir=tmp_path)
     stub = AutonameStubExecutor()
@@ -61,6 +84,7 @@ async def test_auto_rename_skips_if_not_default(tmp_path):
     )
     app.executor = stub
     app._executor_ready = True
+    app._auto_rename_eligible_sessions.add("test-session-123")
 
     await app._run_job("Another prompt")
     await asyncio.sleep(0.1)
@@ -90,6 +114,7 @@ async def test_concurrent_auto_rename_only_fires_once(tmp_path):
     stub = AutonameStubExecutor()
     app.executor = stub
     app._executor_ready = True
+    app._auto_rename_eligible_sessions.add("test-session-123")
     app._maybe_chat = MagicMock(return_value=MagicMock())
 
     # Fire two concurrent rename attempts
@@ -110,6 +135,7 @@ async def test_manual_rename_prevents_auto_rename(tmp_path):
     stub = AutonameStubExecutor()
     app.executor = stub
     app._executor_ready = True
+    app._auto_rename_eligible_sessions.add("test-session-123")
     app._maybe_chat = MagicMock(return_value=MagicMock())
 
     # Manual rename first
