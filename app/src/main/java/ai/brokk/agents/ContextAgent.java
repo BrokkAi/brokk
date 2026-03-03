@@ -59,12 +59,14 @@ import org.jetbrains.annotations.Nullable;
  * 1. If there are files in the Workspace, ask GitDistance for the most relevant related files.
  * 2. Otherwise, all Project files are candidates.
  *
- * Candidate selection is done by
- * 1. If we have few enough candidates that we can fit all summaries into the model's context window,
- *    just throw them all in.
- * 2. Otherwise, first filter by filename, then select by summaries.
- * 3. If filtering by filename still results in too many candidates to fit summaries in the context window,
- *    use GitDistance to narrow down to the most popular files.
+ * Candidate selection is done by partitioning files into groups:
+ * 1. Primary Files (Analyzed): Deep evaluation using symbol summaries/skeletons.
+ * 2. Primary Files (Unanalyzed): Deep evaluation using capped/truncated source text.
+ * 3. Test Files: Lightweight filename-only pruning to identify relevant tests.
+ *
+ * For groups 1 & 2, if the total candidate set exceeds the evaluation budget, an initial
+ * filename-pruning pass (budgeted at 100k tokens) is used to narrow the set before deep evaluation.
+ * Test files (group 3) are always processed via filename-only pruning to conserve budget.
  *
  * Finally, if there are files that the Analyzer does not know how to summarize, ContextAgent will do
  * full-content analysis (but since these are so much larger, necessarily we will be able to fit much
@@ -90,10 +92,14 @@ public class ContextAgent {
     private final StreamingChatModel model;
     private final IConsoleIO io;
 
-    /** Budget for the evaluate-for-relevance stage (uncapped *0.65 of input). */
+    /** Budget for the evaluate-for-relevance stage (uncapped *0.65 of input context). */
     private final int evaluationBudget;
 
-    /** Budget for the files-pruning stage (evaluationBudget capped at 100k). */
+    /**
+     * Budget for the filename-only pruning stage.
+     * This is capped at 100k tokens to ensure even very large file sets
+     * can be narrowed down efficiently without context window overflow.
+     */
     private final int filesPruningBudget;
 
     public ContextAgent(IContextManager contextManager, StreamingChatModel model, String goal)
@@ -221,11 +227,15 @@ public class ContextAgent {
     }
 
     /**
-     * Determines the best initial context based on project size and budgets, splitting analyzed vs un-analyzed into
-     * separate LLM context windows and processing them in parallel.
+     * Determines the best initial context based on project size and budgets.
      *
-     * @param turbo if true, uses a symbolic workspace overview instead of full fragment contents
-     * @return A RecommendationResult containing success status, fragments, and reasoning.
+     * This method partitions candidates into analyzed primary files, unanalyzed primary files,
+     * and test files. Primary files are processed in parallel groups for deep relevance
+     * evaluation. Test files are processed via a lightweight filename-only pruning pass
+     * and are always returned as summaries (skeletons) to stay within token budgets.
+     *
+     * @param turbo if true, uses a symbolic workspace overview instead of full fragment contents.
+     * @return A RecommendationResult containing success status, fragments, and metadata.
      */
     @Blocking
     public RecommendationResult getRecommendations(Context context, boolean turbo) throws InterruptedException {
@@ -289,7 +299,9 @@ public class ContextAgent {
             }
         }
 
-        // Partition candidates into non-test and test files
+        // Partition candidates into non-test (primary) and test files.
+        // We treat tests differently to optimize token budget: primary files get full evaluation,
+        // while tests are filtered by filename and included as skeletons.
         var partitionedCandidates = candidates.stream()
                 .collect(Collectors.partitioningBy(f -> ai.brokk.ContextManager.isTestFile(f, analyzer)));
         List<ProjectFile> primaryCandidates = partitionedCandidates.get(false);
@@ -448,6 +460,11 @@ public class ContextAgent {
 
     // --- Group processing ---
 
+    /**
+     * Processes a group of primary candidates (Analyzed or Unanalyzed) for relevance.
+     * If the group is too large, it performs an initial filename-pruning pass
+     * before the final evaluate-with-halving stage.
+     */
     private LlmRecommendation processGroup(
             GroupType type,
             List<ProjectFile> groupFiles,
@@ -686,6 +703,11 @@ public class ContextAgent {
 
     // --- Files-pruning utilities (budget-capped at 100k) ---
 
+    /**
+     * Prunes a list of filenames based on relevance to the goal.
+     * This is a lightweight pass that only looks at paths, not contents.
+     * If the filename list exceeds pruningBudgetTokens, it splits into chunks.
+     */
     private LlmRecommendation askLlmDeepPruneFilenamesWithChunking(
             List<String> filenames,
             Collection<ChatMessage> workspaceRepresentation,
@@ -907,6 +929,12 @@ public class ContextAgent {
 
     // --- Evaluate-for-relevance (single-group context window) ---
 
+    /**
+     * Calls the LLM to perform deep relevance evaluation on a group of files.
+     *
+     * The LLM is provided with either class summaries (analyzed) or capped text (unanalyzed)
+     * and identifies which should be added as full files, summaries, or tests.
+     */
     private LlmRecommendation askLlmDeepRecommendContext(
             Map<ProjectFile, Lines.HeadTail> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
             throws InterruptedException, ContextTooLargeException {
@@ -966,7 +994,7 @@ public class ContextAgent {
                 - Think about how you would solve the <goal>, and identify additional classes and files relevant to your plan.
                   For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
                   then Foo and Bar are relevant classes, and their source files may be relevant files.
-                - Identify test, spec, e2e, or integration files that verify behavior related to the goal. Note that a separate pass handles identifying relevant tests from the broader project; you should only recommend tests here if they are explicitly present in the provided <available_files>.
+                - Identify test, spec, e2e, or integration files that verify behavior related to the goal. Note that a separate pass handles identifying relevant tests from the broader project; you should only recommend tests here if they are explicitly present in the provided <available_files> and you are confident they are relevant.
                 - It's possible that files that were previously discarded are newly relevant, but when in doubt,
                   do not recommend files that are listed in the <discarded_context> section.
                 - Compare this combined list against the items in the provided section (either summaries OR files content).
@@ -981,7 +1009,7 @@ public class ContextAgent {
 
                 - Populate `filesToAdd` with full (relative) paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in this message.
                 - Populate `classesToSummarize` with fully-qualified names of classes whose APIs or structure are relevant but which do not need to be edited.
-                - Populate `testsToAdd` with full (relative) paths of related test/spec/e2e/integration files that help understand or verify the goal. These will be included as summaries/skeletons only (not full file contents). Must exactly match one of the file paths provided in this message.
+                - Populate `testsToAdd` with full (relative) paths of related test/spec/e2e/integration files that help understand or verify the goal. These will be included as skeletons only (not full file contents) to conserve token budget. Must exactly match one of the file paths provided in this message.
 
                 Either or all arguments may be empty. Do NOT invent or guess file paths. Only use file paths that are present in the file list provided in this message. If no file list is provided, call `recommendContext` with empty lists.
                 """;
