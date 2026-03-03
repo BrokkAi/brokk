@@ -161,7 +161,6 @@ async def test_auto_rename_delayed_until_switch_complete(tmp_path):
 
     # 1. Start a slow switch
     switch_event = asyncio.Event()
-    original_switch = stub.switch_session if hasattr(stub, "switch_session") else None
 
     async def slow_switch(session_id: str):
         await switch_event.wait()
