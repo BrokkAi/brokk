@@ -5,7 +5,7 @@
   name: (type_identifier) @class.name
   ; type_parameters: (_) @class.type_parameters ; optional
   ; where_clause: (_) @class.where_clause ; optional
-) @class.definition
+  ) @class.definition
 
 ;; Enum definitions
 (enum_item
@@ -13,7 +13,7 @@
   name: (type_identifier) @class.name
   ; type_parameters: (_) @class.type_parameters ; optional
   ; where_clause: (_) @class.where_clause ; optional
-) @class.definition
+  ) @class.definition
 
 ;; Trait definitions
 (trait_item
@@ -22,13 +22,13 @@
   ; type_parameters: (_) @class.type_parameters ; optional
   ; where_clause: (_) @class.where_clause ; optional
   ; body: (declaration_list) ; contains function_signature_item for methods
-) @class.definition
+  ) @class.definition
 
 ;; Module definitions
 (mod_item
   (visibility_modifier)? @keyword.modifier
   name: (identifier) @module.name
-) @module.definition
+  ) @module.definition
 
 ;; Impl blocks
 (impl_item
@@ -37,14 +37,14 @@
   ; If it's `impl Trait for MyType`, type arguments can make it complex.
   ; This captures the direct type identifier after `impl` or after `for`.
   type: [
-    (type_identifier) @impl.name               ; e.g., impl MyType
-    (generic_type type: (type_identifier) @impl.name) ; e.g., impl<T> MyType<T>
-    (scoped_type_identifier name: (type_identifier) @impl.name) ; e.g., impl foo::MyType
-    ; This list covers the type being implemented in `impl MyType`
-    ; or the concrete type in `impl Trait for MyType`.
-  ]
+          (type_identifier) @impl.name               ; e.g., impl MyType
+          (generic_type type: (type_identifier) @impl.name) ; e.g., impl<T> MyType<T>
+          (scoped_type_identifier name: (type_identifier) @impl.name) ; e.g., impl foo::MyType
+          ; This list covers the type being implemented in `impl MyType`
+          ; or the concrete type in `impl Trait for MyType`.
+          ]
   ; body: (declaration_list) ; contains function_item for methods
-) @impl.definition
+  ) @impl.definition
 
 ;; Free functions and methods within impl blocks
 (function_item
@@ -53,7 +53,7 @@
   ; parameters: (parameters) @function.parameters
   ; return_type: (_)? @function.return_type
   ; body: (block)
-) @function.definition
+  ) @function.definition
 
 ;; Method signatures within trait definitions (no body)
 (function_signature_item
@@ -61,18 +61,18 @@
   name: (identifier) @function.name
   ; parameters: (parameters) @function.parameters
   ; return_type: (_)? @function.return_type
-) @function.definition
+  ) @function.definition
 
 ;; Fields within a struct_item's field_declaration_list
 (struct_item
   body: (field_declaration_list
-    (field_declaration
-      (visibility_modifier)? @keyword.modifier
-      name: (field_identifier) @field.name
-      ; type: (_) @field.type
-    ) @field.definition
+          (field_declaration
+            (visibility_modifier)? @keyword.modifier
+            name: (field_identifier) @field.name
+            ; type: (_) @field.type
+            ) @field.definition
+          )
   )
-)
 
 ;; Top-level constants
 (const_item
@@ -80,7 +80,7 @@
   name: (identifier) @field.name
   ; type: (_) @field.type
   ; value: (_) @field.value
-) @field.definition
+  ) @field.definition
 
 ;; Top-level static items
 (static_item
@@ -88,42 +88,42 @@
   name: (identifier) @field.name
   ; type: (_) @field.type
   ; value: (_) @field.value
-) @field.definition
+  ) @field.definition
 
 ;; Enum variants within an enum_item's enum_variant_list
 (enum_item
   body: (enum_variant_list
-    (enum_variant
-      name: (identifier) @field.name
-      ; parameters: (_)? @field.parameters ; For tuple-like variants, e.g., Variant(u32, String)
-      ; body: (field_declaration_list)? @field.body ; For struct-like variants, e.g., Variant { field1: u32 }
-    ) @field.definition
+          (enum_variant
+            name: (identifier) @field.name
+            ; parameters: (_)? @field.parameters ; For tuple-like variants, e.g., Variant(u32, String)
+            ; body: (field_declaration_list)? @field.body ; For struct-like variants, e.g., Variant { field1: u32 }
+            ) @field.definition
+          )
   )
-)
 
 ;; Associated constants within impl blocks
 (impl_item
   body: (declaration_list
-    (const_item
-      (visibility_modifier)? @keyword.modifier
-      name: (identifier) @field.name
-      ; type: (_) @field.type
-      ; value: (_) @field.value
-    ) @field.definition
+          (const_item
+            (visibility_modifier)? @keyword.modifier
+            name: (identifier) @field.name
+            ; type: (_) @field.type
+            ; value: (_) @field.value
+            ) @field.definition
+          )
   )
-)
 
 ;; Associated constants within trait definitions
 (trait_item
   body: (declaration_list
-    (const_item
-      (visibility_modifier)? @keyword.modifier
-      name: (identifier) @field.name
-      ; type: (_) @field.type
-      ; value: (_) @field.value
-    ) @field.definition
+          (const_item
+            (visibility_modifier)? @keyword.modifier
+            name: (identifier) @field.name
+            ; type: (_) @field.type
+            ; value: (_) @field.value
+            ) @field.definition
+          )
   )
-)
 
 ;; Test markers - capture attribute_item nodes directly for validation in Java
 (attribute_item

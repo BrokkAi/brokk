@@ -5,9 +5,6 @@
     ] @package.name
   ) @package.declaration
 
-; Import declarations
-(import_declaration) @import.declaration
-
 ; Class declarations
 (class_definition
   name: (identifier) @class.name
@@ -87,14 +84,14 @@
 ; Filtering (e.g. for specific annotation names or keywords) is performed in the analyzer
 (annotation
   name: (type_identifier) @test.annotation
-)
+  )
 
 ; ScalaTest FunSuite: test("description") { ... }
 (call_expression
   function: (identifier) @test.call
-)
+  )
 
 ; ScalaTest FlatSpec: "test" should "work" in { ... }
 (infix_expression
   operator: (identifier) @test.infix
-)
+  )
