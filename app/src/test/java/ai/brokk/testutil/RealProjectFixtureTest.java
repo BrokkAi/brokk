@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.eclipse.jgit.api.Git;
@@ -74,6 +75,65 @@ class RealProjectFixtureTest {
             // Ruff is a Python project, so we expect to find some Python declarations
             var declarations = analyzer.getAllDeclarations();
             assertFalse(declarations.isEmpty(), "Should find some declarations in Ruff project");
+        }
+    }
+
+    @Test
+    void testFromGitUrlWithCompressedCache(@TempDir Path customCache) throws Exception {
+        InlineTestProjectCreator.GitCloneStrategy.setCacheRoot(customCache);
+
+        // 1. Create a local source repo
+        Path sourceRepoPath = tempDir.resolve("source-repo-cached");
+        Files.createDirectories(sourceRepoPath);
+        GitRepoFactory.initRepo(sourceRepoPath);
+        Files.writeString(sourceRepoPath.resolve("Foo.java"), "public class Foo {}");
+
+        String commitId;
+        try (Git git = Git.open(sourceRepoPath.toFile())) {
+            git.add().addFilepattern("Foo.java").call();
+            commitId = git.commit()
+                    .setMessage("Initial commit")
+                    .setAuthor("Tester", "tester@brokk.ai")
+                    .setSign(false)
+                    .call()
+                    .name();
+        }
+
+        String url = sourceRepoPath.toUri().toString();
+
+        // 2. First run: should create .tar.lz4 in cache
+        try (ITestProject project =
+                InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
+            assertTrue(Files.exists(project.getRoot().resolve("Foo.java")));
+            assertEquals(commitId, project.getRepo().getCurrentCommitId());
+        }
+
+        try (var stream = Files.list(customCache)) {
+            List<Path> files = stream.map(Path::getFileName).toList();
+            assertTrue(files.stream().anyMatch(p -> p.toString().endsWith(".tar.lz4")), "Cache archive should exist");
+            assertFalse(
+                    files.stream().anyMatch(p -> p.toString().endsWith(".expanded")),
+                    "Expanded directory should have been cleaned up");
+        }
+
+        // 3. Second run: should use the archive
+        try (ITestProject project =
+                InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
+            assertTrue(Files.exists(project.getRoot().resolve("Foo.java")));
+            assertEquals(commitId, project.getRepo().getCurrentCommitId());
+        }
+
+        // 4. Simulate corruption
+        Path archive = Files.list(customCache)
+                .filter(p -> p.toString().endsWith(".tar.lz4"))
+                .findFirst()
+                .orElseThrow();
+        Files.writeString(archive, "corrupt content");
+
+        try (ITestProject project =
+                InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
+            assertTrue(Files.exists(project.getRoot().resolve("Foo.java")));
+            assertEquals(commitId, project.getRepo().getCurrentCommitId());
         }
     }
 

@@ -3,6 +3,7 @@ package ai.brokk.testutil;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
@@ -25,6 +26,11 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import net.jpountz.lz4.LZ4FrameInputStream;
+import net.jpountz.lz4.LZ4FrameOutputStream;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
@@ -129,10 +135,13 @@ public class InlineTestProjectCreator {
         }
     }
 
-    private static class GitCloneStrategy implements ProjectContentStrategy {
-        private static final Path CACHE_ROOT =
-                Path.of("build", "test-cache", "git").toAbsolutePath();
+    static class GitCloneStrategy implements ProjectContentStrategy {
+        private static Path CACHE_ROOT = Path.of("build", "test-cache", "git").toAbsolutePath();
         private static final Map<Path, Object> CACHE_LOCKS = new ConcurrentHashMap<>();
+
+        static void setCacheRoot(Path path) {
+            CACHE_ROOT = path.toAbsolutePath();
+        }
 
         private final String url;
         private final String ref;
@@ -162,56 +171,120 @@ public class InlineTestProjectCreator {
             // Use an empty token for tests to allow cloning public GitHub repos without a configured token
             Supplier<String> noToken = () -> "";
 
-            String sourceUrl = getEffectiveSourceUrl(noToken);
+            Path expandedPath = null;
+            try {
+                Files.createDirectories(CACHE_ROOT);
+                String cacheKey = hash(url + "|" + depth);
+                Path archivePath = CACHE_ROOT.resolve(cacheKey + ".tar.lz4");
+                expandedPath = CACHE_ROOT.resolve(cacheKey + ".expanded");
 
-            // Clone from source (cache or local file) to target root.
-            // GitRepoFactory.cloneRepo with branch/tag selection works for branches and tags.
-            // For SHAs, we clone the default then checkout.
-            boolean isSha = ref.matches("^[0-9a-f]{7,40}$");
-            if (!isSha) {
-                try {
-                    GitRepoFactory.cloneRepo(noToken, sourceUrl, root, depth, ref, true);
-                    return;
+                ensureCachedRepoAvailable(archivePath, expandedPath, noToken);
+                String sourceUrl = expandedPath.toUri().toString();
+
+                // Clone from source (cache or local file) to target root.
+                boolean isSha = ref.matches("^[0-9a-f]{7,40}$");
+                if (!isSha) {
+                    try {
+                        GitRepoFactory.cloneRepo(noToken, sourceUrl, root, depth, ref, true);
+                        return;
+                    } catch (GitAPIException e) {
+                        // Fallback to clone default + checkout
+                    }
+                }
+
+                try (GitRepo ignored = GitRepoFactory.cloneRepo(noToken, sourceUrl, root, depth, null, true)) {
+                    try (Git git = Git.open(root.toFile())) {
+                        git.checkout().setName(ref).call();
+                    }
                 } catch (GitAPIException e) {
-                    // Fallback to clone default + checkout (needed for SHAs or if branch-specific clone failed)
+                    throw new IOException("Failed to clone or checkout ref: " + ref, e);
                 }
-            }
 
-            try (GitRepo ignored = GitRepoFactory.cloneRepo(noToken, sourceUrl, root, depth, null, true)) {
-                try (Git git = Git.open(root.toFile())) {
-                    git.checkout().setName(ref).call();
+                if (Boolean.getBoolean("brokk.test.debug.git")) {
+                    System.out.println("Files in root after clone/checkout of " + ref + ":");
+                    try (var s = Files.walk(root)) {
+                        s.limit(20).forEach(System.out::println);
+                    }
                 }
-            } catch (GitAPIException e) {
-                throw new IOException("Failed to clone or checkout ref: " + ref, e);
-            }
-
-            if (Boolean.getBoolean("brokk.test.debug.git")) {
-                System.out.println("Files in root after clone/checkout of " + ref + ":");
-                try (var s = Files.walk(root)) {
-                    s.limit(20).forEach(System.out::println);
+            } finally {
+                if (expandedPath != null) {
+                    FileUtil.deleteRecursively(expandedPath);
                 }
             }
         }
 
-        private String getEffectiveSourceUrl(Supplier<String> noToken) throws IOException {
-            if (url.startsWith("file:")) {
-                return url;
-            }
-
-            Files.createDirectories(CACHE_ROOT);
-            String cacheKey = hash(url + "|" + depth);
-            Path cachePath = CACHE_ROOT.resolve(cacheKey);
-
-            try {
-                synchronized (CACHE_LOCKS.computeIfAbsent(cachePath, k -> new Object())) {
-                    if (!Files.exists(cachePath)) {
-                        GitRepoFactory.cloneRepo(noToken, url, cachePath, depth, true);
+        private void ensureCachedRepoAvailable(Path archivePath, Path expandedPath, Supplier<String> noToken)
+                throws IOException {
+            synchronized (CACHE_LOCKS.computeIfAbsent(archivePath, k -> new Object())) {
+                if (Files.exists(archivePath)) {
+                    try {
+                        extractArchive(archivePath, expandedPath);
+                        return;
+                    } catch (IOException e) {
+                        // If extraction fails, archive might be corrupt. Re-clone.
+                        FileUtil.deleteRecursively(expandedPath);
+                        Files.deleteIfExists(archivePath);
                     }
                 }
-            } catch (GitAPIException e) {
-                throw new IOException("Failed to cache repository: " + url, e);
+
+                Path tempCloneDir = Files.createTempDirectory(CACHE_ROOT, "git-clone-");
+                try {
+                    GitRepoFactory.cloneRepo(noToken, url, tempCloneDir, depth, true);
+
+                    AtomicWrites.save(archivePath, out -> {
+                        try (var lz4Out = new LZ4FrameOutputStream(out);
+                                var tarOut = new TarArchiveOutputStream(lz4Out)) {
+                            tarOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
+                            try (var stream = Files.walk(tempCloneDir)) {
+                                List<Path> paths = stream.toList();
+                                for (Path path : paths) {
+                                    String entryName =
+                                            tempCloneDir.relativize(path).toString();
+                                    if (entryName.isEmpty()) continue;
+                                    TarArchiveEntry entry = new TarArchiveEntry(path.toFile(), entryName);
+                                    tarOut.putArchiveEntry(entry);
+                                    if (Files.isRegularFile(path)) {
+                                        Files.copy(path, tarOut);
+                                    }
+                                    tarOut.closeArchiveEntry();
+                                }
+                            }
+                        }
+                    });
+
+                    if (Files.exists(expandedPath)) {
+                        FileUtil.deleteRecursively(expandedPath);
+                    }
+                    Files.createDirectories(expandedPath.getParent());
+                    Files.move(tempCloneDir, expandedPath);
+                } catch (GitAPIException | IOException e) {
+                    FileUtil.deleteRecursively(tempCloneDir);
+                    FileUtil.deleteRecursively(expandedPath);
+                    Files.deleteIfExists(archivePath);
+                    throw new IOException("Failed to cache repository: " + url, e);
+                }
             }
-            return cachePath.toUri().toString();
+        }
+
+        private void extractArchive(Path archivePath, Path destination) throws IOException {
+            Files.createDirectories(destination);
+            try (var fis = Files.newInputStream(archivePath);
+                    var lz4In = new LZ4FrameInputStream(fis);
+                    var tarIn = new TarArchiveInputStream(lz4In)) {
+                TarArchiveEntry entry;
+                while ((entry = tarIn.getNextEntry()) != null) {
+                    Path entryPath = destination.resolve(entry.getName()).normalize();
+                    if (!entryPath.startsWith(destination)) {
+                        throw new IOException("Tar entry outside of root: " + entry.getName());
+                    }
+                    if (entry.isDirectory()) {
+                        Files.createDirectories(entryPath);
+                    } else {
+                        Files.createDirectories(entryPath.getParent());
+                        Files.copy(tarIn, entryPath);
+                    }
+                }
+            }
         }
 
         @Override
