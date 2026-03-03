@@ -49,15 +49,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Nullable
     private final Map<ProjectFile, String> fileScopedPackageNames = new ConcurrentHashMap<>();
 
-    @Nullable
-    private final ThreadLocal<TSQuery> phpNamespaceQuery;
-
-    private ThreadLocal<TSQuery> createPhpNamespaceQuery() {
-        // Initialize the ThreadLocal for the PHP namespace query.
-        // getTSLanguage() is safe to call here.
-        return ThreadLocal.withInitial(
-                () -> new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)"));
-    }
+    private static final String NAMESPACE_QUERY_STR = "(namespace_definition name: (namespace_name) @nsname)";
 
     public PhpAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
@@ -65,13 +57,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     public PhpAnalyzer(IProject project, ProgressListener listener) {
         super(project, Languages.PHP, listener);
-        this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
     private PhpAnalyzer(
             IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
         super(project, Languages.PHP, state, listener, cache);
-        this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
     public static PhpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
@@ -152,24 +142,15 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     private String computeFilePackageName(ProjectFile file, TSNode rootNode, SourceContent sourceContent) {
-        if (this.phpNamespaceQuery != null) {
-            return runNamespaceQuery(this.phpNamespaceQuery.get(), rootNode, sourceContent);
-        } else {
-            // This block executes if computeFilePackageName is called during the super() constructor phase.
-            log.trace(
-                    "PhpAnalyzer.computeFilePackageName: phpNamespaceQuery ThreadLocal is null, creating temporary query for file {}",
-                    file);
-            try (TSQuery tempQuery =
-                    new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)")) {
-                return runNamespaceQuery(tempQuery, rootNode, sourceContent);
-            } catch (Exception e) {
-                log.error(
-                        "Failed to compile temporary namespace query for PhpAnalyzer in computeFilePackageName for file {}: {}",
-                        file,
-                        e.getMessage(),
-                        e);
-                return "";
-            }
+        try (TSQuery query = new TSQuery(getTSLanguage(), NAMESPACE_QUERY_STR)) {
+            return runNamespaceQuery(query, rootNode, sourceContent);
+        } catch (Exception e) {
+            log.error(
+                    "Failed to compile namespace query for PhpAnalyzer in computeFilePackageName for file {}: {}",
+                    file,
+                    e.getMessage(),
+                    e);
+            return "";
         }
     }
 
