@@ -1013,6 +1013,31 @@ public class SearchToolsTest {
     }
 
     @Test
+    void testHtmlSelect_InvalidCssSelector_GlobMultipleFiles_ValidatesOnceUpFront() throws Exception {
+        // Create two HTML files
+        Path html1 = projectRoot.resolve("page1.html");
+        Path html2 = projectRoot.resolve("page2.html");
+        Files.writeString(html1, "<html><body><div>Page 1</div></body></html>");
+        Files.writeString(html2, "<html><body><div>Page 2</div></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page1.html"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page2.html"));
+
+        // Call with invalid selector and glob matching multiple files
+        String result = searchTools.htmlSelect("*.html", "div[", "TEXT", "", 10, 10);
+
+        // Assert single error message with colon
+        assertTrue(
+                result.contains("Invalid CSS selector:"),
+                "Should report invalid CSS selector error with colon. Result:\n" + result);
+        // Assert no per-file headers (validation happens before file processing)
+        assertFalse(
+                result.contains("File: "),
+                "Should not contain per-file headers since validation is up-front. Result:\n" + result);
+        // Assert single-line message (no extra output)
+        assertEquals(1, result.lines().count(), "Should be a single-line error message. Result:\n" + result);
+    }
+
+    @Test
     void testHtmlSelect_AttrMode() throws Exception {
         Path html = projectRoot.resolve("links.html");
         Files.writeString(
