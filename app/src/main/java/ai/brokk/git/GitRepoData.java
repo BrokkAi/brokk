@@ -244,11 +244,28 @@ public class GitRepoData {
             return LARGE_OBJECT_PLACEHOLDER;
         }
 
-        // For large objects (as determined by JGit's threshold), use streaming to avoid LargeObjectException
+        // For large objects (as determined by JGit's threshold), use bounded streaming to avoid LargeObjectException
         if (loader.isLarge()) {
-            logger.debug("File {} at commit {} is large ({} bytes), using stream", file, commitId, size);
+            logger.debug("File {} at commit {} is large ({} bytes), using bounded stream", file, commitId, size);
             try (var stream = loader.openStream()) {
-                return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+                // Read up to maxBlobSize + 1 bytes to detect overflow
+                var buffer = new ByteArrayOutputStream();
+                byte[] chunk = new byte[8192];
+                long totalRead = 0;
+                int bytesRead;
+                while ((bytesRead = stream.read(chunk)) != -1) {
+                    totalRead += bytesRead;
+                    if (totalRead > maxBlobSize) {
+                        logger.debug(
+                                "File {} at commit {} exceeded {} byte cap during streaming, returning placeholder",
+                                file,
+                                commitId,
+                                maxBlobSize);
+                        return LARGE_OBJECT_PLACEHOLDER;
+                    }
+                    buffer.write(chunk, 0, bytesRead);
+                }
+                return buffer.toString(StandardCharsets.UTF_8);
             } catch (org.eclipse.jgit.errors.LargeObjectException e) {
                 logger.debug("File {} at commit {} could not be streamed: {}", file, commitId, e.getMessage());
                 return LARGE_OBJECT_PLACEHOLDER;
