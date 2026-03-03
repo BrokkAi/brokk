@@ -65,6 +65,31 @@ class BuildToolsTest {
     }
 
     @Test
+    void testGetBuildLintSomeCommand_GoTestFunctions(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir);
+        ProjectFile testFile = new ProjectFile(tempDir, "logic_test.go");
+
+        // TestAnalyzer::getDeclarations(file) by default returns all added declarations for that file
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        // Go tests are top-level functions starting with Test
+        CodeUnit testFn = CodeUnit.fn(testFile, "main", "TestMyLogic");
+        testAnalyzer.addDeclaration(testFn);
+
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
+
+        // Go style template
+        BuildDetails details = new BuildDetails(
+                "go build",
+                "go test ./...",
+                "go test . -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'",
+                Set.of());
+
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
+
+        assertEquals("go test . -run '^TestMyLogic$'", result);
+    }
+
+    @Test
     void testGetBuildLintSomeCommand_StaticCommand(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir);
         TestAnalyzer testAnalyzer = new TestAnalyzer();
