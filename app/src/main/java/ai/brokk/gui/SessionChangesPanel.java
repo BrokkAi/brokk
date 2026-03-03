@@ -202,6 +202,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
     private final JPanel cardsPanel;
     private final JLabel emptyLabel;
 
+    /** Monotonic token to ignore stale guided review progress callbacks. */
+    private final AtomicLong guidedReviewGeneration = new AtomicLong();
+
     private boolean guidedReviewBusy = false;
 
     /** Track the current detected conflict for the Resolve Conflicts button */
@@ -1230,12 +1233,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
     }
 
     private void setGuidedReviewBusy(boolean busy) {
-        SwingUtilities.invokeLater(() -> {
+        Runnable update = () -> {
             guidedReviewBusy = busy;
             if (!busy) {
+                guidedReviewGeneration.incrementAndGet();
                 guidedReviewBtn.resetToIdle();
             }
-        });
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            update.run();
+        } else {
+            SwingUtilities.invokeLater(update);
+        }
     }
 
     private void showDiffLoading() {
@@ -1417,6 +1426,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
     }
 
     private void startReviewAllChanges() {
+        long guidedReviewRun = guidedReviewGeneration.incrementAndGet();
         setGuidedReviewBusy(true);
         codeReviewPanel.setBusy(true);
         guidedReviewBtn.setProgress(0);
@@ -1427,7 +1437,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
                     var state = resolveBaselineState(baselineRef);
                     return ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
                 })
-                .thenAccept(this::generateGuidedReviewAsync)
+                .thenAccept(scope -> generateGuidedReviewAsync(scope, guidedReviewRun))
                 .exceptionally(ex -> {
                     logger.error("Failed to prepare review", ex);
                     SwingUtilities.invokeLater(() -> {
@@ -1616,15 +1626,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
      * Core review generation logic that accepts explicit parameters.
      * This allows callers to provide their own computed data rather than relying on cached state.
      */
-    private void generateGuidedReviewAsync(ReviewScope scope) {
+    private void generateGuidedReviewAsync(ReviewScope scope, long guidedReviewRun) {
         LoggingFuture.runAsync(() -> {
             // these are broken out separately to avoid deadlock (they both want to run on the exclusive UAM thread)
             ensureReviewSession(scope);
-            generateGuidedReviewInternal(scope);
+            generateGuidedReviewInternal(scope, guidedReviewRun);
         });
     }
 
-    private void generateGuidedReviewInternal(ReviewScope scope) {
+    private void generateGuidedReviewInternal(ReviewScope scope, long guidedReviewRun) {
         cm.submitLlmAction(() -> {
             chrome.showOutputSpinner("Generating guided review...");
             try {
@@ -1633,6 +1643,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
                 var agent = new ReviewAgent(scope, cm.getProject().getModelConfig(ModelType.ARCHITECT), true, cm);
 
                 agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
+                    if (!guidedReviewBusy || guidedReviewRun != guidedReviewGeneration.get()) {
+                        return;
+                    }
                     guidedReviewBtn.setProgress(p);
                 }));
 
@@ -2006,6 +2019,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
     public void startCommitRangeReview(String fromRef, String toRef) {
         assert SwingUtilities.isEventDispatchThread();
 
+        long guidedReviewRun = guidedReviewGeneration.incrementAndGet();
         this.reviewBaselineRef = fromRef;
         this.reviewTargetCommit = toRef.equals("WORKING") ? "HEAD" : toRef;
 
@@ -2017,7 +2031,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
                 .thenAccept(scope -> {
                     // Update cached changes so the UI refresh shows the same data
                     this.lastCumulativeChanges = scope.changes();
-                    generateGuidedReviewAsync(scope);
+                    generateGuidedReviewAsync(scope, guidedReviewRun);
                 })
                 .exceptionally(ex -> {
                     logger.error("Failed to prepare commit range review", ex);

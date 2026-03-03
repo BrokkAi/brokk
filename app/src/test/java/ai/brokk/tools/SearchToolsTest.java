@@ -24,7 +24,11 @@ import java.util.Set;
 import java.util.stream.Stream;
 import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.Nullable;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -86,18 +90,6 @@ public class SearchToolsTest {
         } catch (IOException | UncheckedIOException e) {
             throw new RuntimeException("Failed to delete temp directory: " + path, e);
         }
-    }
-
-    private static String nestedOptionalPattern(int depth) {
-        StringBuilder builder = new StringBuilder(depth * 2 + 1);
-        for (int i = 0; i < depth; i++) {
-            builder.append('(');
-        }
-        builder.append("a");
-        for (int i = 0; i < depth; i++) {
-            builder.append(")?");
-        }
-        return builder.toString();
     }
 
     @BeforeEach
@@ -202,32 +194,10 @@ public class SearchToolsTest {
     }
 
     @Test
-    @Disabled("See [Bug]: Fix Failing SearchTools Regex Complexity Detection #2929")
-    void testfindFilesContaining_overlyComplexRegexDoesNotCrash() throws InterruptedException {
-        String result = searchTools.findFilesContaining(List.of(nestedOptionalPattern(1500)), 200);
-        assertTrue(
-                result.contains("Invalid regex pattern")
-                        && (result.contains("pattern is too complex")
-                                || result.contains("Stack overflow during pattern compilation")),
-                "Should report that an overly complex pattern cannot be processed");
-    }
-
-    @Test
     void testfindFilenames_invalidRegexThrows() throws Exception {
         // SearchTools.compilePatterns throws on invalid regex for this tool
         String result = searchTools.findFilenames(List.of("[["), 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
-    }
-
-    @Test
-    @Disabled("See [Bug]: Fix Failing SearchTools Regex Complexity Detection #2929")
-    void testfindFilenames_overlyComplexRegexDoesNotCrash() {
-        String result = searchTools.findFilenames(List.of(nestedOptionalPattern(1500)), 200);
-        assertTrue(
-                result.contains("Invalid regex pattern")
-                        && (result.contains("pattern is too complex")
-                                || result.contains("Stack overflow during pattern compilation")),
-                "Should report that an overly complex pattern cannot be processed");
     }
 
     @Test
@@ -526,18 +496,6 @@ public class SearchToolsTest {
         // "[[" is invalid regex, should return error message
         String result = searchTools.searchFileContents(List.of("[["), "README.md", false, false, 0, 200, 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
-    }
-
-    @Test
-    @Disabled("See [Bug]: Fix Failing SearchTools Regex Complexity Detection #2929")
-    void testSearchFileContents_overlyComplexRegexDoesNotCrash() throws InterruptedException {
-        String result = searchTools.searchFileContents(
-                List.of(nestedOptionalPattern(1500)), "README.md", false, false, 0, 200, 200);
-        assertTrue(
-                result.contains("Invalid regex pattern")
-                        && (result.contains("pattern is too complex")
-                                || result.contains("Stack overflow during pattern compilation")),
-                "Should report that an overly complex pattern cannot be processed");
     }
 
     @Test

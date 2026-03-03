@@ -194,7 +194,7 @@ def _brokk_code_agent_server_config() -> dict[str, Any]:
         },
         "type": "custom",
         "command": "brokk",
-        "args": ["acp", "--ide", "zed"],
+        "args": ["acp"],
         "env": {},
     }
 
