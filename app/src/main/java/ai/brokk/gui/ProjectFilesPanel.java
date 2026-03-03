@@ -12,7 +12,6 @@ import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
-import ai.brokk.watchservice.AbstractWatchService;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
@@ -438,7 +437,7 @@ public class ProjectFilesPanel extends JPanel {
      * Manually refresh the file list displayed in the ProjectTree. Useful when the filesystem watcher misses an event.
      */
     private void refreshProjectFiles() {
-        projectTree.onFilesChanged(new AbstractWatchService.EventBatch());
+        projectTree.scheduleRefresh();
         updateBorderTitle(); // Refresh title in case branch changed
     }
 
