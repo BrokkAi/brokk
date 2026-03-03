@@ -2050,7 +2050,7 @@ class BrokkApp(App):
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
             self.action_command_palette()
-        elif base in ("/code", "/ask", "/lutz"):
+        elif base in ("/code", "/ask", "/lutz", "/plan"):
             self._set_mode(base[1:].upper())
         elif base == "/mode":
             if len(parts) > 1:
@@ -2268,7 +2268,7 @@ class BrokkApp(App):
     def action_select_mode(self) -> None:
         chat = self._maybe_chat()
         if chat:
-            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
+            chat.open_mode_menu(["CODE", "ASK", "LUTZ", "PLAN"], self.agent_mode)
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):
@@ -2383,8 +2383,8 @@ class BrokkApp(App):
             chat.refresh_log(self.show_verbose_output)
 
     def action_toggle_mode(self) -> None:
-        """Cycles through agent modes: CODE -> ASK -> LUTZ -> CODE."""
-        modes = ["CODE", "ASK", "LUTZ"]
+        """Cycles through agent modes: CODE -> ASK -> LUTZ -> PLAN -> CODE."""
+        modes = ["CODE", "ASK", "LUTZ", "PLAN"]
         try:
             current_index = modes.index(self.agent_mode)
         except ValueError:
