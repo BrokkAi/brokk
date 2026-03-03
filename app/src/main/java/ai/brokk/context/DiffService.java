@@ -338,23 +338,14 @@ public final class DiffService {
             return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
-        // Aggregate warning for files that failed to load
-        int filesWithFailures = 0;
-        int totalPlaceholderOccurrences = 0;
-        for (var fd : fileDiffs) {
-            boolean oldFailed = GitRepoData.FAILED_TO_LOAD_PLACEHOLDER.equals(fd.oldText());
-            boolean newFailed = GitRepoData.FAILED_TO_LOAD_PLACEHOLDER.equals(fd.newText());
-            if (oldFailed || newFailed) {
-                filesWithFailures++;
-                if (oldFailed) totalPlaceholderOccurrences++;
-                if (newFailed) totalPlaceholderOccurrences++;
-            }
-        }
+        long filesWithFailures = fileDiffs.stream()
+                .filter(fd -> GitRepoData.FAILED_TO_LOAD_PLACEHOLDER.equals(fd.oldText())
+                        || GitRepoData.FAILED_TO_LOAD_PLACEHOLDER.equals(fd.newText()))
+                .count();
         if (filesWithFailures > 0) {
             logger.warn(
-                    "Failed to load content for {} file(s) ({} sides) between refs {} and {}",
+                    "Failed to load content for {} file(s) between refs {} and {}",
                     filesWithFailures,
-                    totalPlaceholderOccurrences,
                     leftRef,
                     rightRef);
         }

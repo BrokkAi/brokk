@@ -20,6 +20,8 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.errors.LargeObjectException;
+import org.eclipse.jgit.lib.ObjectLoader;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
@@ -237,10 +239,9 @@ public class GitRepoData {
 
     /**
      * Safely loads blob content, handling large objects gracefully.
-     * Returns a placeholder for objects exceeding MAX_BLOB_SIZE or when JGit cannot load them.
+     * Returns a placeholder for objects exceeding {@code maxBlobSize} or when JGit cannot load them.
      */
-    private String loadBlobContent(org.eclipse.jgit.lib.ObjectLoader loader, ProjectFile file, String commitId)
-            throws IOException {
+    private String loadBlobContent(ObjectLoader loader, ProjectFile file, String commitId) throws IOException {
         long size = loader.getSize();
 
         if (size > maxBlobSize) {
@@ -257,7 +258,7 @@ public class GitRepoData {
         if (loader.isLarge()) {
             logger.debug("File {} at commit {} is large ({} bytes), using bounded stream", file, commitId, size);
             try (var stream = loader.openStream()) {
-                // Read up to maxBlobSize + 1 bytes to detect overflow
+                // Stream content, checking size limit after each chunk
                 var buffer = new ByteArrayOutputStream();
                 byte[] chunk = new byte[8192];
                 long totalRead = 0;
@@ -275,7 +276,7 @@ public class GitRepoData {
                     buffer.write(chunk, 0, bytesRead);
                 }
                 return buffer.toString(StandardCharsets.UTF_8);
-            } catch (org.eclipse.jgit.errors.LargeObjectException e) {
+            } catch (LargeObjectException e) {
                 logger.debug("File {} at commit {} could not be streamed: {}", file, commitId, e.getMessage());
                 return LARGE_OBJECT_PLACEHOLDER;
             }
@@ -284,7 +285,7 @@ public class GitRepoData {
         // For small objects, getBytes() is safe and efficient
         try {
             return new String(loader.getBytes(), StandardCharsets.UTF_8);
-        } catch (org.eclipse.jgit.errors.LargeObjectException e) {
+        } catch (LargeObjectException e) {
             logger.debug(
                     "File {} at commit {} threw LargeObjectException on getBytes: {}", file, commitId, e.getMessage());
             return LARGE_OBJECT_PLACEHOLDER;

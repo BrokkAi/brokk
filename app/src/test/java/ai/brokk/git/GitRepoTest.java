@@ -2380,17 +2380,17 @@ public class GitRepoTest {
     @Test
     void testGetRefContent_InvalidRefReturnsFailedPlaceholder() throws Exception {
         // Test that getRefContent returns FAILED_TO_LOAD_PLACEHOLDER for a non-existent commit
-        ProjectFile readmeFile = new ProjectFile(projectRoot, "README.md");
-        String content = repo.data().getRefContent("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", readmeFile);
+        var readmeFile = new ProjectFile(projectRoot, "README.md");
+        var content = repo.data().getRefContent("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", readmeFile);
         assertEquals(
                 GitRepoData.FAILED_TO_LOAD_PLACEHOLDER,
                 content,
                 "Non-existent commit should return FAILED_TO_LOAD_PLACEHOLDER");
 
         // Test that getRefContent returns empty string for a file that doesn't exist at a valid commit
-        String validCommit = repo.getCurrentCommitId();
-        ProjectFile missingFile = new ProjectFile(projectRoot, "missing.txt");
-        String missingContent = repo.data().getRefContent(validCommit, missingFile);
+        var validCommit = repo.getCurrentCommitId();
+        var missingFile = new ProjectFile(projectRoot, "missing.txt");
+        var missingContent = repo.data().getRefContent(validCommit, missingFile);
         assertEquals("", missingContent, "Missing file at valid commit should return empty string");
     }
 }

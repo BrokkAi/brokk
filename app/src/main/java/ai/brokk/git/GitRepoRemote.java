@@ -14,6 +14,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.JGitInternalException;
 import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
@@ -558,10 +559,9 @@ public class GitRepoRemote {
         Collection<Ref> remoteRefs;
         try {
             remoteRefs = lsRemote.call();
-        } catch (IllegalThreadStateException | org.eclipse.jgit.api.errors.JGitInternalException e) {
+        } catch (IllegalThreadStateException | JGitInternalException e) {
             // JGit's SSH transport can throw these RuntimeExceptions instead of GitAPIException.
-            // Wrap them so callers only need to handle GitAPIException.
-            // We deliberately do NOT catch all RuntimeException to avoid masking programmer errors.
+            // Deliberately do NOT catch all RuntimeException.
             throw new GitRepo.GitRepoException("Failed to list remote refs for " + url, e);
         }
 
