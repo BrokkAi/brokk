@@ -339,9 +339,9 @@ public class ContextAgent {
                 cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         llmUnanalyzed.setOutput(io);
 
-        // Process each group in parallel
-        LlmRecommendation[] results = new LlmRecommendation[2];
-        Throwable[] errors = new Throwable[2];
+        // Process groups in parallel: Analyzed, Unanalyzed, and Tests (filename-only)
+        LlmRecommendation[] results = new LlmRecommendation[3];
+        Throwable[] errors = new Throwable[3];
 
         Thread t1 = Thread.ofVirtual().start(() -> {
             try {
@@ -373,35 +373,67 @@ public class ContextAgent {
             }
         });
 
+        Thread t3 = Thread.ofVirtual().start(() -> {
+            try {
+                if (testCandidates.isEmpty()) {
+                    results[2] = LlmRecommendation.EMPTY;
+                    return;
+                }
+                logger.debug("Processing {} test candidates via filename-only pass.", testCandidates.size());
+                var testFilenames =
+                        testCandidates.stream().map(ProjectFile::toString).toList();
+                // Test selection is filename-only and lightweight; use a fixed smaller budget (e.g. 50k)
+                // and the quicker summarization model.
+                var testRec = askLlmDeepPruneFilenamesWithChunking(
+                        testFilenames,
+                        workspaceRepresentation,
+                        min(50_000, pruneBudgetRemaining),
+                        filesLlmAnalyzed,
+                        false);
+
+                // Map results to recommendedTests specifically
+                results[2] =
+                        new LlmRecommendation(Set.of(), testRec.recommendedFiles(), Set.of(), testRec.tokenUsage());
+            } catch (Throwable t) {
+                errors[2] = t;
+            }
+        });
+
         t1.join();
         t2.join();
+        t3.join();
 
-        if (errors[0] != null) throw new RuntimeException(errors[0]);
-        if (errors[1] != null) throw new RuntimeException(errors[1]);
+        for (var err : errors) {
+            if (err != null) throw new RuntimeException(err);
+        }
 
         var analyzedRec = results[0];
         var unAnalyzedRec = results[1];
+        var testsRec = results[2];
 
         boolean success = !analyzedRec.recommendedFiles().isEmpty()
                 || !analyzedRec.recommendedTests().isEmpty()
                 || !analyzedRec.recommendedClasses().isEmpty()
                 || !unAnalyzedRec.recommendedFiles().isEmpty()
                 || !unAnalyzedRec.recommendedTests().isEmpty()
-                || !unAnalyzedRec.recommendedClasses().isEmpty();
+                || !unAnalyzedRec.recommendedClasses().isEmpty()
+                || !testsRec.recommendedTests().isEmpty();
 
-        // Union files, tests, and classes from both groups. Since both groups are processed independently,
-        // the LLM may recommend the same file/class in both. We use HashSet to automatically deduplicate
-        // at the semantic level (canonical ProjectFile and CodeUnit objects).
+        // Union files, tests, and classes from all groups.
         var mergedFiles = new HashSet<>(analyzedRec.recommendedFiles());
         mergedFiles.addAll(unAnalyzedRec.recommendedFiles());
+        mergedFiles.addAll(testsRec.recommendedFiles());
 
         var mergedTests = new HashSet<>(analyzedRec.recommendedTests());
         mergedTests.addAll(unAnalyzedRec.recommendedTests());
+        mergedTests.addAll(testsRec.recommendedTests());
 
         var mergedClasses = new HashSet<>(analyzedRec.recommendedClasses());
         mergedClasses.addAll(unAnalyzedRec.recommendedClasses());
+        mergedClasses.addAll(testsRec.recommendedClasses());
 
-        var combinedUsage = Llm.ResponseMetadata.sum(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage());
+        var combinedUsage = Llm.ResponseMetadata.sum(
+                Llm.ResponseMetadata.sum(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage()), testsRec.tokenUsage());
 
         var unifiedRec = new LlmRecommendation(mergedFiles, mergedTests, mergedClasses, combinedUsage);
         var result = createResult(unifiedRec, existingFiles);
@@ -607,7 +639,7 @@ public class ContextAgent {
         int totalRecommendedTokens = recommendedSummaryTokens + recommendedContentTokens + recommendedTestTokens;
 
         logger.debug(
-                "LLM recommended {} classes ({} tokens), {} files ({} tokens), and {} tests ({} tokens). Total: {} tokens",
+                "LLM recommended {} classes ({} tokens), {} files ({} tokens), and {} tests (as summaries, {} tokens). Total: {} tokens",
                 recommendedSummaries.size(),
                 recommendedSummaryTokens,
                 filteredFiles.size(),
@@ -934,7 +966,7 @@ public class ContextAgent {
                 - Think about how you would solve the <goal>, and identify additional classes and files relevant to your plan.
                   For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
                   then Foo and Bar are relevant classes, and their source files may be relevant files.
-                - Identify test, spec, e2e, or integration files that verify behavior related to the goal.
+                - Identify test, spec, e2e, or integration files that verify behavior related to the goal. Note that a separate pass handles identifying relevant tests from the broader project; you should only recommend tests here if they are explicitly present in the provided <available_files>.
                 - It's possible that files that were previously discarded are newly relevant, but when in doubt,
                   do not recommend files that are listed in the <discarded_context> section.
                 - Compare this combined list against the items in the provided section (either summaries OR files content).
