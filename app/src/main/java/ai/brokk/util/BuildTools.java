@@ -158,10 +158,12 @@ public class BuildTools {
 
         IAnalyzer analyzer = cm.getAnalyzer();
 
+        Map<String, List<String>> templateData = new HashMap<>();
+
         if (isPackagesBased) {
             // Try anchor-based detection first (e.g. for Python module/package paths)
             Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
-            targetItems = workspaceTestFiles.stream()
+            List<String> packages = workspaceTestFiles.stream()
                     .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
                     .filter(s -> !s.isBlank())
                     .distinct()
@@ -169,38 +171,49 @@ public class BuildTools {
                     .toList();
 
             // Fallback to analyzer packages (e.g. Go packages) if anchor-based detection yields nothing
-            if (targetItems.isEmpty() && !analyzer.isEmpty()) {
-                targetItems = analyzer.getTestModules(workspaceTestFiles);
+            if (packages.isEmpty() && !analyzer.isEmpty()) {
+                packages = analyzer.getTestModules(workspaceTestFiles);
             }
 
-            if (!targetItems.isEmpty()) {
-                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "packages", pythonVersion);
+            if (!packages.isEmpty()) {
+                templateData.put("packages", packages);
             }
         }
 
         if (isFilesBased) {
-            targetItems = workspaceTestFiles.stream().map(ProjectFile::toString).toList();
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "files", pythonVersion);
+            templateData.put(
+                    "files",
+                    workspaceTestFiles.stream().map(ProjectFile::toString).toList());
         }
 
-        if (analyzer.isEmpty()) {
+        if (isClassesBased && !analyzer.isEmpty()) {
+            var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
+            if (isFqBased) {
+                templateData.put(
+                        "fqclasses",
+                        codeUnits.stream().map(CodeUnit::fqName).sorted().toList());
+            } else {
+                templateData.put(
+                        "classes",
+                        codeUnits.stream().map(CodeUnit::identifier).sorted().toList());
+            }
+        }
+
+        if (templateData.isEmpty()) {
             return details.buildLintCommand();
         }
 
-        var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
-        if (isFqBased) {
-            targetItems = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
-            if (!targetItems.isEmpty()) {
-                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "fqclasses", pythonVersion);
-            }
-        } else if (isClassesBased) {
-            targetItems = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
-            if (!targetItems.isEmpty()) {
-                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "classes", pythonVersion);
-            }
-        }
+        // Perform multi-variable interpolation
+        MustacheFactory mf = new DefaultMustacheFactory();
+        Mustache mustache = mf.compile(new StringReader(testSomeTemplate), "dynamic_template");
+        Map<String, Object> context = new HashMap<>();
+        templateData.forEach(
+                (key, items) -> context.put(key, new com.github.mustachejava.util.DecoratedCollection<>(items)));
+        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
 
-        return details.buildLintCommand();
+        StringWriter writer = new StringWriter();
+        mustache.execute(writer, context);
+        return writer.toString();
     }
 
     private static Optional<Path> detectModuleAnchor(Path projectRoot, BuildDetails details) {
