@@ -187,9 +187,9 @@ public class BuildTools {
         mustache.execute(writer, context);
         String result = writer.toString();
 
-        // If the result is blank or identical to the template, it means no sections matched
-        // or no targets were found; fall back to build/lint command.
-        if (result.isBlank() || result.equals(testSomeTemplate)) {
+        // If the result is blank, or it is identical to a template that contains mustache tags,
+        // it means no sections matched or no targets were found; fall back to build/lint command.
+        if (result.isBlank() || (testSomeTemplate.contains("{{") && result.equals(testSomeTemplate))) {
             return details.buildLintCommand();
         }
 

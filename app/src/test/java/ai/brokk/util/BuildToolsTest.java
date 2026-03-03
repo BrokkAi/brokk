@@ -115,4 +115,18 @@ class BuildToolsTest {
         anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python scripts/runner.py|grep foo"));
         assertEquals(tempDir.resolve("scripts"), anchor.orElse(null));
     }
+
+    @Test
+    void testGetBuildLintSomeCommand_StaticCommand(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir);
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
+
+        // A static command without any mustache tags
+        BuildDetails details = new BuildDetails("build-cmd", "test-all-cmd", "pytest -q", Set.of());
+
+        // Even with empty workspace test files, it should return the static command verbatim
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of());
+        assertEquals("pytest -q", result);
+    }
 }
