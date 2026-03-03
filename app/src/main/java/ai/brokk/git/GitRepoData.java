@@ -197,7 +197,16 @@ public class GitRepoData {
     /** Maximum blob size for this instance (package-private for testability). */
     final long maxBlobSize;
 
-    /** Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found. */
+    /**
+     * Retrieves the contents of {@code file} at a given commit ID.
+     *
+     * @param commitId the commit SHA or ref to read from (must not be blank)
+     * @param file the file to retrieve
+     * @return the file content as a UTF-8 string, or {@link #LARGE_OBJECT_PLACEHOLDER} if the blob
+     *         exceeds {@code maxBlobSize} or cannot be loaded by JGit
+     * @throws GitRepo.FileNotFoundException if the file does not exist at the specified commit
+     * @throws GitAPIException if a Git error occurs
+     */
     public String getFileContent(String commitId, ProjectFile file) throws GitAPIException {
         if (commitId.isBlank()) {
             throw new IllegalArgumentException("commitId must not be blank");
