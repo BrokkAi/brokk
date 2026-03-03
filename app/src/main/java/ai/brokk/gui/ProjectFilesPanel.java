@@ -9,7 +9,6 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
-import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
@@ -23,6 +22,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -48,7 +50,6 @@ public class ProjectFilesPanel extends JPanel {
     private JTextField searchField;
     private MaterialButton refreshButton;
     private JPanel buttonPanel;
-    private JLabel refreshIndicatorLabel;
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
     private AutoCompletion ac;
@@ -56,7 +57,11 @@ public class ProjectFilesPanel extends JPanel {
     private boolean dependenciesVisible = false;
     private final DeferredUpdateHelper deferredUpdateHelper;
     private @Nullable Timer searchDebounceTimer;
-    private @Nullable Timer refreshFadeTimer;
+
+    private final AtomicInteger refreshCompletionsSinceLog = new AtomicInteger();
+    private final AtomicLong lastRefreshDurationMs = new AtomicLong(-1);
+    private final AtomicBoolean lastRefreshIncremental = new AtomicBoolean(false);
+    private @Nullable Timer refreshLogTimer;
 
     public ProjectFilesPanel(Chrome chrome, ContextManager contextManager, DependenciesPanel dependenciesPanel) {
         super(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
@@ -74,12 +79,8 @@ public class ProjectFilesPanel extends JPanel {
 
         setupSearchFieldAndAutocomplete();
 
-        refreshIndicatorLabel = new JLabel("");
-        refreshIndicatorLabel.setForeground(ThemeColors.getColor(ThemeColors.BADGE_FOREGROUND));
-        refreshIndicatorLabel.setFont(refreshIndicatorLabel.getFont().deriveFont(Font.BOLD, 11f));
-        refreshIndicatorLabel.setToolTipText("Last tree refresh duration and type");
-
         setupProjectTree();
+        startRefreshLoggingTimer();
 
         // Search bar with refresh button and dependencies toggle
         var searchBarPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
@@ -87,8 +88,6 @@ public class ProjectFilesPanel extends JPanel {
         searchBarPanel.add(layeredPane, BorderLayout.CENTER);
 
         buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-
-        buttonPanel.add(refreshIndicatorLabel);
 
         refreshButton = new MaterialButton();
         refreshButton.setIcon(Icons.REFRESH);
@@ -169,20 +168,30 @@ public class ProjectFilesPanel extends JPanel {
 
     private void setupProjectTree() {
         this.projectTree = new ProjectTree(project, contextManager, chrome);
-        this.projectTree.setRefreshListener((durationMs, incremental) -> SwingUtilities.invokeLater(() -> {
-            String type = incremental ? "inc" : "full";
-            refreshIndicatorLabel.setText(durationMs + "ms " + type);
-            refreshIndicatorLabel.setForeground(ThemeColors.getColor(ThemeColors.FOCUS_RING));
+        this.projectTree.setRefreshListener((durationMs, incremental) -> {
+            refreshCompletionsSinceLog.incrementAndGet();
+            lastRefreshDurationMs.set(durationMs);
+            lastRefreshIncremental.set(incremental);
+        });
+    }
 
-            if (refreshFadeTimer != null) {
-                refreshFadeTimer.stop();
+    private void startRefreshLoggingTimer() {
+        if (refreshLogTimer != null) {
+            return;
+        }
+
+        refreshLogTimer = new Timer(1000, evt -> {
+            int count = refreshCompletionsSinceLog.getAndSet(0);
+            if (count <= 0) {
+                return;
             }
-            refreshFadeTimer = new Timer(1000, evt -> {
-                refreshIndicatorLabel.setForeground(ThemeColors.getColor(ThemeColors.BADGE_FOREGROUND));
-            });
-            refreshFadeTimer.setRepeats(false);
-            refreshFadeTimer.start();
-        }));
+
+            long durationMs = lastRefreshDurationMs.get();
+            String type = lastRefreshIncremental.get() ? "inc" : "full";
+            logger.info("ProjectTree refreshes in last 1s: {} (last={}ms {})", count, durationMs, type);
+        });
+        refreshLogTimer.setRepeats(true);
+        refreshLogTimer.start();
     }
 
     private void setupSearchFieldAndAutocomplete() {
