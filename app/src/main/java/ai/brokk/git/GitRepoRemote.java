@@ -554,9 +554,10 @@ public class GitRepoRemote {
         Collection<Ref> remoteRefs;
         try {
             remoteRefs = lsRemote.call();
-        } catch (RuntimeException e) {
-            // JGit's SSH transport can throw RuntimeException (e.g., IllegalThreadStateException)
-            // instead of GitAPIException. Wrap it so callers only need to handle GitAPIException.
+        } catch (IllegalThreadStateException | org.eclipse.jgit.api.errors.JGitInternalException e) {
+            // JGit's SSH transport can throw these RuntimeExceptions instead of GitAPIException.
+            // Wrap them so callers only need to handle GitAPIException.
+            // We deliberately do NOT catch all RuntimeException to avoid masking programmer errors.
             throw new GitRepo.GitRepoException("Failed to list remote refs for " + url, e);
         }
 
