@@ -244,7 +244,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         return "jsx_element".equals(type) || "jsx_self_closing_element".equals(type) || "jsx_fragment".equals(type);
     }
 
-    private boolean returnsJsxElement(TSNode funcNode) { // src parameter removed
+    private boolean returnsJsxElement(TSNode funcNode) {
         TSNode bodyNode =
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (bodyNode == null || bodyNode.isNull()) {
@@ -282,7 +282,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             try (TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
                     TSQueryCursor cursor = new TSQueryCursor()) {
                 cursor.exec(returnJsxQuery, bodyNode);
-                TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+                TSQueryMatch match = new TSQueryMatch();
                 if (cursor.nextMatch(match)) {
                     return true; // Found a JSX return
                 }
@@ -311,12 +311,11 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
     """;
 
-        // TSLanguage and TSQuery are not AutoCloseable.
-        TSLanguage jsLanguage = getTSLanguage(); // Use thread-local language instance
+        TSLanguage jsLanguage = getTSLanguage();
         try (TSQuery mutationQuery = new TSQuery(jsLanguage, mutationQueryStr);
                 TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(mutationQuery, bodyNode);
-            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+            TSQueryMatch match = new TSQueryMatch();
             while (cursor.nextMatch(match)) {
                 for (TSQueryCapture capture : match.getCaptures()) {
                     String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
@@ -608,9 +607,11 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
-        try {
+        try (TSTree tree = parser.parseString(null, source)) {
+            if (tree == null || tree.getRootNode().isNull()) {
+                return identifiers;
+            }
             SourceContent sourceContent = SourceContent.of(source);
-            TSTree tree = parser.parseString(null, source);
             TSNode rootNode = tree.getRootNode();
 
             try (TSQuery query = createQuery(QueryType.IDENTIFIERS);

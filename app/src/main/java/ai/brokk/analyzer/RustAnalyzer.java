@@ -444,14 +444,15 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (TSQuery rustQuery = createQuery();
+        if (!hasQuery(QueryType.DEFINITIONS)) return false;
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
                 TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(rustQuery, tree.getRootNode());
+            cursor.exec(query, tree.getRootNode());
 
             TSQueryMatch match = new TSQueryMatch();
             while (cursor.nextMatch(match)) {
                 for (TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
+                    String captureName = query.getCaptureNameForId(capture.getIndex());
                     if (TEST_MARKER.equals(captureName)) {
                         // The capture is now directly on the attribute_item node
                         TSNode attrItemNode = capture.getNode();

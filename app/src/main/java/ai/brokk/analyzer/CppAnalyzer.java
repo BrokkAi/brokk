@@ -1429,39 +1429,59 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
+        if (!hasQuery(QueryType.IDENTIFIERS)) {
+            return Set.of();
+        }
+
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
-        TSTree tree = parser.parseString(null, source);
-        if (tree == null || tree.getRootNode().isNull()) {
-            return identifiers;
-        }
+        try (TSTree tree = parser.parseString(null, source)) {
+            if (tree == null || tree.getRootNode().isNull()) {
+                return identifiers;
+            }
 
-        if (!hasQuery(QueryType.IDENTIFIERS)) {
-            return identifiers;
-        }
+            try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
+                    TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, tree.getRootNode());
 
-        try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, tree.getRootNode());
+                SourceContent sourceContent = SourceContent.of(source);
+                TSQueryMatch match = new TSQueryMatch();
+                while (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String text =
+                                sourceContent.substringFrom(capture.getNode()).strip();
+                        if (text.isEmpty()) continue;
 
-            SourceContent sourceContent = SourceContent.of(source);
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String text = sourceContent.substringFrom(capture.getNode()).strip();
-                    if (text.isEmpty()) continue;
-
-                    // For qualified identifiers (e.g., std::string), split into parts
-                    List<String> parts = Splitter.on("::").splitToList(text);
-                    for (String part : parts) {
-                        if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
-                            identifiers.add(part);
+                        // For qualified identifiers (e.g., std::string), split into parts
+                        List<String> parts = Splitter.on("::").splitToList(text);
+                        for (String part : parts) {
+                            if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
+                                identifiers.add(part);
+                            }
                         }
                     }
                 }
             }
         }
-
         return identifiers;
+    }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            if (query == null) return false;
+            cursor.exec(query, tree.getRootNode());
+            TSQueryMatch match = new TSQueryMatch();
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    // Use literal name or ensure TEST_MARKER is available in CppTreeSitterNodeTypes
+                    if ("test.marker".equals(query.getCaptureNameForId(capture.getIndex()))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

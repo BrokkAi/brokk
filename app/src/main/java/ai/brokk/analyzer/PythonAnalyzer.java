@@ -388,8 +388,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (var query = createQuery();
-                var cursor = new TSQueryCursor()) {
+        if (!hasQuery(QueryType.DEFINITIONS)) return false;
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
 
             var match = new TSQueryMatch();
@@ -606,7 +607,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Extract superclass names from Python class definition
         // Pattern: class Child(Parent1, Parent2): ...
-        try (var query = createQuery()) {
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            if (query == null) return List.of();
             // Use the actual definition node for range matching.
             // If classNode is a decorated_definition, we must find the inner class_definition node
             // to match the 'type.decl' capture in python.scm.
@@ -628,35 +631,30 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             }
 
             List<TSNode> aggregateSuperNodes = new ArrayList<>();
-            try (var cursor = new TSQueryCursor()) {
-                cursor.exec(query, root);
+            cursor.exec(query, root);
 
-                var match = new TSQueryMatch();
+            var match = new TSQueryMatch();
+            final int targetStart = matchNode.getStartByte();
+            final int targetEnd = matchNode.getEndByte();
 
-                final int targetStart = matchNode.getStartByte();
-                final int targetEnd = matchNode.getEndByte();
+            while (cursor.nextMatch(match)) {
+                TSNode declNode = null;
+                List<TSNode> superCapturesThisMatch = new ArrayList<>();
 
-                while (cursor.nextMatch(match)) {
-                    TSNode declNode = null;
-                    List<TSNode> superCapturesThisMatch = new ArrayList<>();
+                for (var cap : match.getCaptures()) {
+                    var capName = query.getCaptureNameForId(cap.getIndex());
+                    var n = cap.getNode();
+                    if (n == null || n.isNull()) continue;
 
-                    for (var cap : match.getCaptures()) {
-                        var capName = query.getCaptureNameForId(cap.getIndex());
-                        var n = cap.getNode();
-                        if (n == null || n.isNull()) continue;
-
-                        if ("type.decl".equals(capName)) {
-                            declNode = n;
-                        } else if ("type.super".equals(capName)) {
-                            superCapturesThisMatch.add(n);
-                        }
+                    if ("type.decl".equals(capName)) {
+                        declNode = n;
+                    } else if ("type.super".equals(capName)) {
+                        superCapturesThisMatch.add(n);
                     }
+                }
 
-                    if (declNode != null
-                            && declNode.getStartByte() == targetStart
-                            && declNode.getEndByte() == targetEnd) {
-                        aggregateSuperNodes.addAll(superCapturesThisMatch);
-                    }
+                if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
+                    aggregateSuperNodes.addAll(superCapturesThisMatch);
                 }
             }
 

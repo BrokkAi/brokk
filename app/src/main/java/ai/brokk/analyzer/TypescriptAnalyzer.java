@@ -1084,9 +1084,11 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     public Set<String> extractIdentifiersFromImport(String importStatement) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
-        try {
+        try (TSTree tree = parser.parseString(null, importStatement)) {
+            if (tree == null || tree.getRootNode().isNull()) {
+                return identifiers;
+            }
             SourceContent sourceContent = SourceContent.of(importStatement);
-            org.treesitter.TSTree tree = parser.parseString(null, importStatement);
             TSNode rootNode = tree.getRootNode();
 
             String queryStr =
@@ -1150,21 +1152,22 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         Set<String> identifiers = new HashSet<>();
-        try {
+        try (TSTree tree = getTSParser().parseString(null, source)) {
+            if (tree == null || tree.getRootNode().isNull()) {
+                return identifiers;
+            }
             SourceContent sourceContent = SourceContent.of(source);
-            try (TSTree tree = getTSParser().parseString(null, source)) {
-                TSNode rootNode = tree.getRootNode();
+            TSNode rootNode = tree.getRootNode();
 
-                try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
-                        TSQueryCursor cursor = new TSQueryCursor()) {
-                    cursor.exec(query, rootNode);
-                    TSQueryMatch match = new TSQueryMatch();
+            try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
+                    TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, rootNode);
+                TSQueryMatch match = new TSQueryMatch();
 
-                    while (cursor.nextMatch(match)) {
-                        for (TSQueryCapture capture : match.getCaptures()) {
-                            TSNode node = capture.getNode();
-                            identifiers.add(sourceContent.substringFrom(node));
-                        }
+                while (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        TSNode node = capture.getNode();
+                        identifiers.add(sourceContent.substringFrom(node));
                     }
                 }
             }

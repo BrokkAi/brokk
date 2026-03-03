@@ -320,8 +320,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (var query = createQuery();
-                var cursor = new TSQueryCursor()) {
+        if (!hasQuery(QueryType.DEFINITIONS)) return false;
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
 
             TSQueryMatch match = new TSQueryMatch();
@@ -859,16 +860,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     private Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
-        if (root == null || root.isNull()) {
-            return Set.of();
-        }
-
-        if (!hasQuery(QueryType.IDENTIFIERS)) {
+        if (root == null || root.isNull() || !hasQuery(QueryType.IDENTIFIERS)) {
             return Set.of();
         }
 
         try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
                 TSQueryCursor cursor = new TSQueryCursor()) {
+            if (query == null) return Set.of();
             cursor.exec(query, root);
 
             SourceContent sourceContent = SourceContent.of(source);
@@ -1447,7 +1445,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
-        try (var query = createQuery()) {
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            if (query == null) return List.of();
             // Ascend to the root node for matching
             TSNode root = classNode;
             while (root.getParent() != null && !root.getParent().isNull()) {
@@ -1455,34 +1455,30 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             }
 
             List<TSNode> aggregateSuperNodes = new ArrayList<>();
-            try (var cursor = new TSQueryCursor()) {
-                cursor.exec(query, root);
+            cursor.exec(query, root);
 
-                TSQueryMatch match = new TSQueryMatch();
-                final int targetStart = classNode.getStartByte();
-                final int targetEnd = classNode.getEndByte();
+            TSQueryMatch match = new TSQueryMatch();
+            final int targetStart = classNode.getStartByte();
+            final int targetEnd = classNode.getEndByte();
 
-                while (cursor.nextMatch(match)) {
-                    TSNode declNode = null;
-                    List<TSNode> superCapturesThisMatch = new ArrayList<>();
+            while (cursor.nextMatch(match)) {
+                TSNode declNode = null;
+                List<TSNode> superCapturesThisMatch = new ArrayList<>();
 
-                    for (TSQueryCapture cap : match.getCaptures()) {
-                        String capName = query.getCaptureNameForId(cap.getIndex());
-                        TSNode n = cap.getNode();
-                        if (n == null || n.isNull()) continue;
+                for (TSQueryCapture cap : match.getCaptures()) {
+                    String capName = query.getCaptureNameForId(cap.getIndex());
+                    TSNode n = cap.getNode();
+                    if (n == null || n.isNull()) continue;
 
-                        if ("type.decl".equals(capName)) {
-                            declNode = n;
-                        } else if ("type.super".equals(capName)) {
-                            superCapturesThisMatch.add(n);
-                        }
+                    if ("type.decl".equals(capName)) {
+                        declNode = n;
+                    } else if ("type.super".equals(capName)) {
+                        superCapturesThisMatch.add(n);
                     }
+                }
 
-                    if (declNode != null
-                            && declNode.getStartByte() == targetStart
-                            && declNode.getEndByte() == targetEnd) {
-                        aggregateSuperNodes.addAll(superCapturesThisMatch);
-                    }
+                if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
+                    aggregateSuperNodes.addAll(superCapturesThisMatch);
                 }
             }
 
