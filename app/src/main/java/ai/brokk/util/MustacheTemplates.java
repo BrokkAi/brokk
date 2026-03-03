@@ -2,8 +2,21 @@ package ai.brokk.util;
 
 import java.util.ArrayList;
 import java.util.List;
-import org.jspecify.annotations.NullMarked;
 
+/**
+ * Utility for Mustache template interpolation.
+ *
+ * <p>Uses {@link StringElement} to wrap string values, ensuring that both implicit
+ * iterator syntax ({@code {{.}}}) and explicit property access ({@code {{value}}},
+ * {@code {{index}}}, {@code {{first}}}, {@code {{last}}}) work correctly.
+ *
+ * <p>Without this wrapper, Mustache.java's {@code DecoratedCollection} would render
+ * {@code {{.}}} as an object memory address (e.g., "Element@...") instead of the
+ * string value.
+ *
+ * @see ai.brokk.agents.BuildAgentTest#testInterpolateDotSyntaxRendersRawStrings()
+ * @see ai.brokk.agents.BuildAgentTest#testInterpolateDotSyntaxWithSeparator()
+ */
 public class MustacheTemplates {
 
     /**
