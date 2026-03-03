@@ -14,8 +14,8 @@ from brokk_code.settings import Settings
 
 logger = logging.getLogger(__name__)
 
-VALID_MODES = {"LUTZ", "ASK", "CODE"}
-MODE_OPTIONS = ("LUTZ", "CODE", "ASK")
+VALID_MODES = {"LUTZ", "ASK", "CODE", "PLAN"}
+MODE_OPTIONS = ("LUTZ", "CODE", "ASK", "PLAN")
 BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
 DEFAULT_MODEL_SELECTION = "gpt-5.2"
@@ -1213,6 +1213,7 @@ async def run_acp_server(
                         SessionMode(id="LUTZ", name="LUTZ"),
                         SessionMode(id="CODE", name="CODE"),
                         SessionMode(id="ASK", name="ASK"),
+                        SessionMode(id="PLAN", name="PLAN"),
                     ],
                     current_mode_id="LUTZ",
                 ),
@@ -1246,6 +1247,7 @@ async def run_acp_server(
                         SessionMode(id="LUTZ", name="LUTZ"),
                         SessionMode(id="CODE", name="CODE"),
                         SessionMode(id="ASK", name="ASK"),
+                        SessionMode(id="PLAN", name="PLAN"),
                     ],
                     current_mode_id=self._mode_by_session.get(requested_session_id, "LUTZ"),
                 ),
