@@ -6,6 +6,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.eclipse.jdt.core.JavaCore;
@@ -171,20 +172,19 @@ public class JdtUsageAnalyzer {
     }
 
     private static String[] inferSourceRoots(IProject project) {
+        Path projectRoot = project.getRoot();
         Set<String> roots = new HashSet<>();
-        roots.add(project.getRoot().toAbsolutePath().toString());
 
-        // Heuristically find directories that look like source roots (containing 'java' or 'kotlin')
-        // to improve JDT resolution.
-        try (var stream = Files.walk(project.getRoot(), 5)) {
-            stream.filter(Files::isDirectory)
-                    .filter(p -> {
-                        String name = p.getFileName().toString();
-                        return name.equals("java") || name.equals("kotlin") || name.equals("src");
-                    })
-                    .forEach(p -> roots.add(p.toAbsolutePath().toString()));
-        } catch (Exception e) {
-            log.debug("Error traversing for source roots", e);
+        for (String rootPathStr : project.getJavaSourceRoots()) {
+            try {
+                Path resolved =
+                        projectRoot.resolve(rootPathStr).toAbsolutePath().normalize();
+                if (Files.exists(resolved) && Files.isDirectory(resolved)) {
+                    roots.add(resolved.toString());
+                }
+            } catch (Exception e) {
+                log.debug("Error resolving source root: {}", rootPathStr, e);
+            }
         }
 
         return roots.toArray(String[]::new);
