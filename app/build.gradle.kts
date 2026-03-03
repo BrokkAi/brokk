@@ -484,7 +484,11 @@ tasks.named("check") {
 
 
 tasks.withType<Test> {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        if (name == "test") {
+            excludeTags("git-integration")
+        }
+    }
 
     // Exclude GitRepoTest on Windows when property is set
     if (project.hasProperty("excludeGitRepoTest")) {
@@ -599,6 +603,17 @@ tasks.withType<Test> {
         }
     })
     systemProperty("java.awt.headless", "true")
+}
+
+tasks.register<Test>("intTest") {
+    description = "Runs integration tests (e.g. git cloning)"
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform {
+        includeTags("git-integration")
+    }
+    shouldRunAfter("test")
 }
 
 tasks.register<JavaExec>("runCli") {
