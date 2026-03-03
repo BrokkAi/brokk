@@ -161,12 +161,12 @@ public class BuildTools {
         if (packages.isEmpty() && !analyzer.isEmpty()) {
             packages = analyzer.getTestModules(workspaceTestFiles);
         }
-        context.put("packages", toStringElementList(packages));
+        context.put("packages", MustacheTemplates.toStringElementList(packages));
 
         // 2. Files
         context.put(
                 "files",
-                toStringElementList(
+                MustacheTemplates.toStringElementList(
                         workspaceTestFiles.stream().map(ProjectFile::toString).toList()));
 
         // 3. Classes
@@ -177,8 +177,8 @@ public class BuildTools {
             fqClasses = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
             classes = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
         }
-        context.put("fqclasses", toStringElementList(fqClasses));
-        context.put("classes", toStringElementList(classes));
+        context.put("fqclasses", MustacheTemplates.toStringElementList(fqClasses));
+        context.put("classes", MustacheTemplates.toStringElementList(classes));
 
         // Perform multi-variable interpolation
         MustacheFactory mf = new DefaultMustacheFactory();
@@ -284,66 +284,11 @@ public class BuildTools {
         MustacheFactory mf = new DefaultMustacheFactory();
         Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
         Map<String, Object> context = new HashMap<>();
-        context.put(listKey, toStringElementList(items));
+        context.put(listKey, MustacheTemplates.toStringElementList(items));
         context.put("pyver", pythonVersion == null ? "" : pythonVersion);
         StringWriter writer = new StringWriter();
         mustache.execute(writer, context);
         return writer.toString();
-    }
-
-    /**
-     * Converts a list of strings to StringElement wrappers that support both {{.}} and {{value}}/{{first}}/{{last}}/{{index}}.
-     */
-    private static List<StringElement> toStringElementList(List<String> items) {
-        var result = new java.util.ArrayList<StringElement>(items.size());
-        int size = items.size();
-        for (int i = 0; i < size; i++) {
-            result.add(new StringElement(items.get(i), i, i == 0, i == size - 1));
-        }
-        return result;
-    }
-
-    /**
-     * Wrapper for string values in Mustache templates that supports both implicit iterator {{.}}
-     * (via toString()) and explicit field access ({{value}}, {{first}}, {{last}}, {{index}}).
-     */
-    private static final class StringElement {
-        private final String value;
-        private final int index;
-        private final boolean first;
-        private final boolean last;
-
-        StringElement(String value, int index, boolean first, boolean last) {
-            this.value = value;
-            this.index = index;
-            this.first = first;
-            this.last = last;
-        }
-
-        @SuppressWarnings("unused") // Used by Mustache reflection
-        public String getValue() {
-            return value;
-        }
-
-        @SuppressWarnings("unused") // Used by Mustache reflection
-        public int getIndex() {
-            return index;
-        }
-
-        @SuppressWarnings("unused") // Used by Mustache reflection
-        public boolean isFirst() {
-            return first;
-        }
-
-        @SuppressWarnings("unused") // Used by Mustache reflection
-        public boolean isLast() {
-            return last;
-        }
-
-        @Override
-        public String toString() {
-            return value;
-        }
     }
 
     @Blocking

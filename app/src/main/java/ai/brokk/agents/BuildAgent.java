@@ -18,6 +18,7 @@ import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
+import ai.brokk.util.MustacheTemplates;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -984,7 +985,7 @@ public class BuildAgent {
         Map<String, Object> context = new HashMap<>();
         // Mustache.java handles empty lists correctly for {{#section}} blocks (renders zero iterations).
         // Use StringElement wrapper that supports both {{.}} (via toString) and {{value}}/{{first}}/{{last}}/{{index}}
-        context.put(listKey, toStringElementList(items));
+        context.put(listKey, MustacheTemplates.toStringElementList(items));
         context.put("pyver", pythonVersion == null ? "" : pythonVersion);
 
         StringWriter writer = new StringWriter();
@@ -993,62 +994,6 @@ public class BuildAgent {
         mustache.execute(writer, context);
 
         return writer.toString();
-    }
-
-    /**
-     * Converts a list of strings to StringElement wrappers that support both {{.}} and {{value}}/{{first}}/{{last}}/{{index}}.
-     */
-    private static List<StringElement> toStringElementList(List<String> items) {
-        var result = new ArrayList<StringElement>(items.size());
-        int size = items.size();
-        for (int i = 0; i < size; i++) {
-            result.add(new StringElement(items.get(i), i, i == 0, i == size - 1));
-        }
-        return result;
-    }
-
-    /**
-     * Wrapper for string values in Mustache templates that supports both implicit iterator {{.}}
-     * (via toString()) and explicit field access ({{value}}, {{first}}, {{last}}, {{index}}).
-     * This fixes the DecoratedCollection bug where {{.}} returns "Element@..." instead of the value.
-     */
-    private static final class StringElement {
-        private final String value;
-        private final int index;
-        private final boolean first;
-        private final boolean last;
-
-        StringElement(String value, int index, boolean first, boolean last) {
-            this.value = value;
-            this.index = index;
-            this.first = first;
-            this.last = last;
-        }
-
-        @SuppressWarnings("unused") // Used by Mustache reflection
-        public String getValue() {
-            return value;
-        }
-
-        @SuppressWarnings("unused") // Used by Mustache reflection
-        public int getIndex() {
-            return index;
-        }
-
-        @SuppressWarnings("unused") // Used by Mustache reflection
-        public boolean isFirst() {
-            return first;
-        }
-
-        @SuppressWarnings("unused") // Used by Mustache reflection
-        public boolean isLast() {
-            return last;
-        }
-
-        @Override
-        public String toString() {
-            return value;
-        }
     }
 
     /**
