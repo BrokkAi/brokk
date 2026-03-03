@@ -77,7 +77,8 @@ public final class JavaSourceRootScanner {
                 if (hasJavaFiles) {
                     foundRoots.add(".");
                 }
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                logger.debug("Error checking for fallback Java files in {}: {}", root, e.getMessage());
             }
         }
 
