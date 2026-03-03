@@ -24,15 +24,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
 
-    private static final ThreadLocal<TSQuery> IDENTIFIER_QUERY = ThreadLocal.withInitial(() -> {
-        try {
-            return new TSQuery(
-                    new org.treesitter.TreeSitterJava(), "[(type_identifier) (scoped_type_identifier)] @type");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to initialize Java identifier query", e);
-        }
-    });
-
     public JavaAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
     }
@@ -71,7 +62,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/java/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/java/imports.scm");
-            case IDENTIFIERS -> Optional.empty();
+            case IDENTIFIERS -> Optional.of("treesitter/java/identifiers.scm");
         };
     }
 
@@ -872,7 +863,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             return Set.of();
         }
 
-        TSQuery query = IDENTIFIER_QUERY.get();
+        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
+        if (query == null) {
+            return Set.of();
+        }
+
         try (TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, root);
 
