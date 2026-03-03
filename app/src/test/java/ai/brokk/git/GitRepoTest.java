@@ -2379,23 +2379,18 @@ public class GitRepoTest {
 
     @Test
     void testGetRefContent_ReturnsPlaceholderOnLargeObjectException() throws Exception {
-        // This test verifies that getRefContent gracefully handles LargeObjectException
-        // by returning a placeholder instead of propagating the exception.
-        // The actual LargeObjectException is difficult to trigger in tests without very large files,
-        // so we verify the placeholder constant exists and the method signature is correct.
-
-        // Verify placeholder constant is accessible and stable
+        // Test that getRefContent returns FAILED_TO_LOAD_PLACEHOLDER for a non-existent commit
+        ProjectFile readmeFile = new ProjectFile(projectRoot, "README.md");
+        String content = repo.data().getRefContent("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", readmeFile);
         assertEquals(
-                "[File content too large to display]",
-                GitRepoData.LARGE_OBJECT_PLACEHOLDER,
-                "Placeholder should have expected text for UI display");
+                GitRepoData.FAILED_TO_LOAD_PLACEHOLDER,
+                content,
+                "Non-existent commit should return FAILED_TO_LOAD_PLACEHOLDER");
 
-        // Create a normal file and verify getRefContent works
-        createCommit("normal.txt", "normal content", "Normal commit");
-        String commit = repo.getCurrentCommitId();
-        ProjectFile normalFile = new ProjectFile(projectRoot, "normal.txt");
-
-        String content = repo.data().getRefContent(commit, normalFile);
-        assertEquals("normal content", content, "Normal files should return their content");
+        // Test that getRefContent returns empty string for a file that doesn't exist at a valid commit
+        String validCommit = repo.getCurrentCommitId();
+        ProjectFile missingFile = new ProjectFile(projectRoot, "missing.txt");
+        String missingContent = repo.data().getRefContent(validCommit, missingFile);
+        assertEquals("", missingContent, "Missing file at valid commit should return empty string");
     }
 }
