@@ -697,8 +697,10 @@ class BrokkApp(App):
         )
         self.current_branch = "unknown"
         self.job_in_progress = False
+        self.session_switch_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
+        self._pending_switch_prompt: Optional[tuple[str, str]] = None
         self._startup_pending_prompt: Optional[str] = None
         self._pending_updated_at: float = 0
         self._pending_generation: int = 0
@@ -710,7 +712,9 @@ class BrokkApp(App):
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
         self._renamed_sessions: set[str] = set()
+        self._auto_rename_eligible_sessions: set[str] = set()
         self._rename_session_lock = asyncio.Lock()
+        self._session_switch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
 
         # Accumulators for LLM usage costs (USD).
@@ -892,7 +896,9 @@ class BrokkApp(App):
                         logger.warning("Failed to resume session %s: %s", session_to_resume, e)
 
             if not resumed:
-                await self.executor.create_session()
+                sid = await self.executor.create_session()
+                if sid:
+                    self._auto_rename_eligible_sessions.add(sid)
 
             if self.executor.session_id:
                 save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
@@ -1387,11 +1393,15 @@ class BrokkApp(App):
             append_prompt(
                 self.executor.workspace_dir, raw_text, max_history=self.settings.prompt_history_size
             )
-            chat = self.query_one(ChatPanel)
-            chat.add_history_entry(raw_text)
-
-            chat.add_user_message(raw_text)
-            if self.job_in_progress and self.current_job_id:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_history_entry(raw_text)
+                chat.add_user_message(raw_text)
+            if self.session_switch_in_progress and self._current_switch_target_session_id:
+                self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
+                if chat:
+                    chat.add_system_message("Queuing prompt until session switch is complete...")
+            elif self.job_in_progress and self.current_job_id:
                 self._pending_prompt = raw_text
                 now = time.monotonic()
                 self._pending_updated_at = now
@@ -1400,12 +1410,13 @@ class BrokkApp(App):
                     self._pending_min_wait_until, now + self._resubmit_grace_s
                 )
                 # Avoid redundant cancellation messages if already pending
-                if self._pending_generation == 1:
+                if self._pending_generation == 1 and chat:
                     chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
             elif not self._executor_ready:
                 self._startup_pending_prompt = raw_text
-                chat.add_system_message("Queuing prompt until Brokk is ready...")
+                if chat:
+                    chat.add_system_message("Queuing prompt until Brokk is ready...")
             else:
                 self.run_worker(self._run_job(raw_text))
 
@@ -1611,7 +1622,7 @@ class BrokkApp(App):
     async def _maybe_rename_session(self, first_prompt: str) -> None:
         """Asynchronously renames the session if it's new/unnamed."""
         session_id = self.executor.session_id
-        if not session_id:
+        if not session_id or session_id not in self._auto_rename_eligible_sessions:
             return
 
         async with self._rename_session_lock:
@@ -2539,6 +2550,7 @@ class BrokkApp(App):
         try:
             chat.add_system_message("Creating new session...")
             session_id = await self.executor.create_session()
+            self._auto_rename_eligible_sessions.add(session_id)
             save_last_session_id(self.executor.workspace_dir, session_id)
 
             chat._message_history.clear()
@@ -2590,8 +2602,18 @@ class BrokkApp(App):
         if not chat:
             return
 
+        async with self._session_switch_lock:
+            if self.session_switch_in_progress:
+                chat.add_system_message("A session switch is already in progress.", level="WARNING")
+                return
+            self.session_switch_in_progress = True
+            self._current_switch_target_session_id = session_id
+
         try:
             chat.add_system_message(f"Switching to session {session_id}...")
+            # Set job running to block input UI during switch
+            chat.set_job_running(True)
+
             await self.executor.switch_session(session_id)
             save_last_session_id(self.executor.workspace_dir, session_id)
 
@@ -2599,7 +2621,9 @@ class BrokkApp(App):
             chat._message_history.clear()
             # Clear log container (the ScrollableContainer containing message widgets)
             log = chat.query_one("#chat-log")
-            await log.query("*").remove()
+            res = log.query("*").remove()
+            if asyncio.iscoroutine(res):
+                await res
 
             # Replay
             conversation_data = await self.executor.get_conversation()
@@ -2608,9 +2632,27 @@ class BrokkApp(App):
             # Refresh
             await self._refresh_context_panel()
             chat.add_system_message(f"Successfully switched to session {session_id}.")
+
+            # Handle queued prompt after switch
+            if self._pending_switch_prompt:
+                target_id, prompt = self._pending_switch_prompt
+                if target_id == session_id:
+                    self._pending_switch_prompt = None
+                    self.run_worker(self._run_job(prompt))
+                else:
+                    # This shouldn't normally happen with the lock, but for safety:
+                    self._pending_switch_prompt = None
+
         except Exception as e:
             logger.exception("Failed to switch session")
             chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
+            if self._pending_switch_prompt:
+                self._pending_switch_prompt = None
+                chat.add_system_message("Dropped queued prompt due to session switch failure.")
+        finally:
+            self.session_switch_in_progress = False
+            self._current_switch_target_session_id = None
+            chat.set_job_running(False)
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""
