@@ -110,6 +110,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
+    public Chrome getChrome() {
+        return chrome;
+    }
+
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
         this.chrome = chrome;
