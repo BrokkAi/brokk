@@ -1436,12 +1436,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return identifiers;
         }
 
-        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
-        if (query == null) {
+        if (!hasQuery(QueryType.IDENTIFIERS)) {
             return identifiers;
         }
 
-        try (TSQueryCursor cursor = new TSQueryCursor()) {
+        try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
 
             SourceContent sourceContent = SourceContent.of(source);

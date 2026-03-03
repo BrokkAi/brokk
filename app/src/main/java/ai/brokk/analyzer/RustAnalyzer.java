@@ -444,8 +444,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (TSQueryCursor cursor = new TSQueryCursor()) {
-            TSQuery rustQuery = getThreadLocalQuery();
+        try (TSQuery rustQuery = createQuery();
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(rustQuery, tree.getRootNode());
 
             TSQueryMatch match = new TSQueryMatch();

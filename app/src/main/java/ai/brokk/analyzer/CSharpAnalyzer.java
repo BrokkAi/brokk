@@ -276,8 +276,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        TSQuery query = getThreadLocalQuery();
-        try (TSQueryCursor cursor = new TSQueryCursor()) {
+        try (TSQuery query = createQuery();
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
             TSQueryMatch match = new TSQueryMatch();
 

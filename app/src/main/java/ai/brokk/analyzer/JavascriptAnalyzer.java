@@ -602,8 +602,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
-        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
-        if (query == null) {
+        if (!hasQuery(QueryType.IDENTIFIERS)) {
             return Set.of();
         }
 
@@ -614,7 +613,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             TSTree tree = parser.parseString(null, source);
             TSNode rootNode = tree.getRootNode();
 
-            try (TSQueryCursor cursor = new TSQueryCursor()) {
+            try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
+                    TSQueryCursor cursor = new TSQueryCursor()) {
                 cursor.exec(query, rootNode);
                 TSQueryMatch match = new TSQueryMatch();
 

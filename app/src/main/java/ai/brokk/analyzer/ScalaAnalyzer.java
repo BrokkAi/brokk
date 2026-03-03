@@ -218,8 +218,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        var query = getThreadLocalQuery();
-        try (var cursor = new TSQueryCursor()) {
+        try (var query = createQuery();
+                var cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
 
             TSQueryMatch match = new TSQueryMatch();

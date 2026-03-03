@@ -120,8 +120,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
-        TSQuery query = getThreadLocalQuery();
-        try (TSQueryCursor cursor = new TSQueryCursor()) {
+        try (TSQuery query = createQuery();
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, rootNode);
             TSQueryMatch match = new TSQueryMatch();
 
@@ -368,10 +368,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             return Optional.empty();
         }
 
-        // Re-query the node to extract the receiver type from captures
-        TSQuery currentThreadQuery = getThreadLocalQuery();
         Map<String, TSNode> localCaptures = new HashMap<>();
-        try (TSQueryCursor cursor = new TSQueryCursor()) {
+        // Re-query the node to extract the receiver type from captures
+        try (TSQuery currentThreadQuery = createQuery();
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(currentThreadQuery, node);
             TSQueryMatch match = new TSQueryMatch();
 
@@ -616,14 +616,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             return Collections.emptySet();
         }
 
-        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
-        if (query == null) {
+        if (!hasQuery(QueryType.IDENTIFIERS)) {
             return Collections.emptySet();
         }
 
         SourceContent sourceContent = SourceContent.of(source);
         Set<String> identifiers = new HashSet<>();
-        try (TSQueryCursor cursor = new TSQueryCursor()) {
+        try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
 
             TSQueryMatch match = new TSQueryMatch();
@@ -750,8 +750,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        TSQuery query = getThreadLocalQuery();
-        try (TSQueryCursor cursor = new TSQueryCursor()) {
+        try (TSQuery query = createQuery();
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
             TSQueryMatch match = new TSQueryMatch();
 

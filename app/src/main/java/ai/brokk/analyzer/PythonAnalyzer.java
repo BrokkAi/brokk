@@ -388,8 +388,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        var query = getThreadLocalQuery();
-        try (var cursor = new TSQueryCursor()) {
+        try (var query = createQuery();
+                var cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
 
             var match = new TSQueryMatch();
@@ -606,75 +606,77 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Extract superclass names from Python class definition
         // Pattern: class Child(Parent1, Parent2): ...
-        var query = getThreadLocalQuery();
-
-        // Use the actual definition node for range matching.
-        // If classNode is a decorated_definition, we must find the inner class_definition node
-        // to match the 'type.decl' capture in python.scm.
-        TSNode matchNode = classNode;
-        if (DECORATED_DEFINITION.equals(classNode.getType())) {
-            for (int i = 0; i < classNode.getNamedChildCount(); i++) {
-                TSNode child = classNode.getNamedChild(i);
-                if (CLASS_DEFINITION.equals(child.getType())) {
-                    matchNode = child;
-                    break;
-                }
-            }
-        }
-
-        // Ascend to root node for matching
-        TSNode root = classNode;
-        while (root.getParent() != null && !root.getParent().isNull()) {
-            root = root.getParent();
-        }
-
-        List<TSNode> aggregateSuperNodes = new ArrayList<>();
-        try (var cursor = new TSQueryCursor()) {
-            cursor.exec(query, root);
-
-            var match = new TSQueryMatch();
-
-            final int targetStart = matchNode.getStartByte();
-            final int targetEnd = matchNode.getEndByte();
-
-            while (cursor.nextMatch(match)) {
-                TSNode declNode = null;
-                List<TSNode> superCapturesThisMatch = new ArrayList<>();
-
-                for (var cap : match.getCaptures()) {
-                    var capName = query.getCaptureNameForId(cap.getIndex());
-                    var n = cap.getNode();
-                    if (n == null || n.isNull()) continue;
-
-                    if ("type.decl".equals(capName)) {
-                        declNode = n;
-                    } else if ("type.super".equals(capName)) {
-                        superCapturesThisMatch.add(n);
+        try (var query = createQuery()) {
+            // Use the actual definition node for range matching.
+            // If classNode is a decorated_definition, we must find the inner class_definition node
+            // to match the 'type.decl' capture in python.scm.
+            TSNode matchNode = classNode;
+            if (DECORATED_DEFINITION.equals(classNode.getType())) {
+                for (int i = 0; i < classNode.getNamedChildCount(); i++) {
+                    TSNode child = classNode.getNamedChild(i);
+                    if (CLASS_DEFINITION.equals(child.getType())) {
+                        matchNode = child;
+                        break;
                     }
                 }
+            }
 
-                if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
-                    aggregateSuperNodes.addAll(superCapturesThisMatch);
+            // Ascend to root node for matching
+            TSNode root = classNode;
+            while (root.getParent() != null && !root.getParent().isNull()) {
+                root = root.getParent();
+            }
+
+            List<TSNode> aggregateSuperNodes = new ArrayList<>();
+            try (var cursor = new TSQueryCursor()) {
+                cursor.exec(query, root);
+
+                var match = new TSQueryMatch();
+
+                final int targetStart = matchNode.getStartByte();
+                final int targetEnd = matchNode.getEndByte();
+
+                while (cursor.nextMatch(match)) {
+                    TSNode declNode = null;
+                    List<TSNode> superCapturesThisMatch = new ArrayList<>();
+
+                    for (var cap : match.getCaptures()) {
+                        var capName = query.getCaptureNameForId(cap.getIndex());
+                        var n = cap.getNode();
+                        if (n == null || n.isNull()) continue;
+
+                        if ("type.decl".equals(capName)) {
+                            declNode = n;
+                        } else if ("type.super".equals(capName)) {
+                            superCapturesThisMatch.add(n);
+                        }
+                    }
+
+                    if (declNode != null
+                            && declNode.getStartByte() == targetStart
+                            && declNode.getEndByte() == targetEnd) {
+                        aggregateSuperNodes.addAll(superCapturesThisMatch);
+                    }
                 }
             }
-        }
 
-        // Sort by position to preserve source order
-        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+            // Sort by position to preserve source order
+            aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
-        for (var s : aggregateSuperNodes) {
-            var text = sourceContent
-                    .substringFromBytes(s.getStartByte(), s.getEndByte())
-                    .strip();
-            if (!text.isEmpty()) {
-                supers.add(text);
+            List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+            for (var s : aggregateSuperNodes) {
+                var text = sourceContent
+                        .substringFromBytes(s.getStartByte(), s.getEndByte())
+                        .strip();
+                if (!text.isEmpty()) {
+                    supers.add(text);
+                }
             }
-        }
 
-        // Deduplicate while preserving order
-        var unique = new LinkedHashSet<>(supers);
-        return List.copyOf(unique);
+            // Deduplicate while preserving order
+            var unique = new LinkedHashSet<>(supers);
+            return List.copyOf(unique);
+        }
     }
 
     /**
@@ -781,10 +783,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             var tree = parser.parseString(null, importLine);
             var rootNode = tree.getRootNode();
 
-            var query = getThreadLocalQuery(QueryType.IMPORTS);
-            if (query == null) continue;
+            if (!hasQuery(QueryType.IMPORTS)) continue;
 
-            try (var cursor = new TSQueryCursor()) {
+            try (TSQuery query = createQuery(QueryType.IMPORTS);
+                    var cursor = new TSQueryCursor()) {
                 cursor.exec(query, rootNode);
 
                 var match = new TSQueryMatch();
@@ -1091,12 +1093,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             return identifiers;
         }
 
-        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
-        if (query == null) {
+        if (!hasQuery(QueryType.IDENTIFIERS)) {
             return identifiers;
         }
 
-        try (TSQueryCursor cursor = new TSQueryCursor()) {
+        try (TSQuery query = createQuery(QueryType.IDENTIFIERS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, rootNode);
 
             SourceContent sc = SourceContent.of(source);
