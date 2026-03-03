@@ -272,7 +272,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.weightx = 1.0;
         buildConfigPanel.add(someTestsCommandField, buildGbc);
         var testSomeInfo = new JLabel(
-                "<html>Mustache variables {{#files}}, {{#classes}}, {{#fqclasses}}, {{#modules}}, or {{#packages}} will be interpolated with filenames, class names, fully-qualified class names, or package/module names, respectively</html>");
+                "<html>Mustache variables {{#files}}, {{#classes}}, {{#fqclasses}}, or {{#packages}} will be interpolated with filenames, class names, fully-qualified class names, or package/module/directory paths, respectively</html>");
         testSomeInfo.setFont(testSomeInfo
                 .getFont()
                 .deriveFont(Font.ITALIC, testSomeInfo.getFont().getSize() * 0.9f));

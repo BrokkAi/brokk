@@ -430,8 +430,7 @@ public class BuildAgent {
                 - `{{#files}}...{{/files}}` — file paths
                 - `{{#classes}}...{{/classes}}` — simple class names
                 - `{{#fqclasses}}...{{/fqclasses}}` — fully-qualified class names
-                - `{{#modules}}...{{/modules}}` — dotted module names (e.g. for Python projects)
-                - `{{#packages}}...{{/packages}}` — package paths (e.g. for Go/Rust projects)
+                - `{{#packages}}...{{/packages}}` — package paths, modules, or directories
 
                 Inside a section, each item exposes:
                 - `{{value}}` or `{{.}}` — the string value
@@ -456,8 +455,8 @@ public class BuildAgent {
                 | **Go**            | `go test {{#packages}}{{value}} {{/packages}} -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
                 | **.NET CLI**      | `dotnet test --verbosity quiet --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}}|{{/last}}{{/classes}}"`
                 | **Cargo**         | `cargo test -q {{#packages}}{{value}} {{/packages}}`
-                | **pytest**        | `uv sync && pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
-                | **Poetry**        | `poetry install --no-interaction && poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **pytest**        | `uv sync && pytest -q {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}`
+                | **Poetry**        | `poetry install --no-interaction && poetry run pytest -q {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}`
                 | **Jest**          | `jest --silent {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **npm**           | `npm test --silent -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
                 | **RSpec**         | `bundle exec rspec --format progress {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
@@ -539,7 +538,7 @@ public class BuildAgent {
                             "Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String testAllCommand,
             @P(
-                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, {{modules}}, or {{packages}}. {{modules}} and {{packages}} provide dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
+                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, or {{packages}}. {{packages}} provides dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
                             "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
@@ -811,7 +810,7 @@ public class BuildAgent {
 
     // Allowed top-level Mustache keys (section variables)
     private static final Set<String> ALLOWED_TOP_LEVEL_KEYS =
-            Set.of("files", "classes", "fqclasses", "modules", "packages", "pyver");
+            Set.of("files", "classes", "fqclasses", "packages", "pyver");
 
     // Allowed per-item keys inside sections
     private static final Set<String> ALLOWED_ITEM_KEYS = Set.of(".", "value", "first", "last", "index");
@@ -935,7 +934,7 @@ public class BuildAgent {
 
     /**
      * Interpolates a Mustache template with the given list of items and optional Python version.
-     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#modules}}},
+     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#packages}}},
      * and {@code {{pyver}}} variables.
      *
      * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
@@ -955,7 +954,7 @@ public class BuildAgent {
 
     /**
      * Interpolates a Mustache template with the given list of items and optional Python version.
-     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#modules}}},
+     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#packages}}},
      * and {@code {{pyver}}} variables.
      *
      * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:

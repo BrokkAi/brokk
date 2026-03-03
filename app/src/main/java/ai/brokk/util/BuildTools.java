@@ -144,10 +144,9 @@ public class BuildTools {
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
-        boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
         boolean isPackagesBased = testSomeTemplate.contains("{{#packages}}");
 
-        if (!isFilesBased && !isClassesBased && !isModulesBased && !isPackagesBased) {
+        if (!isFilesBased && !isClassesBased && !isPackagesBased) {
             return testSomeTemplate;
         }
 
@@ -159,7 +158,8 @@ public class BuildTools {
 
         IAnalyzer analyzer = cm.getAnalyzer();
 
-        if (isModulesBased) {
+        if (isPackagesBased) {
+            // Try anchor-based detection first (e.g. for Python module paths)
             Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
             targetItems = workspaceTestFiles.stream()
                     .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
@@ -168,18 +168,11 @@ public class BuildTools {
                     .sorted()
                     .toList();
 
-            // Fallback to analyzer modules if anchor-based detection yields nothing
+            // Fallback to analyzer modules (e.g. Go packages) if anchor-based detection yields nothing
             if (targetItems.isEmpty() && !analyzer.isEmpty()) {
                 targetItems = analyzer.getTestModules(workspaceTestFiles);
             }
 
-            if (!targetItems.isEmpty()) {
-                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
-            }
-        }
-
-        if (isPackagesBased) {
-            targetItems = analyzer.getTestModules(workspaceTestFiles);
             if (!targetItems.isEmpty()) {
                 return interpolateMustacheTemplate(testSomeTemplate, targetItems, "packages", pythonVersion);
             }
@@ -301,6 +294,8 @@ public class BuildTools {
     public static String interpolateMustacheTemplate(
             String template, List<String> items, String listKey, @Nullable String pythonVersion) {
         if (template.isEmpty()) return "";
+        // Note: Canonical interpolation logic is in BuildAgent.interpolateMustacheTemplate.
+        // This version is a lighter variant for internal tool use.
         MustacheFactory mf = new DefaultMustacheFactory();
         Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
         Map<String, Object> context = new HashMap<>();
