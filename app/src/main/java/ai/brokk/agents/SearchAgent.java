@@ -251,16 +251,12 @@ public class SearchAgent {
         }
 
         var allFiles = project.getAllFiles();
-        if (allFiles.stream().anyMatch(f -> f.extension().equals("xml"))) {
+        if (allFiles.stream().anyMatch(f -> SearchTools.isMarkupExtension(f.extension()))) {
             tools.add("xmlSkim");
             tools.add("xmlSelect");
         }
-        if (allFiles.stream().anyMatch(f -> f.extension().equals("json"))) {
+        if (allFiles.stream().anyMatch(f -> "json".equalsIgnoreCase(f.extension()))) {
             tools.add("jq");
-        }
-        if (allFiles.stream().anyMatch(f -> SearchTools.isHtmlExtension(f.extension()))) {
-            tools.add("htmlSkim");
-            tools.add("htmlSelect");
         }
 
         if (!mcpTools.isEmpty()) {

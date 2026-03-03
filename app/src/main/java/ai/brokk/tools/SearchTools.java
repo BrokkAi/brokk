@@ -27,10 +27,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
-import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.StringWriter;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -57,18 +54,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.OutputKeys;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
-import javax.xml.xpath.XPathConstants;
-import javax.xml.xpath.XPathExpression;
-import javax.xml.xpath.XPathFactory;
 import net.thisptr.jackson.jq.BuiltinFunctionLoader;
 import net.thisptr.jackson.jq.JsonQuery;
 import net.thisptr.jackson.jq.Output;
@@ -83,11 +68,9 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Attribute;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.parser.Parser;
 import org.jsoup.select.Elements;
 import org.jsoup.select.Selector;
-import org.w3c.dom.NamedNodeMap;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
 
 /**
  * Contains tool implementations related to code analysis and searching, designed to be registered with the
@@ -130,28 +113,6 @@ public class SearchTools {
             },
             (t, e) -> logger.error("Uncaught exception in SearchTools worker thread {}", t.getName(), e),
             false);
-
-    private static final ThreadLocal<DocumentBuilder> TL_XML_DOC_BUILDER = ThreadLocal.withInitial(() -> {
-        try {
-            var dbf = DocumentBuilderFactory.newInstance();
-            dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            dbf.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            dbf.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-            dbf.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-            dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            dbf.setXIncludeAware(false);
-            dbf.setExpandEntityReferences(false);
-            dbf.setNamespaceAware(false);
-            return dbf.newDocumentBuilder();
-        } catch (ParserConfigurationException e) {
-            throw new RuntimeException("Failed to create DocumentBuilder", e);
-        }
-    });
-
-    private static final ThreadLocal<Cache<String, XPathExpression>> xpathExpressions =
-            ThreadLocal.withInitial(() -> Caffeine.newBuilder()
-                    .maximumSize(4L * Runtime.getRuntime().availableProcessors())
-                    .build());
 
     private static final ThreadLocal<Cache<String, Pattern>> searchPatterns =
             ThreadLocal.withInitial(() -> Caffeine.newBuilder()
@@ -220,21 +181,9 @@ public class SearchTools {
 
     // --- Helper Methods
 
-    private static XPathExpression getOrCompileXPathExpression(String xpath) {
-        Cache<String, XPathExpression> cache = xpathExpressions.get();
-
-        XPathExpression cached = cache.getIfPresent(xpath);
-        if (cached != null) {
-            return cached;
-        }
-
-        try {
-            XPathExpression compiled = XPathFactory.newInstance().newXPath().compile(xpath);
-            cache.put(xpath, compiled);
-            return compiled;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to compile XPath expression: " + xpath, e);
-        }
+    public static boolean isMarkupExtension(@Nullable String ext) {
+        return ext != null
+                && ("html".equalsIgnoreCase(ext) || "htm".equalsIgnoreCase(ext) || "xml".equalsIgnoreCase(ext));
     }
 
     private static String capXmlAttrValue(String value) {
@@ -245,131 +194,12 @@ public class SearchTools {
         return value.substring(0, toTake) + "[TRUNCATED]";
     }
 
-    private static String localName(Node node) {
-        String ln = node.getLocalName();
-        if (ln != null && !ln.isBlank()) {
-            return ln;
-        }
-        String name = node.getNodeName();
-        int idx = name.indexOf(':');
-        return idx >= 0 ? name.substring(idx + 1) : name;
-    }
-
     private static boolean isNameStart(char c) {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
     }
 
     private static boolean isNameChar(char c) {
         return isNameStart(c) || (c >= '0' && c <= '9');
-    }
-
-    private static int prevNonWhitespaceIndex(String s, int fromExclusive) {
-        for (int i = fromExclusive; i >= 0; i--) {
-            if (!Character.isWhitespace(s.charAt(i))) return i;
-        }
-        return -1;
-    }
-
-    private static boolean isFunctionCallAhead(String xpath, int tokenEndExclusive) {
-        int i = tokenEndExclusive;
-        while (i < xpath.length() && Character.isWhitespace(xpath.charAt(i))) i++;
-        return i < xpath.length() && xpath.charAt(i) == '(';
-    }
-
-    private static String rewriteNamespaceAgnosticXPath(String xpath) {
-        if (xpath.isBlank()) return xpath;
-
-        StringBuilder out = new StringBuilder(xpath.length() + 32);
-        boolean inSingle = false;
-        boolean inDouble = false;
-
-        boolean attributeAxis = false;
-
-        int i = 0;
-        while (i < xpath.length()) {
-            char c = xpath.charAt(i);
-
-            if (c == '\'' && !inDouble) {
-                inSingle = !inSingle;
-                out.append(c);
-                i++;
-                continue;
-            }
-            if (c == '"' && !inSingle) {
-                inDouble = !inDouble;
-                out.append(c);
-                i++;
-                continue;
-            }
-
-            if (inSingle || inDouble) {
-                out.append(c);
-                i++;
-                continue;
-            }
-
-            if (i + 2 <= xpath.length() && xpath.startsWith("::", i)) {
-                out.append("::");
-                i += 2;
-                continue;
-            }
-
-            if (isNameStart(c)) {
-                int start = i;
-                int j = i + 1;
-                while (j < xpath.length() && isNameChar(xpath.charAt(j))) j++;
-                String token = xpath.substring(start, j);
-
-                boolean isAxisToken = j + 2 <= xpath.length() && xpath.startsWith("::", j);
-                if (isAxisToken) {
-                    attributeAxis = "attribute".equals(token);
-                    out.append(token).append("::");
-                    i = j + 2;
-                    continue;
-                }
-
-                int prevIdx = prevNonWhitespaceIndex(xpath, start - 1);
-                char prev = prevIdx >= 0 ? xpath.charAt(prevIdx) : '\0';
-                char prevPrev = prevIdx >= 1 ? xpath.charAt(prevIdx - 1) : '\0';
-
-                boolean precededByAt = prev == '@';
-                boolean precededByAxisSep = prev == ':' && prevPrev == ':';
-                boolean inNodeTestContext =
-                        start == 0 || prev == '/' || prev == '[' || prev == '(' || prev == ',' || precededByAxisSep;
-
-                boolean hasPrefix = token.indexOf(':') >= 0;
-
-                if (precededByAt || !inNodeTestContext || hasPrefix || isFunctionCallAhead(xpath, j) || attributeAxis) {
-                    out.append(token);
-                    i = j;
-                    attributeAxis = false;
-                    continue;
-                }
-
-                out.append("*[local-name()='").append(token).append("']");
-                i = j;
-                attributeAxis = false;
-                continue;
-            }
-
-            out.append(c);
-            i++;
-        }
-
-        return out.toString();
-    }
-
-    private static org.w3c.dom.Document parseXmlDocument(ProjectFile file, String content) {
-        try {
-            DocumentBuilder builder = TL_XML_DOC_BUILDER.get();
-            org.w3c.dom.Document doc =
-                    builder.parse(new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)));
-            doc.normalizeDocument();
-            return doc;
-        } catch (Exception e) {
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            throw new IllegalArgumentException("Failed to parse XML in %s: %s".formatted(file, message), e);
-        }
     }
 
     private static boolean isSimpleJsonIdentifier(String key) {
@@ -531,104 +361,21 @@ public class SearchTools {
         return String.join("\n", lines);
     }
 
-    private static String toOuterXml(Node node) {
-        try {
-            TransformerFactory tf = TransformerFactory.newInstance();
-            tf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            Transformer t = tf.newTransformer();
-            t.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
-            t.setOutputProperty(OutputKeys.INDENT, "no");
-
-            StringWriter sw = new StringWriter();
-            t.transform(new DOMSource(node), new StreamResult(sw));
-            return sw.toString();
-        } catch (Exception e) {
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            throw new RuntimeException("Failed to render outer XML: " + message, e);
-        }
-    }
-
-    private static int directTextLen(Node node) {
-        if (node.getNodeType() != Node.ELEMENT_NODE) return 0;
-
-        int total = 0;
-        Node child = node.getFirstChild();
-        while (child != null) {
-            short t = child.getNodeType();
-            if (t == Node.TEXT_NODE || t == Node.CDATA_SECTION_NODE) {
-                String text = child.getNodeValue();
-                if (text != null) {
-                    total += text.strip().length();
-                }
-            }
-            child = child.getNextSibling();
-        }
-        return total;
-    }
-
-    private static Map<String, Integer> elementChildHistogram(Node node) {
-        if (node.getNodeType() != Node.ELEMENT_NODE) return Map.of();
-
-        Map<String, Integer> counts = new HashMap<>();
-        Node child = node.getFirstChild();
-        while (child != null) {
-            if (child.getNodeType() == Node.ELEMENT_NODE) {
-                String ln = localName(child);
-                counts.merge(ln, 1, Integer::sum);
-            }
-            child = child.getNextSibling();
-        }
-        return Map.copyOf(counts);
-    }
-
-    private static String computeNodePath(Node node) {
-        List<Node> elems = new ArrayList<>();
-        Node cur = node;
-        while (cur != null) {
-            if (cur.getNodeType() == Node.ELEMENT_NODE) {
-                elems.add(cur);
-            }
-            cur = cur.getParentNode();
-        }
-        if (elems.isEmpty()) return "/";
-
-        StringBuilder sb = new StringBuilder();
-        for (int i = elems.size() - 1; i >= 0; i--) {
-            Node e = elems.get(i);
-            String name = localName(e);
-
-            int idx = 1;
-            Node parent = e.getParentNode();
-            if (parent != null) {
-                Node sib = parent.getFirstChild();
-                while (sib != null) {
-                    if (sib.getNodeType() == Node.ELEMENT_NODE
-                            && sib != e
-                            && localName(sib).equals(name)) {
-                        idx++;
-                    }
-                    if (sib == e) {
-                        break;
-                    }
-                    sib = sib.getNextSibling();
-                }
-            }
-            sb.append('/').append(name).append('[').append(idx).append(']');
-        }
-        return sb.toString();
-    }
-
-    public static boolean isHtmlExtension(@Nullable String ext) {
+    private static boolean isHtmlExtension(@Nullable String ext) {
         return ext != null && ("html".equalsIgnoreCase(ext) || "htm".equalsIgnoreCase(ext));
     }
 
-    private List<ProjectFile> resolveHtmlFiles(String filepath) {
+    private static boolean isXmlExtension(@Nullable String ext) {
+        return ext != null && "xml".equalsIgnoreCase(ext);
+    }
+
+    private List<ProjectFile> resolveMarkupFiles(String filepath) {
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .filter(ProjectFile::isText)
-                .filter(pf -> isHtmlExtension(pf.extension()))
+                .filter(pf -> isMarkupExtension(pf.extension()))
                 .sorted()
                 .toList();
 
@@ -637,7 +384,7 @@ public class SearchTools {
                     .filter(ProjectFile.class::isInstance)
                     .map(ProjectFile.class::cast)
                     .filter(ProjectFile::isText)
-                    .filter(pf -> isHtmlExtension(pf.extension()))
+                    .filter(pf -> isMarkupExtension(pf.extension()))
                     .sorted()
                     .toList();
         }
@@ -645,7 +392,14 @@ public class SearchTools {
         return files;
     }
 
-    private static String computeHtmlElementPath(Element elem) {
+    private static Document parseMarkupFile(ProjectFile file, String content) {
+        if (isXmlExtension(file.extension())) {
+            return Jsoup.parse(content, "", Parser.xmlParser());
+        }
+        return Jsoup.parse(content);
+    }
+
+    private static String computeElementPath(Element elem) {
         List<Element> ancestors = new ArrayList<>();
         Element cur = elem;
         while (cur != null) {
@@ -672,7 +426,7 @@ public class SearchTools {
         return sb.toString();
     }
 
-    private static String htmlSkimBfs(Element root, int totalBudgetChars) {
+    private static String skimBfs(Element root, int totalBudgetChars) {
         int budget = max(1, totalBudgetChars);
         ArrayDeque<Element> q = new ArrayDeque<>();
         q.add(root);
@@ -684,7 +438,7 @@ public class SearchTools {
         while (!q.isEmpty()) {
             Element e = q.removeFirst();
 
-            String path = computeHtmlElementPath(e);
+            String path = computeElementPath(e);
 
             Map<String, Integer> childHist = new HashMap<>();
             for (Element child : e.children()) {
@@ -725,80 +479,6 @@ public class SearchTools {
 
             for (Element child : e.children()) {
                 q.add(child);
-            }
-        }
-
-        if (truncated) {
-            lines.add("TRUNCATED: reached output budget");
-        }
-
-        return String.join("\n", lines);
-    }
-
-    private static String xmlSkimBfs(Node root, int totalBudgetChars) {
-        int budget = max(1, totalBudgetChars);
-        ArrayDeque<Node> q = new ArrayDeque<>();
-        q.add(root);
-
-        List<String> lines = new ArrayList<>();
-        int used = 0;
-        boolean truncated = false;
-
-        while (!q.isEmpty()) {
-            Node n = q.removeFirst();
-            if (n.getNodeType() != Node.ELEMENT_NODE) {
-                continue;
-            }
-
-            String path = computeNodePath(n);
-
-            Map<String, Integer> hist = elementChildHistogram(n);
-            String histText = hist.isEmpty()
-                    ? "children={}"
-                    : "children={%s}"
-                            .formatted(hist.entrySet().stream()
-                                    .sorted(Map.Entry.comparingByKey())
-                                    .map(e -> "%s:%d".formatted(e.getKey(), e.getValue()))
-                                    .collect(Collectors.joining(", ")));
-
-            int textLen = directTextLen(n);
-
-            String attrsText = "";
-            if (n instanceof org.w3c.dom.Element el) {
-                NamedNodeMap attrs = el.getAttributes();
-                if (attrs != null && attrs.getLength() > 0) {
-                    Map<String, String> attrMap = new LinkedHashMap<>();
-                    for (int i = 0; i < attrs.getLength(); i++) {
-                        Node a = attrs.item(i);
-                        if (a == null) continue;
-                        String aName = localName(a);
-                        String aVal = a.getNodeValue() == null ? "" : a.getNodeValue();
-                        attrMap.put(aName, capXmlAttrValue(aVal));
-                    }
-                    attrsText = " attrs={%s}"
-                            .formatted(attrMap.entrySet().stream()
-                                    .map(e -> "%s=\"%s\"".formatted(e.getKey(), e.getValue()))
-                                    .collect(Collectors.joining(", ")));
-                }
-            }
-
-            String line = "%s <%s> textLen=%d %s%s".formatted(path, localName(n), textLen, histText, attrsText);
-            line = truncateLine(line, 0, line.length());
-
-            if (used + line.length() + 1 > budget) {
-                truncated = true;
-                break;
-            }
-
-            lines.add(line);
-            used += line.length() + 1;
-
-            Node child = n.getFirstChild();
-            while (child != null) {
-                if (child.getNodeType() == Node.ELEMENT_NODE) {
-                    q.add(child);
-                }
-                child = child.getNextSibling();
             }
         }
 
@@ -2110,45 +1790,31 @@ public class SearchTools {
 
     @Tool(
             """
-            Skims XML files by walking the document breadth-first (BFS) and emitting compact structural summaries
-            until an output budget is reached.
+            Skims markup files (HTML and XML) by walking the document breadth-first (BFS) and emitting compact
+            structural summaries until an output budget is reached.
 
             Output is grouped by file:
-            <file path="path/to/file.xml">
-            /root[1] <root> textLen=0 children={item:2} attrs={id="x"}
-            /root[1]/item[1] <item> textLen=5 children={} attrs={id="a"}
+            <file path="path/to/file.html">
+            /html[1]/body[1] <body> textLen=0 children={div:2} attrs={class="main"}
+            /html[1]/body[1]/div[1] <div> textLen=5 children={} attrs={id="header"}
             </file>
 
+            Namespace notes (XML):
+            - Jsoup's XML parser preserves namespace prefixes in tag names (e.g., ns:item).
+            - Use CSS selectors like '*|item' (any namespace) or 'ns\\:item' (literal tag) with xmlSelect.
+
             Notes:
-            - Namespace-agnostic: element names are summarized using their local name (prefix is ignored).
             - Output is capped to a per-file budget of 10 * MAX_CHARS_PER_LINE characters.
             - Individual lines are capped to MAX_CHARS_PER_LINE.
             """)
     public String xmlSkim(
-            @P("File path or glob pattern (e.g., 'pom.xml', '**/*.xml').") String filepath,
+            @P("File path or glob pattern (e.g., 'index.html', '**/*.xml').") String filepath,
             @P("Maximum number of files to return results for. Capped at 500.") int maxFiles)
             throws InterruptedException {
-        var project = contextManager.getProject();
-        var files = Completions.expandPath(project, filepath).stream()
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .filter(ProjectFile::isText)
-                .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                .sorted()
-                .toList();
-
-        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
-            files = Completions.expandPath(project, filepath.substring(3)).stream()
-                    .filter(ProjectFile.class::isInstance)
-                    .map(ProjectFile.class::cast)
-                    .filter(ProjectFile::isText)
-                    .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                    .sorted()
-                    .toList();
-        }
+        var files = resolveMarkupFiles(filepath);
 
         if (files.isEmpty()) {
-            return "No XML files found matching: " + filepath;
+            return "No markup files found matching: " + filepath;
         }
 
         int effectiveMaxFiles = max(
@@ -2160,22 +1826,17 @@ public class SearchTools {
         BatchResult<String> batchResult;
         try {
             batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
-                try {
-                    var contentOpt = file.read();
-                    if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
+                var contentOpt = file.read();
+                if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    org.w3c.dom.Document doc = parseXmlDocument(file, contentOpt.get());
-                    Node root = doc.getDocumentElement();
-                    if (root == null) return new IndexedResult<>(idx, null, null);
+                Document doc = parseMarkupFile(file, contentOpt.get());
+                Element root = doc.children().first();
+                if (root == null) return new IndexedResult<>(idx, null, null);
 
-                    String skim = xmlSkimBfs(root, SKIM_TOTAL_BUDGET_CHARS);
-                    String block = "<file path=\"%s\">\n%s\n</file>"
-                            .formatted(file.toString().replace('\\', '/'), skim);
-                    return new IndexedResult<>(idx, block, null);
-                } catch (Exception e) {
-                    String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                    return new IndexedResult<>(idx, null, file + ": " + message);
-                }
+                String skim = skimBfs(root, SKIM_TOTAL_BUDGET_CHARS);
+                String block = "<file path=\"%s\">\n%s\n</file>"
+                        .formatted(file.toString().replace('\\', '/'), skim);
+                return new IndexedResult<>(idx, block, null);
             });
         } catch (RuntimeException e) {
             String message = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -2208,19 +1869,21 @@ public class SearchTools {
 
     @Tool(
             """
-            Selects nodes from XML files using an XPath selector, then extracts a specific view of each match.
+            Selects elements from markup files (HTML and XML) using a CSS selector (Jsoup), then extracts a specific
+            view of each match.
 
-            Namespace handling:
-            - Namespace-agnostic: simple element names like 'foo' are automatically rewritten to match elements
-              regardless of namespace prefix using local-name() matching.
+            Namespace handling (XML):
+            - Jsoup's XML parser preserves namespace prefixes in tag names (e.g., ns:item).
+            - For namespace-agnostic queries by local name, use '*|item'.
+            - For literal prefixed tags, use 'ns\\:item'.
 
             Output modes (output parameter):
-            - TEXT: plain text content (node.getTextContent().strip())
-            - NAME: element local name
-            - PATH: computed local-name() path with sibling indexes (e.g., /project[1]/dependencies[1]/dependency[2])
+            - TEXT: plain text content (element.text().strip())
+            - NAME: element tag name
+            - PATH: computed element path with sibling indexes (e.g., /html[1]/body[1]/div[2])
             - ATTR: plain text single attribute value (requires attrName)
             - ATTRS: JSONL; one JSON object per match with {path, name, attrs}
-            - XML: outer XML (outerXml). If the outer XML is longer than MAX_CHARS_PER_LINE, a BFS skim of that subtree
+            - MARKUP: outer markup (element.outerHtml()). If longer than MAX_CHARS_PER_LINE, a BFS skim of that subtree
               is returned instead (capped at MAX_CHARS_PER_LINE).
 
             Notes:
@@ -2228,38 +1891,21 @@ public class SearchTools {
             - maxFiles * matchesPerFile is forced to be <= 500.
             """)
     public String xmlSelect(
-            @P("File path or glob pattern (e.g., 'pom.xml', '**/*.xml').") String filepath,
-            @P("XPath selector (namespace-agnostic rewrite is applied).") String xpath,
-            @P("Extraction mode: TEXT, NAME, PATH, ATTR, ATTRS, XML.") String output,
+            @P("File path or glob pattern (e.g., 'index.html', '**/*.xml').") String filepath,
+            @P("CSS selector (Jsoup syntax, e.g., 'div.content', '*|item').") String cssSelector,
+            @P("Extraction mode: TEXT, NAME, PATH, ATTR, ATTRS, MARKUP.") String output,
             @P("Attribute name (required when output=ATTR; ignored otherwise).") String attrName,
             @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
             @P("Maximum number of matches to return per file. Capped at 500.") int matchesPerFile)
             throws InterruptedException {
-        var project = contextManager.getProject();
-        var files = Completions.expandPath(project, filepath).stream()
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .filter(ProjectFile::isText)
-                .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                .sorted()
-                .toList();
-
-        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
-            files = Completions.expandPath(project, filepath.substring(3)).stream()
-                    .filter(ProjectFile.class::isInstance)
-                    .map(ProjectFile.class::cast)
-                    .filter(ProjectFile::isText)
-                    .filter(pf -> "xml".equalsIgnoreCase(pf.extension()))
-                    .sorted()
-                    .toList();
-        }
+        var files = resolveMarkupFiles(filepath);
 
         if (files.isEmpty()) {
-            return "No XML files found matching: " + filepath;
+            return "No markup files found matching: " + filepath;
         }
 
-        if (xpath.isBlank()) {
-            throw new IllegalArgumentException("Cannot xmlSelect: xpath is empty");
+        if (cssSelector.isBlank()) {
+            throw new IllegalArgumentException("Cannot xmlSelect: cssSelector is empty");
         }
 
         String mode = output.strip().toUpperCase(Locale.ROOT);
@@ -2269,103 +1915,83 @@ public class SearchTools {
 
         EffectiveLimits limits = clampMaxFilesAndMatchesPerFile(maxFiles, matchesPerFile);
 
-        String rewritten = rewriteNamespaceAgnosticXPath(xpath);
-        final XPathExpression compiled;
         try {
-            compiled = getOrCompileXPathExpression(rewritten);
-        } catch (RuntimeException e) {
+            Jsoup.parse("").select(cssSelector);
+        } catch (Selector.SelectorParseException | IllegalArgumentException e) {
             String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            return "Invalid XPath: " + message;
+            return "Invalid CSS selector: " + message;
         }
 
         BatchResult<String> batchResult;
         try {
             batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
-                try {
-                    var contentOpt = file.read();
-                    if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
+                var contentOpt = file.read();
+                if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    org.w3c.dom.Document doc = parseXmlDocument(file, contentOpt.get());
+                Document doc = parseMarkupFile(file, contentOpt.get());
+                Elements elements = doc.select(cssSelector);
 
-                    NodeList nodes = (NodeList) compiled.evaluate(doc, XPathConstants.NODESET);
-                    int total = nodes == null ? 0 : nodes.getLength();
-                    if (total == 0) return new IndexedResult<>(idx, null, null);
+                int total = elements.size();
+                if (total == 0) return new IndexedResult<>(idx, null, null);
 
-                    int toTake = min(total, limits.matchesPerFile());
-                    boolean hitLimit = total > toTake;
-                    String matchCountLabel = hitLimit
-                            ? "first %d matches".formatted(toTake)
-                            : "%d %s".formatted(toTake, toTake == 1 ? "match" : "matches");
+                int toTake = min(total, limits.matchesPerFile());
+                boolean hitLimit = total > toTake;
+                String matchCountLabel = hitLimit
+                        ? "first %d matches".formatted(toTake)
+                        : "%d %s".formatted(toTake, toTake == 1 ? "match" : "matches");
 
-                    List<String> outLines = new ArrayList<>(toTake + 1);
-                    outLines.add("File: %s (%s)".formatted(file.toString().replace('\\', '/'), matchCountLabel));
+                List<String> outLines = new ArrayList<>(toTake + 1);
+                outLines.add("File: %s (%s)".formatted(file.toString().replace('\\', '/'), matchCountLabel));
 
-                    var mapper = jqMappers.get();
+                var mapper = jqMappers.get();
 
-                    for (int i = 0; i < toTake; i++) {
-                        Node n = nodes.item(i);
-                        if (n == null) continue;
+                for (int i = 0; i < toTake; i++) {
+                    Element elem = elements.get(i);
 
-                        String path = computeNodePath(n);
-                        String name = localName(n);
+                    String path = computeElementPath(elem);
+                    String name = elem.tagName();
 
-                        switch (mode) {
-                            case "TEXT" -> {
-                                String text = n.getTextContent() == null
-                                        ? ""
-                                        : n.getTextContent().strip();
-                                String line = "%s: %s".formatted(path, text);
-                                outLines.add(truncateLine(line, 0, line.length()));
-                            }
-                            case "NAME" -> outLines.add("%s: %s".formatted(path, name));
-                            case "PATH" -> outLines.add(path);
-                            case "ATTR" -> {
-                                String value = "";
-                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof org.w3c.dom.Element el) {
-                                    value = el.hasAttribute(attrName) ? el.getAttribute(attrName) : "";
-                                }
-                                String line = "%s @%s=\"%s\"".formatted(path, attrName, value);
-                                outLines.add(truncateLine(line, 0, line.length()));
-                            }
-                            case "ATTRS" -> {
-                                Map<String, String> attrs = Map.of();
-                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof org.w3c.dom.Element el) {
-                                    NamedNodeMap nnm = el.getAttributes();
-                                    if (nnm != null && nnm.getLength() > 0) {
-                                        Map<String, String> m = new LinkedHashMap<>();
-                                        for (int a = 0; a < nnm.getLength(); a++) {
-                                            Node attr = nnm.item(a);
-                                            if (attr == null) continue;
-                                            String aName = localName(attr);
-                                            String aVal = attr.getNodeValue() == null ? "" : attr.getNodeValue();
-                                            m.put(aName, capXmlAttrValue(aVal));
-                                        }
-                                        attrs = Map.copyOf(m);
-                                    }
-                                }
-                                Map<String, Object> obj = Map.of("path", path, "name", name, "attrs", attrs);
-                                outLines.add(mapper.writeValueAsString(obj));
-                            }
-                            case "XML" -> {
-                                String outerStr = toOuterXml(n);
-                                if (n.getNodeType() == Node.ELEMENT_NODE && outerStr.length() > MAX_CHARS_PER_NODE) {
-                                    outLines.add("%s: [XML_TOO_LARGE]".formatted(path));
-                                    String skim = xmlSkimBfs(n, MAX_CHARS_PER_NODE);
-                                    outLines.addAll(List.of(skim.split("\n", -1)));
-                                } else {
-                                    String line = "%s: %s".formatted(path, outerStr);
-                                    outLines.add(truncateLine(line, 0, line.length()));
-                                }
-                            }
-                            default -> throw new IllegalArgumentException("Invalid output mode: " + mode);
+                    switch (mode) {
+                        case "TEXT" -> {
+                            String text = elem.text().strip();
+                            String line = "%s: %s".formatted(path, text);
+                            outLines.add(truncateLine(line, 0, line.length()));
                         }
+                        case "NAME" -> outLines.add("%s: %s".formatted(path, name));
+                        case "PATH" -> outLines.add(path);
+                        case "ATTR" -> {
+                            String value = elem.hasAttr(attrName) ? elem.attr(attrName) : "";
+                            String line = "%s @%s=\"%s\"".formatted(path, attrName, value);
+                            outLines.add(truncateLine(line, 0, line.length()));
+                        }
+                        case "ATTRS" -> {
+                            Map<String, String> attrs = Map.of();
+                            if (!elem.attributes().isEmpty()) {
+                                Map<String, String> m = new LinkedHashMap<>();
+                                for (Attribute attr : elem.attributes()) {
+                                    m.put(attr.getKey(), capXmlAttrValue(attr.getValue()));
+                                }
+                                attrs = Map.copyOf(m);
+                            }
+                            Map<String, Object> obj = Map.of("path", path, "name", name, "attrs", attrs);
+                            outLines.add(mapper.valueToTree(obj).toString());
+                        }
+                        case "MARKUP", "HTML", "XML" -> {
+                            String outerHtml = elem.outerHtml();
+                            if (outerHtml.length() > MAX_CHARS_PER_NODE) {
+                                outLines.add("%s: [MARKUP_TOO_LARGE]".formatted(path));
+                                String skim = skimBfs(elem, MAX_CHARS_PER_NODE);
+                                outLines.addAll(List.of(skim.split("\n", -1)));
+                            } else {
+                                String line = "%s: %s".formatted(path, outerHtml);
+                                outLines.add(truncateLine(line, 0, line.length()));
+                            }
+                        }
+                        default -> throw new IllegalArgumentException("Invalid output mode: " + mode);
                     }
-
-                    return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
-                } catch (Exception e) {
-                    String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                    return new IndexedResult<>(idx, null, file + ": " + message);
                 }
+
+                return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
             });
         } catch (RuntimeException e) {
             String message = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -2382,246 +2008,6 @@ public class SearchTools {
                                 batchResult.errors().getFirst());
             }
             return "No results for xmlSelect.";
-        }
-
-        String outResult = String.join("\n", batchResult.results()).trim();
-        if (batchResult.truncatedByMaxFiles()) {
-            outResult += "\n\nTRUNCATED: reached maxFiles=%d".formatted(limits.maxFiles());
-        }
-        if (!batchResult.errors().isEmpty()) {
-            outResult += "\n\nWARNINGS: errors occurred in %d files; first: %s"
-                    .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
-        }
-
-        return recordResearchTokens(outResult);
-    }
-
-    @Tool(
-            """
-            Skims HTML files by walking the document breadth-first (BFS) and emitting compact structural summaries
-            until an output budget is reached.
-
-            Output is grouped by file:
-            <file path="path/to/file.html">
-            /html[1]/body[1] <body> textLen=0 children={div:2, nav:1} attrs={class="main"}
-            /html[1]/body[1]/div[1] <div> textLen=5 children={} attrs={id="header"}
-            </file>
-
-            Notes:
-            - Output is capped to a per-file budget of 10 * MAX_CHARS_PER_LINE characters.
-            - Individual lines are capped to MAX_CHARS_PER_LINE.
-            - Handles malformed HTML gracefully (Jsoup parses leniently).
-            """)
-    public String htmlSkim(
-            @P("File path or glob pattern (e.g., 'index.html', '**/*.html').") String filepath,
-            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles)
-            throws InterruptedException {
-        var files = resolveHtmlFiles(filepath);
-
-        if (files.isEmpty()) {
-            return "No HTML files found matching: " + filepath;
-        }
-
-        int effectiveMaxFiles = max(
-                1,
-                min(
-                        maxFiles <= 0 ? SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT : maxFiles,
-                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
-
-        BatchResult<String> batchResult;
-        try {
-            batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
-                try {
-                    var contentOpt = file.read();
-                    if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
-
-                    Document doc = Jsoup.parse(contentOpt.get());
-                    Element root = doc.body();
-                    if (root == null) {
-                        root = doc.children().first();
-                    }
-                    if (root == null) return new IndexedResult<>(idx, null, null);
-
-                    String skim = htmlSkimBfs(root, SKIM_TOTAL_BUDGET_CHARS);
-                    String block = "<file path=\"%s\">\n%s\n</file>"
-                            .formatted(file.toString().replace('\\', '/'), skim);
-                    return new IndexedResult<>(idx, block, null);
-                } catch (Exception e) {
-                    String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                    return new IndexedResult<>(idx, null, file + ": " + message);
-                }
-            });
-        } catch (RuntimeException e) {
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            logger.error("Error executing htmlSkim", e);
-            return "htmlSkim failed: " + message;
-        }
-
-        if (batchResult.results().isEmpty()) {
-            if (!batchResult.errors().isEmpty()) {
-                return "htmlSkim produced errors in %d of %d files: %s"
-                        .formatted(
-                                batchResult.errors().size(),
-                                files.size(),
-                                batchResult.errors().getFirst());
-            }
-            return "No results for htmlSkim.";
-        }
-
-        String output = String.join("\n\n", batchResult.results()).trim();
-        if (batchResult.truncatedByMaxFiles()) {
-            output += "\n\nTRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles);
-        }
-        if (!batchResult.errors().isEmpty()) {
-            output += "\n\nWARNINGS: errors occurred in %d files; first: %s"
-                    .formatted(batchResult.errors().size(), batchResult.errors().getFirst());
-        }
-
-        return recordResearchTokens(output);
-    }
-
-    @Tool(
-            """
-            Selects elements from HTML files using a CSS selector (Jsoup), then extracts a specific view of each match.
-
-            Output modes (output parameter):
-            - TEXT: plain text content (element.text().strip())
-            - NAME: element tag name
-            - PATH: computed element path with sibling indexes (e.g., /html[1]/body[1]/div[2])
-            - ATTR: plain text single attribute value (requires attrName)
-            - ATTRS: JSONL; one JSON object per match with {path, name, attrs}
-            - HTML: outer HTML (element.outerHtml()). If the outer HTML is longer than MAX_CHARS_PER_LINE, a BFS skim of that subtree
-              is returned instead (capped at MAX_CHARS_PER_LINE).
-
-            Notes:
-            - maxFiles and matchesPerFile are capped at 500 each.
-            - maxFiles * matchesPerFile is forced to be <= 500.
-            """)
-    public String htmlSelect(
-            @P("File path or glob pattern (e.g., 'index.html', '**/*.html').") String filepath,
-            @P("CSS selector (Jsoup syntax, e.g., 'div.content', '#main a').") String cssSelector,
-            @P("Extraction mode: TEXT, NAME, PATH, ATTR, ATTRS, HTML.") String output,
-            @P("Attribute name (required when output=ATTR; ignored otherwise).") String attrName,
-            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
-            @P("Maximum number of matches to return per file. Capped at 500.") int matchesPerFile)
-            throws InterruptedException {
-        var files = resolveHtmlFiles(filepath);
-
-        if (files.isEmpty()) {
-            return "No HTML files found matching: " + filepath;
-        }
-
-        if (cssSelector.isBlank()) {
-            throw new IllegalArgumentException("Cannot htmlSelect: cssSelector is empty");
-        }
-
-        String mode = output.strip().toUpperCase(Locale.ROOT);
-        if ("ATTR".equals(mode) && attrName.isBlank()) {
-            throw new IllegalArgumentException("Cannot htmlSelect: attrName is required when output=ATTR");
-        }
-
-        EffectiveLimits limits = clampMaxFilesAndMatchesPerFile(maxFiles, matchesPerFile);
-
-        // Validate CSS selector once before scanning any files
-        try {
-            Jsoup.parse("").select(cssSelector);
-        } catch (Selector.SelectorParseException e) {
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            return "Invalid CSS selector: " + message;
-        }
-
-        BatchResult<String> batchResult;
-        try {
-            batchResult = batchProcessFiles(files, limits.maxFiles(), (file, idx) -> {
-                try {
-                    var contentOpt = file.read();
-                    if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
-
-                    Document doc = Jsoup.parse(contentOpt.get());
-
-                    Elements elements = doc.select(cssSelector);
-
-                    int total = elements.size();
-                    if (total == 0) return new IndexedResult<>(idx, null, null);
-
-                    int toTake = min(total, limits.matchesPerFile());
-                    boolean hitLimit = total > toTake;
-                    String matchCountLabel = hitLimit
-                            ? "first %d matches".formatted(toTake)
-                            : "%d %s".formatted(toTake, toTake == 1 ? "match" : "matches");
-
-                    List<String> outLines = new ArrayList<>(toTake + 1);
-                    outLines.add("File: %s (%s)".formatted(file.toString().replace('\\', '/'), matchCountLabel));
-
-                    var mapper = jqMappers.get();
-
-                    for (int i = 0; i < toTake; i++) {
-                        Element elem = elements.get(i);
-
-                        String path = computeHtmlElementPath(elem);
-                        String name = elem.tagName();
-
-                        switch (mode) {
-                            case "TEXT" -> {
-                                String text = elem.text().strip();
-                                String line = "%s: %s".formatted(path, text);
-                                outLines.add(truncateLine(line, 0, line.length()));
-                            }
-                            case "NAME" -> outLines.add("%s: %s".formatted(path, name));
-                            case "PATH" -> outLines.add(path);
-                            case "ATTR" -> {
-                                String value = elem.hasAttr(attrName) ? elem.attr(attrName) : "";
-                                String line = "%s @%s=\"%s\"".formatted(path, attrName, value);
-                                outLines.add(truncateLine(line, 0, line.length()));
-                            }
-                            case "ATTRS" -> {
-                                Map<String, String> attrs = Map.of();
-                                if (!elem.attributes().isEmpty()) {
-                                    Map<String, String> m = new LinkedHashMap<>();
-                                    for (Attribute attr : elem.attributes()) {
-                                        m.put(attr.getKey(), capXmlAttrValue(attr.getValue()));
-                                    }
-                                    attrs = Map.copyOf(m);
-                                }
-                                Map<String, Object> obj = Map.of("path", path, "name", name, "attrs", attrs);
-                                outLines.add(mapper.writeValueAsString(obj));
-                            }
-                            case "HTML" -> {
-                                String outerHtml = elem.outerHtml();
-                                if (outerHtml.length() > MAX_CHARS_PER_NODE) {
-                                    outLines.add("%s: [HTML_TOO_LARGE]".formatted(path));
-                                    String skim = htmlSkimBfs(elem, MAX_CHARS_PER_NODE);
-                                    outLines.addAll(List.of(skim.split("\n", -1)));
-                                } else {
-                                    String line = "%s: %s".formatted(path, outerHtml);
-                                    outLines.add(truncateLine(line, 0, line.length()));
-                                }
-                            }
-                            default -> throw new IllegalArgumentException("Invalid output mode: " + mode);
-                        }
-                    }
-
-                    return new IndexedResult<>(idx, String.join("\n", outLines) + "\n", null);
-                } catch (Exception e) {
-                    String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                    return new IndexedResult<>(idx, null, file + ": " + message);
-                }
-            });
-        } catch (RuntimeException e) {
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            logger.error("Error executing htmlSelect", e);
-            return "htmlSelect failed: " + message;
-        }
-
-        if (batchResult.results().isEmpty()) {
-            if (!batchResult.errors().isEmpty()) {
-                return "htmlSelect produced errors in %d of %d files: %s"
-                        .formatted(
-                                batchResult.errors().size(),
-                                files.size(),
-                                batchResult.errors().getFirst());
-            }
-            return "No results for htmlSelect.";
         }
 
         String outResult = String.join("\n", batchResult.results()).trim();

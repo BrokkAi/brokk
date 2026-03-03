@@ -320,22 +320,16 @@ public class BrokkExternalMcpServer {
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
 
         var allFiles = cm.getProject().getAllFiles();
-        boolean hasXml = allFiles.stream().anyMatch(f -> f.toString().endsWith(".xml"));
-        boolean hasJson = allFiles.stream().anyMatch(f -> f.toString().endsWith(".json"));
-        boolean hasHtml = allFiles.stream().anyMatch(f -> SearchTools.isHtmlExtension(f.extension()));
+        boolean hasMarkup = allFiles.stream().anyMatch(f -> SearchTools.isMarkupExtension(f.extension()));
+        boolean hasJson = allFiles.stream().anyMatch(f -> "json".equalsIgnoreCase(f.extension()));
 
-        if (hasXml) {
+        if (hasMarkup) {
             toolNames.add("xmlSkim");
             toolNames.add("xmlSelect");
         }
 
         if (hasJson && !isJqOnPath()) {
             toolNames.add("jq");
-        }
-
-        if (hasHtml) {
-            toolNames.add("htmlSkim");
-            toolNames.add("htmlSelect");
         }
 
         return toolSpecificationsFrom(cm, registry, toolNames, mcpToolCallHistoryWriter);

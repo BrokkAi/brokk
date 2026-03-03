@@ -817,8 +817,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "ns.xml"));
 
-        // Without local-name() rewriting, /root/item would not match prefixed elements.
-        String result = searchTools.xmlSelect("ns.xml", "/root/item", "TEXT", "", 10, 10);
+        String result = searchTools.xmlSelect("ns.xml", "*|root > *|item", "TEXT", "", 10, 10);
 
         assertTrue(result.contains("hello"), "Should extract text for first item. Result:\n" + result);
         assertTrue(result.contains("world"), "Should extract descendant text for second item. Result:\n" + result);
@@ -837,17 +836,17 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "attrs.xml"));
 
-        String result = searchTools.xmlSelect("attrs.xml", "//item", "ATTRS", "", 10, 10);
+        String result = searchTools.xmlSelect("attrs.xml", "*|item", "ATTRS", "", 10, 10);
 
         ObjectMapper mapper = new ObjectMapper();
         List<String> jsonLines = result.lines().filter(l -> l.startsWith("{")).toList();
         assertFalse(jsonLines.isEmpty(), "Should contain JSONL lines. Result:\n" + result);
 
         JsonNode node = mapper.readTree(jsonLines.getFirst());
-        assertEquals("item", node.get("name").asText());
+        assertEquals("ns:item", node.get("name").asText());
         assertEquals("a", node.get("attrs").get("id").asText());
         assertEquals("test", node.get("attrs").get("scope").asText());
-        assertTrue(node.get("path").asText().contains("/root[1]/item[1]"));
+        assertTrue(node.get("path").asText().contains("item[1]"));
     }
 
     @Test
@@ -865,9 +864,9 @@ public class SearchToolsTest {
                         .formatted(bigText));
         mockProjectFiles.add(new ProjectFile(projectRoot, "long.xml"));
 
-        String result = searchTools.xmlSelect("long.xml", "//big", "XML", "", 10, 10);
+        String result = searchTools.xmlSelect("long.xml", "*|big", "MARKUP", "", 10, 10);
 
-        assertTrue(result.contains("[XML_TOO_LARGE]"), "Should indicate XML was too large. Result:\n" + result);
+        assertTrue(result.contains("[MARKUP_TOO_LARGE]"), "Should indicate markup was too large. Result:\n" + result);
         assertTrue(result.contains("textLen="), "Fallback skim should include textLen. Result:\n" + result);
         assertFalse(result.contains("a".repeat(200)), "Should not dump the huge text content. Result:\n" + result);
     }
@@ -889,7 +888,7 @@ public class SearchToolsTest {
         String result = searchTools.xmlSkim("skim.xml", 10);
 
         assertTrue(result.contains("<file path=\"skim.xml\">"), "Should include file wrapper. Result:\n" + result);
-        assertTrue(result.contains("children={item:2}"), "Should include child histogram. Result:\n" + result);
+        assertTrue(result.contains("children={ns:item:2}"), "Should include child histogram. Result:\n" + result);
         assertTrue(result.contains("textLen="), "Should include textLen. Result:\n" + result);
         assertTrue(result.contains("attrs={id=\"a\"}"), "Should include attrs. Result:\n" + result);
     }
@@ -911,7 +910,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "test.html"));
 
-        String result = searchTools.htmlSelect("test.html", "div.content", "TEXT", "", 10, 10);
+        String result = searchTools.xmlSelect("test.html", "div.content", "TEXT", "", 10, 10);
 
         assertTrue(result.contains("File: test.html (2 matches)"), "Should show file header. Result:\n" + result);
         assertTrue(result.contains("Hello World"), "Should extract text from first div. Result:\n" + result);
@@ -935,7 +934,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "divitem.html"));
 
-        String result = searchTools.htmlSelect("divitem.html", "div.item", "TEXT", "", 10, 10);
+        String result = searchTools.xmlSelect("divitem.html", "div.item", "TEXT", "", 10, 10);
 
         assertTrue(result.contains("File: divitem.html (2 matches)"), "Should show file header. Result:\n" + result);
         assertTrue(result.contains("hello"), "Should extract text 'hello' from first div.item. Result:\n" + result);
@@ -959,7 +958,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "divitem_attr.html"));
 
-        String result = searchTools.htmlSelect("divitem_attr.html", "div.item", "ATTR", "data-id", 10, 10);
+        String result = searchTools.xmlSelect("divitem_attr.html", "div.item", "ATTR", "data-id", 10, 10);
 
         assertTrue(
                 result.contains("File: divitem_attr.html (2 matches)"), "Should show file header. Result:\n" + result);
@@ -988,7 +987,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "divitem_attrs.html"));
 
-        String result = searchTools.htmlSelect("divitem_attrs.html", "div.item", "ATTRS", "", 10, 10);
+        String result = searchTools.xmlSelect("divitem_attrs.html", "div.item", "ATTRS", "", 10, 10);
 
         assertTrue(
                 result.contains("File: divitem_attrs.html (2 matches)"), "Should show file header. Result:\n" + result);
@@ -1029,7 +1028,7 @@ public class SearchToolsTest {
         Files.writeString(html, "<html><body><div>Test</div></body></html>");
         mockProjectFiles.add(new ProjectFile(projectRoot, "invalid_css.html"));
 
-        String result = searchTools.htmlSelect("invalid_css.html", "div[", "TEXT", "", 10, 10);
+        String result = searchTools.xmlSelect("invalid_css.html", "div[", "TEXT", "", 10, 10);
 
         assertTrue(
                 result.contains("Invalid CSS selector"),
@@ -1047,7 +1046,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "page2.html"));
 
         // Call with invalid selector and glob matching multiple files
-        String result = searchTools.htmlSelect("*.html", "div[", "TEXT", "", 10, 10);
+        String result = searchTools.xmlSelect("*.html", "div[", "TEXT", "", 10, 10);
 
         // Assert single error message with colon
         assertTrue(
@@ -1078,7 +1077,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "links.html"));
 
-        String result = searchTools.htmlSelect("links.html", "a", "ATTR", "href", 10, 10);
+        String result = searchTools.xmlSelect("links.html", "a", "ATTR", "href", 10, 10);
 
         assertTrue(result.contains("File: links.html (2 matches)"), "Should show file header. Result:\n" + result);
         assertTrue(
@@ -1105,7 +1104,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "attrs.html"));
 
-        String result = searchTools.htmlSelect("attrs.html", "input", "ATTRS", "", 10, 10);
+        String result = searchTools.xmlSelect("attrs.html", "input", "ATTRS", "", 10, 10);
 
         assertTrue(result.contains("File: attrs.html (1 match)"), "Should show file header. Result:\n" + result);
 
@@ -1137,7 +1136,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "path.html"));
 
-        String result = searchTools.htmlSelect("path.html", "span", "PATH", "", 10, 10);
+        String result = searchTools.xmlSelect("path.html", "span", "PATH", "", 10, 10);
 
         assertTrue(
                 result.contains("/html[1]/body[1]/div[1]/span[1]"),
@@ -1163,7 +1162,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "html_mode.html"));
 
-        String result = searchTools.htmlSelect("html_mode.html", "div.small", "HTML", "", 10, 10);
+        String result = searchTools.xmlSelect("html_mode.html", "div.small", "MARKUP", "", 10, 10);
 
         assertTrue(result.contains("<div class=\"small\">"), "Should contain outer HTML. Result:\n" + result);
         assertTrue(result.contains("<b>Bold</b>"), "Should contain inner HTML. Result:\n" + result);
@@ -1187,9 +1186,9 @@ public class SearchToolsTest {
                         .formatted(bigText));
         mockProjectFiles.add(new ProjectFile(projectRoot, "big.html"));
 
-        String result = searchTools.htmlSelect("big.html", "div.big", "HTML", "", 10, 10);
+        String result = searchTools.xmlSelect("big.html", "div.big", "MARKUP", "", 10, 10);
 
-        assertTrue(result.contains("[HTML_TOO_LARGE]"), "Should indicate HTML was too large. Result:\n" + result);
+        assertTrue(result.contains("[MARKUP_TOO_LARGE]"), "Should indicate markup was too large. Result:\n" + result);
         assertTrue(result.contains("textLen="), "Fallback skim should include textLen. Result:\n" + result);
         assertFalse(result.contains("a".repeat(200)), "Should not dump the huge text content. Result:\n" + result);
     }
@@ -1211,7 +1210,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "name.html"));
 
-        String result = searchTools.htmlSelect("name.html", "body > *", "NAME", "", 10, 10);
+        String result = searchTools.xmlSelect("name.html", "body > *", "NAME", "", 10, 10);
 
         assertTrue(result.contains(": article"), "Should show article tag name. Result:\n" + result);
         assertTrue(result.contains(": section"), "Should show section tag name. Result:\n" + result);
@@ -1219,8 +1218,9 @@ public class SearchToolsTest {
 
     @Test
     void testHtmlSelect_NoFilesFound() throws Exception {
-        String result = searchTools.htmlSelect("nonexistent.html", "div", "TEXT", "", 10, 10);
-        assertTrue(result.contains("No HTML files found matching"), "Should report no files found. Result:\n" + result);
+        String result = searchTools.xmlSelect("nonexistent.html", "div", "TEXT", "", 10, 10);
+        assertTrue(
+                result.contains("No markup files found matching"), "Should report no files found. Result:\n" + result);
     }
 
     @Test
@@ -1229,8 +1229,8 @@ public class SearchToolsTest {
         Files.writeString(html, "<html><body><div>Test</div></body></html>");
         mockProjectFiles.add(new ProjectFile(projectRoot, "no_match.html"));
 
-        String result = searchTools.htmlSelect("no_match.html", "span.nonexistent", "TEXT", "", 10, 10);
-        assertTrue(result.contains("No results for htmlSelect"), "Should report no matches. Result:\n" + result);
+        String result = searchTools.xmlSelect("no_match.html", "span.nonexistent", "TEXT", "", 10, 10);
+        assertTrue(result.contains("No results for xmlSelect"), "Should report no matches. Result:\n" + result);
     }
 
     @Test
@@ -1239,7 +1239,7 @@ public class SearchToolsTest {
         Files.writeString(htm, "<html><body><p>Paragraph</p></body></html>");
         mockProjectFiles.add(new ProjectFile(projectRoot, "test.htm"));
 
-        String result = searchTools.htmlSelect("test.htm", "p", "TEXT", "", 10, 10);
+        String result = searchTools.xmlSelect("test.htm", "p", "TEXT", "", 10, 10);
 
         assertTrue(result.contains("File: test.htm"), "Should find .htm files. Result:\n" + result);
         assertTrue(result.contains("Paragraph"), "Should extract text. Result:\n" + result);
@@ -1254,7 +1254,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "page1.html"));
         mockProjectFiles.add(new ProjectFile(projectRoot, "page2.html"));
 
-        String result = searchTools.htmlSelect("*.html", "h1", "TEXT", "", 10, 10);
+        String result = searchTools.xmlSelect("*.html", "h1", "TEXT", "", 10, 10);
 
         assertTrue(result.contains("page1.html"), "Should find page1.html. Result:\n" + result);
         assertTrue(result.contains("page2.html"), "Should find page2.html. Result:\n" + result);
@@ -1269,7 +1269,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "root.html"));
 
         // Verify that **/root.html matches a file at the project root via the retry logic
-        String result = searchTools.htmlSelect("**/root.html", "p", "TEXT", "", 10, 10);
+        String result = searchTools.xmlSelect("**/root.html", "p", "TEXT", "", 10, 10);
         assertTrue(result.contains("root.html"), "Should find file at root even with **/ prefix. Result:\n" + result);
         assertTrue(result.contains("found me"), "Should extract text from the element. Result:\n" + result);
     }
@@ -1294,7 +1294,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "skim.html"));
 
-        String result = searchTools.htmlSkim("skim.html", 10);
+        String result = searchTools.xmlSkim("skim.html", 10);
 
         assertTrue(result.contains("<file path=\"skim.html\">"), "Should include file wrapper. Result:\n" + result);
         assertTrue(
@@ -1322,7 +1322,7 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "skim_nested.html"));
 
-        String result = searchTools.htmlSkim("skim_nested.html", 10);
+        String result = searchTools.xmlSkim("skim_nested.html", 10);
 
         assertTrue(
                 result.contains("<file path=\"skim_nested.html\">"), "Should include file wrapper. Result:\n" + result);
@@ -1342,7 +1342,7 @@ public class SearchToolsTest {
         Files.writeString(htm, "<html><body><p>Test</p></body></html>");
         mockProjectFiles.add(new ProjectFile(projectRoot, "skim.htm"));
 
-        String result = searchTools.htmlSkim("skim.htm", 10);
+        String result = searchTools.xmlSkim("skim.htm", 10);
 
         assertTrue(result.contains("<file path=\"skim.htm\">"), "Should find .htm files. Result:\n" + result);
         assertTrue(result.contains("<body>"), "Should include body. Result:\n" + result);
@@ -1350,8 +1350,9 @@ public class SearchToolsTest {
 
     @Test
     void testHtmlSkim_NoFilesFound() throws Exception {
-        String result = searchTools.htmlSkim("nonexistent.html", 10);
-        assertTrue(result.contains("No HTML files found matching"), "Should report no files found. Result:\n" + result);
+        String result = searchTools.xmlSkim("nonexistent.html", 10);
+        assertTrue(
+                result.contains("No markup files found matching"), "Should report no files found. Result:\n" + result);
     }
 
     @Test
@@ -1360,7 +1361,7 @@ public class SearchToolsTest {
         Files.writeString(rootHtml, "<html><body><div>Test</div></body></html>");
         mockProjectFiles.add(new ProjectFile(projectRoot, "root_skim.html"));
 
-        String result = searchTools.htmlSkim("**/root_skim.html", 10);
+        String result = searchTools.xmlSkim("**/root_skim.html", 10);
         assertTrue(
                 result.contains("root_skim.html"), "Should find file at root even with **/ prefix. Result:\n" + result);
     }
@@ -1371,7 +1372,7 @@ public class SearchToolsTest {
         Files.writeString(html, "<div><p>Unclosed tags<span>more");
         mockProjectFiles.add(new ProjectFile(projectRoot, "malformed.html"));
 
-        String result = searchTools.htmlSkim("malformed.html", 10);
+        String result = searchTools.xmlSkim("malformed.html", 10);
 
         assertTrue(
                 result.contains("<file path=\"malformed.html\">"),
@@ -1390,7 +1391,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "page1_skim.html"));
         mockProjectFiles.add(new ProjectFile(projectRoot, "page2_skim.html"));
 
-        String result = searchTools.htmlSkim("*_skim.html", 10);
+        String result = searchTools.xmlSkim("*_skim.html", 10);
 
         assertTrue(result.contains("page1_skim.html"), "Should find page1. Result:\n" + result);
         assertTrue(result.contains("page2_skim.html"), "Should find page2. Result:\n" + result);
