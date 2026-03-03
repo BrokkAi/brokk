@@ -229,41 +229,44 @@ public class InlineTestProjectCreator {
 
                 Path tempCloneDir = Files.createTempDirectory(CACHE_ROOT, "git-clone-");
                 try {
-                    GitRepoFactory.cloneRepo(noToken, url, tempCloneDir, depth, true);
+                    try {
+                        GitRepoFactory.cloneRepo(noToken, url, tempCloneDir, depth, true);
 
-                    AtomicWrites.save(archivePath, out -> {
-                        try (var lz4Out = new LZ4FrameOutputStream(out);
-                                var tarOut = new TarArchiveOutputStream(lz4Out)) {
-                            tarOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
-                            try (var stream = Files.walk(tempCloneDir)) {
-                                List<Path> paths = stream.toList();
-                                for (Path path : paths) {
-                                    String entryName =
-                                            tempCloneDir.relativize(path).toString();
-                                    if (entryName.isEmpty()) continue;
-                                    TarArchiveEntry entry = new TarArchiveEntry(path.toFile(), entryName);
-                                    tarOut.putArchiveEntry(entry);
-                                    if (Files.isRegularFile(path)) {
-                                        Files.copy(path, tarOut);
+                        AtomicWrites.save(archivePath, out -> {
+                            try (var lz4Out = new LZ4FrameOutputStream(out);
+                                    var tarOut = new TarArchiveOutputStream(lz4Out)) {
+                                tarOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
+                                try (var stream = Files.walk(tempCloneDir)) {
+                                    List<Path> paths = stream.toList();
+                                    for (Path path : paths) {
+                                        String entryName =
+                                                tempCloneDir.relativize(path).toString();
+                                        if (entryName.isEmpty()) continue;
+                                        TarArchiveEntry entry = new TarArchiveEntry(path.toFile(), entryName);
+                                        tarOut.putArchiveEntry(entry);
+                                        if (Files.isRegularFile(path)) {
+                                            Files.copy(path, tarOut);
+                                        }
+                                        tarOut.closeArchiveEntry();
                                     }
-                                    tarOut.closeArchiveEntry();
                                 }
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
                             }
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    });
+                        });
 
-                    if (Files.exists(expandedPath)) {
+                        if (Files.exists(expandedPath)) {
+                            FileUtil.deleteRecursively(expandedPath);
+                        }
+                        Files.createDirectories(expandedPath.getParent());
+                        Files.move(tempCloneDir, expandedPath);
+                    } catch (GitAPIException | IOException | RuntimeException e) {
                         FileUtil.deleteRecursively(expandedPath);
+                        Files.deleteIfExists(archivePath);
+                        throw new IOException("Failed to cache repository: " + url, e);
                     }
-                    Files.createDirectories(expandedPath.getParent());
-                    Files.move(tempCloneDir, expandedPath);
-                } catch (GitAPIException | IOException e) {
+                } finally {
                     FileUtil.deleteRecursively(tempCloneDir);
-                    FileUtil.deleteRecursively(expandedPath);
-                    Files.deleteIfExists(archivePath);
-                    throw new IOException("Failed to cache repository: " + url, e);
                 }
             }
         }
