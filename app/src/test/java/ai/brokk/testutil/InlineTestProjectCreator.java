@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -159,7 +160,7 @@ public class InlineTestProjectCreator {
         @Override
         public void populate(Path root) throws IOException {
             // Use an empty token for tests to allow cloning public GitHub repos without a configured token
-            java.util.function.Supplier<String> noToken = () -> "";
+            Supplier<String> noToken = () -> "";
 
             String sourceUrl = getEffectiveSourceUrl(noToken);
 
@@ -192,7 +193,7 @@ public class InlineTestProjectCreator {
             }
         }
 
-        private String getEffectiveSourceUrl(java.util.function.Supplier<String> noToken) throws IOException {
+        private String getEffectiveSourceUrl(Supplier<String> noToken) throws IOException {
             if (url.startsWith("file:")) {
                 return url;
             }
