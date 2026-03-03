@@ -325,7 +325,8 @@ public class BrokkExternalMcpServer {
         boolean hasHtml = allFiles.stream().anyMatch(f -> SearchTools.isHtmlExtension(f.extension()));
 
         if (hasXml) {
-            toolNames.add("xpathQuery");
+            toolNames.add("xmlSkim");
+            toolNames.add("xmlSelect");
         }
 
         if (hasJson && !isJqOnPath()) {
