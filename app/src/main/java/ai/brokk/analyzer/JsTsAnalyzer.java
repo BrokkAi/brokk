@@ -94,8 +94,6 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     public abstract Set<String> extractIdentifiersFromImport(String importStatement);
 
-    public abstract Set<String> extractTypeIdentifiers(String source);
-
     @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
@@ -364,7 +362,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                     nodeToCapture = current;
                     // If we found a declarator, try one more step for the full declaration
                     TSNode parent = current.getParent();
-                    if (parent != null && !parent.isNull() && (parent.getType().contains("declaration"))) {
+                    if (parent != null && !parent.isNull() && parent.getType().contains("declaration")) {
                         nodeToCapture = parent;
                     }
                     break;

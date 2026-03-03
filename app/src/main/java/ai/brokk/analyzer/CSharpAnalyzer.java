@@ -43,7 +43,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             "type_parameter_list", // typeParametersFieldName (C# generics)
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.STRUCT_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.RECORD_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "",
@@ -80,7 +84,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Optional<String> getQueryResource(QueryType type) {
-        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/c_sharp.scm") : Optional.empty();
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/c_sharp/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/c_sharp/imports.scm");
+        };
     }
 
     @Override
@@ -95,20 +102,21 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             SkeletonType skeletonType) {
         CodeUnit result =
                 switch (captureName) {
-                    case CaptureNames.CLASS_DEFINITION -> {
+                    case CaptureNames.CLASS_DEFINITION,
+                            CaptureNames.INTERFACE_DEFINITION,
+                            CaptureNames.STRUCT_DEFINITION,
+                            CaptureNames.RECORD_DEFINITION -> {
                         String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
                         yield CodeUnit.cls(file, packageName, finalShortName);
                     }
-                    case CaptureNames.FUNCTION_DEFINITION -> {
-                        String finalShortName = classChain + "." + simpleName;
-                        yield CodeUnit.fn(file, packageName, finalShortName);
-                    }
-                    case CaptureNames.CONSTRUCTOR_DEFINITION -> {
-                        String finalShortName = classChain + "." + simpleName;
+                    case CaptureNames.FUNCTION_DEFINITION,
+                            CaptureNames.METHOD_DEFINITION,
+                            CaptureNames.CONSTRUCTOR_DEFINITION -> {
+                        String finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                         yield CodeUnit.fn(file, packageName, finalShortName);
                     }
                     case CaptureNames.FIELD_DEFINITION -> {
-                        String finalShortName = classChain + "." + simpleName;
+                        String finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                         yield CodeUnit.field(file, packageName, finalShortName);
                     }
                     default -> {
@@ -129,7 +137,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected Set<String> getIgnoredCaptures() {
         // C# query explicitly captures attributes/annotations to ignore them
-        var ignored = Set.of("annotation");
+        var ignored = Set.of("annotation.definition");
         log.trace("CSharpAnalyzer: getIgnoredCaptures() returning: {}", ignored);
         return ignored;
     }
@@ -208,10 +216,15 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
         while (current != null && !current.isNull() && !current.equals(rootNode)) {
             if (NAMESPACE_DECLARATION.equals(current.getType())) {
-                TSNode nameNode = current.getChildByFieldName("name");
-                if (nameNode != null && !nameNode.isNull()) {
-                    String nsPart = sourceContent.substringFrom(nameNode);
-                    namespaceParts.add(nsPart);
+                // Find the identifier or qualified_name child as the name
+                for (int i = 0; i < current.getChildCount(); i++) {
+                    TSNode child = current.getChild(i);
+                    String type = child.getType();
+                    if ("identifier".equals(type) || "qualified_name".equals(type)) {
+                        String nsPart = sourceContent.substringFrom(child);
+                        namespaceParts.add(nsPart);
+                        break;
+                    }
                 }
             }
             current = current.getParent();

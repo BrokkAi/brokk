@@ -91,7 +91,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Optional<String> getQueryResource(QueryType type) {
-        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/php.scm") : Optional.empty();
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/php/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/php/imports.scm");
+        };
     }
 
     @Override
@@ -170,19 +173,20 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(currentPhpNamespaceQuery, rootNode);
-        TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+        try (TSQueryCursor cursor = new TSQueryCursor()) {
+            cursor.exec(currentPhpNamespaceQuery, rootNode);
+            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
 
-        if (cursor.nextMatch(match)) { // Assuming one namespace per file, take the first
-            for (TSQueryCapture capture : match.getCaptures()) {
-                // Check capture name using query's method
-                if ("nsname".equals(currentPhpNamespaceQuery.getCaptureNameForId(capture.getIndex()))) {
-                    TSNode nameNode = capture.getNode();
-                    if (nameNode != null) {
-                        return sourceContent
-                                .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
-                                .replace('\\', '.');
+            if (cursor.nextMatch(match)) { // Assuming one namespace per file, take the first
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    // Check capture name using query's method
+                    if ("nsname".equals(currentPhpNamespaceQuery.getCaptureNameForId(capture.getIndex()))) {
+                        TSNode nameNode = capture.getNode();
+                        if (nameNode != null) {
+                            return sourceContent
+                                    .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
+                                    .replace('\\', '.');
+                        }
                     }
                 }
             }

@@ -15,10 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
-import org.treesitter.TSLanguage;
-import org.treesitter.TSNode;
-import org.treesitter.TSParser;
-import org.treesitter.TreeSitterTypescript;
+import org.treesitter.*;
 
 public final class TypescriptAnalyzer extends JsTsAnalyzer {
     // Compiled regex patterns for memory efficiency
@@ -1105,31 +1102,32 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                   value: (call_expression function: (identifier) @import.require_func))
                 """;
 
-            org.treesitter.TSQuery query = new org.treesitter.TSQuery(getTSLanguage(), queryStr);
-            org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
-            cursor.exec(query, rootNode);
-            org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+            try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+                    TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, rootNode);
+                TSQueryMatch match = new TSQueryMatch();
 
-            while (cursor.nextMatch(match)) {
-                TSNode requireFunc = null;
-                TSNode importId = null;
+                while (cursor.nextMatch(match)) {
+                    TSNode requireFunc = null;
+                    TSNode importId = null;
 
-                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = query.getCaptureNameForId(capture.getIndex());
-                    if (captureName.equals("import.id")) {
-                        importId = capture.getNode();
-                    } else if (captureName.equals("import.require_func")) {
-                        requireFunc = capture.getNode();
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(capture.getIndex());
+                        if (captureName.equals("import.id")) {
+                            importId = capture.getNode();
+                        } else if (captureName.equals("import.require_func")) {
+                            requireFunc = capture.getNode();
+                        }
                     }
-                }
 
-                if (requireFunc != null
-                        && !sourceContent.substringFrom(requireFunc).equals("require")) {
-                    continue;
-                }
+                    if (requireFunc != null
+                            && !sourceContent.substringFrom(requireFunc).equals("require")) {
+                        continue;
+                    }
 
-                if (importId != null) {
-                    identifiers.add(sourceContent.substringFrom(importId).strip());
+                    if (importId != null) {
+                        identifiers.add(sourceContent.substringFrom(importId).strip());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -1150,30 +1148,32 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         TSParser parser = getTSParser();
         try {
             SourceContent sourceContent = SourceContent.of(source);
-            org.treesitter.TSTree tree = parser.parseString(null, source);
-            TSNode rootNode = tree.getRootNode();
-            TSLanguage tsLanguage = getTSLanguage();
+            try (TSTree tree = parser.parseString(null, source)) {
+                TSNode rootNode = tree.getRootNode();
+                TSLanguage tsLanguage = getTSLanguage();
 
-            // Query for standard identifiers and type identifiers
-            String queryStr =
-                    """
-                (identifier) @id
-                (type_identifier) @type
-                (jsx_opening_element name: (identifier) @id)
-                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
-                (jsx_self_closing_element name: (identifier) @id)
-                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
-                """;
+                // Query for standard identifiers and type identifiers
+                String queryStr =
+                        """
+                                (identifier) @id
+                                (type_identifier) @type
+                                (jsx_opening_element name: (identifier) @id)
+                                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
+                                (jsx_self_closing_element name: (identifier) @id)
+                                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
+                                """;
 
-            org.treesitter.TSQuery query = new org.treesitter.TSQuery(tsLanguage, queryStr);
-            org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
-            cursor.exec(query, rootNode);
-            org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+                try (TSQuery query = new TSQuery(tsLanguage, queryStr);
+                        TSQueryCursor cursor = new TSQueryCursor()) {
+                    cursor.exec(query, rootNode);
+                    TSQueryMatch match = new TSQueryMatch();
 
-            while (cursor.nextMatch(match)) {
-                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    identifiers.add(sourceContent.substringFrom(node));
+                    while (cursor.nextMatch(match)) {
+                        for (TSQueryCapture capture : match.getCaptures()) {
+                            TSNode node = capture.getNode();
+                            identifiers.add(sourceContent.substringFrom(node));
+                        }
+                    }
                 }
             }
         } catch (Exception e) {

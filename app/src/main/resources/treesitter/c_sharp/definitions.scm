@@ -20,7 +20,7 @@
 (field_declaration
   (variable_declaration
     (variable_declarator
-       name: (identifier) @field.name))) @field.definition
+      name: (identifier) @field.name))) @field.definition
 
 ; Field (Property): Capture node and its name field
 (property_declaration

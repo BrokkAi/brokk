@@ -6,7 +6,10 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,7 +74,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Optional<String> getQueryResource(QueryType type) {
-        return type == QueryType.DEFINITIONS ? Optional.of("treesitter/rust.scm") : Optional.empty();
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/rust/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/rust/imports.scm");
+        };
     }
 
     @Override
@@ -437,25 +443,26 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        TSQueryCursor cursor = new TSQueryCursor();
-        TSQuery rustQuery = getThreadLocalQuery();
-        cursor.exec(rustQuery, tree.getRootNode());
+        try (TSQueryCursor cursor = new TSQueryCursor()) {
+            TSQuery rustQuery = getThreadLocalQuery();
+            cursor.exec(rustQuery, tree.getRootNode());
 
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
-                if (TEST_MARKER.equals(captureName)) {
-                    // The capture is now directly on the attribute_item node
-                    TSNode attrItemNode = capture.getNode();
-                    String content = sourceContent.substringFrom(attrItemNode);
-                    // Rust attributes look like #[test] or #[cfg(test)]
-                    if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
-                        return true;
+            TSQueryMatch match = new TSQueryMatch();
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
+                    if (TEST_MARKER.equals(captureName)) {
+                        // The capture is now directly on the attribute_item node
+                        TSNode attrItemNode = capture.getNode();
+                        String content = sourceContent.substringFrom(attrItemNode);
+                        // Rust attributes look like #[test] or #[cfg(test)]
+                        if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
+                            return true;
+                        }
                     }
                 }
             }
+            return false;
         }
-        return false;
     }
 }

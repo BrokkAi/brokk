@@ -966,8 +966,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
                 if (moduleNode != null && !moduleNode.isNull()) {
                     String modulePath = sourceContent.substringFrom(moduleNode).strip();
-                    // For 'import a.b.c', the identifier available in the namespace is 'a'
-                    int dotIdx = modulePath.indexOf('.');
                     // Strip leading dots for relative imports before finding first segment
                     String cleanPath = modulePath.replaceFirst("^\\.+", "");
                     int cleanDotIdx = cleanPath.indexOf('.');
@@ -1096,19 +1094,20 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         // provides value over regex by excluding identifiers in comments and string literals.
         String queryStr = "(identifier) @id";
 
-        TSQuery query = new TSQuery(getTSLanguage(), queryStr);
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, rootNode);
+        try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            cursor.exec(query, rootNode);
 
-        SourceContent sc = SourceContent.of(source);
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                TSNode node = capture.getNode();
-                if (node != null && !node.isNull()) {
-                    String text = sc.substringFrom(node).strip();
-                    if (!text.isEmpty()) {
-                        identifiers.add(text);
+            SourceContent sc = SourceContent.of(source);
+            TSQueryMatch match = new TSQueryMatch();
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    if (node != null && !node.isNull()) {
+                        String text = sc.substringFrom(node).strip();
+                        if (!text.isEmpty()) {
+                            identifiers.add(text);
+                        }
                     }
                 }
             }
