@@ -18,6 +18,7 @@ import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RepositoryState;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.storage.file.WindowCacheConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -2343,5 +2344,59 @@ public class GitRepoTest {
         // Directly verify the content helper behavior via data helper if we can,
         // but since it's private we rely on the fact that getFileDiffs uses it.
         // We simulate a diff entry manually if needed, but the public API test is sufficient.
+    }
+
+    @Test
+    void testGetFileDiffs_LargeObjectHandling() throws Exception {
+        // Create initial commit with a file that's larger than our test threshold
+        // We use content large enough to exceed a small threshold but small enough for trees to parse
+        String initialContent = "A".repeat(600); // 600 bytes
+        createCommit("large_test.txt", initialContent, "Initial commit");
+        String firstCommit = repo.getCurrentCommitId();
+
+        // Modify the file and create second commit
+        String modifiedContent = "B".repeat(700); // 700 bytes
+        createCommit("large_test.txt", modifiedContent, "Modified commit");
+        String secondCommit = repo.getCurrentCommitId();
+
+        // Run gc to pack objects (required for LargePackedWholeObject to be used)
+        repo.getGit().gc().call();
+
+        // Configure JGit to treat files > 512 bytes as "large"
+        // This threshold is high enough for tree objects to parse but low enough for our test file blobs
+        var config = repo.getGit().getRepository().getConfig();
+        config.setInt("core", null, "streamFileThreshold", 512);
+        config.save();
+
+        // Install the config into the global WindowCache so JGit uses it
+        var windowCacheConfig = new WindowCacheConfig();
+        windowCacheConfig.fromConfig(config);
+        windowCacheConfig.install();
+
+        try {
+            // This should NOT throw LargeObjectException - should return placeholder instead
+            var diffs = repo.data().getFileDiffs(firstCommit, secondCommit);
+
+            // Verify we got results without exception
+            assertEquals(1, diffs.size(), "Should have one file diff");
+            var diff = diffs.get(0);
+            assertNotNull(diff.oldFile());
+            assertNotNull(diff.newFile());
+            assertEquals("large_test.txt", diff.newFile().getFileName());
+
+            // Content should be placeholders since blobs exceed the (artificially low) threshold
+            assertEquals(
+                    GitRepoData.LARGE_OBJECT_PLACEHOLDER,
+                    diff.oldText(),
+                    "Old text should be placeholder for large object");
+            assertEquals(
+                    GitRepoData.LARGE_OBJECT_PLACEHOLDER,
+                    diff.newText(),
+                    "New text should be placeholder for large object");
+        } finally {
+            // Restore default WindowCache config to avoid affecting other tests
+            var defaultConfig = new WindowCacheConfig();
+            defaultConfig.install();
+        }
     }
 }

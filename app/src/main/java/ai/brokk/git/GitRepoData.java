@@ -20,6 +20,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.errors.LargeObjectException;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
@@ -179,6 +180,9 @@ public class GitRepoData {
         }
     }
 
+    /** Placeholder text returned when a blob exceeds JGit's large-object threshold. */
+    public static final String LARGE_OBJECT_PLACEHOLDER = "[File content too large to display]";
+
     /** Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found. */
     public String getFileContent(String commitId, ProjectFile file) throws GitAPIException {
         if (commitId.isBlank()) {
@@ -201,6 +205,9 @@ public class GitRepoData {
                     return new String(loader.getBytes(), StandardCharsets.UTF_8);
                 }
             }
+        } catch (LargeObjectException e) {
+            logger.debug("File {} at commit {} exceeds large-object threshold, returning placeholder", file, commitId);
+            return LARGE_OBJECT_PLACEHOLDER;
         } catch (IOException e) {
             throw new GitRepo.GitWrappedIOException(e);
         }
