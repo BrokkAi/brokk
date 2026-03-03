@@ -195,7 +195,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/cpp/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/cpp/imports.scm");
-            case IDENTIFIERS -> Optional.empty();
+            case IDENTIFIERS -> Optional.of("treesitter/cpp/identifiers.scm");
         };
     }
 
@@ -1436,10 +1436,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return identifiers;
         }
 
-        try (TSQuery query = new TSQuery(
-                        getTSLanguage(),
-                        "[(type_identifier) @type (identifier) @id (qualified_identifier) @qualified]");
-                TSQueryCursor cursor = new TSQueryCursor()) {
+        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
+        if (query == null) {
+            return identifiers;
+        }
+
+        try (TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
 
             SourceContent sourceContent = SourceContent.of(source);
