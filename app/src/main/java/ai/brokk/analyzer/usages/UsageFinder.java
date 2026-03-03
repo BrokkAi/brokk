@@ -119,10 +119,17 @@ public final class UsageFinder {
         }
 
         FuzzyResult result = config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
-        // Fallback if primary analysis fails on an exceptional failure
-        if ((result instanceof FuzzyResult.Failure)
+
+        // Fallback if primary analysis fails or returns suspiciously empty results
+        boolean suspiciouslyEmpty =
+                result instanceof FuzzyResult.Success success && success.hits().isEmpty() && !candidateFiles.isEmpty();
+
+        if ((result instanceof FuzzyResult.Failure || suspiciouslyEmpty)
                 && config.usageAnalyzer().getClass() != fallbackUsageAnalyzer.getClass()) {
-            log.warn("Primary usage analysis failed for {}, falling back to fuzzy analyzer", target.fqName());
+            log.warn(
+                    "Primary usage analysis {} for {}, falling back to fuzzy analyzer",
+                    suspiciouslyEmpty ? "returned no hits" : "failed",
+                    target.fqName());
             config = new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
             candidateFiles = config.candidateProvider().findCandidates(target, analyzer);
             if (fileFilter != null) {
