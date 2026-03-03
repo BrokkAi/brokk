@@ -18,7 +18,6 @@ import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RepositoryState;
 import org.eclipse.jgit.revwalk.RevWalk;
-import org.eclipse.jgit.storage.file.WindowCacheConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -2348,51 +2347,34 @@ public class GitRepoTest {
 
     @Test
     void testGetFileDiffs_LargeObjectHandling() throws Exception {
-        // Create initial commit with a file that's larger than our test threshold
-        // We use content large enough to exceed a small threshold but small enough for trees to parse
-        String initialContent = "A".repeat(600); // 600 bytes
+        // Create initial commit with a file that exceeds our test threshold
+        String initialContent = "A".repeat(1500); // 1500 bytes, exceeds 1KB cap
         createCommit("large_test.txt", initialContent, "Initial commit");
         String firstCommit = repo.getCurrentCommitId();
 
         // Modify the file and create second commit
-        String modifiedContent = "B".repeat(700); // 700 bytes
+        String modifiedContent = "B".repeat(2000); // 2000 bytes, exceeds 1KB cap
         createCommit("large_test.txt", modifiedContent, "Modified commit");
         String secondCommit = repo.getCurrentCommitId();
 
-        // Run gc to pack objects (required for LargePackedWholeObject to be used)
-        repo.getGit().gc().call();
+        // Create a GitRepoData instance with a small cap (1 KB) for testing
+        var testData = new GitRepoData(repo, 1024);
 
-        // Configure JGit to treat files > 512 bytes as "large"
-        // This threshold is high enough for tree objects to parse but low enough for our test file blobs
-        var config = repo.getGit().getRepository().getConfig();
-        config.setInt("core", null, "streamFileThreshold", 512);
-        config.save();
+        // Call getFileDiffs with the test instance that has the small cap
+        var diffs = testData.getFileDiffs(firstCommit, secondCommit);
 
-        // Install the config into the global WindowCache so JGit uses it
-        var windowCacheConfig = new WindowCacheConfig();
-        windowCacheConfig.fromConfig(config);
-        windowCacheConfig.install();
+        // Verify we got results without exception
+        assertEquals(1, diffs.size(), "Should have one file diff");
+        var diff = diffs.get(0);
+        assertNotNull(diff.oldFile());
+        assertNotNull(diff.newFile());
+        assertEquals("large_test.txt", diff.newFile().getFileName());
 
-        try {
-            // This should NOT throw LargeObjectException - should successfully stream the content
-            var diffs = repo.data().getFileDiffs(firstCommit, secondCommit);
-
-            // Verify we got results without exception
-            assertEquals(1, diffs.size(), "Should have one file diff");
-            var diff = diffs.get(0);
-            assertNotNull(diff.oldFile());
-            assertNotNull(diff.newFile());
-            assertEquals("large_test.txt", diff.newFile().getFileName());
-
-            // Content should be successfully loaded via streaming even for "large" objects
-            // The key fix is that we don't throw LargeObjectException
-            assertEquals(initialContent, diff.oldText(), "Old text should be streamed successfully");
-            assertEquals(modifiedContent, diff.newText(), "New text should be streamed successfully");
-        } finally {
-            // Restore default WindowCache config to avoid affecting other tests
-            var defaultConfig = new WindowCacheConfig();
-            defaultConfig.install();
-        }
+        // Both old and new content should be placeholders since they exceed the cap
+        assertEquals(
+                GitRepoData.LARGE_OBJECT_PLACEHOLDER, diff.oldText(), "Old text should be placeholder for large file");
+        assertEquals(
+                GitRepoData.LARGE_OBJECT_PLACEHOLDER, diff.newText(), "New text should be placeholder for large file");
     }
 
     @Test

@@ -45,9 +45,15 @@ public class GitRepoData {
     private final Git git;
 
     GitRepoData(GitRepo repo) {
+        this(repo, DEFAULT_MAX_BLOB_SIZE);
+    }
+
+    /** Package-private constructor for testing with a custom max blob size. */
+    GitRepoData(GitRepo repo, long maxBlobSize) {
         this.repo = repo;
         this.repository = repo.getRepository();
         this.git = repo.getGit();
+        this.maxBlobSize = maxBlobSize;
     }
 
     /** Performs git diff operation with the given filter group, handling NoHeadException for empty repositories. */
@@ -182,8 +188,11 @@ public class GitRepoData {
     /** Placeholder text returned when a blob exceeds our safe-load threshold. */
     public static final String LARGE_OBJECT_PLACEHOLDER = "[File content too large to display]";
 
-    /** Maximum blob size we'll load into memory (5 MB). */
-    private static final long MAX_BLOB_SIZE = 5 * 1024 * 1024;
+    /** Default maximum blob size we'll load into memory (5 MB). */
+    private static final long DEFAULT_MAX_BLOB_SIZE = 5 * 1024 * 1024;
+
+    /** Maximum blob size for this instance (package-private for testability). */
+    final long maxBlobSize;
 
     /** Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found. */
     public String getFileContent(String commitId, ProjectFile file) throws GitAPIException {
@@ -222,13 +231,13 @@ public class GitRepoData {
             throws IOException {
         long size = loader.getSize();
 
-        if (size > MAX_BLOB_SIZE) {
+        if (size > maxBlobSize) {
             logger.debug(
                     "File {} at commit {} is {} bytes, exceeds {} byte limit, returning placeholder",
                     file,
                     commitId,
                     size,
-                    MAX_BLOB_SIZE);
+                    maxBlobSize);
             return LARGE_OBJECT_PLACEHOLDER;
         }
 
