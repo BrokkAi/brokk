@@ -289,22 +289,31 @@ public class ContextAgent {
             }
         }
 
-        Set<ProjectFile> analyzedFileSet = candidates.stream()
+        // Partition candidates into non-test and test files
+        var partitionedCandidates = candidates.stream()
+                .collect(Collectors.partitioningBy(f -> ai.brokk.ContextManager.isTestFile(f, analyzer)));
+        List<ProjectFile> primaryCandidates = partitionedCandidates.get(false);
+        List<ProjectFile> testCandidates = partitionedCandidates.get(true);
+
+        Set<ProjectFile> analyzedFileSet = primaryCandidates.stream()
                 .filter(pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty())
                 .collect(Collectors.toSet());
-        List<ProjectFile> analyzedFiles =
-                candidates.stream().filter(analyzedFileSet::contains).sorted().toList();
+        List<ProjectFile> analyzedFiles = primaryCandidates.stream()
+                .filter(analyzedFileSet::contains)
+                .sorted()
+                .toList();
         boolean skipUnanalyzed = "true".equalsIgnoreCase(System.getenv("BRK_SKIP_UNANALYZED"));
         List<ProjectFile> unAnalyzedFiles = skipUnanalyzed
                 ? List.of()
-                : candidates.stream()
+                : primaryCandidates.stream()
                         .filter(f -> !analyzedFileSet.contains(f))
                         .sorted()
                         .toList();
         logger.debug(
-                "Grouped candidates: analyzed={}, unAnalyzed={} (skipped={})",
+                "Grouped candidates: analyzed={}, unAnalyzed={}, tests={} (skipped unanalyzed={})",
                 analyzedFiles.size(),
                 unAnalyzedFiles.size(),
+                testCandidates.size(),
                 skipUnanalyzed);
 
         var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
