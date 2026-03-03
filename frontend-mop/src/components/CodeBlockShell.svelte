@@ -16,7 +16,6 @@
   }>();
 
   let copied = $state(false);
-  let captured = $state(false);
 
   let preElem: HTMLPreElement | null = null;
 
@@ -25,7 +24,6 @@
   let showCode = $state(!(toolHeadline || collapseDefault));
 
   let copyTimeout: number | null = null;
-  let captureTimeout: number | null = null;
 
   function toggleCode(): void {
     showCode = !showCode;
@@ -39,17 +37,6 @@
     copyTimeout = window.setTimeout(() => {
       copied = false;
       copyTimeout = null;
-    }, 1200);
-  }
-
-  function setCapturedTransient(): void {
-    captured = true;
-    if (captureTimeout !== null) {
-      clearTimeout(captureTimeout);
-    }
-    captureTimeout = window.setTimeout(() => {
-      captured = false;
-      captureTimeout = null;
     }, 1200);
   }
 
@@ -87,21 +74,6 @@
       if (success) {
         setCopiedTransient();
       }
-    }
-  }
-
-  function captureToWorkspace(): void {
-    const text = preElem?.textContent ?? "";
-    if (!text) {
-      return;
-    }
-
-    const javaBridge = window.javaBridge;
-    if (javaBridge.captureText) {
-      javaBridge.captureText(text);
-      setCapturedTransient();
-    } else {
-      console.warn("`window.javaBridge.captureText` is not available");
     }
   }
 
@@ -172,16 +144,6 @@
     <button
       type="button"
       class="copy-btn"
-      class:captured={captured}
-      on:click|stopPropagation={captureToWorkspace}
-      aria-label={captured ? "Captured!" : "Capture code to workspace"}
-      title={captured ? "Captured!" : "Capture code to workspace"}
-    >
-      <Icon icon={captured ? "mdi:check" : "mdi:camera-plus-outline"} />
-    </button>
-    <button
-      type="button"
-      class="copy-btn"
       class:copied={copied}
       on:click|stopPropagation={copyToClipboard}
       aria-label={copied ? "Copied!" : "Copy code to clipboard"}
@@ -190,7 +152,7 @@
       <Icon icon={copied ? "mdi:check" : "mdi:content-copy"} />
     </button>
     <span class="sr-only" aria-live="polite" role="status">
-      {copied ? "Copied to clipboard" : captured ? "Captured to workspace" : ""}
+      {copied ? "Copied to clipboard" : ""}
     </span>
   </div>
 
@@ -278,8 +240,7 @@
     opacity: 1;
   }
 
-  .copy-btn.copied,
-  .copy-btn.captured {
+  .copy-btn.copied {
     color: var(--git-status-added);
     opacity: 1;
   }
