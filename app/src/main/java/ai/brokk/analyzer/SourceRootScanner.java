@@ -80,9 +80,9 @@ public final class SourceRootScanner {
         }
 
         // Fallback Logic: If no standard structures found, check if the project root contains any files
-        // matching the language extensions.
+        // matching the language extensions. Limit depth to avoid scanning massive dependency folders.
         if (foundRoots.isEmpty()) {
-            try (var stream = Files.walk(root)) {
+            try (var stream = Files.walk(root, 5)) {
                 Set<String> extensions = language.getExtensions();
                 boolean hasMatchingFiles = stream.filter(Files::isRegularFile).anyMatch(p -> {
                     String fileName = p.toString();
