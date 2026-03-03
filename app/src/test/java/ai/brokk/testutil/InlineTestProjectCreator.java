@@ -230,7 +230,7 @@ public class InlineTestProjectCreator {
                 Path tempCloneDir = Files.createTempDirectory(CACHE_ROOT, "git-clone-");
                 try {
                     try {
-                        GitRepoFactory.cloneRepo(noToken, url, tempCloneDir, depth, true);
+                        GitRepoFactory.cloneRepo(noToken, url, tempCloneDir, depth, null, true);
 
                         AtomicWrites.save(archivePath, out -> {
                             try (var lz4Out = new LZ4FrameOutputStream(out);
