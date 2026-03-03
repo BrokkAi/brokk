@@ -81,10 +81,10 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Attribute;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.jsoup.select.Selector;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -110,9 +110,9 @@ public class SearchTools {
     private static final int SEARCH_TOOLS_PARALLELISM =
             max(2, Runtime.getRuntime().availableProcessors());
 
-    private static final int XML_MAX_CHARS_PER_NODE = Lines.MAX_CHARS_PER_LINE;
-    private static final int XML_SKIM_TOTAL_BUDGET_CHARS = 10 * XML_MAX_CHARS_PER_NODE;
-    private static final int XML_ATTR_VALUE_MAX_CHARS = 256;
+    private static final int MAX_CHARS_PER_NODE = Lines.MAX_CHARS_PER_LINE;
+    private static final int SKIM_TOTAL_BUDGET_CHARS = 10 * MAX_CHARS_PER_NODE;
+    private static final int ATTR_VALUE_MAX_CHARS = 256;
 
     private static final int JSON_SKIM_MAX_CHILDREN_PER_CONTAINER = 50;
     private static final int JSON_KEYS_PREVIEW_MAX = 10;
@@ -238,10 +238,10 @@ public class SearchTools {
     }
 
     private static String capXmlAttrValue(String value) {
-        if (value.length() <= XML_ATTR_VALUE_MAX_CHARS) {
+        if (value.length() <= ATTR_VALUE_MAX_CHARS) {
             return value;
         }
-        int toTake = max(0, XML_ATTR_VALUE_MAX_CHARS - "[TRUNCATED]".length());
+        int toTake = max(0, ATTR_VALUE_MAX_CHARS - "[TRUNCATED]".length());
         return value.substring(0, toTake) + "[TRUNCATED]";
     }
 
@@ -359,10 +359,11 @@ public class SearchTools {
         return out.toString();
     }
 
-    private static Document parseXmlDocument(ProjectFile file, String content) {
+    private static org.w3c.dom.Document parseXmlDocument(ProjectFile file, String content) {
         try {
             DocumentBuilder builder = TL_XML_DOC_BUILDER.get();
-            Document doc = builder.parse(new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)));
+            org.w3c.dom.Document doc =
+                    builder.parse(new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)));
             doc.normalizeDocument();
             return doc;
         } catch (Exception e) {
@@ -621,9 +622,32 @@ public class SearchTools {
         return ext != null && ("html".equalsIgnoreCase(ext) || "htm".equalsIgnoreCase(ext));
     }
 
-    private static String computeHtmlElementPath(org.jsoup.nodes.Element elem) {
-        List<org.jsoup.nodes.Element> ancestors = new ArrayList<>();
-        org.jsoup.nodes.Element cur = elem;
+    private List<ProjectFile> resolveHtmlFiles(String filepath) {
+        var project = contextManager.getProject();
+        var files = Completions.expandPath(project, filepath).stream()
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .filter(ProjectFile::isText)
+                .filter(pf -> isHtmlExtension(pf.extension()))
+                .sorted()
+                .toList();
+
+        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
+            files = Completions.expandPath(project, filepath.substring(3)).stream()
+                    .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
+                    .filter(ProjectFile::isText)
+                    .filter(pf -> isHtmlExtension(pf.extension()))
+                    .sorted()
+                    .toList();
+        }
+
+        return files;
+    }
+
+    private static String computeHtmlElementPath(Element elem) {
+        List<Element> ancestors = new ArrayList<>();
+        Element cur = elem;
         while (cur != null) {
             ancestors.add(cur);
             cur = cur.parent();
@@ -632,13 +656,13 @@ public class SearchTools {
 
         StringBuilder sb = new StringBuilder();
         for (int i = ancestors.size() - 1; i >= 0; i--) {
-            org.jsoup.nodes.Element e = ancestors.get(i);
+            Element e = ancestors.get(i);
             String tagName = e.tagName();
 
             int idx = 1;
-            org.jsoup.nodes.Element parent = e.parent();
+            Element parent = e.parent();
             if (parent != null) {
-                for (org.jsoup.nodes.Element sib : parent.children()) {
+                for (Element sib : parent.children()) {
                     if (sib.equals(e)) break;
                     if (sib.tagName().equals(tagName)) idx++;
                 }
@@ -648,9 +672,9 @@ public class SearchTools {
         return sb.toString();
     }
 
-    private static String htmlSkimBfs(org.jsoup.nodes.Element root, int totalBudgetChars) {
+    private static String htmlSkimBfs(Element root, int totalBudgetChars) {
         int budget = max(1, totalBudgetChars);
-        ArrayDeque<org.jsoup.nodes.Element> q = new ArrayDeque<>();
+        ArrayDeque<Element> q = new ArrayDeque<>();
         q.add(root);
 
         List<String> lines = new ArrayList<>();
@@ -658,12 +682,12 @@ public class SearchTools {
         boolean truncated = false;
 
         while (!q.isEmpty()) {
-            org.jsoup.nodes.Element e = q.removeFirst();
+            Element e = q.removeFirst();
 
             String path = computeHtmlElementPath(e);
 
             Map<String, Integer> childHist = new HashMap<>();
-            for (org.jsoup.nodes.Element child : e.children()) {
+            for (Element child : e.children()) {
                 childHist.merge(child.tagName(), 1, Integer::sum);
             }
             String histText = childHist.isEmpty()
@@ -699,7 +723,7 @@ public class SearchTools {
             lines.add(line);
             used += line.length() + 1;
 
-            for (org.jsoup.nodes.Element child : e.children()) {
+            for (Element child : e.children()) {
                 q.add(child);
             }
         }
@@ -740,7 +764,7 @@ public class SearchTools {
             int textLen = directTextLen(n);
 
             String attrsText = "";
-            if (n instanceof Element el) {
+            if (n instanceof org.w3c.dom.Element el) {
                 NamedNodeMap attrs = el.getAttributes();
                 if (attrs != null && attrs.getLength() > 0) {
                     Map<String, String> attrMap = new LinkedHashMap<>();
@@ -2045,9 +2069,9 @@ public class SearchTools {
                     for (int i = 0; i < toTake; i++) {
                         JsonNode n = out.get(i);
                         String rendered = mapper.writeValueAsString(n);
-                        if (n.isContainerNode() && rendered.length() > XML_MAX_CHARS_PER_NODE) {
+                        if (n.isContainerNode() && rendered.length() > MAX_CHARS_PER_NODE) {
                             outLines.add("[JSON_TOO_LARGE]");
-                            String skim = jsonSkimBfs(n, XML_MAX_CHARS_PER_NODE);
+                            String skim = jsonSkimBfs(n, MAX_CHARS_PER_NODE);
                             outLines.addAll(List.of(skim.split("\n", -1)));
                         } else {
                             outLines.add(truncateLine(rendered, 0, rendered.length()));
@@ -2140,11 +2164,11 @@ public class SearchTools {
                     var contentOpt = file.read();
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    Document doc = parseXmlDocument(file, contentOpt.get());
+                    org.w3c.dom.Document doc = parseXmlDocument(file, contentOpt.get());
                     Node root = doc.getDocumentElement();
                     if (root == null) return new IndexedResult<>(idx, null, null);
 
-                    String skim = xmlSkimBfs(root, XML_SKIM_TOTAL_BUDGET_CHARS);
+                    String skim = xmlSkimBfs(root, SKIM_TOTAL_BUDGET_CHARS);
                     String block = "<file path=\"%s\">\n%s\n</file>"
                             .formatted(file.toString().replace('\\', '/'), skim);
                     return new IndexedResult<>(idx, block, null);
@@ -2261,7 +2285,7 @@ public class SearchTools {
                     var contentOpt = file.read();
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    Document doc = parseXmlDocument(file, contentOpt.get());
+                    org.w3c.dom.Document doc = parseXmlDocument(file, contentOpt.get());
 
                     NodeList nodes = (NodeList) compiled.evaluate(doc, XPathConstants.NODESET);
                     int total = nodes == null ? 0 : nodes.getLength();
@@ -2297,7 +2321,7 @@ public class SearchTools {
                             case "PATH" -> outLines.add(path);
                             case "ATTR" -> {
                                 String value = "";
-                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof Element el) {
+                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof org.w3c.dom.Element el) {
                                     value = el.hasAttribute(attrName) ? el.getAttribute(attrName) : "";
                                 }
                                 String line = "%s @%s=\"%s\"".formatted(path, attrName, value);
@@ -2305,7 +2329,7 @@ public class SearchTools {
                             }
                             case "ATTRS" -> {
                                 Map<String, String> attrs = Map.of();
-                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof Element el) {
+                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof org.w3c.dom.Element el) {
                                     NamedNodeMap nnm = el.getAttributes();
                                     if (nnm != null && nnm.getLength() > 0) {
                                         Map<String, String> m = new LinkedHashMap<>();
@@ -2324,10 +2348,9 @@ public class SearchTools {
                             }
                             case "XML" -> {
                                 String outerStr = toOuterXml(n);
-                                if (n.getNodeType() == Node.ELEMENT_NODE
-                                        && outerStr.length() > XML_MAX_CHARS_PER_NODE) {
+                                if (n.getNodeType() == Node.ELEMENT_NODE && outerStr.length() > MAX_CHARS_PER_NODE) {
                                     outLines.add("%s: [XML_TOO_LARGE]".formatted(path));
-                                    String skim = xmlSkimBfs(n, XML_MAX_CHARS_PER_NODE);
+                                    String skim = xmlSkimBfs(n, MAX_CHARS_PER_NODE);
                                     outLines.addAll(List.of(skim.split("\n", -1)));
                                 } else {
                                     String line = "%s: %s".formatted(path, outerStr);
@@ -2393,24 +2416,7 @@ public class SearchTools {
             @P("File path or glob pattern (e.g., 'index.html', '**/*.html').") String filepath,
             @P("Maximum number of files to return results for. Capped at 500.") int maxFiles)
             throws InterruptedException {
-        var project = contextManager.getProject();
-        var files = Completions.expandPath(project, filepath).stream()
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .filter(ProjectFile::isText)
-                .filter(pf -> isHtmlExtension(pf.extension()))
-                .sorted()
-                .toList();
-
-        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
-            files = Completions.expandPath(project, filepath.substring(3)).stream()
-                    .filter(ProjectFile.class::isInstance)
-                    .map(ProjectFile.class::cast)
-                    .filter(ProjectFile::isText)
-                    .filter(pf -> isHtmlExtension(pf.extension()))
-                    .sorted()
-                    .toList();
-        }
+        var files = resolveHtmlFiles(filepath);
 
         if (files.isEmpty()) {
             return "No HTML files found matching: " + filepath;
@@ -2429,14 +2435,14 @@ public class SearchTools {
                     var contentOpt = file.read();
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    org.jsoup.nodes.Document doc = Jsoup.parse(contentOpt.get());
-                    org.jsoup.nodes.Element root = doc.body();
+                    Document doc = Jsoup.parse(contentOpt.get());
+                    Element root = doc.body();
                     if (root == null) {
                         root = doc.children().first();
                     }
                     if (root == null) return new IndexedResult<>(idx, null, null);
 
-                    String skim = htmlSkimBfs(root, XML_SKIM_TOTAL_BUDGET_CHARS);
+                    String skim = htmlSkimBfs(root, SKIM_TOTAL_BUDGET_CHARS);
                     String block = "<file path=\"%s\">\n%s\n</file>"
                             .formatted(file.toString().replace('\\', '/'), skim);
                     return new IndexedResult<>(idx, block, null);
@@ -2499,24 +2505,7 @@ public class SearchTools {
             @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
             @P("Maximum number of matches to return per file. Capped at 500.") int matchesPerFile)
             throws InterruptedException {
-        var project = contextManager.getProject();
-        var files = Completions.expandPath(project, filepath).stream()
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .filter(ProjectFile::isText)
-                .filter(pf -> isHtmlExtension(pf.extension()))
-                .sorted()
-                .toList();
-
-        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
-            files = Completions.expandPath(project, filepath.substring(3)).stream()
-                    .filter(ProjectFile.class::isInstance)
-                    .map(ProjectFile.class::cast)
-                    .filter(ProjectFile::isText)
-                    .filter(pf -> isHtmlExtension(pf.extension()))
-                    .sorted()
-                    .toList();
-        }
+        var files = resolveHtmlFiles(filepath);
 
         if (files.isEmpty()) {
             return "No HTML files found matching: " + filepath;
@@ -2548,7 +2537,7 @@ public class SearchTools {
                     var contentOpt = file.read();
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    org.jsoup.nodes.Document doc = Jsoup.parse(contentOpt.get());
+                    Document doc = Jsoup.parse(contentOpt.get());
 
                     Elements elements = doc.select(cssSelector);
 
@@ -2567,7 +2556,7 @@ public class SearchTools {
                     var mapper = jqMappers.get();
 
                     for (int i = 0; i < toTake; i++) {
-                        org.jsoup.nodes.Element elem = elements.get(i);
+                        Element elem = elements.get(i);
 
                         String path = computeHtmlElementPath(elem);
                         String name = elem.tagName();
@@ -2599,9 +2588,9 @@ public class SearchTools {
                             }
                             case "HTML" -> {
                                 String outerHtml = elem.outerHtml();
-                                if (outerHtml.length() > XML_MAX_CHARS_PER_NODE) {
+                                if (outerHtml.length() > MAX_CHARS_PER_NODE) {
                                     outLines.add("%s: [HTML_TOO_LARGE]".formatted(path));
-                                    String skim = htmlSkimBfs(elem, XML_MAX_CHARS_PER_NODE);
+                                    String skim = htmlSkimBfs(elem, MAX_CHARS_PER_NODE);
                                     outLines.addAll(List.of(skim.split("\n", -1)));
                                 } else {
                                     String line = "%s: %s".formatted(path, outerHtml);
