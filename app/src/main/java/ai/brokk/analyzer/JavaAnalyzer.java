@@ -71,6 +71,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/java/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/java/imports.scm");
+            case IDENTIFIERS -> Optional.empty();
         };
     }
 

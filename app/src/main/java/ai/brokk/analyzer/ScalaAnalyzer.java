@@ -52,6 +52,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/scala/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/scala/imports.scm");
+            case IDENTIFIERS -> Optional.empty();
         };
     }
 

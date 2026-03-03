@@ -105,7 +105,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     public enum QueryType {
         DEFINITIONS,
-        IMPORTS
+        IMPORTS,
+        IDENTIFIERS
     }
 
     private final ThreadLocal<Map<QueryType, TSQuery>> queries;

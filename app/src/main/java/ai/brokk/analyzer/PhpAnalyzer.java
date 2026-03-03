@@ -94,6 +94,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/php/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/php/imports.scm");
+            case IDENTIFIERS -> Optional.empty();
         };
     }
 

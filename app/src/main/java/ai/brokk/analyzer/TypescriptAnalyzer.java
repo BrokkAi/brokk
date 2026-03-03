@@ -143,6 +143,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/typescript/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/typescript/imports.scm");
+            case IDENTIFIERS -> Optional.empty();
         };
     }
 

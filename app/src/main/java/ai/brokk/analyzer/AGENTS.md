@@ -34,4 +34,5 @@
 1. **QueryType Enum**:
    - `DEFINITIONS`: Primary query for capturing classes, functions, and fields. This is **compulsory** for every analyzer.
    - `IMPORTS`: Specific query for capturing import statements and related symbols. This is **optional**; if not provided, the analyzer will skip import-specific AST passes.
+   - `IDENTIFIERS`: Specific query for capturing type identifiers and references. This is **optional**; used for advanced symbol resolution.
 1. **Resource Loading**: The `TreeSitterAnalyzer` base class handles the discovery and loading of these queries based on the language name and `QueryType`. Analyzers should transition away from the single `getQueryResource()` string toward this structured multi-query approach.

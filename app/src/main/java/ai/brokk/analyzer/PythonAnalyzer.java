@@ -103,6 +103,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/python/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/python/imports.scm");
+            case IDENTIFIERS -> Optional.empty();
         };
     }
 
