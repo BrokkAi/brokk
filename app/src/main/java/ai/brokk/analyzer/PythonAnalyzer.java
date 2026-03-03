@@ -22,7 +22,6 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSParser;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
@@ -103,7 +102,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/python/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/python/imports.scm");
-            case IDENTIFIERS -> Optional.empty();
+            case IDENTIFIERS -> Optional.of("treesitter/python/identifiers.scm");
         };
     }
 
@@ -1084,8 +1083,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
-        TSParser parser = getTSParser();
-        TSTree tree = parser.parseString(null, source);
+        TSTree tree = treeOf(source);
         if (tree == null) return identifiers;
         TSNode rootNode = tree.getRootNode();
 
@@ -1093,13 +1091,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             return identifiers;
         }
 
-        // Capture all identifiers. This is intentionally broad because Python doesn't distinguish
-        // type identifiers from value identifiers syntactically. The AST-based approach still
-        // provides value over regex by excluding identifiers in comments and string literals.
-        String queryStr = "(identifier) @id";
+        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
+        if (query == null) {
+            return identifiers;
+        }
 
-        try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
-                TSQueryCursor cursor = new TSQueryCursor()) {
+        try (TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, rootNode);
 
             SourceContent sc = SourceContent.of(source);
@@ -1118,6 +1115,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         }
 
         return identifiers;
+    }
+
+    private @Nullable TSTree treeOf(String source) {
+        try {
+            return getTSParser().parseString(null, source);
+        } catch (Exception e) {
+            log.debug("Failed to parse ad-hoc source string: {}", e.getMessage());
+            return null;
+        }
     }
 
     @Override
