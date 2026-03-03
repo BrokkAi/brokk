@@ -59,10 +59,6 @@ import org.jspecify.annotations.NullMarked;
 
 @NullMarked
 public class BrokkExternalMcpServer {
-    private static boolean isHtmlExtension(@Nullable String ext) {
-        return ext != null && (ext.equalsIgnoreCase("html") || ext.equalsIgnoreCase("htm"));
-    }
-
     private static final Logger logger = LogManager.getLogger(BrokkExternalMcpServer.class);
 
     private static final List<String> BASE_TOOL_NAMES = List.of(
@@ -326,7 +322,7 @@ public class BrokkExternalMcpServer {
         var allFiles = cm.getProject().getAllFiles();
         boolean hasXml = allFiles.stream().anyMatch(f -> f.toString().endsWith(".xml"));
         boolean hasJson = allFiles.stream().anyMatch(f -> f.toString().endsWith(".json"));
-        boolean hasHtml = allFiles.stream().anyMatch(f -> isHtmlExtension(f.extension()));
+        boolean hasHtml = allFiles.stream().anyMatch(f -> SearchTools.isHtmlExtension(f.extension()));
 
         if (hasXml) {
             toolNames.add("xpathQuery");

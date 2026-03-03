@@ -80,9 +80,11 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Attribute;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.jsoup.select.Selector;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -357,10 +359,10 @@ public class SearchTools {
         return out.toString();
     }
 
-    private static Document parseXmlDocument(ProjectFile file, String content) {
+    private static org.w3c.dom.Document parseXmlDocument(ProjectFile file, String content) {
         try {
             DocumentBuilder builder = TL_XML_DOC_BUILDER.get();
-            Document doc = builder.parse(new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)));
+            org.w3c.dom.Document doc = builder.parse(new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)));
             doc.normalizeDocument();
             return doc;
         } catch (Exception e) {
@@ -615,13 +617,13 @@ public class SearchTools {
         return sb.toString();
     }
 
-    private static boolean isHtmlExtension(String ext) {
-        return "html".equalsIgnoreCase(ext) || "htm".equalsIgnoreCase(ext);
+    public static boolean isHtmlExtension(@Nullable String ext) {
+        return ext != null && ("html".equalsIgnoreCase(ext) || "htm".equalsIgnoreCase(ext));
     }
 
-    private static String computeHtmlElementPath(org.jsoup.nodes.Element elem) {
-        List<org.jsoup.nodes.Element> ancestors = new ArrayList<>();
-        org.jsoup.nodes.Element cur = elem;
+    private static String computeHtmlElementPath(Element elem) {
+        List<Element> ancestors = new ArrayList<>();
+        Element cur = elem;
         while (cur != null) {
             ancestors.add(cur);
             cur = cur.parent();
@@ -630,13 +632,13 @@ public class SearchTools {
 
         StringBuilder sb = new StringBuilder();
         for (int i = ancestors.size() - 1; i >= 0; i--) {
-            org.jsoup.nodes.Element e = ancestors.get(i);
+            Element e = ancestors.get(i);
             String tagName = e.tagName();
 
             int idx = 1;
-            org.jsoup.nodes.Element parent = e.parent();
+            Element parent = e.parent();
             if (parent != null) {
-                for (org.jsoup.nodes.Element sib : parent.children()) {
+                for (Element sib : parent.children()) {
                     if (sib.equals(e)) break;
                     if (sib.tagName().equals(tagName)) idx++;
                 }
@@ -646,9 +648,9 @@ public class SearchTools {
         return sb.toString();
     }
 
-    private static String htmlSkimBfs(org.jsoup.nodes.Element root, int totalBudgetChars) {
+    private static String htmlSkimBfs(Element root, int totalBudgetChars) {
         int budget = max(1, totalBudgetChars);
-        ArrayDeque<org.jsoup.nodes.Element> q = new ArrayDeque<>();
+        ArrayDeque<Element> q = new ArrayDeque<>();
         q.add(root);
 
         List<String> lines = new ArrayList<>();
@@ -656,12 +658,12 @@ public class SearchTools {
         boolean truncated = false;
 
         while (!q.isEmpty()) {
-            org.jsoup.nodes.Element e = q.removeFirst();
+            Element e = q.removeFirst();
 
             String path = computeHtmlElementPath(e);
 
             Map<String, Integer> childHist = new HashMap<>();
-            for (org.jsoup.nodes.Element child : e.children()) {
+            for (Element child : e.children()) {
                 childHist.merge(child.tagName(), 1, Integer::sum);
             }
             String histText = childHist.isEmpty()
@@ -677,7 +679,7 @@ public class SearchTools {
             String attrsText = "";
             if (!e.attributes().isEmpty()) {
                 Map<String, String> attrMap = new LinkedHashMap<>();
-                for (org.jsoup.nodes.Attribute attr : e.attributes()) {
+                for (Attribute attr : e.attributes()) {
                     attrMap.put(attr.getKey(), capXmlAttrValue(attr.getValue()));
                 }
                 attrsText = " attrs={%s}"
@@ -697,7 +699,7 @@ public class SearchTools {
             lines.add(line);
             used += line.length() + 1;
 
-            for (org.jsoup.nodes.Element child : e.children()) {
+            for (Element child : e.children()) {
                 q.add(child);
             }
         }
@@ -738,7 +740,7 @@ public class SearchTools {
             int textLen = directTextLen(n);
 
             String attrsText = "";
-            if (n instanceof Element el) {
+            if (n instanceof org.w3c.dom.Element el) {
                 NamedNodeMap attrs = el.getAttributes();
                 if (attrs != null && attrs.getLength() > 0) {
                     Map<String, String> attrMap = new LinkedHashMap<>();
@@ -2138,7 +2140,7 @@ public class SearchTools {
                     var contentOpt = file.read();
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    Document doc = parseXmlDocument(file, contentOpt.get());
+                    org.w3c.dom.Document doc = parseXmlDocument(file, contentOpt.get());
                     Node root = doc.getDocumentElement();
                     if (root == null) return new IndexedResult<>(idx, null, null);
 
@@ -2259,7 +2261,7 @@ public class SearchTools {
                     var contentOpt = file.read();
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    Document doc = parseXmlDocument(file, contentOpt.get());
+                    org.w3c.dom.Document doc = parseXmlDocument(file, contentOpt.get());
 
                     NodeList nodes = (NodeList) compiled.evaluate(doc, XPathConstants.NODESET);
                     int total = nodes == null ? 0 : nodes.getLength();
@@ -2295,7 +2297,7 @@ public class SearchTools {
                             case "PATH" -> outLines.add(path);
                             case "ATTR" -> {
                                 String value = "";
-                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof Element el) {
+                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof org.w3c.dom.Element el) {
                                     value = el.hasAttribute(attrName) ? el.getAttribute(attrName) : "";
                                 }
                                 String line = "%s @%s=\"%s\"".formatted(path, attrName, value);
@@ -2303,7 +2305,7 @@ public class SearchTools {
                             }
                             case "ATTRS" -> {
                                 Map<String, String> attrs = Map.of();
-                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof Element el) {
+                                if (n.getNodeType() == Node.ELEMENT_NODE && n instanceof org.w3c.dom.Element el) {
                                     NamedNodeMap nnm = el.getAttributes();
                                     if (nnm != null && nnm.getLength() > 0) {
                                         Map<String, String> m = new LinkedHashMap<>();
@@ -2427,8 +2429,8 @@ public class SearchTools {
                     var contentOpt = file.read();
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    org.jsoup.nodes.Document doc = Jsoup.parse(contentOpt.get());
-                    org.jsoup.nodes.Element root = doc.body();
+                    Document doc = Jsoup.parse(contentOpt.get());
+                    Element root = doc.body();
                     if (root == null) {
                         root = doc.children().first();
                     }
@@ -2546,9 +2548,9 @@ public class SearchTools {
                     var contentOpt = file.read();
                     if (contentOpt.isEmpty()) return new IndexedResult<>(idx, null, null);
 
-                    org.jsoup.nodes.Document doc = Jsoup.parse(contentOpt.get());
+                    Document doc = Jsoup.parse(contentOpt.get());
 
-                    org.jsoup.select.Elements elements = doc.select(cssSelector);
+                    Elements elements = doc.select(cssSelector);
 
                     int total = elements.size();
                     if (total == 0) return new IndexedResult<>(idx, null, null);
@@ -2565,7 +2567,7 @@ public class SearchTools {
                     var mapper = jqMappers.get();
 
                     for (int i = 0; i < toTake; i++) {
-                        org.jsoup.nodes.Element elem = elements.get(i);
+                        Element elem = elements.get(i);
 
                         String path = computeHtmlElementPath(elem);
                         String name = elem.tagName();
@@ -2587,7 +2589,7 @@ public class SearchTools {
                                 Map<String, String> attrs = Map.of();
                                 if (!elem.attributes().isEmpty()) {
                                     Map<String, String> m = new LinkedHashMap<>();
-                                    for (org.jsoup.nodes.Attribute attr : elem.attributes()) {
+                                    for (Attribute attr : elem.attributes()) {
                                         m.put(attr.getKey(), capXmlAttrValue(attr.getValue()));
                                     }
                                     attrs = Map.copyOf(m);

@@ -209,10 +209,6 @@ public class SearchAgent {
         this.searchTools = new SearchTools(cm);
     }
 
-    private static boolean isHtmlExtension(@Nullable String ext) {
-        return ext != null && (ext.equalsIgnoreCase("html") || ext.equalsIgnoreCase("htm"));
-    }
-
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
         var mcpConfig = project.getMcpConfig();
         var tools = new ArrayList<McpPrompts.McpTool>();
@@ -262,7 +258,7 @@ public class SearchAgent {
         if (allFiles.stream().anyMatch(f -> f.extension().equals("json"))) {
             tools.add("jq");
         }
-        if (allFiles.stream().anyMatch(f -> isHtmlExtension(f.extension()))) {
+        if (allFiles.stream().anyMatch(f -> SearchTools.isHtmlExtension(f.extension()))) {
             tools.add("htmlSkim");
             tools.add("htmlSelect");
         }
