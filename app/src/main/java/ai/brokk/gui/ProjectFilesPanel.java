@@ -181,13 +181,17 @@ public class ProjectFilesPanel extends JPanel {
 
         refreshLogTimer = new Timer(1000, evt -> {
             int count = refreshCompletionsSinceLog.getAndSet(0);
-            if (count <= 0) {
-                return;
+
+            String msg;
+            if (count == 0) {
+                msg = "ProjectTree refreshes in last 1s: 0";
+            } else {
+                long durationMs = lastRefreshDurationMs.get();
+                String type = lastRefreshIncremental.get() ? "inc" : "full";
+                msg = "ProjectTree refreshes in last 1s: " + count + " (last=" + durationMs + "ms " + type + ")";
             }
 
-            long durationMs = lastRefreshDurationMs.get();
-            String type = lastRefreshIncremental.get() ? "inc" : "full";
-            logger.info("ProjectTree refreshes in last 1s: {} (last={}ms {})", count, durationMs, type);
+            System.out.println(msg);
         });
         refreshLogTimer.setRepeats(true);
         refreshLogTimer.start();
