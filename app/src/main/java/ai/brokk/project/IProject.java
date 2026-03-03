@@ -593,8 +593,9 @@ public interface IProject extends AutoCloseable {
      *
      * @return a list of relative or absolute paths as strings.
      */
+    @Blocking
     default List<String> getJavaSourceRoots() {
-        return List.of(".", "src/main/java", "src/test/java", "src/main/kotlin", "src/test/kotlin");
+        return ai.brokk.analyzer.java.JavaSourceRootScanner.scan(this);
     }
 
     /**
