@@ -700,7 +700,7 @@ class BrokkApp(App):
         self.session_switch_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
-        self._pending_switch_prompt: Optional[str] = None
+        self._pending_switch_prompt: Optional[tuple[str, str]] = None
         self._startup_pending_prompt: Optional[str] = None
         self._pending_updated_at: float = 0
         self._pending_generation: int = 0
@@ -1397,8 +1397,8 @@ class BrokkApp(App):
             if chat:
                 chat.add_history_entry(raw_text)
                 chat.add_user_message(raw_text)
-            if self.session_switch_in_progress:
-                self._pending_switch_prompt = raw_text
+            if self.session_switch_in_progress and self._current_switch_target_session_id:
+                self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
                 if chat:
                     chat.add_system_message("Queuing prompt until session switch is complete...")
             elif self.job_in_progress and self.current_job_id:
@@ -2607,6 +2607,7 @@ class BrokkApp(App):
                 chat.add_system_message("A session switch is already in progress.", level="WARNING")
                 return
             self.session_switch_in_progress = True
+            self._current_switch_target_session_id = session_id
 
         try:
             chat.add_system_message(f"Switching to session {session_id}...")
@@ -2634,16 +2635,23 @@ class BrokkApp(App):
 
             # Handle queued prompt after switch
             if self._pending_switch_prompt:
-                queued = self._pending_switch_prompt
-                self._pending_switch_prompt = None
-                # Use run_worker to ensure proper lifecycle management for the new job
-                self.run_worker(self._run_job(queued))
+                target_id, prompt = self._pending_switch_prompt
+                if target_id == session_id:
+                    self._pending_switch_prompt = None
+                    self.run_worker(self._run_job(prompt))
+                else:
+                    # This shouldn't normally happen with the lock, but for safety:
+                    self._pending_switch_prompt = None
 
         except Exception as e:
             logger.exception("Failed to switch session")
             chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
+            if self._pending_switch_prompt:
+                self._pending_switch_prompt = None
+                chat.add_system_message("Dropped queued prompt due to session switch failure.")
         finally:
             self.session_switch_in_progress = False
+            self._current_switch_target_session_id = None
             chat.set_job_running(False)
 
     async def on_unmount(self) -> None:

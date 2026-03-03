@@ -188,7 +188,7 @@ async def test_auto_rename_delayed_until_switch_complete(tmp_path):
     msg.text = "First prompt in new session"
     app.on_chat_panel_submitted(msg)
 
-    assert app._pending_switch_prompt == "First prompt in new session"
+    assert app._pending_switch_prompt == ("target-sid", "First prompt in new session")
 
     # 3. Verify no rename or job submission yet
     stub.rename_session.assert_not_called()
