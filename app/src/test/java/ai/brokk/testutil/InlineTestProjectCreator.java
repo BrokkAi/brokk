@@ -249,6 +249,8 @@ public class InlineTestProjectCreator {
                                     tarOut.closeArchiveEntry();
                                 }
                             }
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
                         }
                     });
 
@@ -273,14 +275,20 @@ public class InlineTestProjectCreator {
                     var tarIn = new TarArchiveInputStream(lz4In)) {
                 TarArchiveEntry entry;
                 while ((entry = tarIn.getNextEntry()) != null) {
-                    Path entryPath = destination.resolve(entry.getName()).normalize();
+                    String name = entry.getName();
+                    if (name == null || name.isEmpty()) {
+                        continue;
+                    }
+                    Path entryPath = destination.resolve(name).normalize();
                     if (!entryPath.startsWith(destination)) {
-                        throw new IOException("Tar entry outside of root: " + entry.getName());
+                        throw new IOException("Tar entry outside of root (path traversal attempt?): " + name);
                     }
                     if (entry.isDirectory()) {
                         Files.createDirectories(entryPath);
                     } else {
-                        Files.createDirectories(entryPath.getParent());
+                        if (entryPath.getParent() != null) {
+                            Files.createDirectories(entryPath.getParent());
+                        }
                         Files.copy(tarIn, entryPath);
                     }
                 }

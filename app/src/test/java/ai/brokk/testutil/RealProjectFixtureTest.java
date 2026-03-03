@@ -132,8 +132,14 @@ class RealProjectFixtureTest {
 
         try (ITestProject project =
                 InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
-            assertTrue(Files.exists(project.getRoot().resolve("Foo.java")));
+            assertTrue(Files.exists(project.getRoot().resolve("Foo.java")), "Should recover from corrupt archive");
             assertEquals(commitId, project.getRepo().getCurrentCommitId());
+        }
+
+        // 5. Ensure archive was rebuilt (is now valid LZ4 again)
+        try (var fis = Files.newInputStream(archive);
+                var lz4In = new net.jpountz.lz4.LZ4FrameInputStream(fis)) {
+            // If this doesn't throw, it's at least a valid LZ4 frame
         }
     }
 
