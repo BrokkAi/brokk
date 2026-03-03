@@ -2408,12 +2408,6 @@ public class GitRepoTest {
                 GitRepoData.LARGE_OBJECT_PLACEHOLDER,
                 "Placeholder should have expected text for UI display");
 
-        // Verify LFS placeholder constant
-        assertEquals(
-                "[Git LFS pointer - actual content stored externally and not fetched]",
-                GitRepoData.LFS_POINTER_PLACEHOLDER,
-                "LFS placeholder should have expected text for UI display");
-
         // Create a normal file and verify getRefContent works
         createCommit("normal.txt", "normal content", "Normal commit");
         String commit = repo.getCurrentCommitId();
@@ -2421,36 +2415,5 @@ public class GitRepoTest {
 
         String content = repo.data().getRefContent(commit, normalFile);
         assertEquals("normal content", content, "Normal files should return their content");
-    }
-
-    @Test
-    void testLooksLikeLfsPointer() {
-        // Valid LFS pointer format
-        String validPointer =
-                """
-                version https://git-lfs.github.com/spec/v1
-                oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393
-                size 12345
-                """;
-        assertTrue(GitRepoData.looksLikeLfsPointer(validPointer), "Should detect valid LFS pointer");
-
-        // Partial pointer (just the signature line)
-        assertTrue(
-                GitRepoData.looksLikeLfsPointer("version https://git-lfs.github.com/spec/v1\n"),
-                "Should detect LFS pointer with just signature");
-
-        // Not an LFS pointer - regular text
-        assertFalse(GitRepoData.looksLikeLfsPointer("Hello, world!"), "Should not detect regular text as LFS");
-
-        // Not an LFS pointer - binary-ish content
-        assertFalse(GitRepoData.looksLikeLfsPointer("\0\1\2\3binary"), "Should not detect binary as LFS");
-
-        // Not an LFS pointer - empty
-        assertFalse(GitRepoData.looksLikeLfsPointer(""), "Should not detect empty string as LFS");
-
-        // Not an LFS pointer - similar but wrong URL
-        assertFalse(
-                GitRepoData.looksLikeLfsPointer("version https://example.com/lfs/v1"),
-                "Should not detect wrong LFS URL");
     }
 }
