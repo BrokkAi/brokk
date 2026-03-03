@@ -1,4 +1,5 @@
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -96,6 +97,80 @@ async def test_switch_to_session_concurrency_blocking(tmp_path):
     assert app.session_switch_in_progress is False
     # Only s1 should have been called on executor
     app.executor.switch_session.assert_called_once_with("s1")
+
+
+@pytest.mark.asyncio
+async def test_prompt_submission_gates_and_queues_during_switch(tmp_path):
+    """Verify that submitting a prompt during a session switch is queued and run after."""
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app.executor.workspace_dir = tmp_path
+    app._executor_ready = True
+
+    chat = MagicMock(spec=ChatPanel)
+    chat._message_history = []
+
+    # Mock the #chat-log query path to avoid TypeError: 'MagicMock' object can't be awaited
+    # when app calls log.query("*").remove()
+    log_mock = MagicMock()
+    log_mock.query.return_value.remove.return_value = None  # Non-awaitable for test
+    chat.query_one.side_effect = lambda q: log_mock if q == "#chat-log" else MagicMock()
+
+    app._maybe_chat = MagicMock(return_value=chat)
+
+    # Simulate a slow switch
+    switch_event = asyncio.Event()
+
+    async def slow_switch(*args, **kwargs):
+        await switch_event.wait()
+        return {}
+
+    app.executor.switch_session = AsyncMock(side_effect=slow_switch)
+    app.executor.get_conversation = AsyncMock(return_value={"entries": []})
+    app.executor.submit_job = AsyncMock(return_value="job-queued")
+    app.executor.stream_events = MagicMock()
+
+    async def empty_gen(*args, **kwargs):
+        if False:
+            yield {}
+
+    app.executor.stream_events.return_value = empty_gen()
+
+    # Start the switch
+    switch_task = asyncio.create_task(app._switch_to_session("s-target"))
+    await asyncio.sleep(0.01)
+    assert app.session_switch_in_progress is True
+
+    # Submit a prompt while switching
+    msg = MagicMock()
+    msg.text = "Queued prompt during switch"
+    app.on_chat_panel_submitted(msg)
+
+    assert app._pending_switch_prompt == "Queued prompt during switch"
+    # Verify feedback was given
+    any_queued_msg = any(
+        "Queuing prompt" in str(call.args[0]) for call in chat.add_system_message.call_args_list
+    )
+    assert any_queued_msg is True
+
+    # complete the switch
+    switch_event.set()
+    await switch_task
+
+    # Verify switch finished and THEN the job was run
+    app.executor.switch_session.assert_called_once_with("s-target")
+
+    # The switch_task completion triggers run_worker(self._run_job(queued)).
+    # In tests, we need to ensure the event loop processes this.
+    start_wait = time.time()
+    while app.executor.submit_job.call_count == 0 and time.time() - start_wait < 2.0:
+        await asyncio.sleep(0.01)
+
+    app.executor.submit_job.assert_called_once()
+    assert app.executor.submit_job.call_args[0][0] == "Queued prompt during switch"
+    assert app._pending_switch_prompt is None
 
 
 def test_session_select_modal_labels_use_table_layout():

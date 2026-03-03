@@ -700,6 +700,7 @@ class BrokkApp(App):
         self.session_switch_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
+        self._pending_switch_prompt: Optional[str] = None
         self._startup_pending_prompt: Optional[str] = None
         self._pending_updated_at: float = 0
         self._pending_generation: int = 0
@@ -1389,11 +1390,15 @@ class BrokkApp(App):
             append_prompt(
                 self.executor.workspace_dir, raw_text, max_history=self.settings.prompt_history_size
             )
-            chat = self.query_one(ChatPanel)
-            chat.add_history_entry(raw_text)
-
-            chat.add_user_message(raw_text)
-            if self.job_in_progress and self.current_job_id:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_history_entry(raw_text)
+                chat.add_user_message(raw_text)
+            if self.session_switch_in_progress:
+                self._pending_switch_prompt = raw_text
+                if chat:
+                    chat.add_system_message("Queuing prompt until session switch is complete...")
+            elif self.job_in_progress and self.current_job_id:
                 self._pending_prompt = raw_text
                 now = time.monotonic()
                 self._pending_updated_at = now
@@ -1402,12 +1407,13 @@ class BrokkApp(App):
                     self._pending_min_wait_until, now + self._resubmit_grace_s
                 )
                 # Avoid redundant cancellation messages if already pending
-                if self._pending_generation == 1:
+                if self._pending_generation == 1 and chat:
                     chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
             elif not self._executor_ready:
                 self._startup_pending_prompt = raw_text
-                chat.add_system_message("Queuing prompt until Brokk is ready...")
+                if chat:
+                    chat.add_system_message("Queuing prompt until Brokk is ready...")
             else:
                 self.run_worker(self._run_job(raw_text))
 
@@ -2610,7 +2616,9 @@ class BrokkApp(App):
             chat._message_history.clear()
             # Clear log container (the ScrollableContainer containing message widgets)
             log = chat.query_one("#chat-log")
-            await log.query("*").remove()
+            res = log.query("*").remove()
+            if asyncio.iscoroutine(res):
+                await res
 
             # Replay
             conversation_data = await self.executor.get_conversation()
@@ -2619,6 +2627,14 @@ class BrokkApp(App):
             # Refresh
             await self._refresh_context_panel()
             chat.add_system_message(f"Successfully switched to session {session_id}.")
+
+            # Handle queued prompt after switch
+            if self._pending_switch_prompt:
+                queued = self._pending_switch_prompt
+                self._pending_switch_prompt = None
+                # Use run_worker to ensure proper lifecycle management for the new job
+                self.run_worker(self._run_job(queued))
+
         except Exception as e:
             logger.exception("Failed to switch session")
             chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
