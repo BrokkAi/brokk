@@ -10,7 +10,7 @@ import brokk_code.__main__ as main_module
 
 
 def _stub_install_warmup(monkeypatch) -> None:
-    monkeypatch.setattr(main_module, "_resolve_jbang_for_install", lambda: "/usr/local/bin/jbang")
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
 
 
@@ -280,7 +280,7 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         "configure_codex_mcp_settings",
         fake_configure_codex_mcp_settings,
     )
-    monkeypatch.setattr(main_module, "_resolve_jbang_for_install", lambda: "/usr/local/bin/jbang")
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
     monkeypatch.setattr(
         sys,
@@ -1368,3 +1368,34 @@ def test_main_issue_create_invalid_repo_name_exits_nonzero(monkeypatch) -> None:
         main_module.main()
 
     assert exc.value.code != 0
+
+
+def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
+    """install command calls ensure_jbang_ready() directly (not _resolve_jbang_for_install)."""
+    ensure_called = {"n": 0}
+
+    def fake_ensure_jbang_ready() -> str:
+        ensure_called["n"] += 1
+        return "/usr/bin/jbang"
+
+    def fake_configure_zed_acp_settings(*, force=False):
+        return tmp_path / "zed.json"
+
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", fake_ensure_jbang_ready)
+    monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+    monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
+    monkeypatch.setattr(
+        main_module,
+        "_build_install_prefetch_commands",
+        lambda **kwargs: [],
+    )
+    monkeypatch.setattr(main_module, "sys", __import__("sys"))
+    monkeypatch.setattr(
+        __import__("sys"),
+        "argv",
+        ["brokk", "install", "zed"],
+    )
+
+    main_module.main()
+
+    assert ensure_called["n"] == 1
