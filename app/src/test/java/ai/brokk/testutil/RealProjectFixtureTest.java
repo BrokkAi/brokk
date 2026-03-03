@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.eclipse.jgit.api.Git;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -42,6 +43,7 @@ class RealProjectFixtureTest {
     }
 
     @Test
+    @Tag("git-integration")
     void testRuffProject() throws Exception {
         String url = "https://github.com/astral-sh/ruff.git";
         String commitId = "0e19fc9a61477e71abc4eb76f05a129b6b9ab873";
@@ -79,6 +81,7 @@ class RealProjectFixtureTest {
     }
 
     @Test
+    @Tag("git-integration")
     void testFromGitUrlWithCompressedCache(@TempDir Path customCache) throws Exception {
         InlineTestProjectCreator.GitCloneStrategy.setCacheRoot(customCache);
 
@@ -144,6 +147,7 @@ class RealProjectFixtureTest {
     }
 
     @Test
+    @Tag("git-integration")
     void testFromGitUrl() throws Exception {
         // 1. Create a local source repo
         Path sourceRepoPath = tempDir.resolve("source-repo");
