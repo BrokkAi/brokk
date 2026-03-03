@@ -59,61 +59,9 @@ class BuildToolsTest {
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
 
         // Verify:
-        // 1. packages: derived via toPythonModuleLabel/detectModuleAnchor (myapp.tests.test_logic)
+        // 1. packages: derived via Analyzer.getTestModules (myapp.tests.test_logic)
         // 2. classes: derived via AnalyzerUtil (TestLogic)
         assertEquals("pytest myapp.tests.test_logic -k TestLogic", result);
-    }
-
-    @Test
-    void testExtractRunnerAnchorFromCommands(@TempDir Path tempDir) throws Exception {
-        Files.createDirectories(tempDir.resolve("tests"));
-        Files.createFile(tempDir.resolve("tests/run.py"));
-
-        // 1. Basic case
-        var anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python tests/run.py"));
-        assertEquals(tempDir.resolve("tests"), anchor.orElse(null));
-
-        // 2. Quoted strings (double)
-        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python \"tests/run.py\""));
-        assertEquals(tempDir.resolve("tests"), anchor.orElse(null));
-
-        // 3. Quoted strings (single)
-        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python 'tests/run.py'"));
-        assertEquals(tempDir.resolve("tests"), anchor.orElse(null));
-
-        // 4. Shell operators
-        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python tests/run.py && echo done"));
-        assertEquals(tempDir.resolve("tests"), anchor.orElse(null));
-
-        // 5. Flags (should be ignored)
-        // This relies on the file existing, so 'tests/run.py' is the only valid candidate
-        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python -v tests/run.py"));
-        assertEquals(tempDir.resolve("tests"), anchor.orElse(null));
-
-        // 6. Assignments (should be ignored)
-        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python tests/run.py --config=foo"));
-        assertEquals(tempDir.resolve("tests"), anchor.orElse(null));
-
-        // 7. No match
-        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("echo hello"));
-        assertEquals(null, anchor.orElse(null));
-    }
-
-    @Test
-    void testExtractRunnerAnchorWithShellSeparators(@TempDir Path tempDir) throws Exception {
-        Files.createDirectories(tempDir.resolve("scripts"));
-        Path runner = tempDir.resolve("scripts/runner.py");
-        Files.createFile(runner);
-
-        // Verify that tokens adjacent to shell operators are correctly parsed
-        var anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python scripts/runner.py;echo done"));
-        assertEquals(tempDir.resolve("scripts"), anchor.orElse(null));
-
-        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python scripts/runner.py&&echo done"));
-        assertEquals(tempDir.resolve("scripts"), anchor.orElse(null));
-
-        anchor = BuildTools.extractRunnerAnchorFromCommands(tempDir, List.of("python scripts/runner.py|grep foo"));
-        assertEquals(tempDir.resolve("scripts"), anchor.orElse(null));
     }
 
     @Test
