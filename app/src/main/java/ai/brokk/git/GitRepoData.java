@@ -182,8 +182,18 @@ public class GitRepoData {
     /** Placeholder text returned when a blob exceeds our safe-load threshold. */
     public static final String LARGE_OBJECT_PLACEHOLDER = "[File content too large to display]";
 
+    /** Placeholder text returned when a blob appears to be an LFS pointer for externally stored content. */
+    public static final String LFS_POINTER_PLACEHOLDER =
+            "[Git LFS pointer - actual content stored externally and not fetched]";
+
     /** Maximum blob size we'll load into memory (10 MB). */
     private static final long MAX_BLOB_SIZE = 10 * 1024 * 1024;
+
+    /** LFS pointer signature that appears at the start of pointer files. */
+    private static final String LFS_POINTER_SIGNATURE = "version https://git-lfs.github.com/spec/v1";
+
+    /** Maximum bytes to read when probing for LFS pointer format. */
+    private static final int LFS_PROBE_SIZE = 512;
 
     /** Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found. */
     public String getFileContent(String commitId, ProjectFile file) throws GitAPIException {
@@ -229,7 +239,7 @@ public class GitRepoData {
                     commitId,
                     size,
                     MAX_BLOB_SIZE);
-            return LARGE_OBJECT_PLACEHOLDER;
+            return choosePlaceholderByProbing(loader, file, commitId);
         }
 
         // For large objects (as determined by JGit's threshold), use streaming to avoid LargeObjectException
@@ -239,7 +249,7 @@ public class GitRepoData {
                 return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
             } catch (org.eclipse.jgit.errors.LargeObjectException e) {
                 logger.debug("File {} at commit {} could not be streamed: {}", file, commitId, e.getMessage());
-                return LARGE_OBJECT_PLACEHOLDER;
+                return choosePlaceholderByProbing(loader, file, commitId);
             }
         }
 
@@ -249,8 +259,38 @@ public class GitRepoData {
         } catch (org.eclipse.jgit.errors.LargeObjectException e) {
             logger.debug(
                     "File {} at commit {} threw LargeObjectException on getBytes: {}", file, commitId, e.getMessage());
-            return LARGE_OBJECT_PLACEHOLDER;
+            return choosePlaceholderByProbing(loader, file, commitId);
         }
+    }
+
+    /**
+     * Probes the beginning of a blob to determine if it's a Git LFS pointer, returning the appropriate placeholder.
+     * LFS pointers are small text files (~130 bytes) that reference externally stored content.
+     */
+    private String choosePlaceholderByProbing(
+            org.eclipse.jgit.lib.ObjectLoader loader, ProjectFile file, String commitId) {
+        try (var stream = loader.openStream()) {
+            byte[] probe = new byte[LFS_PROBE_SIZE];
+            int read = stream.read(probe);
+            if (read > 0) {
+                String prefix = new String(probe, 0, read, StandardCharsets.UTF_8);
+                if (looksLikeLfsPointer(prefix)) {
+                    logger.debug("File {} at commit {} appears to be an LFS pointer", file, commitId);
+                    return LFS_POINTER_PLACEHOLDER;
+                }
+            }
+        } catch (Exception e) {
+            logger.trace("Could not probe file {} at commit {} for LFS signature: {}", file, commitId, e.getMessage());
+        }
+        return LARGE_OBJECT_PLACEHOLDER;
+    }
+
+    /**
+     * Checks if the given content prefix matches the Git LFS pointer format.
+     * LFS pointers start with "version https://git-lfs.github.com/spec/v1" followed by oid and size lines.
+     */
+    static boolean looksLikeLfsPointer(String prefix) {
+        return prefix.startsWith(LFS_POINTER_SIGNATURE);
     }
 
     /**
