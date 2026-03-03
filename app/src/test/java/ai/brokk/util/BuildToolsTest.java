@@ -2,11 +2,12 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,22 +42,13 @@ class BuildToolsTest {
         ProjectFile testFile =
                 new ProjectFile(tempDir, tempDir.relativize(testFilePath).toString());
 
-        TestAnalyzer testAnalyzer = new TestAnalyzer(new java.util.ArrayList<>(), java.util.Map.of(), project);
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
         CodeUnit testCu = CodeUnit.cls(testFile, "myapp.tests.test_logic", "TestLogic");
         testAnalyzer.addDeclaration(testCu);
         testAnalyzer.setSource(testCu, testFile.toString());
 
-        IContextManager mockCm = new IContextManager() {
-            @Override
-            public TestProject getProject() {
-                return project;
-            }
-
-            @Override
-            public TestAnalyzer getAnalyzer() {
-                return testAnalyzer;
-            }
-        };
+        // Use TestContextManager instead of anonymous IContextManager
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
 
         BuildDetails details = new BuildDetails(
                 "python -m compileall .",
