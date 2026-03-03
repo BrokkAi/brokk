@@ -158,50 +158,55 @@ public class InlineTestProjectCreator {
 
         @Override
         public void populate(Path root) throws IOException {
-            Files.createDirectories(CACHE_ROOT);
-            String cacheKey = hash(url + "|" + depth);
-            Path cachePath = CACHE_ROOT.resolve(cacheKey);
-
             // Use an empty token for tests to allow cloning public GitHub repos without a configured token
             java.util.function.Supplier<String> noToken = () -> "";
 
-            try {
-                synchronized (CACHE_LOCKS.computeIfAbsent(cachePath, k -> new Object())) {
-                    if (!Files.exists(cachePath)) {
-                        GitRepoFactory.cloneRepo(noToken, url, cachePath, depth, true);
-                    }
-                }
+            String sourceUrl;
+            if (url.startsWith("file:")) {
+                sourceUrl = url;
+            } else {
+                Files.createDirectories(CACHE_ROOT);
+                String cacheKey = hash(url + "|" + depth);
+                Path cachePath = CACHE_ROOT.resolve(cacheKey);
 
-                // Clone from cache to target root.
-                // GitRepoFactory.cloneRepo with branch/tag selection works for branches and tags.
-                // For SHAs, we clone the default then checkout.
-                boolean isSha = ref.matches("^[0-9a-f]{7,40}$");
-                if (!isSha) {
-                    try {
-                        GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth, ref, true);
-                        return;
-                    } catch (GitAPIException e) {
-                        // Fallback to clone default + checkout (needed for SHAs or if branch-specific clone failed)
-                    }
-                }
-
-                try (GitRepo ignored =
-                        GitRepoFactory.cloneRepo(noToken, cachePath.toUri().toString(), root, depth, null, true)) {
-                    try (Git git = Git.open(root.toFile())) {
-                        git.checkout().setName(ref).call();
+                try {
+                    synchronized (CACHE_LOCKS.computeIfAbsent(cachePath, k -> new Object())) {
+                        if (!Files.exists(cachePath)) {
+                            GitRepoFactory.cloneRepo(noToken, url, cachePath, depth, true);
+                        }
                     }
                 } catch (GitAPIException e) {
-                    throw new IOException("Failed to clone or checkout ref: " + ref, e);
+                    throw new IOException("Failed to cache repository: " + url, e);
                 }
+                sourceUrl = cachePath.toUri().toString();
+            }
 
-                if (Boolean.getBoolean("brokk.test.debug.git")) {
-                    System.out.println("Files in root after clone/checkout of " + ref + ":");
-                    try (var s = Files.walk(root)) {
-                        s.limit(20).forEach(System.out::println);
-                    }
+            // Clone from source (cache or local file) to target root.
+            // GitRepoFactory.cloneRepo with branch/tag selection works for branches and tags.
+            // For SHAs, we clone the default then checkout.
+            boolean isSha = ref.matches("^[0-9a-f]{7,40}$");
+            if (!isSha) {
+                try {
+                    GitRepoFactory.cloneRepo(noToken, sourceUrl, root, depth, ref, true);
+                    return;
+                } catch (GitAPIException e) {
+                    // Fallback to clone default + checkout (needed for SHAs or if branch-specific clone failed)
+                }
+            }
+
+            try (GitRepo ignored = GitRepoFactory.cloneRepo(noToken, sourceUrl, root, depth, null, true)) {
+                try (Git git = Git.open(root.toFile())) {
+                    git.checkout().setName(ref).call();
                 }
             } catch (GitAPIException e) {
-                throw new IOException("Failed to clone repository: " + url + " at ref: " + ref, e);
+                throw new IOException("Failed to clone or checkout ref: " + ref, e);
+            }
+
+            if (Boolean.getBoolean("brokk.test.debug.git")) {
+                System.out.println("Files in root after clone/checkout of " + ref + ":");
+                try (var s = Files.walk(root)) {
+                    s.limit(20).forEach(System.out::println);
+                }
             }
         }
 
