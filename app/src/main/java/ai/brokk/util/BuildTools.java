@@ -180,13 +180,25 @@ public class BuildTools {
         context.put("fqclasses", MustacheTemplates.toStringElementList(fqClasses));
         context.put("classes", MustacheTemplates.toStringElementList(classes));
 
+        // If all primary target lists are empty, fall back to build/lint command
+        if (packages.isEmpty() && workspaceTestFiles.isEmpty() && classes.isEmpty() && fqClasses.isEmpty()) {
+            return details.buildLintCommand();
+        }
+
         // Perform multi-variable interpolation
         MustacheFactory mf = new DefaultMustacheFactory();
         Mustache mustache = mf.compile(new StringReader(testSomeTemplate), "dynamic_template");
 
         StringWriter writer = new StringWriter();
         mustache.execute(writer, context);
-        return writer.toString();
+        String result = writer.toString();
+
+        // If the result is identical to the template, it means no sections matched; fall back.
+        if (result.equals(testSomeTemplate)) {
+            return details.buildLintCommand();
+        }
+
+        return result;
     }
 
     private static Optional<Path> detectModuleAnchor(Path projectRoot, BuildDetails details) {
