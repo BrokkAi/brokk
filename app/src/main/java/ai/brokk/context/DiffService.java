@@ -9,6 +9,7 @@ import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoData;
 import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
@@ -335,6 +336,27 @@ public final class DiffService {
         } catch (GitAPIException e) {
             logger.error("Failed to compute cumulative diff: {}", e.getMessage());
             return new CumulativeChanges(0, 0, 0, List.of(), commits);
+        }
+
+        // Aggregate warning for files that failed to load
+        int filesWithFailures = 0;
+        int totalPlaceholderOccurrences = 0;
+        for (var fd : fileDiffs) {
+            boolean oldFailed = GitRepoData.FAILED_TO_LOAD_PLACEHOLDER.equals(fd.oldText());
+            boolean newFailed = GitRepoData.FAILED_TO_LOAD_PLACEHOLDER.equals(fd.newText());
+            if (oldFailed || newFailed) {
+                filesWithFailures++;
+                if (oldFailed) totalPlaceholderOccurrences++;
+                if (newFailed) totalPlaceholderOccurrences++;
+            }
+        }
+        if (filesWithFailures > 0) {
+            logger.warn(
+                    "Failed to load content for {} file(s) ({} sides) between refs {} and {}",
+                    filesWithFailures,
+                    totalPlaceholderOccurrences,
+                    leftRef,
+                    rightRef);
         }
 
         int totalAdded = 0;

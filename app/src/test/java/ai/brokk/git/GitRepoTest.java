@@ -2378,7 +2378,7 @@ public class GitRepoTest {
     }
 
     @Test
-    void testGetRefContent_ReturnsPlaceholderOnLargeObjectException() throws Exception {
+    void testGetRefContent_InvalidRefReturnsFailedPlaceholder() throws Exception {
         // Test that getRefContent returns FAILED_TO_LOAD_PLACEHOLDER for a non-existent commit
         ProjectFile readmeFile = new ProjectFile(projectRoot, "README.md");
         String content = repo.data().getRefContent("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", readmeFile);

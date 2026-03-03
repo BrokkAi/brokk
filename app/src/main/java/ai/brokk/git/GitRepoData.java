@@ -506,7 +506,7 @@ public class GitRepoData {
             logger.debug("File {} not found at ref {}, treating as empty", file, ref);
             return "";
         } catch (GitAPIException e) {
-            logger.warn("Failed to load file {} at ref {}: {}", file, ref, e.getMessage());
+            logger.debug("Failed to load file {} at ref {}: {}", file, ref, e.getMessage());
             return FAILED_TO_LOAD_PLACEHOLDER;
         }
     }
