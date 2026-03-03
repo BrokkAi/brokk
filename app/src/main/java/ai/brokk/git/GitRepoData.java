@@ -188,6 +188,9 @@ public class GitRepoData {
     /** Placeholder text returned when a blob exceeds our safe-load threshold. */
     public static final String LARGE_OBJECT_PLACEHOLDER = "[File content too large to display]";
 
+    /** Placeholder text returned when file content could not be loaded due to an unexpected error. */
+    public static final String FAILED_TO_LOAD_PLACEHOLDER = "[Failed to load file content]";
+
     /** Default maximum blob size we'll load into memory (5 MB). */
     private static final long DEFAULT_MAX_BLOB_SIZE = 5 * 1024 * 1024;
 
@@ -220,7 +223,7 @@ public class GitRepoData {
             throw new GitRepo.GitWrappedIOException(e);
         }
 
-        throw new GitRepo.GitRepoException("File '%s' not found at commit '%s'".formatted(file, commitId));
+        throw new GitRepo.FileNotFoundException(file, commitId);
     }
 
     /**
@@ -473,12 +476,12 @@ public class GitRepoData {
         }
         try {
             return getFileContent(ref, file);
-        } catch (GitAPIException e) {
+        } catch (GitRepo.FileNotFoundException e) {
             logger.debug("File {} not found at ref {}, treating as empty", file, ref);
             return "";
-        } catch (org.eclipse.jgit.errors.LargeObjectException e) {
-            logger.debug("File {} at ref {} exceeds size limit, returning placeholder: {}", file, ref, e.getMessage());
-            return LARGE_OBJECT_PLACEHOLDER;
+        } catch (GitAPIException e) {
+            logger.warn("Failed to load file {} at ref {}: {}", file, ref, e.getMessage());
+            return FAILED_TO_LOAD_PLACEHOLDER;
         }
     }
 
