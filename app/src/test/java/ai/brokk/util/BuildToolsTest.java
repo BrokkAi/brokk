@@ -9,6 +9,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestProject;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -22,9 +23,28 @@ import org.junit.jupiter.api.io.TempDir;
 class BuildToolsTest {
 
     @Test
-    void testMixedTemplateInterpolation(@TempDir Path tempDir) throws InterruptedException {
+    void testMixedTemplateInterpolation(@TempDir Path tempDir) throws Exception {
+        // 1. Set up a realistic Python structure:
+        // projectRoot/
+        //   myapp/
+        //     __init__.py
+        //     tests/
+        //       __init__.py
+        //       test_logic.py
+        Path myapp = tempDir.resolve("myapp");
+        Files.createDirectories(myapp);
+        Files.createFile(myapp.resolve("__init__.py"));
+
+        Path tests = myapp.resolve("tests");
+        Files.createDirectories(tests);
+        Files.createFile(tests.resolve("__init__.py"));
+
+        Path testFilePath = tests.resolve("test_logic.py");
+        Files.createFile(testFilePath);
+
         TestProject project = new TestProject(tempDir);
-        ProjectFile testFile = new ProjectFile(tempDir, "src/foo_test.go");
+        ProjectFile testFile =
+                new ProjectFile(tempDir, tempDir.relativize(testFilePath).toString());
 
         IAnalyzer mockAnalyzer = new IAnalyzer() {
             @Override
@@ -34,12 +54,13 @@ class BuildToolsTest {
 
             @Override
             public List<String> getTestModules(Collection<ProjectFile> files) {
-                return List.of("example.com/foo");
+                // Return empty to force BuildTools to use its internal path-to-package logic
+                return List.of();
             }
 
             @Override
             public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-                return List.of(CodeUnit.cls(file, "main", "TestFoo"));
+                return List.of(CodeUnit.cls(file, "myapp.tests.test_logic", "TestLogic"));
             }
 
             @Override
@@ -136,14 +157,16 @@ class BuildToolsTest {
         };
 
         BuildDetails details = new BuildDetails(
-                "go build",
-                "go test ./...",
-                "go test {{#packages}}{{value}}{{/packages}} -run {{#classes}}{{value}}{{/classes}}",
+                "python -m compileall .",
+                "pytest",
+                "pytest {{#packages}}{{value}}{{/packages}} -k {{#classes}}{{value}}{{/classes}}",
                 Set.of());
 
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
 
-        // Verify both variables are interpolated
-        assertEquals("go test example.com/foo -run TestFoo", result);
+        // Verify:
+        // 1. packages: derived via toPythonModuleLabel/detectModuleAnchor (myapp.tests.test_logic)
+        // 2. classes: derived via AnalyzerUtil (TestLogic)
+        assertEquals("pytest myapp.tests.test_logic -k TestLogic", result);
     }
 }
