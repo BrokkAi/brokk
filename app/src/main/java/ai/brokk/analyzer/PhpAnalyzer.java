@@ -151,36 +151,35 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     private String computeFilePackageName(ProjectFile file, TSNode rootNode, SourceContent sourceContent) {
-        TSQuery currentPhpNamespaceQuery;
-        if (this.phpNamespaceQuery != null) { // Check if PhpAnalyzer constructor has initialized the ThreadLocal
-            currentPhpNamespaceQuery = this.phpNamespaceQuery.get();
+        if (this.phpNamespaceQuery != null) {
+            return runNamespaceQuery(this.phpNamespaceQuery.get(), rootNode, sourceContent);
         } else {
-            // This block executes if computeFilePackageName is called (likely via determinePackageName)
-            // during the super() constructor phase, before this.phpNamespaceQuery (ThreadLocal) is initialized.
+            // This block executes if computeFilePackageName is called during the super() constructor phase.
             log.trace(
                     "PhpAnalyzer.computeFilePackageName: phpNamespaceQuery ThreadLocal is null, creating temporary query for file {}",
                     file);
-            try {
-                currentPhpNamespaceQuery =
-                        new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)");
+            try (TSQuery tempQuery =
+                    new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)")) {
+                return runNamespaceQuery(tempQuery, rootNode, sourceContent);
             } catch (Exception e) {
                 log.error(
                         "Failed to compile temporary namespace query for PhpAnalyzer in computeFilePackageName for file {}: {}",
                         file,
                         e.getMessage(),
                         e);
-                return ""; // Cannot proceed without the query
+                return "";
             }
         }
+    }
 
+    private String runNamespaceQuery(TSQuery query, TSNode rootNode, SourceContent sourceContent) {
         try (TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(currentPhpNamespaceQuery, rootNode);
-            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+            cursor.exec(query, rootNode);
+            TSQueryMatch match = new TSQueryMatch();
 
-            if (cursor.nextMatch(match)) { // Assuming one namespace per file, take the first
+            if (cursor.nextMatch(match)) {
                 for (TSQueryCapture capture : match.getCaptures()) {
-                    // Check capture name using query's method
-                    if ("nsname".equals(currentPhpNamespaceQuery.getCaptureNameForId(capture.getIndex()))) {
+                    if ("nsname".equals(query.getCaptureNameForId(capture.getIndex()))) {
                         TSNode nameNode = capture.getNode();
                         if (nameNode != null) {
                             return sourceContent
@@ -362,63 +361,64 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         TSQuery query = getThreadLocalQuery();
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
-        TSQueryMatch match = new TSQueryMatch();
+        try (TSQueryCursor cursor = new TSQueryCursor()) {
+            cursor.exec(query, tree.getRootNode());
+            TSQueryMatch match = new TSQueryMatch();
 
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String captureName = query.getCaptureNameForId(capture.getIndex());
-                if (!TEST_MARKER.equals(captureName)) {
-                    continue;
-                }
-
-                TSNode node = capture.getNode();
-                if (node == null || node.isNull()) {
-                    continue;
-                }
-
-                String nodeType = node.getType();
-
-                // Name-based detection: @test_marker is captured on the function/method name node.
-                if (NAME.equals(nodeType)) {
-                    TSNode parent = node.getParent();
-                    if (parent == null || parent.isNull()) {
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = query.getCaptureNameForId(capture.getIndex());
+                    if (!TEST_MARKER.equals(captureName)) {
                         continue;
                     }
 
-                    String parentType = parent.getType();
-                    if (!FUNCTION_DEFINITION.equals(parentType) && !METHOD_DECLARATION.equals(parentType)) {
+                    TSNode node = capture.getNode();
+                    if (node == null || node.isNull()) {
                         continue;
                     }
 
-                    String nameText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                    if (nameText.toLowerCase(Locale.ROOT).startsWith("test")) {
-                        return true;
-                    }
-                    continue;
-                }
+                    String nodeType = node.getType();
 
-                // Docblock/Comment-based detection: @test_marker is also captured on comment nodes.
-                if (COMMENT.equals(nodeType)) {
-                    String commentText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                    if (!commentText.contains(TEST_TAG_AT_TEST)) {
+                    // Name-based detection: @test_marker is captured on the function/method name node.
+                    if (NAME.equals(nodeType)) {
+                        TSNode parent = node.getParent();
+                        if (parent == null || parent.isNull()) {
+                            continue;
+                        }
+
+                        String parentType = parent.getType();
+                        if (!FUNCTION_DEFINITION.equals(parentType) && !METHOD_DECLARATION.equals(parentType)) {
+                            continue;
+                        }
+
+                        String nameText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                        if (nameText.toLowerCase(Locale.ROOT).startsWith("test")) {
+                            return true;
+                        }
                         continue;
                     }
 
-                    // Prefer AST adjacency: treat the comment as "belonging to" the next declaration sibling.
-                    TSNode next = node.getNextSibling();
-                    while (next != null && !next.isNull() && isWhitespaceOnlyNode(next)) {
-                        next = next.getNextSibling();
-                    }
+                    // Docblock/Comment-based detection: @test_marker is also captured on comment nodes.
+                    if (COMMENT.equals(nodeType)) {
+                        String commentText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                        if (!commentText.contains(TEST_TAG_AT_TEST)) {
+                            continue;
+                        }
 
-                    if (next == null || next.isNull()) {
-                        continue;
-                    }
+                        // Prefer AST adjacency: treat the comment as "belonging to" the next declaration sibling.
+                        TSNode next = node.getNextSibling();
+                        while (next != null && !next.isNull() && isWhitespaceOnlyNode(next)) {
+                            next = next.getNextSibling();
+                        }
 
-                    String nextType = next.getType();
-                    if (FUNCTION_DEFINITION.equals(nextType) || METHOD_DECLARATION.equals(nextType)) {
-                        return true;
+                        if (next == null || next.isNull()) {
+                            continue;
+                        }
+
+                        String nextType = next.getType();
+                        if (FUNCTION_DEFINITION.equals(nextType) || METHOD_DECLARATION.equals(nextType)) {
+                            return true;
+                        }
                     }
                 }
             }

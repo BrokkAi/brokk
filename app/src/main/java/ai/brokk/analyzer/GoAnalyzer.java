@@ -1,7 +1,6 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
-import static ai.brokk.project.FileFilteringService.toUnixPath;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
@@ -122,17 +121,18 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         TSQuery query = getThreadLocalQuery();
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, rootNode);
-        TSQueryMatch match = new TSQueryMatch();
+        try (TSQueryCursor cursor = new TSQueryCursor()) {
+            cursor.exec(query, rootNode);
+            TSQueryMatch match = new TSQueryMatch();
 
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String captureName = query.getCaptureNameForId(capture.getIndex());
-                if (CaptureNames.PACKAGE_NAME.equals(captureName)) {
-                    TSNode node = capture.getNode();
-                    if (node != null && !node.isNull()) {
-                        return sourceContent.substringFrom(node).trim();
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = query.getCaptureNameForId(capture.getIndex());
+                    if (CaptureNames.PACKAGE_NAME.equals(captureName)) {
+                        TSNode node = capture.getNode();
+                        if (node != null && !node.isNull()) {
+                            return sourceContent.substringFrom(node).trim();
+                        }
                     }
                 }
             }
@@ -369,16 +369,17 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         // Re-query the node to extract the receiver type from captures
-        TSQueryCursor cursor = new TSQueryCursor();
         TSQuery currentThreadQuery = getThreadLocalQuery();
-        cursor.exec(currentThreadQuery, node);
-        TSQueryMatch match = new TSQueryMatch();
         Map<String, TSNode> localCaptures = new HashMap<>();
+        try (TSQueryCursor cursor = new TSQueryCursor()) {
+            cursor.exec(currentThreadQuery, node);
+            TSQueryMatch match = new TSQueryMatch();
 
-        if (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String capName = currentThreadQuery.getCaptureNameForId(capture.getIndex());
-                localCaptures.put(capName, capture.getNode());
+            if (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String capName = currentThreadQuery.getCaptureNameForId(capture.getIndex());
+                    localCaptures.put(capName, capture.getNode());
+                }
             }
         }
 
@@ -423,7 +424,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     if (parent == null || parent.toString().isEmpty()) {
                         return ".";
                     }
-                    return "./" + toUnixPath(parent);
+                    // Normalize to unix path for Go modules
+                    String unixPath = parent.toString().replace('\\', '/');
+                    return "./" + unixPath;
                 })
                 .distinct()
                 .sorted()
@@ -615,18 +618,19 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         }
 
         SourceContent sourceContent = SourceContent.of(source);
-        TSQuery query = new TSQuery(
-                getTSLanguage(), "[(type_identifier) @type (selector_expression operand: (identifier) @pkg)]");
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
-
         Set<String> identifiers = new HashSet<>();
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                TSNode node = capture.getNode();
-                if (node != null && !node.isNull()) {
-                    identifiers.add(sourceContent.substringFrom(node).trim());
+        try (TSQuery query = new TSQuery(
+                        getTSLanguage(), "[(type_identifier) @type (selector_expression operand: (identifier) @pkg)]");
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            cursor.exec(query, tree.getRootNode());
+
+            TSQueryMatch match = new TSQueryMatch();
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    TSNode node = capture.getNode();
+                    if (node != null && !node.isNull()) {
+                        identifiers.add(sourceContent.substringFrom(node).trim());
+                    }
                 }
             }
         }
@@ -745,99 +749,100 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         TSQuery query = getThreadLocalQuery();
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
-        TSQueryMatch match = new TSQueryMatch();
+        try (TSQueryCursor cursor = new TSQueryCursor()) {
+            cursor.exec(query, tree.getRootNode());
+            TSQueryMatch match = new TSQueryMatch();
 
-        while (cursor.nextMatch(match)) {
-            boolean sawTestMarker = false;
-            TSNode nameNode = null;
-            TSNode paramsNode = null;
+            while (cursor.nextMatch(match)) {
+                boolean sawTestMarker = false;
+                TSNode nameNode = null;
+                TSNode paramsNode = null;
 
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String captureName = query.getCaptureNameForId(capture.getIndex());
-                TSNode node = capture.getNode();
-                if (node == null || node.isNull()) {
-                    continue;
-                }
-
-                if (TEST_MARKER.equals(captureName)) {
-                    sawTestMarker = true;
-                } else if (CAPTURE_TEST_CANDIDATE_NAME.equals(captureName)) {
-                    nameNode = node;
-                } else if (CAPTURE_TEST_CANDIDATE_PARAMS.equals(captureName)) {
-                    paramsNode = node;
-                }
-
-                if (sawTestMarker && nameNode != null && paramsNode != null) {
-                    break;
-                }
-            }
-
-            if (!sawTestMarker || nameNode == null || paramsNode == null) {
-                continue;
-            }
-
-            // 1. Check function name starts with "Test"
-            String funcName = sourceContent.substringFrom(nameNode).trim();
-            if (!funcName.startsWith(TEST_FUNCTION_PREFIX)) {
-                continue;
-            }
-
-            // 2. Go tests cannot be generic (no type parameters)
-            TSNode parent = nameNode.getParent();
-            if (parent != null && !parent.isNull()) {
-                TSNode typeParams = parent.getChildByFieldName(GO_SYNTAX_PROFILE.typeParametersFieldName());
-                if (typeParams != null && !typeParams.isNull()) {
-                    continue;
-                }
-            }
-
-            // 3. Inspect parameters: must have exactly one parameter of type testing.T or *testing.T
-            // In Go: "func Test(t *testing.T)" has 1 parameter_declaration with 1 identifier.
-            // "func Test(a, b *testing.T)" has 1 parameter_declaration with 2 identifiers.
-            // "func Test(a T1, b T2)" has 2 parameter_declarations.
-            int totalIdentifierCount = 0;
-            TSNode firstParamDecl = null;
-
-            for (int i = 0; i < paramsNode.getNamedChildCount(); i++) {
-                TSNode child = paramsNode.getNamedChild(i);
-                if (PARAMETER_DECLARATION.equals(child.getType())) {
-                    if (firstParamDecl == null) {
-                        firstParamDecl = child;
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = query.getCaptureNameForId(capture.getIndex());
+                    TSNode node = capture.getNode();
+                    if (node == null || node.isNull()) {
+                        continue;
                     }
-                    for (int j = 0; j < child.getNamedChildCount(); j++) {
-                        if ("identifier".equals(child.getNamedChild(j).getType())) {
-                            totalIdentifierCount++;
-                        }
+
+                    if (TEST_MARKER.equals(captureName)) {
+                        sawTestMarker = true;
+                    } else if (CAPTURE_TEST_CANDIDATE_NAME.equals(captureName)) {
+                        nameNode = node;
+                    } else if (CAPTURE_TEST_CANDIDATE_PARAMS.equals(captureName)) {
+                        paramsNode = node;
                     }
-                }
-            }
 
-            if (totalIdentifierCount != 1 || firstParamDecl == null) {
-                continue;
-            }
-
-            TSNode typeNode = firstParamDecl.getChildByFieldName(FIELD_TYPE);
-            // Fallback for types without field name (depending on TS version/grammar)
-            if (typeNode == null || typeNode.isNull()) {
-                for (int i = 0; i < firstParamDecl.getNamedChildCount(); i++) {
-                    TSNode child = firstParamDecl.getNamedChild(i);
-                    String type = child.getType();
-                    if (POINTER_TYPE.equals(type) || QUALIFIED_TYPE.equals(type) || TYPE_IDENTIFIER.equals(type)) {
-                        typeNode = child;
+                    if (sawTestMarker && nameNode != null && paramsNode != null) {
                         break;
                     }
                 }
-            }
 
-            if (typeNode == null || typeNode.isNull()) {
-                continue;
-            }
+                if (!sawTestMarker || nameNode == null || paramsNode == null) {
+                    continue;
+                }
 
-            String typeText = sourceContent.substringFrom(typeNode).trim();
-            if (TESTING_T.equals(typeText) || POINTER_TESTING_T.equals(typeText)) {
-                return true;
+                // 1. Check function name starts with "Test"
+                String funcName = sourceContent.substringFrom(nameNode).trim();
+                if (!funcName.startsWith(TEST_FUNCTION_PREFIX)) {
+                    continue;
+                }
+
+                // 2. Go tests cannot be generic (no type parameters)
+                TSNode parent = nameNode.getParent();
+                if (parent != null && !parent.isNull()) {
+                    TSNode typeParams = parent.getChildByFieldName(GO_SYNTAX_PROFILE.typeParametersFieldName());
+                    if (typeParams != null && !typeParams.isNull()) {
+                        continue;
+                    }
+                }
+
+                // 3. Inspect parameters: must have exactly one parameter of type testing.T or *testing.T
+                // In Go: "func Test(t *testing.T)" has 1 parameter_declaration with 1 identifier.
+                // "func Test(a, b *testing.T)" has 1 parameter_declaration with 2 identifiers.
+                // "func Test(a T1, b T2)" has 2 parameter_declarations.
+                int totalIdentifierCount = 0;
+                TSNode firstParamDecl = null;
+
+                for (int i = 0; i < paramsNode.getNamedChildCount(); i++) {
+                    TSNode child = paramsNode.getNamedChild(i);
+                    if (PARAMETER_DECLARATION.equals(child.getType())) {
+                        if (firstParamDecl == null) {
+                            firstParamDecl = child;
+                        }
+                        for (int j = 0; j < child.getNamedChildCount(); j++) {
+                            if ("identifier".equals(child.getNamedChild(j).getType())) {
+                                totalIdentifierCount++;
+                            }
+                        }
+                    }
+                }
+
+                if (totalIdentifierCount != 1 || firstParamDecl == null) {
+                    continue;
+                }
+
+                TSNode typeNode = firstParamDecl.getChildByFieldName(FIELD_TYPE);
+                // Fallback for types without field name (depending on TS version/grammar)
+                if (typeNode == null || typeNode.isNull()) {
+                    for (int i = 0; i < firstParamDecl.getNamedChildCount(); i++) {
+                        TSNode child = firstParamDecl.getNamedChild(i);
+                        String type = child.getType();
+                        if (POINTER_TYPE.equals(type) || QUALIFIED_TYPE.equals(type) || TYPE_IDENTIFIER.equals(type)) {
+                            typeNode = child;
+                            break;
+                        }
+                    }
+                }
+
+                if (typeNode == null || typeNode.isNull()) {
+                    continue;
+                }
+
+                String typeText = sourceContent.substringFrom(typeNode).trim();
+                if (TESTING_T.equals(typeText) || POINTER_TESTING_T.equals(typeText)) {
+                    return true;
+                }
             }
         }
 

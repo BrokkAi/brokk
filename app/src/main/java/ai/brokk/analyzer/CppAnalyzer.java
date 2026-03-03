@@ -1435,23 +1435,25 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return identifiers;
         }
 
-        TSQuery query = new TSQuery(
-                getTSLanguage(), "[(type_identifier) @type (identifier) @id (qualified_identifier) @qualified]");
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
+        try (TSQuery query = new TSQuery(
+                        getTSLanguage(),
+                        "[(type_identifier) @type (identifier) @id (qualified_identifier) @qualified]");
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            cursor.exec(query, tree.getRootNode());
 
-        SourceContent sourceContent = SourceContent.of(source);
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String text = sourceContent.substringFrom(capture.getNode()).strip();
-                if (text.isEmpty()) continue;
+            SourceContent sourceContent = SourceContent.of(source);
+            TSQueryMatch match = new TSQueryMatch();
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String text = sourceContent.substringFrom(capture.getNode()).strip();
+                    if (text.isEmpty()) continue;
 
-                // For qualified identifiers (e.g., std::string), split into parts
-                List<String> parts = Splitter.on("::").splitToList(text);
-                for (String part : parts) {
-                    if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
-                        identifiers.add(part);
+                    // For qualified identifiers (e.g., std::string), split into parts
+                    List<String> parts = Splitter.on("::").splitToList(text);
+                    for (String part : parts) {
+                        if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
+                            identifiers.add(part);
+                        }
                     }
                 }
             }
