@@ -24,7 +24,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSParser;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
@@ -109,7 +108,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/go/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/go/imports.scm");
-            case IDENTIFIERS -> Optional.empty();
+            case IDENTIFIERS -> Optional.of("treesitter/go/identifiers.scm");
         };
     }
 
@@ -612,17 +611,19 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
-        TSParser parser = getTSParser();
-        TSTree tree = parser.parseString(null, source);
+        TSTree tree = getTSParser().parseString(null, source);
         if (tree == null || tree.getRootNode().isNull()) {
+            return Collections.emptySet();
+        }
+
+        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
+        if (query == null) {
             return Collections.emptySet();
         }
 
         SourceContent sourceContent = SourceContent.of(source);
         Set<String> identifiers = new HashSet<>();
-        try (TSQuery query = new TSQuery(
-                        getTSLanguage(), "[(type_identifier) @type (selector_expression operand: (identifier) @pkg)]");
-                TSQueryCursor cursor = new TSQueryCursor()) {
+        try (TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, tree.getRootNode());
 
             TSQueryMatch match = new TSQueryMatch();
