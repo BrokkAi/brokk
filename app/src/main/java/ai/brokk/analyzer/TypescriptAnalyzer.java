@@ -143,7 +143,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/typescript/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/typescript/imports.scm");
-            case IDENTIFIERS -> Optional.empty();
+            case IDENTIFIERS -> Optional.of("treesitter/typescript/identifiers.scm");
         };
     }
 
@@ -1145,27 +1145,18 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
+        TSQuery query = getThreadLocalQuery(QueryType.IDENTIFIERS);
+        if (query == null) {
+            return Set.of();
+        }
+
         Set<String> identifiers = new HashSet<>();
-        TSParser parser = getTSParser();
         try {
             SourceContent sourceContent = SourceContent.of(source);
-            try (TSTree tree = parser.parseString(null, source)) {
+            try (TSTree tree = getTSParser().parseString(null, source)) {
                 TSNode rootNode = tree.getRootNode();
-                TSLanguage tsLanguage = getTSLanguage();
 
-                // Query for standard identifiers and type identifiers
-                String queryStr =
-                        """
-                                (identifier) @id
-                                (type_identifier) @type
-                                (jsx_opening_element name: (identifier) @id)
-                                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
-                                (jsx_self_closing_element name: (identifier) @id)
-                                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
-                                """;
-
-                try (TSQuery query = new TSQuery(tsLanguage, queryStr);
-                        TSQueryCursor cursor = new TSQueryCursor()) {
+                try (TSQueryCursor cursor = new TSQueryCursor()) {
                     cursor.exec(query, rootNode);
                     TSQueryMatch match = new TSQueryMatch();
 
