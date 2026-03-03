@@ -323,4 +323,14 @@ public final class WorktreeProject extends AbstractProject {
     public void setGitConfigDeclined(boolean declined) {
         parent.setGitConfigDeclined(declined);
     }
+
+    @Override
+    public List<String> getJavaSourceRoots() {
+        return parent.getJavaSourceRoots();
+    }
+
+    @Override
+    public void setJavaSourceRoots(List<String> roots) {
+        parent.setJavaSourceRoots(roots);
+    }
 }

@@ -95,6 +95,7 @@ public final class MainProject extends AbstractProject {
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
+    private static final String JAVA_SOURCE_ROOTS_KEY = "javaSourceRoots";
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
 
@@ -875,6 +876,34 @@ public final class MainProject extends AbstractProject {
     public void setCodeAgentTestScope(CodeAgentTestScope scope) {
         projectProps.setProperty(CODE_AGENT_TEST_SCOPE_KEY, scope.name());
         saveProjectProperties();
+    }
+
+    @Override
+    public List<String> getJavaSourceRoots() {
+        String json = projectProps.getProperty(JAVA_SOURCE_ROOTS_KEY);
+        if (json == null || json.isBlank()) {
+            return super.getJavaSourceRoots();
+        }
+        try {
+            var tf = objectMapper.getTypeFactory();
+            var type = tf.constructCollectionType(List.class, String.class);
+            return objectMapper.readValue(json, type);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to deserialize javaSourceRoots from JSON: {}", json, e);
+            return super.getJavaSourceRoots();
+        }
+    }
+
+    @Override
+    public void setJavaSourceRoots(List<String> roots) {
+        try {
+            String json = objectMapper.writeValueAsString(roots);
+            projectProps.setProperty(JAVA_SOURCE_ROOTS_KEY, json);
+            saveProjectProperties();
+            logger.debug("Saved Java source roots to project properties.");
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize javaSourceRoots", e);
+        }
     }
 
     @Nullable

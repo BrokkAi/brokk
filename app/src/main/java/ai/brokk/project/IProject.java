@@ -587,6 +587,23 @@ public interface IProject extends AutoCloseable {
         return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
     }
 
+    /**
+     * Returns the list of Java source roots configured for this project.
+     * These are used by tools like JDT to resolve symbols across the project.
+     *
+     * @return a list of relative or absolute paths as strings.
+     */
+    default List<String> getJavaSourceRoots() {
+        return List.of(".", "src/main/java", "src/test/java", "src/main/kotlin", "src/test/kotlin");
+    }
+
+    /**
+     * Configures the Java source roots for this project.
+     *
+     * @param roots the list of source root paths.
+     */
+    default void setJavaSourceRoots(List<String> roots) {}
+
     enum CodeAgentTestScope {
         ALL,
         WORKSPACE;
