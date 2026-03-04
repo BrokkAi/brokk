@@ -519,7 +519,7 @@ public final class BprCli implements Callable<Integer> {
                     modified.stream().map(GitRepo.ModifiedFile::file).toList();
             var gitWorkflow = new GitWorkflow(cm);
 
-            String message = commitMessage;
+            @Nullable String message = commitMessage;
             if (message == null || message.isBlank()) {
                 message = gitWorkflow.suggestCommitMessage(filesToCommit, true).orElse("Manual commit");
             }

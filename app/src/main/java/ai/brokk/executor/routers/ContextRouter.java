@@ -33,6 +33,7 @@ import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Router for /v1/context endpoints.
@@ -654,7 +655,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                     modified.stream().map(GitRepo.ModifiedFile::file).toList();
 
             var gitWorkflow = new GitWorkflow(contextManager);
-            String message = request.message();
+            @Nullable String message = request.message();
 
             if (message == null || message.isBlank()) {
                 message = gitWorkflow.suggestCommitMessage(filesToCommit, true).orElse("Manual commit");
