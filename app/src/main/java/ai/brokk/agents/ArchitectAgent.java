@@ -285,7 +285,7 @@ public class ArchitectAgent {
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 
-        // wait for the history compression that we kicked off earlier
+        // wait for the history compression that we kicked off earlier since it updates this.context
         contextFuture.join();
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
