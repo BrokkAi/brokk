@@ -2541,6 +2541,7 @@ class BrokkApp(App):
                 return False
 
     async def _create_session_from_menu(self) -> None:
+        """Async worker to create a new session."""
         from brokk_code.session_persistence import save_last_session_id
 
         chat = self._maybe_chat()
@@ -2565,6 +2566,7 @@ class BrokkApp(App):
     async def _rename_session_workflow(
         self, session_id: str, sessions: List[Dict[str, Any]]
     ) -> None:
+        """Async worker for the rename session flow."""
         initial_name = ""
         for s in sessions:
             if str(s.get("id")) == session_id:
@@ -2585,6 +2587,7 @@ class BrokkApp(App):
         )
 
     async def _delete_session_workflow(self, session_id: str) -> None:
+        """Async worker for the delete session flow."""
         chat = self._maybe_chat()
         try:
             await self.executor.delete_session(session_id)
