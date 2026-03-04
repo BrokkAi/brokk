@@ -289,7 +289,7 @@ async def test_switch_to_worktree_clears_ui_before_replay():
 
 
 @pytest.mark.asyncio
-async def test_switch_to_worktree_cancels_and_resets_job_state():
+async def test_switch_to_worktree_resets_job_state_without_cancelling():
     app = BrokkApp(workspace_dir=Path("/repo/main"))
     app.job_in_progress = True
     app.current_job_id = "job-abc"
@@ -297,7 +297,7 @@ async def test_switch_to_worktree_cancels_and_resets_job_state():
     app._pending_prompt = "some pending"
     app.session_total_cost = 5.0
 
-    # Mock the OLD executor's cancel_job
+    # Mock the OLD executor
     old_executor = app.executor
     old_executor.cancel_job = AsyncMock()
 
@@ -324,8 +324,8 @@ async def test_switch_to_worktree_cancels_and_resets_job_state():
         with patch.object(app, "_make_executor", return_value=mock_new_exec):
             await app._switch_to_worktree(target)
 
-    # Assert old executor cancellation
-    old_executor.cancel_job.assert_called_with("job-abc")
+    # Assert old executor was NOT cancelled
+    old_executor.cancel_job.assert_not_called()
 
     # Assert state reset
     assert app.job_in_progress is False

@@ -2771,11 +2771,6 @@ class BrokkApp(App):
                     self._worktree_executors.pop(resolved_path, None)
                     raise
 
-            # Cancel any running job on the executor we are leaving
-            old_executor = self.executor
-            if self.job_in_progress and self.current_job_id:
-                self.run_worker(old_executor.cancel_job(self.current_job_id))
-
             # Reset all job-scoped and session-scoped state so that neither
             # the departing _run_job's finally block nor pending-prompt logic
             # can corrupt the new worktree's state.
