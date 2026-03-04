@@ -1011,12 +1011,15 @@ class BrokkApp(App):
                 context_data = await self.executor.get_context()
                 self.current_branch = context_data.get("branch", "unknown")
 
-                # Seed or update session cost from executor's cumulative total
+                # Seed or update session cost from executor's cumulative total.
+                # Only reconcile when no job is running. While a job is active, cost
+                # is updated exclusively via COST notification events in _handle_event.
+                # Reconciling during a job risks double-counting: the executor's
+                # totalCost may already include events the TUI hasn't yet received via
+                # SSE, so bumping session_total_cost with max() and then processing
+                # those same events again inflates the displayed cost.
                 remote_total = context_data.get("totalCost")
-                if isinstance(remote_total, (int, float)):
-                    # We only seed from remote if our local tracker is 0 or if the remote
-                    # total is higher (e.g. following a resume).
-                    # Ongoing increments happen via _handle_event.
+                if isinstance(remote_total, (int, float)) and not self.job_in_progress:
                     self.session_total_cost = max(
                         self.session_total_cost, round(float(remote_total), 6)
                     )
