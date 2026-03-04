@@ -33,11 +33,15 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Creates temporary projects from source code defined by content-filename pairs. This is cleaned up once closed.
  */
 public class InlineTestProjectCreator {
+
+    private static Logger log = LoggerFactory.getLogger(InlineTestProjectCreator.class);
 
     private InlineTestProjectCreator() {}
 
@@ -199,11 +203,9 @@ public class InlineTestProjectCreator {
                     throw new IOException("Failed to clone or checkout ref: " + ref, e);
                 }
 
-                if (Boolean.getBoolean("brokk.test.debug.git")) {
-                    System.out.println("Files in root after clone/checkout of " + ref + ":");
-                    try (var s = Files.walk(root)) {
-                        s.limit(20).forEach(System.out::println);
-                    }
+                log.trace("Files in root after clone/checkout of {}:", ref);
+                try (var s = Files.walk(root)) {
+                    s.limit(20).forEach(f -> log.trace(f.toString()));
                 }
             } finally {
                 if (expandedPath != null) {
