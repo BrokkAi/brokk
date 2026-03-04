@@ -639,6 +639,7 @@ class BrokkApp(App):
         executor: Optional[ExecutorManager] = None,
         session_id: Optional[str] = None,
         resume_session: bool = False,
+        pick_session: bool = False,
         vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
@@ -661,6 +662,7 @@ class BrokkApp(App):
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
+        self.pick_session = pick_session
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.show_verbose_output: bool = False
@@ -908,6 +910,10 @@ class BrokkApp(App):
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
 
+                if self.pick_session:
+                    self.pick_session = False
+                    self.run_worker(self._show_sessions())
+
                 if resumed:
                     try:
                         conversation_data = await self.executor.get_conversation()
@@ -929,12 +935,6 @@ class BrokkApp(App):
                     queued_prompt = self._startup_pending_prompt
                     self._startup_pending_prompt = None
                     self.run_worker(self._run_job(queued_prompt))
-            else:
-                msg = "Executor failed to become ready (timeout)."
-                if chat:
-                    chat.add_system_message(msg, level="ERROR")
-                else:
-                    logger.error(msg)
         except ExecutorError as e:
             msg = str(e)
             if "jbang" in msg.lower():
@@ -2507,7 +2507,8 @@ class BrokkApp(App):
                 return
 
             def on_selected(selected_id: str | None) -> None:
-                if not selected_id:
+                if selected_id is None:
+                    # User canceled the modal (Esc); continue with current session.
                     return
                 if selected_id == "new":
                     self.run_worker(self._create_session_from_menu())

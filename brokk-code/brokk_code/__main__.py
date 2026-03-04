@@ -310,6 +310,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="The ID of the session to resume",
     )
 
+    sessions_parser = subparsers.add_parser("sessions", help="List and switch between sessions")
+    _add_common_runtime_args(sessions_parser)
+
     acp_parser = subparsers.add_parser("acp", help="Run in ACP server mode")
     _add_common_runtime_args(acp_parser)
     acp_parser.add_argument(
@@ -809,10 +812,16 @@ def main():
 
     session_id = getattr(args, "session", None)
     resume_session = getattr(args, "resume_session", False)
+    pick_session = False
 
     if args.command == "resume":
         session_id = args.session_id
         resume_session = False  # Explicitly using the provided ID, not "last session" logic
+    elif args.command == "sessions":
+        # For explicit session picking, ignore any resume hints; the picker should run regardless.
+        pick_session = True
+        session_id = None
+        resume_session = False
 
     if args.command == "issue":
         if args.issue_command == "create":
@@ -903,6 +912,7 @@ def main():
         executor_snapshot=args.executor_snapshot,
         session_id=session_id,
         resume_session=resume_session,
+        pick_session=pick_session,
         vendor=args.vendor,
     )
     try:
