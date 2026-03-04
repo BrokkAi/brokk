@@ -620,6 +620,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
 
         CompletableFuture<RefreshResult> future = LoggingFuture.supplyAsync(() -> {
             var state = resolveBaselineState(baselineRef);
+            if (state.isError()) {
+                var emptyChanges = new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of(), null);
+                return new RefreshResult(emptyChanges, List.of(), null, null, state, state);
+            }
             var reviewCtx = ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
             var changes = reviewCtx.changes();
             var prepared = DiffService.preparePerFileSummaries(changes);
@@ -1435,6 +1439,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
 
         LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState(baselineRef);
+                    if (state.isError()) {
+                        throw new RuntimeException("Cannot start review: " + state.baselineLabel());
+                    }
                     return ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
                 })
                 .thenAccept(scope -> generateGuidedReviewAsync(scope, guidedReviewRun))
