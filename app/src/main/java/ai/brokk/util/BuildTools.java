@@ -1,7 +1,5 @@
 package ai.brokk.util;
 
-import static ai.brokk.project.FileFilteringService.toUnixPath;
-
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
@@ -32,10 +30,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -149,17 +145,7 @@ public class BuildTools {
 
         // Always calculate all potential lists to support mixed templates
         // 1. Packages
-        Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
-        List<String> packages = workspaceTestFiles.stream()
-                .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
-                .filter(s -> !s.isBlank())
-                .distinct()
-                .sorted()
-                .toList();
-
-        if (packages.isEmpty() && !analyzer.isEmpty()) {
-            packages = analyzer.getTestModules(workspaceTestFiles);
-        }
+        List<String> packages = analyzer.getTestModules(workspaceTestFiles);
         context.put("packages", MustacheTemplates.toStringElementList(packages));
 
         // 2. Files
@@ -196,62 +182,6 @@ public class BuildTools {
         return result;
     }
 
-    private static Optional<Path> detectModuleAnchor(Path projectRoot, BuildDetails details) {
-        String testAll = details.testAllCommand();
-        String testSome = details.testSomeCommand();
-
-        Optional<Path> fromRunner = extractRunnerAnchorFromCommands(projectRoot, List.of(testAll, testSome));
-        if (fromRunner.isPresent()) return fromRunner;
-
-        Path tests = projectRoot.resolve("tests");
-        if (Files.isDirectory(tests)) return Optional.of(tests);
-
-        return Optional.empty();
-    }
-
-    public static Optional<Path> extractRunnerAnchorFromCommands(Path projectRoot, List<String> commands) {
-        // Regex to match either:
-        // 1. Quoted strings: "..." or '...'
-        // 2. Non-whitespace strings, excluding shell operators like ;, &, |
-        Pattern pattern = Pattern.compile("\"([^\"]*)\"|'([^']*)'|([^\\s;&|]+)");
-
-        for (String cmd : commands) {
-            if (cmd.isBlank()) continue;
-
-            var matcher = pattern.matcher(cmd);
-            while (matcher.find()) {
-                // Determine which group matched (1=double-quote, 2=single-quote, 3=unquoted)
-                String token = matcher.group(1) != null
-                        ? matcher.group(1)
-                        : matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
-
-                if (token == null || token.isBlank()) continue;
-
-                // Filter out flags and assignments
-                if (token.startsWith("-") || token.contains("=")) continue;
-
-                // We are looking for Python test runners
-                if (!token.endsWith(".py")) continue;
-
-                Path candidate = projectRoot.resolve(token).normalize();
-                if (!Files.exists(candidate)) {
-                    Path p = Path.of(token);
-                    if (p.isAbsolute() && Files.exists(p)) {
-                        candidate = p.normalize();
-                    }
-                }
-
-                if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
-                    Path parent = candidate.getParent();
-                    if (parent != null && Files.isDirectory(parent)) {
-                        return Optional.of(parent);
-                    }
-                }
-            }
-        }
-        return Optional.empty();
-    }
-
     private static @Nullable String getPythonVersionForProject(Path projectRoot) {
         try {
             return new EnvironmentPython(projectRoot).getPythonVersion();
@@ -259,43 +189,6 @@ public class BuildTools {
             logger.debug("Unable to determine Python version for project", e);
             return null;
         }
-    }
-
-    private static String toPythonModuleLabel(Path projectRoot, @Nullable Path anchor, Path filePath) {
-        Path abs = projectRoot.resolve(filePath).normalize();
-        Path base = anchor;
-        if (base == null || !abs.startsWith(base)) {
-            base = inferImportRoot(abs).orElse(null);
-        }
-        if (base == null) return "";
-        Path rel;
-        try {
-            rel = base.relativize(abs);
-        } catch (IllegalArgumentException e) {
-            return "";
-        }
-        String s = toUnixPath(rel);
-        if (s.endsWith(".py")) s = s.substring(0, s.length() - 3);
-        if (s.endsWith("/__init__")) s = s.substring(0, s.length() - "/__init__".length());
-        while (s.startsWith("/")) s = s.substring(1);
-        String dotted = s.replace('/', '.');
-        while (dotted.startsWith(".")) dotted = dotted.substring(1);
-        return dotted;
-    }
-
-    private static Optional<Path> inferImportRoot(Path absFile) {
-        if (!Files.isRegularFile(absFile)) {
-            return Optional.empty();
-        }
-        Path p = absFile.getParent();
-        Path lastWithInit = null;
-        // Search upwards for the top-most package directory containing __init__.py
-        while (p != null && Files.isRegularFile(p.resolve("__init__.py"))) {
-            lastWithInit = p;
-            p = p.getParent();
-        }
-        return Optional.ofNullable(
-                Objects.requireNonNullElse(lastWithInit, absFile).getParent());
     }
 
     private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
