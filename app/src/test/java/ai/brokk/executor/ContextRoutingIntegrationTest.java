@@ -33,6 +33,8 @@ class ContextRoutingIntegrationTest {
 
     @BeforeEach
     void setup(@TempDir Path tempDir) throws IOException {
+        // MainProject.forTests(tempDir) automatically suppresses background session migrations
+        // by marking them as complete, ensuring deterministic behavior in these tests.
         var project = MainProject.forTests(tempDir);
         contextManager = new ContextManager(project);
 

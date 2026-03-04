@@ -235,15 +235,26 @@ public final class MainProject extends AbstractProject {
         this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
     }
 
+    /**
+     * Creates a MainProject instance configured for testing.
+     * By default, this marks V3 session migrations as complete to prevent background migration
+     * logic in {@code ContextManager} from interfering with test determinism.
+     */
     @TestOnly
     public static MainProject forTests(Path root) {
         return forTests(root, BuildAgent.BuildDetails.EMPTY);
     }
 
+    /**
+     * Creates a MainProject instance configured for testing with specific build details.
+     * Marks V3 session migrations as complete to prevent background interference.
+     */
     @TestOnly
     public static MainProject forTests(Path root, BuildAgent.BuildDetails buildDetails) {
         var mp = new MainProject(root);
         mp.saveBuildDetails(buildDetails);
+        // Suppress background session migrations for tests to ensure determinism
+        mp.setMigrationsToSessionsV3Complete(true);
         return mp;
     }
 
