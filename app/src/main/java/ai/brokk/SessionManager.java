@@ -84,6 +84,19 @@ public class SessionManager implements AutoCloseable {
 
     public record MinimalSessionInfo(UUID id, Instant createdAt, Instant lastModified) {}
 
+    public record CostEvent(
+            long timestampMillis,
+            UUID sessionId,
+            @Nullable String operationLabel,
+            @Nullable String operationType, // e.g., TaskResult.Type name or "INTERNAL"
+            String modelName,
+            String tier,
+            int inputTokens,
+            int cachedInputTokens,
+            int thinkingTokens,
+            int outputTokens,
+            double costUsd) {}
+
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
 
     public static final String UNREADABLE_SESSIONS_DIR = "unreadable";
@@ -121,6 +134,7 @@ public class SessionManager implements AutoCloseable {
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
+    private final Map<UUID, List<CostEvent>> costLedgerCache = new ConcurrentHashMap<>();
 
     private final Set<CompletableFuture<?>> inFlightForeignDownloads = ConcurrentHashMap.newKeySet();
 
@@ -298,6 +312,66 @@ public class SessionManager implements AutoCloseable {
             }
             return null;
         });
+    }
+
+    public void recordCostEvent(UUID sessionId, CostEvent event) {
+        costLedgerCache.computeIfAbsent(sessionId, k -> new ArrayList<>()).add(event);
+
+        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            try {
+                Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                if (!Files.exists(sessionHistoryPath)) {
+                    return null;
+                }
+                try (var fs = FileSystems.newFileSystem(sessionHistoryPath, Map.of("create", "false"))) {
+                    Path ledgerPath = fs.getPath("cost_ledger.jsonl");
+                    String json = AbstractProject.objectMapper.writeValueAsString(event) + "\n";
+                    Files.writeString(ledgerPath, json, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                }
+            } catch (IOException e) {
+                logger.error("Error recording cost event for session {}: {}", sessionId, e.getMessage());
+            }
+            return null;
+        });
+    }
+
+    @Blocking
+    public List<CostEvent> readCostEvents(UUID sessionId) {
+        try {
+            Path zipPath = resolveSessionHistoryZipPath(sessionId);
+            if (!Files.exists(zipPath)) {
+                return List.of();
+            }
+
+            return sessionExecutorByKey
+                    .submit(sessionId.toString(), () -> {
+                        List<CostEvent> events = new ArrayList<>();
+                        try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+                            Path ledgerPath = fs.getPath("cost_ledger.jsonl");
+                            if (Files.exists(ledgerPath)) {
+                                try (var reader = Files.newBufferedReader(ledgerPath)) {
+                                    String line;
+                                    while ((line = reader.readLine()) != null) {
+                                        if (line.isBlank()) continue;
+                                        events.add(AbstractProject.objectMapper.readValue(line, CostEvent.class));
+                                    }
+                                }
+                            }
+                        } catch (IOException e) {
+                            logger.warn("Error reading cost ledger for session {}: {}", sessionId, e.getMessage());
+                        }
+                        return List.copyOf(events);
+                    })
+                    .get();
+        } catch (FileNotFoundException e) {
+            return List.of();
+        } catch (InterruptedException | ExecutionException e) {
+            logger.error("Error awaiting cost ledger read for session {}: {}", sessionId, e.getMessage());
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return List.of();
+        }
     }
 
     public void deleteSession(UUID sessionId) {
