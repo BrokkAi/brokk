@@ -64,6 +64,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             } else if (normalizedPath.equals("/v1/context/conversation")) {
                 handleGetConversation(exchange);
                 return;
+            } else if (normalizedPath.equals("/v1/session/costs")) {
+                handleGetSessionCosts(exchange);
+                return;
             }
         }
 
@@ -623,6 +626,52 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     private record ReplaceTaskListRequest(
             @org.jetbrains.annotations.Nullable String bigPicture,
             @org.jetbrains.annotations.Nullable List<TaskList.TaskItem> tasks) {}
+
+    // ── GET /v1/session/costs ─────────────────────────────
+
+    /**
+     * Returns the current session's cost breakdown including all ledger events and aggregate total.
+     */
+    private void handleGetSessionCosts(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
+            return;
+        }
+
+        try {
+            var sessionId = contextManager.getCurrentSessionId();
+            if (sessionId == null) {
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, Map.of("sessionId", null, "totalCost", 0.0, "events", List.of()));
+                return;
+            }
+
+            var sessionManager = contextManager.getProject().getSessionManager();
+            var events = sessionManager.readCostEvents(sessionId);
+            double totalCost = sessionManager.getTotalSessionCost(sessionId);
+
+            // Map CostEvent to a DTO for JSON (excluding sessionId per event as it's top-level)
+            var eventDtos = events.stream()
+                    .map(e -> Map.of(
+                            "timestampMillis", e.timestampMillis(),
+                            "operationLabel", Objects.requireNonNullElse(e.operationLabel(), ""),
+                            "operationType", Objects.requireNonNullElse(e.operationType(), ""),
+                            "modelName", e.modelName(),
+                            "tier", e.tier(),
+                            "inputTokens", e.inputTokens(),
+                            "cachedInputTokens", e.cachedInputTokens(),
+                            "thinkingTokens", e.thinkingTokens(),
+                            "outputTokens", e.outputTokens(),
+                            "costUsd", e.costUsd()))
+                    .toList();
+
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, Map.of("sessionId", sessionId, "totalCost", totalCost, "events", eventDtos));
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/session/costs", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to retrieve session costs", e));
+        }
+    }
 
     // ── GET /v1/context/conversation ──────────────────────
 
