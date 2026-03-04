@@ -220,3 +220,16 @@ def test_status_line_worktree_display():
     status.update_status(worktree=None)
     call_text = mock_metadata.update.call_args[0][0]
     assert "wt:" not in call_text
+
+    # Case 4: worktree name equals branch — wt: must NOT appear
+    status.update_status(
+        mode="LUTZ",
+        model="gpt-4",
+        reasoning="high",
+        workspace="/work",
+        branch="enh/slash-review",
+        worktree="enh/slash-review",
+    )
+    call_text = mock_metadata.update.call_args[0][0]
+    assert "wt:" not in call_text
+    assert call_text.count("enh/slash-review") == 1

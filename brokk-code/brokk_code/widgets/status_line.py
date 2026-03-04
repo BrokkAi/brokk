@@ -112,7 +112,7 @@ class StatusLine(Horizontal):
             workspace_display,
             self._branch,
         ]
-        if self._worktree:
+        if self._worktree and self._worktree != self._branch:
             parts.append(f"wt:{self._worktree}")
 
         if self._turn_cost is not None and self._turn_cost > 0.000001:
