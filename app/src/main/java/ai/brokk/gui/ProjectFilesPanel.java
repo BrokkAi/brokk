@@ -184,11 +184,11 @@ public class ProjectFilesPanel extends JPanel {
 
             String msg;
             if (count == 0) {
-                msg = "ProjectTree refreshes in last 1s: 0";
+                msg = "DEBUG: ProjectTree refreshes in last 1s: 0";
             } else {
                 long durationMs = lastRefreshDurationMs.get();
                 String type = lastRefreshIncremental.get() ? "inc" : "full";
-                msg = "ProjectTree refreshes in last 1s: " + count + " (last=" + durationMs + "ms " + type + ")";
+                msg = "DEBUG: ProjectTree refreshes in last 1s: " + count + " (last=" + durationMs + "ms " + type + ")";
             }
 
             System.out.println(msg);
