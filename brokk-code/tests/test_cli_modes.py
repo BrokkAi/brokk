@@ -556,6 +556,146 @@ def test_main_issue_create_respects_env_github_token(monkeypatch, tmp_path) -> N
     assert captured["kwargs"]["verbose"] is False
 
 
+def test_main_pr_create_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    temp_workspace = tmp_path / "temp-pr"
+    temp_workspace.mkdir()
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    @contextmanager
+    def fake_temp_checkout(**kwargs: Any):
+        captured["checkout_kwargs"] = kwargs
+        yield temp_workspace
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(main_module, "_temporary_issue_repo_checkout", fake_temp_checkout)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "create",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_pr",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+            "--title",
+            "My PR",
+            "--body",
+            "Details",
+            "--base",
+            "main",
+            "--planner-model",
+            "pr-model",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["checkout_kwargs"]["repo_owner"] == "acme"
+    assert captured["checkout_kwargs"]["repo_name"] == "tools"
+    assert captured["checkout_kwargs"]["github_token"] == "ghp_pr"
+    assert captured["checkout_kwargs"]["action_label"] == "PR create"
+    assert captured["kwargs"]["workspace_dir"] == temp_workspace
+    assert captured["kwargs"]["mode"] == "PR_CREATE"
+    assert captured["kwargs"]["planner_model"] == "pr-model"
+    assert captured["kwargs"]["planner_reasoning_level"] == "disable"
+    assert captured["kwargs"]["tags"]["github_token"] == "ghp_pr"
+    assert captured["kwargs"]["tags"]["repo_owner"] == "acme"
+    assert captured["kwargs"]["tags"]["repo_name"] == "tools"
+    assert captured["kwargs"]["tags"]["base_branch"] == "main"
+    assert captured["kwargs"]["tags"]["pr_title"] == "My PR"
+    assert captured["kwargs"]["tags"]["pr_body"] == "Details"
+
+
+def test_main_pr_create_validation_missing_token(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "pr", "create", "--repo-owner", "o", "--repo-name", "r"],
+    )
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    assert "Error: --github-token is required for pr create" in capsys.readouterr().err
+
+
+def test_main_pr_create_validation_invalid_owner(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "create",
+            "--github-token",
+            "t",
+            "--repo-owner",
+            "invalid/owner",
+            "--repo-name",
+            "r",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "Error: Invalid --repo-owner 'invalid/owner'" in err
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_prints_pr_created_link_from_structured_event(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        assert job_id == "job-456"
+        yield {
+            "type": "PR_CREATED",
+            "data": {
+                "prUrl": "https://github.com/brokkai/brokk/pull/42",
+                "title": "My PR",
+            },
+        }
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Create PR",
+        planner_model="test-model",
+        mode="PR_CREATE",
+        tags={},
+    )
+
+    captured = capsys.readouterr()
+    assert "Pull Request created: https://github.com/brokkai/brokk/pull/42" in captured.out
+
+
 def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
     temp_workspace = tmp_path / "temp-create-verbose"

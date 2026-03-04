@@ -345,6 +345,9 @@ def _build_parser() -> argparse.ArgumentParser:
     issue_parser = subparsers.add_parser("issue", help="Manage GitHub issues")
     issue_subparsers = issue_parser.add_subparsers(dest="issue_command", required=True)
 
+    pr_parser = subparsers.add_parser("pr", help="Manage GitHub pull requests")
+    pr_subparsers = pr_parser.add_subparsers(dest="pr_command", required=True)
+
     # Note: 'issue create' maps to ISSUE_WRITER mode in the Java HeadlessExecCli.
     # It follows the same required parameters: repo owner/name, token, and prompt.
     issue_create_parser = issue_subparsers.add_parser("create", help="Create a new GitHub issue")
@@ -379,6 +382,53 @@ def _build_parser() -> argparse.ArgumentParser:
         help="LLM model for planning (default: gemini-3-flash-preview)",
     )
     issue_create_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full headless executor output (events/tokens) for debugging",
+    )
+
+    pr_create_parser = pr_subparsers.add_parser("create", help="Create a new GitHub pull request")
+    _add_common_runtime_args(pr_create_parser)
+    pr_create_parser.add_argument(
+        "--github-token",
+        type=str,
+        default=os.environ.get("GITHUB_TOKEN"),
+        help="GitHub API token (defaults to GITHUB_TOKEN env var)",
+    )
+    pr_create_parser.add_argument(
+        "--repo-owner",
+        type=str,
+        help="GitHub repository owner",
+    )
+    pr_create_parser.add_argument(
+        "--repo-name",
+        type=str,
+        help="GitHub repository name",
+    )
+    pr_create_parser.add_argument(
+        "--title",
+        type=str,
+        help="Pull request title (optional; defaults to a suggested title)",
+    )
+    pr_create_parser.add_argument(
+        "--body",
+        type=str,
+        help="Pull request body/description (optional; defaults to a suggested description)",
+    )
+    pr_create_parser.add_argument(
+        "--base",
+        type=str,
+        help="Base branch for the pull request (default: repo default branch)",
+    )
+    pr_create_parser.add_argument(
+        "--planner-model",
+        type=str,
+        default="gemini-3-flash-preview",
+        help="LLM model for planning (default: gemini-3-flash-preview)",
+    )
+    pr_create_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -497,10 +547,17 @@ async def run_headless_job(
     last_state: str | None = None
     error_messages: list[str] = []
     created_issue_url: str | None = None
+    created_pr_url: str | None = None
     token_url_scan_buffer = ""
     spinner_index = 0
     spinner_active = False
-    spinner_label = "Creating issue"
+    spinner_label = (
+        "Creating issue"
+        if mode == "ISSUE_WRITER"
+        else "Creating pull request"
+        if mode == "PR_CREATE"
+        else "Running job"
+    )
     spinner_frames = "|/-\\"
     spinner_enabled = sys.stdout.isatty() and not verbose
 
@@ -520,14 +577,25 @@ async def run_headless_job(
                 return value.strip()
         return ""
 
-    def _record_issue_url(text: str) -> None:
-        nonlocal created_issue_url, token_url_scan_buffer
-        if created_issue_url or not text:
+    def _record_resource_url(text: str) -> None:
+        nonlocal created_issue_url, created_pr_url, token_url_scan_buffer
+        if (created_issue_url and created_pr_url) or not text:
             return
         token_url_scan_buffer = (token_url_scan_buffer + text)[-8192:]
-        match = re.search(r"https://github\.com/[^\s)\]>\"]+/issues/\d+", token_url_scan_buffer)
-        if match:
-            created_issue_url = match.group(0)
+        issue_match = re.search(
+            r"https://github\.com/[^\s)\]>\"]+/issues/\d+", token_url_scan_buffer
+        )
+        pr_match = re.search(r"https://github\.com/[^\s)\]>\"]+/pull/\d+", token_url_scan_buffer)
+        if issue_match and not created_issue_url:
+            created_issue_url = issue_match.group(0)
+        if pr_match and not created_pr_url:
+            created_pr_url = pr_match.group(0)
+
+    def _record_issue_url(text: str) -> None:
+        _record_resource_url(text)
+
+    def _record_pr_url(text: str) -> None:
+        _record_resource_url(text)
 
     def _record_issue_url_from_issue_writer_notification(message: str) -> None:
         # Java executor success path emits:
@@ -547,13 +615,26 @@ async def run_headless_job(
         if isinstance(issue_url, str) and issue_url.strip():
             _record_issue_url(issue_url.strip())
 
+    def _record_pr_url_from_structured_pr_created(event: dict[str, Any]) -> None:
+        if created_pr_url:
+            return
+        data = _event_data(event)
+        pr_url = data.get("prUrl")
+        if isinstance(pr_url, str) and pr_url.strip():
+            _record_pr_url(pr_url.strip())
+
     def _render_spinner() -> None:
         nonlocal spinner_index, spinner_active
-        if mode not in {"ISSUE_WRITER", "ISSUE"} or not spinner_enabled:
+        if mode not in {"ISSUE_WRITER", "ISSUE", "PR_CREATE"} or not spinner_enabled:
             return
         frame = spinner_frames[spinner_index % len(spinner_frames)]
         spinner_index += 1
-        label = "Solving issue" if mode == "ISSUE" else spinner_label
+        if mode == "ISSUE":
+            label = "Solving issue"
+        elif mode == "PR_CREATE":
+            label = "Creating pull request"
+        else:
+            label = spinner_label
         sys.stdout.write(f"\r{label}... {frame}")
         sys.stdout.flush()
         spinner_active = True
@@ -657,6 +738,11 @@ async def run_headless_job(
                 if verbose:
                     _clear_spinner()
                     print(f"[ISSUE_CREATED] {data}")
+            elif event_type == "PR_CREATED":
+                _record_pr_url_from_structured_pr_created(event)
+                if verbose:
+                    _clear_spinner()
+                    print(f"[PR_CREATED] {data}")
             elif event_type == "COMMAND_RESULT":
                 if verbose:
                     _clear_spinner()
@@ -698,6 +784,11 @@ async def run_headless_job(
                 print(f"Issue created: {created_issue_url}")
             else:
                 print("Issue created.")
+        elif mode == "PR_CREATE":
+            if created_pr_url:
+                print(f"Pull Request created: {created_pr_url}")
+            else:
+                print("Pull Request created.")
         else:
             print("Job finished.")
 
@@ -882,6 +973,46 @@ def main():
                         max_issue_fix_attempts=args.max_issue_fix_attempts,
                         verbose=args.verbose,
                         mode="ISSUE",
+                        tags=tags,
+                        jar_path=jar_path,
+                        executor_version=args.executor_version,
+                        executor_snapshot=args.executor_snapshot,
+                        vendor=args.vendor,
+                    )
+                )
+            return
+
+    if args.command == "pr":
+        if args.pr_command == "create":
+            _validate_github_params(args.github_token, args.repo_owner, args.repo_name, "pr create")
+            tags = {
+                "github_token": args.github_token or "",
+                "repo_owner": args.repo_owner or "",
+                "repo_name": args.repo_name or "",
+            }
+            if args.base:
+                tags["base_branch"] = args.base
+            if args.title:
+                tags["pr_title"] = args.title
+            if args.body:
+                tags["pr_body"] = args.body
+
+            task_input = "Create GitHub pull request for the current branch"
+
+            with _temporary_issue_repo_checkout(
+                repo_owner=args.repo_owner or "",
+                repo_name=args.repo_name or "",
+                github_token=args.github_token or "",
+                action_label="PR create",
+            ) as pr_workspace_path:
+                asyncio.run(
+                    run_headless_job(
+                        workspace_dir=pr_workspace_path,
+                        task_input=task_input,
+                        planner_model=args.planner_model,
+                        planner_reasoning_level="disable",
+                        verbose=args.verbose,
+                        mode="PR_CREATE",
                         tags=tags,
                         jar_path=jar_path,
                         executor_version=args.executor_version,
