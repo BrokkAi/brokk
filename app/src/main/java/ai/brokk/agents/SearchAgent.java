@@ -110,6 +110,8 @@ public class SearchAgent {
     private final String goal;
     private final List<McpPrompts.McpTool> mcpTools;
     private final List<String> staticTools;
+    private final List<String> terminalTools;
+    private final Set<String> terminalToolNames;
     private final SearchMetrics metrics;
     private final ScanConfig scanConfig;
     private boolean scanPerformed;
@@ -213,8 +215,12 @@ public class SearchAgent {
         this.currentState = SearchState.initial(initialContext);
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
-        this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.objective = objective;
+
+        this.terminalTools = List.copyOf(calculateTerminalTools());
+        this.terminalToolNames = Set.copyOf(terminalTools);
+
+        this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.searchTools = new SearchTools(cm);
     }
 
@@ -527,44 +533,18 @@ public class SearchAgent {
         return DropMode.NORMAL;
     }
 
-    List<String> calculateAllowedToolNames(Context context, DropMode dropMode) {
-        if (dropMode == DropMode.DROP_ONLY) {
-            assert hasDroppableFragments(context); // caller should have verified
-            return List.of("dropWorkspaceFragments", "addFileSummariesToWorkspace", "addClassSummariesToWorkspace");
-        }
-
-        // start with the global search tools
+    List<String> calculateAllowedToolNames(Context context) {
+        // Keep the toolset stable across turns; special turns use prompt-level allowlists.
         var names = new ArrayList<>(staticTools);
 
-        if (hasDroppableFragments(context)) {
-            names.add("dropWorkspaceFragments");
-        }
+        // Always include dropWorkspaceFragments to avoid toolset changes when droppability changes.
+        names.add("dropWorkspaceFragments");
 
         if (DependencyTools.isSupported(cm.getProject())) {
             names.add("importDependency");
         }
 
         return names;
-    }
-
-    enum ToolCategory {
-        TERMINAL,
-        WORKSPACE_HYGIENE,
-        RESEARCH
-    }
-
-    ToolCategory categorizeTool(String toolName) {
-        return switch (toolName) {
-            case "answer",
-                    "describeIssue",
-                    "askForClarification",
-                    "callCodeAgent",
-                    "createOrReplaceTaskList",
-                    "workspaceComplete",
-                    "abortSearch" -> ToolCategory.TERMINAL;
-            case "dropWorkspaceFragments" -> ToolCategory.WORKSPACE_HYGIENE;
-            default -> ToolCategory.RESEARCH;
-        };
     }
 
     private boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
@@ -826,9 +806,6 @@ public class SearchAgent {
                 return TurnOutcome.AutoScan.INSTANCE;
             }
 
-            if (prep.extraUserMessage() != null) {
-                sessionMessages.add(prep.extraUserMessage());
-            }
             sessionMessages.add(new UserMessage("What tools do you want to use next?"));
             sessionMessages.add(result.aiMessage());
 
@@ -843,30 +820,123 @@ public class SearchAgent {
                     .sorted(Comparator.comparingInt(agent::priority))
                     .toList();
 
+            DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
+
             if (pendingTerminal != null) {
-                orderedRequests = orderedRequests.stream()
+                var dropRequests = orderedRequests.stream()
                         .filter(req -> "dropWorkspaceFragments".equals(req.name()))
                         .toList();
+                if (dropRequests.isEmpty()) {
+                    return new TurnOutcome.Final(agent.errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.TOOL_ERROR,
+                                    "Special turn requires a dropWorkspaceFragments tool call before finalization."),
+                            context));
+                }
+
+                for (var req : dropRequests) {
+                    agent.io.beforeToolCall(req);
+                    ToolExecutionResult toolResult = executeTool(req);
+                    agent.io.afterToolOutput(toolResult);
+
+                    if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
+                        var details =
+                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
+                        return new TurnOutcome.Final(agent.errorResult(details, context));
+                    }
+
+                    sessionMessages.add(toolResult.toExecutionResultMessage());
+                }
+
+                return new TurnOutcome.Final(
+                        agent.finalizePendingTerminal(Objects.requireNonNull(pendingTerminal), context));
             }
 
-            @Nullable ToolExecutionRequest terminalRequest = null;
-            List<ToolExecutionRequest> primaryCalls;
-
-            if (pendingTerminal == null) {
-                terminalRequest = orderedRequests.stream()
-                        .filter(req -> agent.categorizeTool(req.name()) == ToolCategory.TERMINAL)
+            if (isFinalTurn()) {
+                @Nullable
+                ToolExecutionRequest terminalRequest = orderedRequests.stream()
+                        .filter(req -> agent.terminalToolNames.contains(req.name()))
                         .findFirst()
                         .orElse(null);
 
-                primaryCalls = orderedRequests.stream()
-                        .filter(req -> agent.categorizeTool(req.name()) != ToolCategory.TERMINAL)
-                        .toList();
-            } else {
-                primaryCalls = orderedRequests;
+                if (terminalRequest == null) {
+                    return new TurnOutcome.Final(agent.errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.TOOL_ERROR,
+                                    "Final turn requires a terminal tool call (e.g. workspaceComplete/answer/createOrReplaceTaskList/callCodeAgent/describeIssue/abortSearch)."),
+                            context));
+                }
+
+                for (var req : orderedRequests) {
+                    if (!"dropWorkspaceFragments".equals(req.name())) {
+                        continue;
+                    }
+
+                    agent.io.beforeToolCall(req);
+                    ToolExecutionResult toolResult = executeTool(req);
+                    agent.io.afterToolOutput(toolResult);
+
+                    if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
+                        var details =
+                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
+                        return new TurnOutcome.Final(agent.errorResult(details, context));
+                    }
+
+                    sessionMessages.add(toolResult.toExecutionResultMessage());
+                }
+
+                agent.io.beforeToolCall(terminalRequest);
+                var termExec = executeTool(terminalRequest);
+                agent.io.afterToolOutput(termExec);
+
+                sessionMessages.add(termExec.toExecutionResultMessage());
+
+                if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
+                    return new TurnOutcome.Final(agent.errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.TOOL_ERROR,
+                                    "Terminal tool '%s' failed with status %s: %s"
+                                            .formatted(
+                                                    terminalRequest.name(), termExec.status(), termExec.resultText())),
+                            context));
+                }
+
+                context = agent.resetPinsToOriginal(context);
+                context = context.removeSupersededSummaries();
+                var pending = new PendingTerminal(termExec);
+                return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
             }
 
-            Set<ToolCategory> categoriesSeen = new HashSet<>();
+            if (effectiveDropMode == DropMode.DROP_ONLY) {
+                var allowed =
+                        Set.of("dropWorkspaceFragments", "addFileSummariesToWorkspace", "addClassSummariesToWorkspace");
+                var disallowed = orderedRequests.stream()
+                        .map(ToolExecutionRequest::name)
+                        .filter(name -> !allowed.contains(name))
+                        .distinct()
+                        .sorted()
+                        .toList();
+                if (!disallowed.isEmpty()) {
+                    return new TurnOutcome.Final(agent.errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.TOOL_ERROR,
+                                    "DROP_ONLY recovery allows only %s; disallowed: %s".formatted(allowed, disallowed)),
+                            context));
+                }
+            }
+
+            @Nullable
+            ToolExecutionRequest terminalRequest = orderedRequests.stream()
+                    .filter(req -> agent.terminalToolNames.contains(req.name()))
+                    .findFirst()
+                    .orElse(null);
+
+            List<ToolExecutionRequest> primaryCalls = orderedRequests.stream()
+                    .filter(req -> !agent.terminalToolNames.contains(req.name()))
+                    .toList();
+
             Context contextAtTurnStart = context;
+            boolean executedNonHygiene = false;
 
             for (var req : primaryCalls) {
                 agent.io.beforeToolCall(req);
@@ -879,16 +949,11 @@ public class SearchAgent {
                 }
 
                 sessionMessages.add(toolResult.toExecutionResultMessage());
-                categoriesSeen.add(agent.categorizeTool(req.name()));
+                if (!"dropWorkspaceFragments".equals(req.name())) {
+                    executedNonHygiene = true;
+                }
             }
 
-            if (pendingTerminal != null) {
-                return new TurnOutcome.Final(
-                        agent.finalizePendingTerminal(Objects.requireNonNull(pendingTerminal), context));
-            }
-
-            // if the agent ran a search, but also called a terminal, we'll let the terminal take priority
-            boolean executedNonHygiene = categoriesSeen.stream().anyMatch(c -> c != ToolCategory.WORKSPACE_HYGIENE);
             boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
             if (terminalRequest != null && contextSafeForTerminal) {
                 agent.io.beforeToolCall(terminalRequest);
@@ -913,7 +978,9 @@ public class SearchAgent {
 
                 // take an extra turn to drop fragments after making the terminal decision now that
                 // we are de-emphasizing constantly dropping during the search
-                if (agent.isPruningWorthwhile(context) && !categoriesSeen.contains(ToolCategory.WORKSPACE_HYGIENE)) {
+                if (agent.isPruningWorthwhile(context)
+                        && !"dropWorkspaceFragments"
+                                .equals(primaryCalls.getLast().name())) {
                     return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                 }
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
@@ -961,6 +1028,24 @@ public class SearchAgent {
 
             int turnsLeftAfterThisTurn = maxTurns - turnNumber - 1;
 
+            List<String> allowedOrdinaryTools = agent.calculateAllowedToolNames(context);
+            List<String> terminalTools = agent.terminalTools;
+
+            @Nullable SearchPrompts.SpecialTurnTooling specialToolingNotice = null;
+            if (pendingTerminal != null) {
+                specialToolingNotice = new SearchPrompts.SpecialTurnTooling(
+                        "Workspace final cleanup", List.of("dropWorkspaceFragments"));
+            } else if (isFinalTurn()) {
+                specialToolingNotice = new SearchPrompts.SpecialTurnTooling("Final turn", terminalTools);
+            } else if (effectiveDropMode == DropMode.DROP_ONLY) {
+                specialToolingNotice = new SearchPrompts.SpecialTurnTooling(
+                        "Context overflow recovery",
+                        List.of(
+                                "dropWorkspaceFragments",
+                                "addFileSummariesToWorkspace",
+                                "addClassSummariesToWorkspace"));
+            }
+
             var messages = SearchPrompts.instance.buildPrompt(
                     context,
                     agent.model,
@@ -971,7 +1056,8 @@ public class SearchAgent {
                     sessionMessages,
                     related,
                     effectiveDropMode,
-                    turnsLeftAfterThisTurn);
+                    turnsLeftAfterThisTurn,
+                    specialToolingNotice);
 
             if (agent.pendingOverflowRecoveryNote != null) {
                 messages = new ArrayList<>(messages);
@@ -979,35 +1065,11 @@ public class SearchAgent {
                 agent.pendingOverflowRecoveryNote = null;
             }
 
-            @Nullable UserMessage extraUserMessage = null;
-
-            List<String> allowedOrdinaryTools;
-            List<String> terminalTools;
-
-            if (pendingTerminal == null) {
-                if (isFinalTurn()) {
-                    allowedOrdinaryTools = List.of();
-                    terminalTools = agent.calculateTerminalTools();
-                } else {
-                    allowedOrdinaryTools = agent.calculateAllowedToolNames(context, effectiveDropMode);
-                    terminalTools =
-                            effectiveDropMode == DropMode.DROP_ONLY ? List.of() : agent.calculateTerminalTools();
-                }
-            } else {
-                messages = new ArrayList<>(messages);
-                extraUserMessage = new UserMessage(
-                        "Search is complete. Please perform a final cleanup of the Workspace using 'dropWorkspaceFragments' to remove any remaining irrelevant information.");
-                messages.add(extraUserMessage);
-
-                allowedOrdinaryTools =
-                        agent.hasDroppableFragments(context) ? List.of("dropWorkspaceFragments") : List.of();
-                terminalTools = List.of();
-            }
-
             var allAllowed = Streams.concat(allowedOrdinaryTools.stream(), terminalTools.stream())
+                    .distinct()
                     .toList();
             var toolSpecs = tr.getTools(allAllowed);
-            return new TurnPrompt(messages, toolSpecs, extraUserMessage);
+            return new TurnPrompt(messages, toolSpecs);
         }
 
         private boolean isFinalTurn() {
@@ -1555,8 +1617,7 @@ public class SearchAgent {
         }
     }
 
-    private record TurnPrompt(
-            List<ChatMessage> messages, List<ToolSpecification> toolSpecs, @Nullable UserMessage extraUserMessage) {}
+    private record TurnPrompt(List<ChatMessage> messages, List<ToolSpecification> toolSpecs) {}
 
     private TaskResult finalizePendingTerminal(PendingTerminal pendingTerminal, Context context) {
         if ("abortSearch".equals(pendingTerminal.toolName())) {

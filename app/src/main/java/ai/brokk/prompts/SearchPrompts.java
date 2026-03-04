@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Generates prompts for the Search Agent and Ask requests.
@@ -237,6 +238,8 @@ public class SearchPrompts {
         }
     }
 
+    public record SpecialTurnTooling(String turnType, List<String> allowedTools) {}
+
     private record DirectiveData(
             String goal,
             String objectiveTag,
@@ -253,7 +256,8 @@ public class SearchPrompts {
             boolean terminalWorkspace,
             boolean terminalCode,
             boolean terminalIssue,
-            boolean finalTurnOnly) {}
+            boolean finalTurnOnly,
+            @Nullable SpecialTurnTooling specialTooling) {}
 
     private static final Template SEARCH_SYSTEM_TEMPLATE;
     private static final Template DIRECTIVE_TEMPLATE;
@@ -353,7 +357,7 @@ public class SearchPrompts {
                 {{taskInstructions}}
                 {{~/if}}
 
-                {{#unless finalTurnOnly~}}
+                {{#unless specialTooling~}}
                 Invariant: Before any final action, make reasonable efforts to first add the minimum sufficient, decision-relevant context
                 to the Workspace. If you cannot find relevant context, say so instead of guessing.
 
@@ -387,12 +391,12 @@ public class SearchPrompts {
                 {{~/if}}
 
                 <tool-instructions>
-                {{#unless finalTurnOnly~}}
+                {{#unless specialTooling~}}
                 Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
                 {{#if (eq turnsLeftAfterThisTurn 1)~}}
                 [HARNESS NOTE This is the penultimate turn. If you need any final information from non-terminal tools, request it now because you will only have one more turn after this.]
-                {{~/if}}
+                {{~/if }}
 
                 Pruning mandate (do this now):
                   - Prune in parallel with exploration.
@@ -417,7 +421,7 @@ public class SearchPrompts {
                 {{/if}}
                 {{#if isIssueDiagnosis}}
                 - Use describeIssue(String title, String body) to finalize. abortSearch(explanation) is the only other allowed final tool.
-                {{else}}
+                {{/if}}
                 {{#if terminalAnswer}}
                 - Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <markdown-reminder>).
                 - Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.
@@ -436,7 +440,6 @@ public class SearchPrompts {
                 - Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.
                 {{/if}}
                 - If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.
-                {{/if}}
 
                 {{#unless finalTurnOnly~}}
                 You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
@@ -449,12 +452,20 @@ public class SearchPrompts {
 
                 Remember: it is NOT your objective to write code.
 
-                {{#unless finalTurnOnly~}}
+                {{#unless specialTooling~}}
                 {{#if warning~}}
                 {{warning}}
                 {{~/if}}
                 {{~/unless}}
                 </tool-instructions>
+
+                {{#if specialTooling~}}
+                When a special-turn tool whitelist is provided, it is strict and overrides everything else.
+                You must only select from the specified tools.
+                <special-turn-tools turn_type="{{specialTooling.turnType}}">
+                  {{join specialTooling.allowedTools ", "}}
+                </special-turn-tools>
+                {{~/if}}
 
                 {{#unless isIssueDiagnosis~}}
                 <markdown-reminder>
@@ -497,7 +508,8 @@ public class SearchPrompts {
             List<ChatMessage> sessionMessages,
             Map<ProjectFile, String> relatedSymbols,
             ai.brokk.agents.SearchAgent.DropMode dropMode,
-            int turnsLeftAfterThisTurn) {
+            int turnsLeftAfterThisTurn,
+            @Nullable SpecialTurnTooling specialTooling) {
 
         var cm = context.getContextManager();
 
@@ -590,7 +602,8 @@ public class SearchPrompts {
                 terminals.contains(Terminal.WORKSPACE),
                 terminals.contains(Terminal.CODE),
                 terminals.contains(Terminal.DESCRIBE_ISSUE),
-                turnsLeftAfterThisTurn == 0);
+                turnsLeftAfterThisTurn == 0,
+                specialTooling);
 
         String directive;
         try {

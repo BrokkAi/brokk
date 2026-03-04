@@ -55,17 +55,8 @@ class SearchAgentTest {
         assertTrue(
                 agent.hasDroppableFragments(context),
                 "Workspace should have droppable fragments after adding a new one");
-        List<String> allowed = agent.calculateAllowedToolNames(context, SearchAgent.DropMode.NORMAL);
+        List<String> allowed = agent.calculateAllowedToolNames(context);
         assertTrue(allowed.contains("dropWorkspaceFragments"), "Allowed tools should include drop tool");
-    }
-
-    @Test
-    void categorizeTool_classifiesDropAsWorkspaceHygiene() {
-        TestConsoleIO io = new TestConsoleIO();
-        TestContextManager cm = new TestContextManager(tempDir, io);
-
-        SearchAgent agent = newAgent(cm, new OfflineStreamingModel());
-        assertEquals(SearchAgent.ToolCategory.WORKSPACE_HYGIENE, agent.categorizeTool("dropWorkspaceFragments"));
     }
 
     @Test
@@ -74,7 +65,7 @@ class SearchAgentTest {
         TestContextManager cm = new TestContextManager(tempDir, io);
 
         SearchAgent agent = newAgent(cm, new OfflineStreamingModel());
-        List<String> allowed = agent.calculateAllowedToolNames(cm.liveContext(), SearchAgent.DropMode.NORMAL);
+        List<String> allowed = agent.calculateAllowedToolNames(cm.liveContext());
 
         assertTrue(allowed.contains("addLineRangeToWorkspace"));
         assertFalse(allowed.contains("readLineRange"));
